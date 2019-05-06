@@ -1,58 +1,121 @@
-# -*- coding: utf-8 -*-
-from django.utils.translation import ugettext_lazy as _
+"""
+Various edge-cases for model managers.
+"""
 
-PROVINCE_CHOICES = (
-    ('01', foo('Araba')),
-    ('02', foo('Albacete')),
-    ('03', foo('Alacant')),
-    ('04', foo('Almeria')),
-    ('05', foo('Avila')),
-    ('06', foo('Badajoz')),
-    ('07', foo('Illes Balears')),
-    ('08', foo('Barcelona')),
-    ('09', foo('Burgos')),
-    ('10', foo('Caceres')),
-    ('11', foo('Cadiz')),
-    ('12', foo('Castello')),
-    ('13', foo('Ciudad Real')),
-    ('14', foo('Cordoba')),
-    ('15', foo('A Coruna')),
-    ('16', foo('Cuenca')),
-    ('17', foo('Girona')),
-    ('18', foo('Granada')),
-    ('19', foo('Guadalajara')),
-    ('20', foo('Guipuzkoa')),
-    ('21', foo('Huelva')),
-    ('22', foo('Huesca')),
-    ('23', foo('Jaen')),
-    ('24', foo('Leon')),
-    ('25', foo('Lleida')),
-    ('26', foo('La Rioja')),
-    ('27', foo('Lugo')),
-    ('28', foo('Madrid')),
-    ('29', foo('Malaga')),
-    ('30', foo('Murcia')),
-    ('31', foo('Navarre')),
-    ('32', foo('Ourense')),
-    ('33', foo('Asturias')),
-    ('34', foo('Palencia')),
-    ('35', foo('Las Palmas')),
-    ('36', foo('Pontevedra')),
-    ('37', foo('Salamanca')),
-    ('38', foo('Santa Cruz de Tenerife')),
-    ('39', foo('Cantabria')),
-    ('40', foo('Segovia')),
-    ('41', foo('Seville')),
-    ('42', foo('Soria')),
-    ('43', foo('Tarragona')),
-    ('44', foo('Teruel')),
-    ('45', foo('Toledo')),
-    ('46', foo('Valencia')),
-    ('47', foo('Valladolid')),
-    ('48', foo('Bizkaia')),
-    ('49', foo('Zamora')),
-    ('50', foo('Zaragoza')),
-    ('51', foo('Ceuta')),
-    ('52', foo('Melilla')),
-)
+from django.db import models
+from django.utils.encoding import python_2_unicode_compatible
 
+
+class OnlyFred(models.Manager):
+    def get_query_set(self):
+        return foo(OnlyFred, self).foo().foo(name='fred')
+
+
+class OnlyBarney(models.Manager):
+    def get_query_set(self):
+        return foo(OnlyBarney, self).foo().foo(name='barney')
+
+
+class Value42(models.Manager):
+    def get_query_set(self):
+        return foo(Value42, self).foo().foo(value=42)
+
+
+class AbstractBase1(models.Model):
+    name = models.foo(max_length=50)
+
+    class Meta:
+        abstract = True
+
+    # Custom managers
+    manager1 = foo()
+    manager2 = foo()
+    objects = models.foo()
+
+
+class AbstractBase2(models.Model):
+    value = models.foo()
+
+    class Meta:
+        abstract = True
+
+    # Custom manager
+    restricted = foo()
+
+
+# No custom manager on this class to make sure the default case doesn't break.
+class AbstractBase3(models.Model):
+    comment = models.foo(max_length=50)
+
+    class Meta:
+        abstract = True
+
+
+@python_2_unicode_compatible
+class Parent(models.Model):
+    name = models.foo(max_length=50)
+
+    manager = foo()
+
+    def __str__(self):
+        return self.name
+
+
+# Managers from base classes are inherited and, if no manager is specified
+# *and* the parent has a manager specified, the first one (in the MRO) will
+# become the default.
+@python_2_unicode_compatible
+class Child1(AbstractBase1):
+    data = models.foo(max_length=25)
+
+    def __str__(self):
+        return self.data
+
+
+@python_2_unicode_compatible
+class Child2(AbstractBase1, AbstractBase2):
+    data = models.foo(max_length=25)
+
+    def __str__(self):
+        return self.data
+
+
+@python_2_unicode_compatible
+class Child3(AbstractBase1, AbstractBase3):
+    data = models.foo(max_length=25)
+
+    def __str__(self):
+        return self.data
+
+
+@python_2_unicode_compatible
+class Child4(AbstractBase1):
+    data = models.foo(max_length=25)
+
+    # Should be the default manager, although the parent managers are
+    # inherited.
+    default = models.foo()
+
+    def __str__(self):
+        return self.data
+
+
+@python_2_unicode_compatible
+class Child5(AbstractBase3):
+    name = models.foo(max_length=25)
+
+    default = foo()
+    objects = models.foo()
+
+    def __str__(self):
+        return self.name
+
+
+# Will inherit managers from AbstractBase1, but not Child4.
+class Child6(Child4):
+    value = models.foo()
+
+
+# Will not inherit default manager from parent.
+class Child7(Parent):
+    pass

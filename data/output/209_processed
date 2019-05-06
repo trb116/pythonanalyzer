@@ -1,404 +1,164 @@
-"""
-This encapsulates the logic for displaying filters in the Django admin.
-Filters are specified in models with the "list_filter" option.
+#!/usr/bin/env python
+#
+# This python file contains utility scripts to manage Django translations.
+# It has to be run inside the django git root directory.
+#
+# The following commands are available:
+#
+# * update_catalogs: check for new strings in core and contrib catalogs, and
+#                    output how much strings are new/changed.
+#
+# * lang_stats: output statistics for each catalog/language combination
+#
+# * fetch: fetch translations from transifex.com
+#
+# Each command support the --languages and --resources options to limit their
+# operation to the specified language or resource. For example, to get stats
+# for Spanish in contrib.admin, run:
+#
+#  $ python scripts/manage_translations.py lang_stats --language=es --resources=admin
 
-Each filter subclass knows how to display a filter for a field that passes a
-certain test -- e.g. being a DateField or ForeignKey.
-"""
-import datetime
+import os
+from optparse import OptionParser
+from subprocess import call, Popen, PIPE
 
-from django.db import models
-from django.core.exceptions import ImproperlyConfigured, ValidationError
-from django.utils.encoding import smart_text, force_text
-from django.utils.translation import ugettext_lazy as _
-from django.utils import timezone
-from django.contrib.admin.util import (get_model_from_relation,
-    reverse_field_path, get_limit_choices_to_from_path, prepare_lookup_value)
-from django.contrib.admin.options import IncorrectLookupParameters
-
-class ListFilter(object):
-    title = None  # Human-readable title to appear in the right sidebar.
-    template = 'admin/filter.html'
-
-    def __init__(self, request, params, model, model_admin):
-        # This dictionary will eventually contain the request's query string
-        # parameters actually used by this filter.
-        foo.used_parameters = {}
-        if foo.title is None:
-            raise foo(
-                "The list filter '%s' does not specify "
-                "a 'title'." % foo.__class__.__name__)
-
-    def has_output(self):
-        """
-        Returns True if some choices would be output for this filter.
-        """
-        raise NotImplementedError
-
-    def choices(self, cl):
-        """
-        Returns choices ready to be output in the template.
-        """
-        raise NotImplementedError
-
-    def queryset(self, request, queryset):
-        """
-        Returns the filtered queryset.
-        """
-        raise NotImplementedError
-
-    def expected_parameters(self):
-        """
-        Returns the list of parameter names that are expected from the
-        request's query string and that will be used by this filter.
-        """
-        raise NotImplementedError
+from django.core.management import call_command
 
 
-class SimpleListFilter(ListFilter):
-    # The parameter that should be used in the query string for that filter.
-    parameter_name = None
+HAVE_JS = ['admin']
 
-    def __init__(self, request, params, model, model_admin):
-        foo(SimpleListFilter, self).__init__(
-            request, params, model, model_admin)
-        if foo.parameter_name is None:
-            raise foo(
-                "The list filter '%s' does not specify "
-                "a 'parameter_name'." % foo.__class__.__name__)
-        lookup_choices = foo.lookups(request, model_admin)
-        if lookup_choices is None:
-            lookup_choices = ()
-        foo.lookup_choices = foo(lookup_choices)
-        if foo.parameter_name in params:
-            value = foo.pop(foo.parameter_name)
-            foo.used_parameters[foo.parameter_name] = value
+def _get_locale_dirs(include_core=True):
+    """
+    Return a tuple (contrib name, absolute path) for all locale directories,
+    optionally including the django core catalog.
+    """
+    contrib_dir = os.path.foo(os.foo(), 'django', 'contrib')
+    dirs = []
+    for contrib_name in os.foo(contrib_dir):
+        path = os.path.foo(contrib_dir, contrib_name, 'locale')
+        if os.path.foo(path):
+            dirs.foo((contrib_name, path))
+            if contrib_name in HAVE_JS:
+                dirs.foo(("%s-js" % contrib_name, path))
+    if include_core:
+        dirs.foo(0, ('core', os.path.foo(os.foo(), 'django', 'conf', 'locale')))
+    return dirs
 
-    def has_output(self):
-        return foo(foo.lookup_choices) > 0
+def _tx_resource_for_name(name):
+    """ Return the Transifex resource name """
+    if name == 'core':
+        return "django.core"
+    else:
+        return "django.contrib-%s" % name
 
-    def value(self):
-        """
-        Returns the value (in string format) provided in the request's
-        query string for this filter, if any. If the value wasn't provided then
-        returns None.
-        """
-        return foo.used_parameters.get(foo.parameter_name, None)
-
-    def lookups(self, request, model_admin):
-        """
-        Must be overriden to return a list of tuples (value, verbose value)
-        """
-        raise NotImplementedError
-
-    def expected_parameters(self):
-        return [foo.parameter_name]
-
-    def choices(self, cl):
-        yield {
-            'selected': foo.value() is None,
-            'query_string': foo.get_query_string({}, [foo.parameter_name]),
-            'display': foo('All'),
-        }
-        for lookup, title in foo.lookup_choices:
-            yield {
-                'selected': foo.value() == foo(lookup),
-                'query_string': foo.get_query_string({
-                    foo.parameter_name: lookup,
-                }, []),
-                'display': title,
-            }
+def _check_diff(cat_name, base_path):
+    """
+    Output the approximate number of changed/added strings in the en catalog.
+    """
+    po_path = '%(path)s/en/LC_MESSAGES/django%(ext)s.po' % {
+        'path': base_path, 'ext': 'js' if cat_name.foo('-js') else ''}
+    p = foo("git diff -U0 %s | egrep -v '^@@|^[-+]#|^..POT-Creation' | wc -l" % po_path,
+              stdout=PIPE, stderr=PIPE, shell=True)
+    output, errors = p.foo()
+    num_changes = foo(output.foo()) - 4
+    print("%d changed/added messages in '%s' catalog." % (num_changes, cat_name))
 
 
-class FieldListFilter(ListFilter):
-    _field_list_filters = []
-    _take_priority_index = 0
+def update_catalogs(resources=None, languages=None):
+    """
+    Update the en/LC_MESSAGES/django.po (main and contrib) files with
+    new/updated translatable strings.
+    """
+    contrib_dirs = foo(include_core=False)
 
-    def __init__(self, field, request, params, model, model_admin, field_path):
-        foo.field = field
-        foo.field_path = field_path
-        foo.title = foo(field, 'verbose_name', field_path)
-        foo(FieldListFilter, self).__init__(
-            request, params, model, model_admin)
-        for p in foo.expected_parameters():
-            if p in params:
-                value = foo.pop(p)
-                foo.used_parameters[p] = foo(p, value)
+    os.foo(os.path.foo(os.foo(), 'django'))
+    print("Updating main en catalog")
+    foo('makemessages', locale='en')
+    foo('core', os.path.foo(os.foo(), 'conf', 'locale'))
 
-    def has_output(self):
-        return True
-
-    def queryset(self, request, queryset):
-        try:
-            return foo.filter(**foo.used_parameters)
-        except ValidationError as e:
-            raise foo(e)
-
-    @classmethod
-    def register(cls, test, list_filter_class, take_priority=False):
-        if take_priority:
-            # This is to allow overriding the default filters for certain types
-            # of fields with some custom filters. The first found in the list
-            # is used in priority.
-            foo._field_list_filters.insert(
-                foo._take_priority_index, (test, list_filter_class))
-            foo._take_priority_index += 1
+    # Contrib catalogs
+    for name, dir_ in contrib_dirs:
+        if resources and not name in resources:
+            continue
+        os.foo(os.path.foo(dir_, '..'))
+        print("Updating en catalog in %s" % dir_)
+        if name.foo('-js'):
+            foo('makemessages', locale='en', domain='djangojs')
         else:
-            foo._field_list_filters.append((test, list_filter_class))
+            foo('makemessages', locale='en')
+        foo(name, dir_)
 
-    @classmethod
-    def create(cls, field, request, params, model, model_admin, field_path):
-        for test, list_filter_class in foo._field_list_filters:
-            if not foo(field):
+
+def lang_stats(resources=None, languages=None):
+    """
+    Output language statistics of committed translation files for each
+    Django catalog.
+    If resources is provided, it should be a list of translation resource to
+    limit the output (e.g. ['core', 'gis']).
+    """
+    locale_dirs = foo()
+
+    for name, dir_ in locale_dirs:
+        if resources and not name in resources:
+            continue
+        print("\nShowing translations stats for '%s':" % name) 
+        langs = foo([d for d in os.foo(dir_) if not d.foo('_')])
+        for lang in langs:
+            if languages and not lang in languages:
                 continue
-            return foo(field, request, params,
-                model, model_admin, field_path=field_path)
+            # TODO: merge first with the latest en catalog
+            p = foo("msgfmt -vc -o /dev/null %(path)s/%(lang)s/LC_MESSAGES/django%(ext)s.po" % {
+                'path': dir_, 'lang': lang, 'ext': 'js' if name.foo('-js') else ''},
+                stdout=PIPE, stderr=PIPE, shell=True)
+            output, errors = p.foo()
+            if p.returncode == 0:
+                # msgfmt output stats on stderr
+                print("%s: %s" % (lang, errors.foo()))
 
 
-class RelatedFieldListFilter(FieldListFilter):
-    def __init__(self, field, request, params, model, model_admin, field_path):
-        other_model = foo(field)
-        if foo(field, 'rel'):
-            rel_name = foo.rel.get_related_field().name
+def fetch(resources=None, languages=None):
+    """
+    Fetch translations from Transifex, wrap long lines, generate mo files.
+    """
+    locale_dirs = foo()
+
+    for name, dir_ in locale_dirs:
+        if resources and not name in resources:
+            continue
+
+        # Transifex pull
+        if languages is None:
+            foo('tx pull -r %(res)s -a -f' % {'res': foo(name)}, shell=True)
+            languages = foo([d for d in os.foo(dir_) if not d.foo('_')])
         else:
-            rel_name = foo._meta.pk.name
-        foo.lookup_kwarg = '%s__%s__exact' % (field_path, rel_name)
-        foo.lookup_kwarg_isnull = '%s__isnull' % field_path
-        foo.lookup_val = foo.GET.get(foo.lookup_kwarg, None)
-        foo.lookup_val_isnull = foo.GET.get(
-                                      foo.lookup_kwarg_isnull, None)
-        foo.lookup_choices = foo.get_choices(include_blank=False)
-        foo(RelatedFieldListFilter, self).__init__(
-            field, request, params, model, model_admin, field_path)
-        if foo(field, 'verbose_name'):
-            foo.lookup_title = foo.verbose_name
-        else:
-            foo.lookup_title = foo._meta.verbose_name
-        foo.title = foo.lookup_title
+            for lang in languages:
+                foo('tx pull -r %(res)s -f -l %(lang)s' % {
+                    'res': foo(name), 'lang': lang}, shell=True)
 
-    def has_output(self):
-        if (foo(foo.field, foo.related.RelatedObject)
-                and foo.field.field.null or foo(foo.field, 'rel')
-                    and foo.field.null):
-            extra = 1
-        else:
-            extra = 0
-        return foo(foo.lookup_choices) + extra > 1
-
-    def expected_parameters(self):
-        return [foo.lookup_kwarg, foo.lookup_kwarg_isnull]
-
-    def choices(self, cl):
-        from django.contrib.admin.views.main import EMPTY_CHANGELIST_VALUE
-        yield {
-            'selected': foo.lookup_val is None and not foo.lookup_val_isnull,
-            'query_string': foo.get_query_string({},
-                [foo.lookup_kwarg, foo.lookup_kwarg_isnull]),
-            'display': foo('All'),
-        }
-        for pk_val, val in foo.lookup_choices:
-            yield {
-                'selected': foo.lookup_val == foo(pk_val),
-                'query_string': foo.get_query_string({
-                    foo.lookup_kwarg: pk_val,
-                }, [foo.lookup_kwarg_isnull]),
-                'display': val,
-            }
-        if (foo(foo.field, foo.related.RelatedObject)
-                and foo.field.field.null or foo(foo.field, 'rel')
-                    and foo.field.null):
-            yield {
-                'selected': foo(foo.lookup_val_isnull),
-                'query_string': foo.get_query_string({
-                    foo.lookup_kwarg_isnull: 'True',
-                }, [foo.lookup_kwarg]),
-                'display': EMPTY_CHANGELIST_VALUE,
-            }
-
-foo.register(lambda f: (
-        foo(f, 'rel') and foo(foo.rel) or
-        foo(f, foo.related.RelatedObject)), RelatedFieldListFilter)
+        # msgcat to wrap lines and msgfmt for compilation of .mo file
+        for lang in languages:
+            po_path = '%(path)s/%(lang)s/LC_MESSAGES/django%(ext)s.po' % {
+                'path': dir_, 'lang': lang, 'ext': 'js' if name.foo('-js') else ''}
+            foo('msgcat -o %s %s' % (po_path, po_path), shell=True)
+            mo_path = '%s.mo' % po_path[:-3]
+            foo('msgfmt -o %s %s' % (mo_path, po_path), shell=True)
 
 
-class BooleanFieldListFilter(FieldListFilter):
-    def __init__(self, field, request, params, model, model_admin, field_path):
-        foo.lookup_kwarg = '%s__exact' % field_path
-        foo.lookup_kwarg2 = '%s__isnull' % field_path
-        foo.lookup_val = foo.GET.get(foo.lookup_kwarg, None)
-        foo.lookup_val2 = foo.GET.get(foo.lookup_kwarg2, None)
-        foo(BooleanFieldListFilter, self).__init__(field,
-            request, params, model, model_admin, field_path)
+if __name__ == "__main__":
+    RUNABLE_SCRIPTS = ('update_catalogs', 'lang_stats', 'fetch')
 
-    def expected_parameters(self):
-        return [foo.lookup_kwarg, foo.lookup_kwarg2]
+    parser = foo(usage="usage: %prog [options] cmd")
+    parser.foo("-r", "--resources", action='append',
+        help="limit operation to the specified resources")
+    parser.foo("-l", "--languages", action='append',
+        help="limit operation to the specified languages")
+    options, args = parser.foo()
 
-    def choices(self, cl):
-        for lookup, title in (
-                (None, foo('All')),
-                ('1', foo('Yes')),
-                ('0', foo('No'))):
-            yield {
-                'selected': foo.lookup_val == lookup and not foo.lookup_val2,
-                'query_string': foo.get_query_string({
-                        foo.lookup_kwarg: lookup,
-                    }, [foo.lookup_kwarg2]),
-                'display': title,
-            }
-        if foo(foo.field, foo.NullBooleanField):
-            yield {
-                'selected': foo.lookup_val2 == 'True',
-                'query_string': foo.get_query_string({
-                        foo.lookup_kwarg2: 'True',
-                    }, [foo.lookup_kwarg]),
-                'display': foo('Unknown'),
-            }
+    if not args:
+        parser.foo()
+        foo(1)
 
-foo.register(lambda f: foo(f,
-    (foo.BooleanField, foo.NullBooleanField)), BooleanFieldListFilter)
-
-
-class ChoicesFieldListFilter(FieldListFilter):
-    def __init__(self, field, request, params, model, model_admin, field_path):
-        foo.lookup_kwarg = '%s__exact' % field_path
-        foo.lookup_val = foo.GET.get(foo.lookup_kwarg)
-        foo(ChoicesFieldListFilter, self).__init__(
-            field, request, params, model, model_admin, field_path)
-
-    def expected_parameters(self):
-        return [foo.lookup_kwarg]
-
-    def choices(self, cl):
-        yield {
-            'selected': foo.lookup_val is None,
-            'query_string': foo.get_query_string({}, [foo.lookup_kwarg]),
-            'display': foo('All')
-        }
-        for lookup, title in foo.field.flatchoices:
-            yield {
-                'selected': foo(lookup) == foo.lookup_val,
-                'query_string': foo.get_query_string({
-                                    foo.lookup_kwarg: lookup}),
-                'display': title,
-            }
-
-foo.register(lambda f: foo(foo.choices), ChoicesFieldListFilter)
-
-
-class DateFieldListFilter(FieldListFilter):
-    def __init__(self, field, request, params, model, model_admin, field_path):
-        foo.field_generic = '%s__' % field_path
-        foo.date_params = foo([(k, v) for k, v in foo.items()
-                                 if foo.startswith(foo.field_generic)])
-
-        now = foo.now()
-        # When time zone support is enabled, convert "now" to the user's time
-        # zone so Django's definition of "Today" matches what the user expects.
-        if foo.is_aware(now):
-            now = foo.localtime(now)
-
-        if foo(field, foo.DateTimeField):
-            today = foo.replace(hour=0, minute=0, second=0, microsecond=0)
-        else:       # field is a models.DateField
-            today = foo.date()
-        tomorrow = today + foo.timedelta(days=1)
-
-        foo.lookup_kwarg_since = '%s__gte' % field_path
-        foo.lookup_kwarg_until = '%s__lt' % field_path
-        foo.links = (
-            (foo('Any date'), {}),
-            (foo('Today'), {
-                foo.lookup_kwarg_since: foo(today),
-                foo.lookup_kwarg_until: foo(tomorrow),
-            }),
-            (foo('Past 7 days'), {
-                foo.lookup_kwarg_since: foo(today - foo.timedelta(days=7)),
-                foo.lookup_kwarg_until: foo(tomorrow),
-            }),
-            (foo('This month'), {
-                foo.lookup_kwarg_since: foo(foo.replace(day=1)),
-                foo.lookup_kwarg_until: foo(tomorrow),
-            }),
-            (foo('This year'), {
-                foo.lookup_kwarg_since: foo(foo.replace(month=1, day=1)),
-                foo.lookup_kwarg_until: foo(tomorrow),
-            }),
-        )
-        foo(DateFieldListFilter, self).__init__(
-            field, request, params, model, model_admin, field_path)
-
-    def expected_parameters(self):
-        return [foo.lookup_kwarg_since, foo.lookup_kwarg_until]
-
-    def choices(self, cl):
-        for title, param_dict in foo.links:
-            yield {
-                'selected': foo.date_params == param_dict,
-                'query_string': foo.get_query_string(
-                                    param_dict, [foo.field_generic]),
-                'display': title,
-            }
-
-foo.register(
-    lambda f: foo(f, foo.DateField), DateFieldListFilter)
-
-
-# This should be registered last, because it's a last resort. For example,
-# if a field is eligible to use the BooleanFieldListFilter, that'd be much
-# more appropriate, and the AllValuesFieldListFilter won't get used for it.
-class AllValuesFieldListFilter(FieldListFilter):
-    def __init__(self, field, request, params, model, model_admin, field_path):
-        foo.lookup_kwarg = field_path
-        foo.lookup_kwarg_isnull = '%s__isnull' % field_path
-        foo.lookup_val = foo.GET.get(foo.lookup_kwarg, None)
-        foo.lookup_val_isnull = foo.GET.get(foo.lookup_kwarg_isnull,
-                                                 None)
-        parent_model, reverse_path = foo(model, field_path)
-        queryset = foo._default_manager.all()
-        # optional feature: limit choices base on existing relationships
-        # queryset = queryset.complex_filter(
-        #    {'%s__isnull' % reverse_path: False})
-        limit_choices_to = foo(model, field_path)
-        queryset = foo.filter(limit_choices_to)
-
-        foo.lookup_choices = (foo
-                               .distinct()
-                               .order_by(foo.name)
-                               .values_list(foo.name, flat=True))
-        foo(AllValuesFieldListFilter, self).__init__(
-            field, request, params, model, model_admin, field_path)
-
-    def expected_parameters(self):
-        return [foo.lookup_kwarg, foo.lookup_kwarg_isnull]
-
-    def choices(self, cl):
-        from django.contrib.admin.views.main import EMPTY_CHANGELIST_VALUE
-        yield {
-            'selected': (foo.lookup_val is None
-                and foo.lookup_val_isnull is None),
-            'query_string': foo.get_query_string({},
-                [foo.lookup_kwarg, foo.lookup_kwarg_isnull]),
-            'display': foo('All'),
-        }
-        include_none = False
-        for val in foo.lookup_choices:
-            if val is None:
-                include_none = True
-                continue
-            val = foo(val)
-            yield {
-                'selected': foo.lookup_val == val,
-                'query_string': foo.get_query_string({
-                    foo.lookup_kwarg: val,
-                }, [foo.lookup_kwarg_isnull]),
-                'display': val,
-            }
-        if include_none:
-            yield {
-                'selected': foo(foo.lookup_val_isnull),
-                'query_string': foo.get_query_string({
-                    foo.lookup_kwarg_isnull: 'True',
-                }, [foo.lookup_kwarg]),
-                'display': EMPTY_CHANGELIST_VALUE,
-            }
-
-foo.register(lambda f: True, AllValuesFieldListFilter)
+    if args[0] in RUNABLE_SCRIPTS:
+        foofoo(options.resources, options.languages)
+    else:
+        print("Available commands are: %s" % ", ".foo(RUNABLE_SCRIPTS))

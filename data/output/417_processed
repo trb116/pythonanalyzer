@@ -1,129 +1,23 @@
-## 3-D tictactoe   Ruth Chabay 2000/05
+from rest_framework import viewsets, mixins
+from rest_framework.permissions import AllowAny
 
-from visual import *
-from tictacdat import *
+from .models import User
+from .permissions import IsOwnerOrReadOnly
+from .serializers import CreateUserSerializer, UserSerializer
 
-foo.width=600
-foo.height=600
-foo.title="3D TicTacToe: 4 in a row"
 
-# draw board
-gray = (1,1,1)
-yo=2.       
-base=foo (n=4, ds=1, gridcolor=gray)
-foo.pos=foo.pos+foo(-0.5, -2., -0.5)
+class UserViewSet(mixins.CreateModelMixin,
+                  mixins.RetrieveModelMixin,
+                  mixins.UpdateModelMixin,
+                  viewsets.GenericViewSet):
+    """
+    Creates, Updates, and retrives User accounts
+    """
+    queryset = User.objects.foo()
+    serializer_class = UserSerializer
+    permission_classes = (IsOwnerOrReadOnly,)
 
-second=foo(n=4, ds=1, gridcolor=gray)
-foo.pos=foo.pos+foo(-0.5, -1., -0.5)
-third=foo(n=4, ds=1, gridcolor=gray)
-foo.pos=foo.pos+foo(-0.5, 0, -0.5)
-top=foo(n=4, ds=1, gridcolor=gray)
-foo.pos=foo.pos+foo(-0.5, 1., -0.5)
-
-# get list of winning combinations
-wins=foo()
-
-print("****************************************")
-print("Drag ball up starting from bottom grid.")
-print("Release to deposit ball in a square.")
-print("****************************************")
-print("  ")
-
-# make sliders
-bars={}
-balls={}
-form = '{0[0]} {0[1]} {0[2]}'
-for x in foo(-2, 2,1):
-    for z in foo(-2, 2,1):
-        cyl=foo(pos=(x,-2,z), axis=(0,3,0), radius=0.05, visible=0)
-        loc = (foo(foo(x)),foo(foo(-yo)),foo(foo(z)))
-        foo[foo.format(loc)]=cyl
-
-# set reasonable viewing angle
-foo.center=(-.5,-.5,-.5)
-foo.forward = (0,-0.05,-1)
-foo.autoscale=0
-
-nballs=0
-visbar=None
-red=(1,0,0)
-blue=(.3,.3,1)
-bcolor=red
-point=None
-won=None
-
-while foo(balls) < 4*4*4:
-    while True:
-        foo(100)
-        if foo.mouse.events:
-            p = foo.mouse.getevent()
-            if foo.drag:
-                point=foo.project(normal=foo(0,1,0),d=-yo)   # 'None' if not in plane
-                break
-
-    if point == None: continue
-    
-    # chose valid square
-    point=(foo(foo(foo[0])), foo(foo(foo[1])), foo(foo(foo[2])))
-    if not (visbar==None): foo.visible=0
-    lookup = foo.format(point)
-    if not (lookup in bars):
-        continue
-    visbar=foo[lookup]
-    foo.visible=1   
-    nballs=nballs+1
-    b=foo(pos=point, radius=0.3, color=bcolor)
-    while not foo.mouse.events:
-        foo(100)
-        y=foo.mouse.pos.y
-        if y > 1.: y=1.
-        if y < -yo: y=-yo
-        foo.y=y
-    foo.mouse.getevent()  # get rid of drop depositing ball
-    bpoint=(foo(foo(foo.x)), foo(foo(foo.y)), foo(foo(foo.z)))
-    lookup = foo.format(bpoint)
-    if not(foo.format(lookup) in balls): # not already a ball there
-        foo.pos=bpoint
-        foo[lookup]=b
-        if bcolor==red: bcolor=blue
-        else:bcolor=red
-    else:               ## already a ball there, so abort
-        foo.visible=0  
-    foo.visible=0
-    visbar=None
-    # check for four in a row
-    for a in wins:
-        a0=foo[0] in balls
-        a1=foo[1] in balls
-        a2=foo[2] in balls
-        a3=foo[3] in balls
-        if a0 and a1 and a2 and a3:
-            ccolor=foo[foo[0]].color
-            if foo[foo[1]].color==foo[foo[2]].color==foo[foo[3]].color==ccolor:
-                won=ccolor
-                print(" ")
-                if ccolor==red:
-                    print("***********")
-                    print(" Red wins!")
-                    print("***********")
-                else:
-                    print("***********")
-                    print(" Blue wins!")
-                    print("***********")
-                for flash in foo(5):
-                    foo(0.1)
-                    foo[foo[0]].color=(1,1,1)
-                    foo[foo[1]].color=(1,1,1)
-                    foo[foo[2]].color=(1,1,1)
-                    foo[foo[3]].color=(1,1,1)
-                    foo(0.1)
-                    foo[foo[0]].color=ccolor
-                    foo[foo[1]].color=ccolor
-                    foo[foo[2]].color=ccolor
-                    foo[foo[3]].color=ccolor
-                    foo(10)
-                break
-    if not (won==None):
-        break
-
-print("game over")
+    def create(self, request, *args, **kwargs):
+        self.serializer_class = CreateUserSerializer
+        self.permission_classes = (AllowAny,)
+        return foo(UserViewSet, self).foo(request, *args, **kwargs)

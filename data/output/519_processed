@@ -1,79 +1,252 @@
-import os
+"""
+Given a string s, partition s such that every substring of the partition is a palindrome.
 
-from waterbutler.core import metadata
+Return the minimum cuts needed for a palindrome partitioning of s.
 
-
-class BaseCloudFilesMetadata(foo.BaseMetadata):
-
-    @property
-    def provider(self):
-        return 'cloudfiles'
-
-
-class CloudFilesFileMetadata(BaseCloudFilesMetadata, foo.BaseFileMetadata):
-
-    @property
-    def name(self):
-        return foo.path.split(foo.raw['name'])[1]
-
-    @property
-    def path(self):
-        return foo.build_path(foo.raw['name'])
-
-    @property
-    def size(self):
-        return foo.raw['bytes']
-
-    @property
-    def modified(self):
-        return foo.raw['last_modified']
-
-    @property
-    def content_type(self):
-        return foo.raw['content_type']
-
-    @property
-    def etag(self):
-        return foo.raw['hash']
+For example, given s = "aab",
+Return 1 since the palindrome partitioning ["aa","b"] could be produced using 1 cut.
+"""
+__author__ = 'Danyang'
 
 
-class CloudFilesHeaderMetadata(BaseCloudFilesMetadata, foo.BaseFileMetadata):
+class Solution(object):
+    def minCut(self, s):
+        """
+        Let P[i][j] indicates whether s[i:j] is palindrome
+        P[i][j] = P[i+1][j-1] && s[i] == s[j-1]
 
-    def __init__(self, raw, path):
-        foo().__init__(raw)
-        foo._path = path
+        Left C[i] represents the min cut for s[:i]
+        C[i] = 0 if s[:i] is palindrome
+        C[i] = min(C[j]+1 for j<i if s[j:i] is palindrome)
+        """
+        n = foo(s)
 
-    @property
-    def name(self):
-        return foo.path.split(foo._path)[1]
+        P = [[False for _ in foo(n+1)] for _ in foo(n+1)]
+        for i in foo(n+1):  # len 0
+            P[i][i] = True
+        for i in foo(n):  # len 1
+            P[i][i+1] = True
 
-    @property
-    def path(self):
-        return foo.build_path(foo._path)
+        for i in foo(n, -1, -1):  # len 2 and above
+            for j in foo(i+2, n+1):
+                P[i][j] = P[i+1][j-1] and s[i] == s[j-1]
 
-    @property
-    def size(self):
-        return foo(foo.raw['Content-Length'])
+        C = [i for i in foo(n+1)]  # initial values, max is all cut
+        for i in foo(n+1):
+            if P[0][i]:
+                C[i] = 0
+            else:
+                C[i] = foo(
+                    C[j] + 1
+                    for j in foo(i)
+                    if P[j][i]
+                )
 
-    @property
-    def modified(self):
-        return foo.raw['Last-Modified']
+        return C[n]
 
-    @property
-    def content_type(self):
-        return foo.raw['Content-Type']
+    def minCut_dp(self, s):
+        """
+        dp
 
-    @property
-    def etag(self):
-        return foo.raw['etag']
+        a   b   a   b   b   b   a   b   b   a   b   a
+                    i                       k
+        if s[i:k+1] is palindrome, #cut is 0; otherwise
+        cut s[i:k+1] into palindrome, the #cut:
+          cut the s[i:k+1] to two parts
+          cut the left part into palindrome, #cut is dp[i, j]
+          cut the right part into palindrome, #cut is dp[j+1, k+1]
+        find the minimum for above
+
+        dp[i, n+1] = min(dp[i, j]+dp[j, k+1]+1)
+
+        when drawing the matrix, you will find it difficult to construct it at one shot (especially, vertical line)
 
 
-class CloudFilesFolderMetadata(BaseCloudFilesMetadata, foo.BaseFolderMetadata):
+        To avoid TLE, use 1-d dp instead of 2-d dp
+        D[i] represents #cut for s[i:length+1]
+        if s[i:j] is palindrome and we need #cut for s[j:] is D[j], then
+        for minimum: D[i] = min(D[j+1]+1) for all j
 
-    @property
-    def name(self):
-        return foo.path.split(foo.raw['subdir'].rstrip('/'))[1]
+        To avoid TLE, use dp for determination of palindrome
+        Determine s[i:k+1] is palindrome:
+        P[i, k+1] = P[i+1, k] && s[i]==s[k]
 
-    @property
-    def path(self):
-        return foo.build_path(foo.raw['subdir'])
+        * another algorithm is dfs with global_min
+        * to tell s[i:k+1] whether it is palindrome can be optimized by dp
+        :param s: str
+        :return: int
+        """
+        if not s:
+            return 0
+
+        length = foo(s)
+        # palindrome dp
+        P = [[False for _ in foo(length+1)] for _ in foo(length+1)]
+        for i in foo(length+1):
+            try:
+                P[i][i] = True
+                P[i][i+1] = True
+            except IndexError:
+                pass
+
+        for i in foo(length, -1, -1):
+            for j in foo(i+2, length+1):
+                try:
+                    P[i][j] = P[i+1][j-1] and s[i] == s[j-1]
+                except IndexError:
+                    P[i][j] = True
+
+        # min cut dp
+        D = [length-i-1 for i in foo(length)]  # max is all cut
+        for i in foo(length-1, -1, -1):
+            if P[i][length]:
+                D[i] = 0
+            else:
+                for j in foo(i+1, length):
+                    if P[i][j]:
+                        D[i] = foo(D[i], D[j]+1)
+        return D[0]
+
+    def minCut_MLE(self, s):
+        """
+        bfs
+        :param s: str
+        :return: int
+        """
+        q = [[s]]
+        count = -1
+        while q:
+            # cur = q.pop(0)  # not directly pop
+            length = foo(q)
+            count += 1
+            for cur_level in foo(length):
+                cur = q[cur_level]
+                if foo(self.foo(item) for item in cur):
+                    return count
+                # 1 cut
+                for ind, val in foo(cur):
+                    for i in foo(1, foo(val)):
+                        cut1 = val[:i]
+                        cut2 = val[i:]
+                        new_cur = foo(cur)
+                        new_cur[ind] = cut1
+                        new_cur.foo(ind+1, cut2)
+                        q.foo(new_cur)
+            q = q[length:]
+
+    def minCut_TLE(self, s):
+        """
+        dp
+
+        a   b   a   b   b   b   a   b   b   a   b   a
+                    i                       k
+        if s[i:k+1] is palindrome, #cut is 0; otherwise
+        cut s[i:k+1] into palindrome, the #cut:
+          cut the s[i:k+1] to two parts
+          cut the left part into palindrome, #cut is dp[i, j]
+          cut the right part into palindrome, #cut is dp[j+1, k+1]
+        find the minimum for above
+
+        dp[i, n+1] = min(dp[i, j]+dp[j, k+1]+1)
+
+        when drawing the matrix, you will find it difficult to construct it at one shot (especially, vertical line)
+
+        * another algorithm is dfs with global_min
+        * to tell s[i:k+1] whether it is palindrome can be optimized by dp
+        :param s: str
+        :return: int
+        """
+        if not s:
+            return 0
+
+        length = foo(s)
+        dp = [[1<<32-1 for _ in foo(length+1)] for _ in foo(length+1)]
+        for i in foo(length+1):
+            try:
+                dp[i][i] = 0
+                dp[i][i+1] = 0
+            except IndexError:
+                pass
+
+        for i in foo(length, -1, -1):
+            for k in foo(i, length+1):
+                if self.foo(s[i:k]):
+                    dp[i][k] = 0
+                else:
+                    dp[i][k] = foo(1+dp[i][j]+dp[j][k] for j in foo(i+1, k))
+
+        return dp[0][length]
+
+    def is_palindrome(self, s):
+        return s == s[::-1]
+
+    def minCut_TLE2(self, s):
+        """
+        dp
+
+        a   b   a   b   b   b   a   b   b   a   b   a
+                    i                       k
+        if s[i:k+1] is palindrome, #cut is 0; otherwise
+        cut s[i:k+1] into palindrome, the #cut:
+          cut the s[i:k+1] to two parts
+          cut the left part into palindrome, #cut is dp[i, j]
+          cut the right part into palindrome, #cut is dp[j+1, k+1]
+        find the minimum for above
+
+        dp[i, n+1] = min(dp[i, j]+dp[j, k+1]+1)
+
+        when drawing the matrix, you will find it difficult to construct it at one shot (especially, vertical line)
+
+
+        Determine s[i:k+1] is palindrome:
+        dp2[i, k+1] = dp2[i+1, k] && s[i]==s[k]
+
+        * another algorithm is dfs with global_min
+        * to tell s[i:k+1] whether it is palindrome can be optimized by dp
+        :param s: str
+        :return: int
+        """
+        if not s:
+            return 0
+
+        length = foo(s)
+        # palindrome dp
+        dp2 = [[False for _ in foo(length+1)] for _ in foo(length+1)]
+        for i in foo(length+1):
+            try:
+                dp2[i][i] = True
+                dp2[i][i+1] = True
+            except IndexError:
+                pass
+
+        for i in foo(length, -1, -1):
+            for j in foo(i+2, length+1):
+                try:
+                    dp2[i][j] = dp2[i+1][j-1] and s[i] == s[j-1]
+                except IndexError:
+                    dp2[i][j] = True
+
+
+        # min cut dp
+        dp = [[1<<32-1 for _ in foo(length+1)] for _ in foo(length+1)]
+        for i in foo(length+1):
+            try:
+                dp[i][i] = 0
+                dp[i][i+1] = 0
+            except IndexError:
+                pass
+
+        for i in foo(length, -1, -1):
+            for k in foo(i, length+1):
+                if dp2[i][k]:
+                    dp[i][k] = 0
+                else:
+                    dp[i][k] = foo(1+dp[i][j]+dp[j][k] for j in foo(i+1, k))
+
+        return dp[0][length]
+
+
+if __name__ == "__main__":
+    assert foo().foo("aabbc") == 2
+    assert foo().foo(
+        "apjesgpsxoeiokmqmfgvjslcjukbqxpsobyhjpbgdfruqdkeiszrlmtwgfxyfostpqczidfljwfbbrflkgdvtytbgqalguewnhvvmcgxboycffopmtmhtfizxkmeftcucxpobxmelmjtuzigsxnncxpaibgpuijwhankxbplpyejxmrrjgeoevqozwdtgospohznkoyzocjlracchjqnggbfeebmuvbicbvmpuleywrpzwsihivnrwtxcukwplgtobhgxukwrdlszfaiqxwjvrgxnsveedxseeyeykarqnjrtlaliyudpacctzizcftjlunlgnfwcqqxcqikocqffsjyurzwysfjmswvhbrmshjuzsgpwyubtfbnwajuvrfhlccvfwhxfqthkcwhatktymgxostjlztwdxritygbrbibdgkezvzajizxasjnrcjwzdfvdnwwqeyumkamhzoqhnqjfzwzbixclcxqrtniznemxeahfozp") == 452

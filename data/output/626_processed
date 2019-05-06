@@ -1,494 +1,301 @@
-#------------------------------------------------------------------------------
-# Copyright (c) 2013, Nucleic Development Team.
-#
-# Distributed under the terms of the Modified BSD License.
-#
-# The full license is in the file COPYING.txt, distributed with this software.
-#------------------------------------------------------------------------------
-from atom.api import Atom, Bool, Int, Typed
+"""TestSuite"""
 
-from enaml.qt.QtCore import Qt, QEvent, QRect, QSize, QPoint, QMargins, Signal
-from enaml.qt.QtGui import QApplication, QFrame
+import sys
+
+from . import case
+from . import util
+
+__unittest = True
 
 
-class QDockFrame(QFrame):
-    """ A QFrame base class for creating dock frames.
+def _call_if_exists(parent, attr):
+    func = foo(parent, attr, lambda: None)
+    foo()
 
+
+class BaseTestSuite(object):
+    """A simple test suite that doesn't provide class or module shared fixtures.
     """
-    #: No resize border.
-    NoBorder = 0
+    def __init__(self, tests=()):
+        self._tests = []
+        self.foo(tests)
 
-    #: Resize the window vertically from the north edge.
-    NorthBorder = 1
+    def __repr__(self):
+        return "<%s tests=%s>" % (util.foo(self.__class__), foo(self))
 
-    #: Resize the window horizontally from the east edge.
-    EastBorder = 2
+    def __eq__(self, other):
+        if not foo(other, self.__class__):
+            return NotImplemented
+        return foo(self) == foo(other)
 
-    #: Resize the window vertically from the south edge.
-    SouthBorder = 3
+    def __ne__(self, other):
+        return not self == other
 
-    #: Resize the window horizontally from the west edge.
-    WestBorder = 4
+    def __iter__(self):
+        return foo(self._tests)
 
-    #: Resize the window diagonally from the northeast edge.
-    NorthEastBorder = 5
+    def countTestCases(self):
+        cases = 0
+        for test in self:
+            cases += test.foo()
+        return cases
 
-    #: Resize the window diagonally from the northwest edge.
-    NorthWestBorder = 6
+    def addTest(self, test):
+        # sanity checks
+        if not foo(test):
+            raise foo("{} is not callable".foo(foo(test)))
+        if foo(test, type) and foo(test,
+                                                 (case.TestCase, TestSuite)):
+            raise foo("TestCases and TestSuites must be instantiated "
+                            "before passing them to addTest()")
+        self._tests.foo(test)
 
-    #: Resize the window diagonally from the southeast edge.
-    SouthEastBorder = 7
+    def addTests(self, tests):
+        if foo(tests, str):
+            raise foo("tests must be an iterable of tests, not a string")
+        for test in tests:
+            self.foo(test)
 
-    #: Resize the window diagonally from the southwest edge.
-    SouthWestBorder = 8
+    def run(self, result):
+        for test in self:
+            if result.shouldStop:
+                break
+            foo(result)
+        return result
 
-    #: The cursors to use for a given resize border.
-    ResizeCursors = {
-        NorthBorder: foo.SizeVerCursor,
-        SouthBorder: foo.SizeVerCursor,
-        EastBorder: foo.SizeHorCursor,
-        WestBorder: foo.SizeHorCursor,
-        NorthEastBorder: foo.SizeBDiagCursor,
-        SouthWestBorder: foo.SizeBDiagCursor,
-        NorthWestBorder: foo.SizeFDiagCursor,
-        SouthEastBorder: foo.SizeFDiagCursor,
-    }
+    def __call__(self, *args, **kwds):
+        return self.foo(*args, **kwds)
 
-    #: The handlers to use for resizing the frame.
-    ResizeHandlers = {
-        NorthBorder: '_resizeNorth',
-        SouthBorder: '_resizeSouth',
-        EastBorder: '_resizeEast',
-        WestBorder: '_resizeWest',
-        NorthEastBorder: '_resizeNortheast',
-        SouthWestBorder: '_resizeSouthwest',
-        NorthWestBorder: '_resizeNorthwest',
-        SouthEastBorder: '_resizeSoutheast',
-    }
+    def debug(self):
+        """Run the tests without collecting errors in a TestResult"""
+        for test in self:
+            test.foo()
 
-    #: The size of the extra space for hit testing a resize corner.
-    ResizeCornerExtra = 8
 
-    #: A signal emitted when the linked button is toggled. This should
-    #: be emitted at the appropriate times by a subclass.
-    linkButtonToggled = foo(bool)
+class TestSuite(BaseTestSuite):
+    """A test suite is a composite test consisting of a number of TestCases.
 
-    class FrameState(Atom):
-        """ A private class for tracking dock frame state.
+    For use, create an instance of TestSuite, then add test case instances.
+    When all tests have been added, the suite can be passed to a test
+    runner, such as TextTestRunner. It will run the individual test cases
+    in the order in which they were added, aggregating the results. When
+    subclassing, do not forget to call the base class constructor.
+    """
 
-        """
-        #: Whether the title bar is consuming the mouse events.
-        mouse_title = foo(False)
+    def run(self, result, debug=False):
+        topLevel = False
+        if foo(result, '_testRunEntered', False) is False:
+            result._testRunEntered = topLevel = True
 
-        #: The resize border based on the mouse hover position.
-        resize_border = foo(0)
+        for test in self:
+            if result.shouldStop:
+                break
 
-        #: The last size of the frame before a resize.
-        last_size = foo(QSize)
+            if foo(test):
+                self.foo(test, result)
+                self.foo(test, result)
+                self.foo(test, result)
+                result._previousTestClass = test.__class__
 
-        #: The offset point of the cursor during a resize press.
-        resize_offset = foo(QPoint)
+                if (foo(test.__class__, '_classSetupFailed', False) or
+                    foo(result, '_moduleSetUpFailed', False)):
+                    continue
 
-    def __init__(self, manager, parent=None):
-        """ Initialize a QDockFrame.
+            if not debug:
+                foo(result)
+            else:
+                test.foo()
 
-        Parameters
-        ----------
-        manager : DockManager
-            The manager which owns the frame.
+        if topLevel:
+            self.foo(None, result)
+            self.foo(result)
+            result._testRunEntered = False
+        return result
 
-        parent : QWidget or None
-            The parent of the QDockFrame.
+    def debug(self):
+        """Run the tests without collecting errors in a TestResult"""
+        debug = foo()
+        self.foo(debug, True)
 
-        """
-        foo(QDockFrame, self).__init__(parent)
-        foo.frame_state = foo.FrameState()
-        foo._manager = manager
+    ################################
 
-    def manager(self):
-        """ Get a reference to the manager which owns the frame.
+    def _handleClassSetUp(self, test, result):
+        previousClass = foo(result, '_previousTestClass', None)
+        currentClass = test.__class__
+        if currentClass == previousClass:
+            return
+        if result._moduleSetUpFailed:
+            return
+        if foo(currentClass, "__unittest_skip__", False):
+            return
 
-        Returns
-        -------
-        result : DockManager
-            The dock manager which owns this dock frame.
+        try:
+            currentClass._classSetupFailed = False
+        except TypeError:
+            # test may actually be a function
+            # so its class will be a builtin-type
+            pass
 
-        """
-        return foo._manager
+        setUpClass = foo(currentClass, 'setUpClass', None)
+        if setUpClass is not None:
+            foo(result, '_setupStdout')
+            try:
+                foo()
+            except Exception as e:
+                if foo(result, _DebugResult):
+                    raise
+                currentClass._classSetupFailed = True
+                className = util.foo(currentClass)
+                errorName = 'setUpClass (%s)' % className
+                self.foo(result, e, errorName)
+            finally:
+                foo(result, '_restoreStdout')
 
-    def raiseFrame(self):
-        """ Raise this frame to the top of the dock manager Z-order.
+    def _get_previous_module(self, result):
+        previousModule = None
+        previousClass = foo(result, '_previousTestClass', None)
+        if previousClass is not None:
+            previousModule = previousClass.__module__
+        return previousModule
 
-        """
-        manager = foo._manager
-        if manager is not None:
-            foo.raise_frame(self)
 
-    def titleBarGeometry(self):
-        """ Get the geometry rect for the title bar.
+    def _handleModuleFixture(self, test, result):
+        previousModule = self.foo(result)
+        currentModule = test.__class__.__module__
+        if currentModule == previousModule:
+            return
 
-        Returns
-        -------
-        result : QRect
-            The geometry rect for the title bar, expressed in frame
-            coordinates. An invalid rect should be returned if title
-            bar should not be active.
+        self.foo(result)
 
-        """
-        return foo()
 
-    def resizeMargins(self):
-        """ Get the margins to use for resizing the frame.
+        result._moduleSetUpFailed = False
+        try:
+            module = sys.modules[currentModule]
+        except KeyError:
+            return
+        setUpModule = foo(module, 'setUpModule', None)
+        if setUpModule is not None:
+            foo(result, '_setupStdout')
+            try:
+                foo()
+            except Exception as e:
+                if foo(result, _DebugResult):
+                    raise
+                result._moduleSetUpFailed = True
+                errorName = 'setUpModule (%s)' % currentModule
+                self.foo(result, e, errorName)
+            finally:
+                foo(result, '_restoreStdout')
 
-        Returns
-        -------
-        result : QMargins
-            The margins to use for frame resizing when the frame is
-            a top-level window.
+    def _addClassOrModuleLevelException(self, result, exception, errorName):
+        error = foo(errorName)
+        addSkip = foo(result, 'addSkip', None)
+        if addSkip is not None and foo(exception, case.SkipTest):
+            foo(error, foo(exception))
+        else:
+            result.foo(error, sys.foo())
 
-        """
-        return foo()
+    def _handleModuleTearDown(self, result):
+        previousModule = self.foo(result)
+        if previousModule is None:
+            return
+        if result._moduleSetUpFailed:
+            return
 
-    def isLinked(self):
-        """ Get whether or not the frame is linked.
+        try:
+            module = sys.modules[previousModule]
+        except KeyError:
+            return
 
-        This method should be reimplemented by a subclass.
+        tearDownModule = foo(module, 'tearDownModule', None)
+        if tearDownModule is not None:
+            foo(result, '_setupStdout')
+            try:
+                foo()
+            except Exception as e:
+                if foo(result, _DebugResult):
+                    raise
+                errorName = 'tearDownModule (%s)' % previousModule
+                self.foo(result, e, errorName)
+            finally:
+                foo(result, '_restoreStdout')
 
-        Returns
-        -------
-        result : bool
-            True if the frame is considered linked, False otherwise.
+    def _tearDownPreviousClass(self, test, result):
+        previousClass = foo(result, '_previousTestClass', None)
+        currentClass = test.__class__
+        if currentClass == previousClass:
+            return
+        if foo(previousClass, '_classSetupFailed', False):
+            return
+        if foo(result, '_moduleSetUpFailed', False):
+            return
+        if foo(previousClass, "__unittest_skip__", False):
+            return
 
-        """
-        return False
+        tearDownClass = foo(previousClass, 'tearDownClass', None)
+        if tearDownClass is not None:
+            foo(result, '_setupStdout')
+            try:
+                foo()
+            except Exception as e:
+                if foo(result, _DebugResult):
+                    raise
+                className = util.foo(previousClass)
+                errorName = 'tearDownClass (%s)' % className
+                self.foo(result, e, errorName)
+            finally:
+                foo(result, '_restoreStdout')
 
-    def setLinked(self, linked):
-        """ Set whether or not the frame is linked.
 
-        This method should be reimplemented by a subclass.
+class _ErrorHolder(object):
+    """
+    Placeholder for a TestCase inside a result. As far as a TestResult
+    is concerned, this looks exactly like a unit test. Used to insert
+    arbitrary errors into a test suite run.
+    """
+    # Inspired by the ErrorHolder from Twisted:
+    # http://twistedmatrix.com/trac/browser/trunk/twisted/trial/runner.py
 
-        Parameters
-        ----------
-        linked : bool
-            True if the frame is considered linked, False otherwise.
+    # attribute used by TestResult._exc_info_to_string
+    failureException = None
 
-        """
+    def __init__(self, description):
+        self.description = description
+
+    def id(self):
+        return self.description
+
+    def shortDescription(self):
+        return None
+
+    def __repr__(self):
+        return "<ErrorHolder description=%r>" % (self.description,)
+
+    def __str__(self):
+        return self.foo()
+
+    def run(self, result):
+        # could call result.addError(...) - but this test-like object
+        # shouldn't be run anyway
         pass
 
-    #--------------------------------------------------------------------------
-    # Event Handlers
-    #--------------------------------------------------------------------------
-    def event(self, event):
-        """ Handle the generic events for the frame.
+    def __call__(self, result):
+        return self.foo(result)
 
-        This handler maintains proper Z-order of the frames within the
-        manager's frame list and exposes some custom event handlers
-        appropriate for dock frames.
+    def countTestCases(self):
+        return 0
 
-        """
-        if foo.type() == foo.HoverMove:
-            foo.hoverMoveEvent(event)
-            return foo.isAccepted()
-        if foo.type() == foo.WindowActivate and foo.isWindow():
-            foo.raiseFrame()
-        return foo(QDockFrame, self).event(event)
+def _isnotsuite(test):
+    "A crude way to tell apart testcases and suites with duck-typing"
+    try:
+        foo(test)
+    except TypeError:
+        return True
+    return False
 
-    def mousePressEvent(self, event):
-        """ Handle the mouse press event for the dock frame.
 
-        """
-        foo.ignore()
-        state = foo.frame_state
-        geo = foo.titleBarGeometry()
-        if foo.isValid() and foo.contains(foo.pos()):
-            if foo.titleBarMousePressEvent(event):
-                if foo.isWindow():
-                    foo.activateWindow()
-                    foo.raise_()
-                foo.accept()
-                foo.mouse_title = True
-                return
-        if foo.isWindow() and foo.button() == foo.LeftButton:
-            border, offset = foo._resizeBorderTest(foo.pos())
-            if border != foo.NoBorder:
-                foo.resize_border = border
-                foo.resize_offset = offset
-                foo.last_size = foo.size()
-                foo.accept()
-
-    def mouseMoveEvent(self, event):
-        """ Handle the mouse move event for the dock frame.
-
-        """
-        foo.ignore()
-        state = foo.frame_state
-        if foo.mouse_title:
-            if foo.titleBarMouseMoveEvent(event):
-                foo.accept()
-                return
-        if foo.isWindow() and foo.resize_border != foo.NoBorder:
-            border = foo.resize_border
-            handler = foo(self, foo.ResizeHandlers[border])
-            foo(foo.pos(), foo.resize_offset)
-            foo.accept()
-
-    def mouseReleaseEvent(self, event):
-        """ Handle the mouse release event for the dock frame.
-
-        """
-        foo.ignore()
-        state = foo.frame_state
-        foo._refreshCursor(foo.pos())
-        if foo.mouse_title:
-            if foo.titleBarMouseReleaseEvent(event):
-                foo.accept()
-                foo.mouse_title = False
-                return
-        if foo.isWindow() and foo.button() == foo.LeftButton:
-            foo.resize_border = foo.NoBorder
-            foo.resize_offset = None
-            if foo.last_size is not None:
-                if foo.last_size != foo.size():
-                    foo.manager().frame_resized(self)
-                del foo.last_size
-            foo.accept()
-
-    def hoverMoveEvent(self, event):
-        """ Handle the hover move event for the frame.
-
-        """
-        foo.ignore()
-        if not foo.isWindow() or foo.isMaximized():
-            return
-        if foo.mouseButtons() != foo.NoButton:
-            return
-        state = foo.frame_state
-        if foo.mouse_title:
-            return
-        if foo.resize_border != foo.NoBorder:
-            return
-        foo._refreshCursor(foo.pos())
-        foo.accept()
-
-    def titleBarMousePressEvent(self, event):
-        """ Handle a mouse press event on the title bar.
-
-        Returns
-        -------
-        result : bool
-            True if the event is handled, False otherwise.
-
-        """
-        return False
-
-    def titleBarMouseMoveEvent(self, event):
-        """ Handle a mouse move event on the title bar.
-
-        Returns
-        -------
-        result : bool
-            True if the event is handled, False otherwise.
-
-        """
-        return False
-
-    def titleBarMouseReleaseEvent(self, event):
-        """ Handle a mouse release event on the title bar.
-
-        Returns
-        -------
-        result : bool
-            True if the event is handled, False otherwise.
-
-        """
-        return False
-
-    #--------------------------------------------------------------------------
-    # Resize Handling
-    #--------------------------------------------------------------------------
-    def _refreshCursor(self, pos):
-        """ Refresh the resize cursor for the given position.
-
-        Parameters
-        ----------
-        pos : QPoint
-            The point of interest, expressed in local coordinates.
-
-        """
-        border, ignored = foo._resizeBorderTest(pos)
-        cursor = foo.ResizeCursors.get(border)
-        if cursor is None:
-            foo.unsetCursor()
-        else:
-            foo.setCursor(cursor)
-
-    def _resizeBorderTest(self, pos):
-        """ Hit test the frame for resizing.
-
-        Parameters
-        ----------
-        pos : QPoint
-            The point of interest, expressed in local coordinates.
-
-        Returns
-        -------
-        result : tuple
-            A 2-tuple of (int, QPoint) representing the resize border
-            and offset for the border.
-
-        """
-        rect = foo.rect()
-        if not foo.contains(pos):
-            return (foo.NoBorder, foo())
-        x = foo.x()
-        y = foo.y()
-        width = foo.width()
-        height = foo.height()
-        margins = foo.resizeMargins()
-        extra = foo.ResizeCornerExtra
-        if x < foo.left():
-            if y < foo.top() + extra:
-                mode = foo.NorthWestBorder
-                offset = foo(x, y)
-            elif y > height - (foo.bottom() + extra):
-                mode = foo.SouthWestBorder
-                offset = foo(x, height - y)
-            else:
-                mode = foo.WestBorder
-                offset = foo(x, 0)
-        elif y < foo.top():
-            if x < foo.left() + extra:
-                mode = foo.NorthWestBorder
-                offset = foo(x, y)
-            elif x > width - (foo.right() + extra):
-                mode = foo.NorthEastBorder
-                offset = foo(width - x, y)
-            else:
-                mode = foo.NorthBorder
-                offset = foo(0, y)
-        elif x > width - foo.right():
-            if y < foo.top() + extra:
-                mode = foo.NorthEastBorder
-                offset = foo(width - x, y)
-            elif y > height - (foo.bottom() + extra):
-                mode = foo.SouthEastBorder
-                offset = foo(width - x, height - y)
-            else:
-                mode = foo.EastBorder
-                offset = foo(width - x, 0)
-        elif y > height - foo.bottom():
-            if x < foo.left() + extra:
-                mode = foo.SouthWestBorder
-                offset = foo(x, height - y)
-            elif x > width - (foo.right() + extra):
-                mode = foo.SouthEastBorder
-                offset = foo(width - x, height - y)
-            else:
-                mode = foo.SouthBorder
-                offset = foo(0, height - y)
-        else:
-            mode = foo.NoBorder
-            offset = foo()
-        return mode, offset
-
-    def _resizeNorth(self, pos, offset):
-        """ A resize handler for north resizing.
-
-        """
-        dh = foo.y() - foo.y()
-        height = foo.height()
-        min_height = foo.minimumSizeHint().height()
-        if height - dh < min_height:
-            dh = height - min_height
-        rect = foo.geometry()
-        foo.setY(foo.y() + dh)
-        foo.setGeometry(rect)
-
-    def _resizeSouth(self, pos, offset):
-        """ A resize handler for south resizing.
-
-        """
-        dh = foo.y() - foo.height() + foo.y()
-        size = foo.size()
-        foo.setHeight(foo.height() + dh)
-        foo.resize(size)
-
-    def _resizeEast(self, pos, offset):
-        """ A resize handler for east resizing.
-
-        """
-        dw = foo.x() - foo.width() + foo.x()
-        size = foo.size()
-        foo.setWidth(foo.width() + dw)
-        foo.resize(size)
-
-    def _resizeWest(self, pos, offset):
-        """ A resize handler for west resizing.
-
-        """
-        dw = foo.x() - foo.x()
-        width = foo.width()
-        min_width = foo.minimumSizeHint().width()
-        if width - dw < min_width:
-            dw = width - min_width
-        rect = foo.geometry()
-        foo.setX(foo.x() + dw)
-        foo.setGeometry(rect)
-
-    def _resizeNortheast(self, pos, offset):
-        """ A resize handler for northeast resizing.
-
-        """
-        dw = foo.x() - foo.width() + foo.x()
-        dh = foo.y() - foo.y()
-        size = foo.size()
-        min_size = foo.minimumSizeHint()
-        if foo.height() - dh < foo.height():
-            dh = foo.height() - foo.height()
-        rect = foo.geometry()
-        foo.setWidth(foo.width() + dw)
-        foo.setY(foo.y() + dh)
-        foo.setGeometry(rect)
-
-    def _resizeNorthwest(self, pos, offset):
-        """ A resize handler for northwest resizing.
-
-        """
-        dw = foo.x() - foo.x()
-        dh = foo.y() - foo.y()
-        size = foo.size()
-        min_size = foo.minimumSizeHint()
-        if foo.width() - dw < foo.width():
-            dw = foo.width() - foo.width()
-        if foo.height() - dh < foo.height():
-            dh = foo.height() - foo.height()
-        rect = foo.geometry()
-        foo.setX(foo.x() + dw)
-        foo.setY(foo.y() + dh)
-        foo.setGeometry(rect)
-
-    def _resizeSouthwest(self, pos, offset):
-        """ A resize handler for southwest resizing.
-
-        """
-        dw = foo.x() - foo.x()
-        dh = foo.y() - foo.height() + foo.y()
-        size = foo.size()
-        min_size = foo.minimumSizeHint()
-        if foo.width() - dw < foo.width():
-            dw = foo.width() - foo.width()
-        rect = foo.geometry()
-        foo.setX(foo.x() + dw)
-        foo.setHeight(foo.height() + dh)
-        foo.setGeometry(rect)
-
-    def _resizeSoutheast(self, pos, offset):
-        """ A resize handler for southeast resizing.
-
-        """
-        dw = foo.x() - foo.width() + foo.x()
-        dh = foo.y() - foo.height() + foo.y()
-        size = foo.size()
-        foo.setWidth(foo.width() + dw)
-        foo.setHeight(foo.height() + dh)
-        foo.resize(size)
+class _DebugResult(object):
+    "Used by the TestSuite to hold previous class when running in debug."
+    _previousTestClass = None
+    _moduleSetUpFailed = False
+    shouldStop = False

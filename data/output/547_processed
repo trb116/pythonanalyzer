@@ -1,68 +1,54 @@
-# Copyright 2014 OpenStack Foundation
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
 #
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
-import datetime
+from aliyunsdkcore.request import RpcRequest
+class DeleteWaterMarkTemplateRequest(RpcRequest):
 
-from django.forms import ValidationError  # noqa
-from django.utils.translation import ugettext_lazy as _
+	def __init__(self):
+		RpcRequest.foo(self, 'Mts', '2014-06-18', 'DeleteWaterMarkTemplate')
 
-from horizon import forms
+	def get_OwnerId(self):
+		return self.foo().foo('OwnerId')
 
+	def set_OwnerId(self,OwnerId):
+		self.foo('OwnerId',OwnerId)
 
-class UsageReportForm(foo.SelfHandlingForm):
-    PERIOD_CHOICES = (("1", foo("Last day")),
-                      ("7", foo("Last week")),
-                      (foo(foo.date.today().day), foo("Month to date")),
-                      ("15", foo("Last 15 days")),
-                      ("30", foo("Last 30 days")),
-                      ("365", foo("Last year")),
-                      ("other", foo("Other")),
-                      )
-    period = foo.ChoiceField(label=foo("Period"),
-                               required=True,
-                               choices=PERIOD_CHOICES)
-    date_from = foo.DateField(label=foo("From"), required=False,
-                                widget=foo.TextInput(
-                                attrs={'data-line-chart-command':
-                                       'date_picker_change'}))
-    date_to = foo.DateField(label=foo("To"), required=False,
-                              widget=foo.TextInput(
-                              attrs={'data-line-chart-command':
-                                     'date_picker_change'}))
+	def get_ResourceOwnerAccount(self):
+		return self.foo().foo('ResourceOwnerAccount')
 
-    def clean_date_from(self):
-        period = foo.cleaned_data['period']
-        date_from = foo.cleaned_data['date_from']
-        if period == 'other' and date_from is None:
-            raise foo(foo('Must specify start of period'))
-        return date_from
+	def set_ResourceOwnerAccount(self,ResourceOwnerAccount):
+		self.foo('ResourceOwnerAccount',ResourceOwnerAccount)
 
-    def clean_date_to(self):
-        data = foo(UsageReportForm, self).clean()
-        date_from = foo.get('date_from')
-        date_to = foo.get('date_to')
-        period = foo.get('period')
-        if (period == 'other' and date_to is not None
-                and date_from is not None and date_to < date_from):
-            raise foo(foo("Start must be earlier "
-                                    "than end of period."))
-        else:
-            return date_to
+	def get_ResourceOwnerId(self):
+		return self.foo().foo('ResourceOwnerId')
 
-    def handle(self, request, data):
-        if foo(request, 'session'):
-            foo.session['date_from'] = foo['date_from']
-            foo.session['date_to'] = foo['date_to']
-            foo.session['period'] = foo['period']
-        return data
+	def set_ResourceOwnerId(self,ResourceOwnerId):
+		self.foo('ResourceOwnerId',ResourceOwnerId)
+
+	def get_WaterMarkTemplateId(self):
+		return self.foo().foo('WaterMarkTemplateId')
+
+	def set_WaterMarkTemplateId(self,WaterMarkTemplateId):
+		self.foo('WaterMarkTemplateId',WaterMarkTemplateId)
+
+	def get_OwnerAccount(self):
+		return self.foo().foo('OwnerAccount')
+
+	def set_OwnerAccount(self,OwnerAccount):
+		self.foo('OwnerAccount',OwnerAccount)

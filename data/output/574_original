@@ -1,40 +1,10 @@
-# Copyright ClusterHQ Inc.  See LICENSE file for details.
+#!/usr/bin/env python
+import os
+import sys
 
-"""
-Helpers for :py:class:`~twisted.python.filepath.FilePath`.
-"""
+if __name__ == "__main__":
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "testapp.settings")
 
+    from django.core.management import execute_from_command_line
 
-def make_file(path, content='', permissions=None):
-    """
-    Create a file with given content and permissions.
-
-    Don't use this for sensitive content, as the permissions are applied
-    *after* the data is written to the filesystem.
-
-    :param FilePath path: Path to create the file.
-    :param str content: Content to write to the file. If not specified,
-    :param int permissions: Unix file permissions to be passed to ``chmod``.
-
-    :return: ``path``, unmodified.
-    :rtype: :py:class:`twisted.python.filepath.FilePath`
-    """
-    path.setContent(content)
-    if permissions is not None:
-        path.chmod(permissions)
-    return path
-
-
-def make_directory(path):
-    """
-    Create a directory at ``path``.
-
-    :param FilePath path: The place to create a directory.
-
-    :raise OSError: If path already exists and is not a directory.
-    :return: ``path``, unmodified.
-    :rtype: :py:class:`twisted.python.filepath.FilePath`
-    """
-    if not path.isdir():
-        path.makedirs()
-    return path
+    execute_from_command_line(sys.argv)

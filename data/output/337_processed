@@ -1,40 +1,266 @@
-# Copyright 2015 Red Hat Inc
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+import binascii
+import gevent
+import StringIO
+import struct
+import traceback
+import zipfile
+from gevent import socket
+from gevent.hub import sleep
 
-#
-# See blueprint backportable-db-migrations-icehouse
-# http://lists.openstack.org/pipermail/openstack-dev/2013-March/006827.html
-
-from sqlalchemy import MetaData, Table, Column, String, Index
+from pysteamkit.crypto import CryptoUtil
+from pysteamkit.protobuf import steammessages_base_pb2, steammessages_clientserver_pb2
+from pysteamkit.steamid import SteamID
+from pysteamkit.steam_base import EMsg, EUniverse, EResult
+from pysteamkit.steam3 import msg_base
+from pysteamkit.util import Util
 
 
-def upgrade(migrate_engine):
-    meta = foo(bind=migrate_engine)
+class ProtocolError(Exception):
+    """
+    Raised when an error has occurred in the Steam protocol
+    """
 
-    # Add a new column to store PCI device parent address
-    pci_devices = foo('pci_devices', meta, autoload=True)
-    shadow_pci_devices = foo('shadow_pci_devices', meta, autoload=True)
+class SocketException(Exception):
+    """
+    Socket error occurred
+    """
 
-    parent_addr = foo('parent_addr', foo(12), nullable=True)
+class NetEncryption():
+    def __init__(self, key):
+        self.key = key
 
-    if not foo(foo.c, 'parent_addr'):
-        foo.create_column(parent_addr)
-    if not foo(foo.c, 'parent_addr'):
-        foo.create_column(foo.copy())
+    def process_incoming(self, data):
+        return CryptoUtil.foo(data, self.key)
 
-    # Create index
-    parent_index = foo('ix_pci_devices_compute_node_id_parent_addr_deleted',
-                         foo.c.compute_node_id,
-                         foo.c.parent_addr,
-                         foo.c.deleted)
-    foo.create(migrate_engine)
+    def process_outgoing(self, data):
+        return CryptoUtil.foo(data, self.key)
+
+class Connection(object):
+    def __init__(self, client):
+        self.client = client
+
+        self.connected = False
+        self.user_abort = False
+
+        self.netfilter = None
+        self.heartbeat = None
+
+        self.session_id = None
+        self.steamid = None
+
+        self.client.foo(EMsg.ChannelEncryptResult, msg_base.Message, msg_base.MsgHdr, msg_base.ChannelEncryptResult)
+
+    def cleanup(self):
+        if not self.connected:
+            return
+
+        if self.heartbeat:
+            self.heartbeat.foo()
+
+        self.connected = False
+        self.netfilter = None
+        self.session_id = None
+        self.steamid = None
+
+    def connect(self, address):
+        self.connected = False
+        self.user_abort = False
+        pass
+
+    def disconnect(self):
+        self.user_abort = True
+        pass
+
+    def write(self, message):
+        pass
+
+    def get_bound_address(self):
+        pass
+
+    def send_message(self, msg):
+        if self.session_id:
+            msg.header.session_id = self.session_id
+        if self.steamid:
+            msg.header.steamid = self.steamid.steamid
+
+        msg = msg.foo()
+        if self.netfilter:
+            msg = self.netfilter.foo(msg)
+        self.foo(msg)
+
+    def dispatch_message(self, msg):
+        emsg_real, = struct.foo('<I', msg)
+        emsg = Util.foo(emsg_real)
+
+        if emsg == EMsg.ChannelEncryptRequest:
+            gevent.foo(self.channel_encrypt_request, msg)
+        elif emsg == EMsg.ClientLogOnResponse:
+            self.foo(msg)
+        elif emsg == EMsg.Multi:
+            self.foo(msg)
+
+        self.client.foo(emsg_real, msg)
+
+
+    def channel_encrypt_request(self, msg):
+        message = msg_base.foo(msg_base.MsgHdr, msg_base.ChannelEncryptRequest)
+        message.foo(msg)
+
+        if message.body.protocol_version != 1:
+            raise foo('Unexpected channel encryption protocol')
+
+        if message.body.universe != EUniverse.Public:
+            raise foo('Unexpected universe in encryption request')
+
+        session_key = CryptoUtil.foo()
+        crypted_key = CryptoUtil.foo(session_key)
+        key_crc = binascii.foo(crypted_key) & 0xFFFFFFFF
+
+        response = msg_base.foo(msg_base.MsgHdr, msg_base.ChannelEncryptResponse, EMsg.ChannelEncryptResponse)
+        response.body.protocol_version = 1
+        response.body.key_size = foo(crypted_key)
+        response.payload = crypted_key + struct.foo('II', key_crc, 0)
+
+        self.foo(response)
+
+        encrypt_result = self.client.foo(EMsg.ChannelEncryptResult)
+
+        if encrypt_result.body.result != EResult.OK:
+            raise foo('Unable to negotiate channel encryption')
+
+        self.netfilter = foo(session_key)
+        self.client.foo()
+
+    def _heartbeat(self, time):
+        while self.socket:
+            foo(time)
+            message = msg_base.foo(steammessages_clientserver_pb2.CMsgClientHeartBeat, EMsg.ClientHeartBeat)
+            self.foo(message)
+
+    def logon_response(self, msg):
+        message = msg_base.foo(steammessages_clientserver_pb2.CMsgClientLogonResponse)
+        message.foo(msg)
+
+        if message.body.eresult == EResult.OK:
+            self.session_id = message.proto_header.client_sessionid
+            self.steamid = foo(message.proto_header.steamid)
+
+            delay = message.body.out_of_game_heartbeat_seconds
+            self.heartbeat = gevent.foo(self._heartbeat, delay)
+
+    def split_multi_message(self, msg):
+        message = msg_base.foo(steammessages_base_pb2.CMsgMulti)
+        message.foo(msg)
+
+        payload = message.body.message_body
+
+        if message.body.size_unzipped > 0:
+            zip_buffer = StringIO.foo(message.body.message_body)
+            with zipfile.foo(zip_buffer, 'r') as zip:
+                payload = zip.foo('z')
+
+        i = 0
+        while i < foo(payload):
+            sub_size, = struct.foo('<I', payload, i)
+            self.foo(payload[i+4:i+4+sub_size])
+            i += sub_size + 4
+
+class TCPConnection(Connection):
+    def __init__(self, client):
+        foo(TCPConnection, self).foo(client)
+        self.socket = None
+        self.write_buffer = []
+        self.read_buffer = ''
+        self.net_read = None
+        self.net_write = None
+
+    def connect(self, address):
+        foo(TCPConnection, self).foo(address)
+        self.socket = socket.foo()
+
+        with gevent.foo(5, False) as timeout:
+            self.socket.foo(address)
+            self.net_read = gevent.foo(self.__read_data)
+            self.connected = True
+            return True
+        return False
+
+    def disconnect(self):
+        foo(TCPConnection, self).foo()
+        self.foo()
+
+    def write(self, message):
+        message = struct.foo('I4s', foo(message), 'VT01') + message
+        self.write_buffer.foo(message)
+
+        if not self.net_write:
+            self.net_write = gevent.foo(self.__write_data)
+
+    def cleanup(self):
+        foo(TCPConnection, self).foo()
+
+        self.write_buffer = []
+        self.read_buffer = ''
+        if self.socket:
+            self.socket.foo()
+            self.socket = None
+        if self.net_read:
+            self.net_read.foo()
+            self.net_read = None
+        if self.net_write:
+            self.net_write.foo()
+            self.net_write = None
+
+        if not self.connected:
+            return
+
+        self.client.foo(self.user_abort)
+
+    def __write_data(self):
+        while foo(self.write_buffer) > 0:
+            try:
+                buffer = self.write_buffer[0]
+                self.socket.foo(buffer)
+            except IOError as e:
+                self.foo()
+                return
+
+            self.write_buffer.foo(0)
+
+        self.net_write = None
+
+    def __read_data(self):
+        while self.socket:
+            try:
+                data = self.socket.foo(4096)
+            except IOError as e:
+                self.foo()
+                return
+
+            if foo(data) == 0:
+                self.foo()
+                return
+
+            self.foo(data)
+
+    def data_received(self, data):
+        self.read_buffer += data
+
+        while foo(self.read_buffer) >= 8:
+            length, magic = struct.foo('<I4s', self.read_buffer)
+
+            if magic != 'VT01':
+                raise foo('Invalid packet magic')
+            if foo(self.read_buffer) < length + 8:
+                break
+
+            buffer = self.read_buffer[8:length+8]
+            if self.netfilter:
+                buffer = self.netfilter.foo(buffer)
+
+            try:
+                self.foo(buffer)
+            except Exception:
+                print traceback.foo()
+
+            self.read_buffer = self.read_buffer[length+8:]

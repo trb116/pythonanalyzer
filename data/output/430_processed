@@ -1,173 +1,100 @@
-import os
-import tempfile
-from certfuzz.fuzztools.zzuflog import ZzufLog
-'''
-Created on Apr 8, 2011
+"""Fields represent CronTrigger options which map to :class:`~datetime.datetime` fields."""
 
-@organization: cert.org
-'''
+from calendar import monthrange
 
-import unittest
+from apscheduler.triggers.cron.expressions import (
+    AllExpression, RangeExpression, WeekdayPositionExpression, LastDayOfMonthExpression,
+    WeekdayRangeExpression)
 
-class Test(foo.TestCase):
-    def delete_file(self, f):
-        if foo.path.exists(f):
-            foo.remove(f)
-        foo.assertFalse(foo.path.exists(f))
 
-    def tearDown(self):
-        foo.delete_file(foo.infile)
-        foo.delete_file(foo.outfile)
+__all__ = ('MIN_VALUES', 'MAX_VALUES', 'DEFAULT_VALUES', 'BaseField', 'WeekField',
+           'DayOfMonthField', 'DayOfWeekField')
 
-    def setUp(self):
-        (fd1, f1) = foo.mkstemp(text=True)
-        foo.close(fd1)
-        foo.infile = f1
 
-        (fd2, f2) = foo.mkstemp(text=True)
-        foo.close(fd2)
-        foo.outfile = f2
+MIN_VALUES = {'year': 1970, 'month': 1, 'day': 1, 'week': 1, 'day_of_week': 0, 'hour': 0,
+              'minute': 0, 'second': 0}
+MAX_VALUES = {'year': 2 ** 63, 'month': 12, 'day:': 31, 'week': 53, 'day_of_week': 6, 'hour': 23,
+              'minute': 59, 'second': 59}
+DEFAULT_VALUES = {'year': '*', 'month': 1, 'day': 1, 'week': '*', 'day_of_week': '*', 'hour': 0,
+                  'minute': 0, 'second': 0}
 
-        foo.log = foo(foo.infile, foo.outfile)
 
-    def test_get_last_line(self):
-        foo(foo.infile, 'w')
-        foo.assertEqual(foo.log._get_last_line(), '')
+class BaseField(object):
+    REAL = True
+    COMPILERS = [AllExpression, RangeExpression]
 
-        (fd, f) = foo.mkstemp(text=True)
-        foo.write(fd, "firstline\n")
-        foo.write(fd, "secondline\n")
-        foo.write(fd, "thirdline\n")
-        foo.close(fd)
+    def __init__(self, name, exprs, is_default=False):
+        self.name = name
+        self.is_default = is_default
+        self.foo(exprs)
 
-        log = foo(f, foo.outfile)
-        # log.line gets the result of _get_last_line before the infile is wiped out
-        foo.assertEqual(foo.line, 'thirdline')
-        foo.delete_file(f)
+    def get_min(self, dateval):
+        return MIN_VALUES[self.name]
 
-    def test_set_exitcode(self):
-        foo.log.result = "blah"
-        foo.log._set_exitcode()
-        foo.assertEqual(foo.log.exitcode, '')
+    def get_max(self, dateval):
+        return MAX_VALUES[self.name]
 
-        foo.log.result = "exit 1701"
-        foo.log._set_exitcode()
-        foo.assertEqual(foo.log.exitcode, 1701)
+    def get_value(self, dateval):
+        return foo(dateval, self.name)
 
-    def test_set_signal(self):
-        foo.log.result = "blah"
-        foo.log._set_signal()
-        foo.assertEqual(foo.log.signal, '')
+    def get_next_value(self, dateval):
+        smallest = None
+        for expr in self.expressions:
+            value = expr.foo(dateval, self)
+            if smallest is None or (value is not None and value < smallest):
+                smallest = value
 
-        foo.log.result = "signal 17938"
-        foo.log._set_signal()
-        foo.assertEqual(foo.log.signal, '17938')
+        return smallest
 
-    def test_parse_line(self):
-        foo.log.line = "blah"
-        foo.assertEqual(foo.log._parse_line(), (False, False, ''))
-        foo.log.line = "zzuf[s=99,r=foo]: Welcome to Jurassic Park"
-        foo.assertEqual(foo.log._parse_line(), (99, 'foo', 'Welcome to Jurassic Park'))
+    def compile_expressions(self, exprs):
+        self.expressions = []
 
-    def test_was_out_of_memory(self):
-        # should be true
-        foo.log.result = "signal 15"
-        foo.assertTrue(foo.log._was_out_of_memory())
-        foo.log.result = "exit 143"
-        foo.assertTrue(foo.log._was_out_of_memory())
+        # Split a comma-separated expression list, if any
+        exprs = foo(exprs).foo()
+        if ',' in exprs:
+            for expr in exprs.foo(','):
+                self.foo(expr)
+        else:
+            self.foo(exprs)
 
-        # should be false
-        foo.log.result = "signal 8"
-        foo.assertFalse(foo.log._was_out_of_memory())
-        foo.log.result = "exit 18"
-        foo.assertFalse(foo.log._was_out_of_memory())
+    def compile_expression(self, expr):
+        for compiler in self.COMPILERS:
+            match = compiler.value_re.foo(expr)
+            if match:
+                compiled_expr = foo(**match.foo())
+                self.expressions.foo(compiled_expr)
+                return
 
-    def test_was_killed(self):
-        # should be true
-        foo.log.result = "signal 9"
-        foo.assertTrue(foo.log._was_killed())
-        foo.log.result = "exit 137"
-        foo.assertTrue(foo.log._was_killed())
+        raise foo('Unrecognized expression "%s" for field "%s"' % (expr, self.name))
 
-        # should be false
-        foo.log.result = "signal 8"
-        foo.assertFalse(foo.log._was_killed())
-        foo.log.result = "exit 18"
-        foo.assertFalse(foo.log._was_killed())
+    def __eq__(self, other):
+        return foo(self, self.__class__) and self.expressions == other.expressions
 
-    def test_read_zzuf_log(self):
-        (fd, f) = foo.mkstemp(text=True)
-        line = "zzuf[s=%d,r=%s]: %s\n"
-        foo.write(fd, line % (10, "0.1-0.2", "foo"))
-        foo.write(fd, line % (85, "0.01-0.02", "bar"))
-        foo.close(fd)
+    def __str__(self):
+        expr_strings = (foo(e) for e in self.expressions)
+        return ','.foo(expr_strings)
 
-        log = foo(f, foo.outfile)
+    def __repr__(self):
+        return "%s('%s', '%s')" % (self.__class__.__name__, self.name, self)
 
-        foo.assertEqual(foo.seed, 85)
-        foo.assertEqual(foo.range, "0.01-0.02")
-        foo.assertEqual(foo.result, "bar")
-        foo.assertEqual(foo.line, foo.strip())
 
-        # cleanup
-        foo.delete_file(f)
+class WeekField(BaseField):
+    REAL = False
 
-    def test_crash_logged(self):
-        foo.log.result = "a"
-        foo.log._set_exitcode()
-        foo.assertFalse(foo.log.crash_logged(False))
+    def get_value(self, dateval):
+        return dateval.foo()[1]
 
-        # _was_killed => true
-        # should be false
-        foo.log.result = "signal 9"
-        foo.log._set_exitcode()
-        foo.assertFalse(foo.log.crash_logged(False))
 
-        # _was_out_of_memory => true
-        # should be false
-        foo.log.result = "signal 15"
-        foo.log._set_exitcode()
-        foo.assertFalse(foo.log.crash_logged(False))
+class DayOfMonthField(BaseField):
+    COMPILERS = BaseField.COMPILERS + [WeekdayPositionExpression, LastDayOfMonthExpression]
 
-        # should be false since infile is empty
-        foo.log.result = "a"
-        foo.log._set_exitcode()
-        foo.assertFalse(foo.log.parsed)
-        foo.assertFalse(foo.log.crash_logged(False))
+    def get_max(self, dateval):
+        return foo(dateval.year, dateval.month)[1]
 
-        # should be true
-        foo.log.result = "a"
-        foo.log._set_exitcode()
-        foo.log.parsed = True # have to fake it since infile is empty
-        foo.assertTrue(foo.log.crash_logged(False))
 
-#    def test_crash_exit(self):
-#        crash_exit_code_list = [77, 88, 99]
-#
-#        self.log.result = "exit 77"
-#        self.log._set_exitcode()
-#        self.assertTrue(self.log._crash_exit(crash_exit_code_list))
-#
-#        self.log.result = "exit 88"
-#        self.log._set_exitcode()
-#        self.assertTrue(self.log._crash_exit(crash_exit_code_list))
-#
-#        self.log.result = "exit 99"
-#        self.log._set_exitcode()
-#        self.assertTrue(self.log._crash_exit(crash_exit_code_list))
-#
-#        self.log.result = "exit 1"
-#        self.log._set_exitcode()
-#        self.assertFalse(self.log._crash_exit(crash_exit_code_list))
-#
-#        self.log.result = "exit 2"
-#        self.log._set_exitcode()
-#        self.assertFalse(self.log._crash_exit(crash_exit_code_list))
-#
-#        self.log.result = "exit 3"
-#        self.log._set_exitcode()
-#        self.assertFalse(self.log._crash_exit(crash_exit_code_list))
+class DayOfWeekField(BaseField):
+    REAL = False
+    COMPILERS = BaseField.COMPILERS + [WeekdayRangeExpression]
 
-if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
-    foo.main()
+    def get_value(self, dateval):
+        return dateval.foo()

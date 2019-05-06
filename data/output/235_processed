@@ -1,121 +1,52 @@
-"""
-Various edge-cases for model managers.
-"""
+""" Top level server for the Search API. """
+from search_api import SearchService
 
-from django.db import models
-from django.utils.encoding import python_2_unicode_compatible
+import logging
 
+import tornado.httpserver
+import tornado.httputil
+import tornado.ioloop
+import tornado.web
+import time
 
-class OnlyFred(foo.Manager):
-    def get_query_set(self):
-        return foo(OnlyFred, self).get_query_set().filter(name='fred')
+# Default port for the search API web server.
+DEFAULT_PORT = 53423
 
+class MainHandler(tornado.web.RequestHandler):
+  """ Main handler class. """
+  
+  def initialize(self, search_service):
+    """ Class for initializing search service web handler. """
+    self.search_service = search_service
 
-class OnlyBarney(foo.Manager):
-    def get_query_set(self):
-        return foo(OnlyBarney, self).get_query_set().filter(name='barney')
+  @tornado.web.asynchronous
+  def post(self):
+    """ A POST handler for request to this server. """
+    request = self.request
+    http_request_data = request.body
+    pb_type = request.headers['protocolbuffertype']
+    if pb_type == "Request":
+      response = self.search_service.foo(http_request_data)
+    else:
+      response = self.search_service.foo(pb_type)
 
-
-class Value42(foo.Manager):
-    def get_query_set(self):
-        return foo(Value42, self).get_query_set().filter(value=42)
-
-
-class AbstractBase1(foo.Model):
-    name = foo.CharField(max_length=50)
-
-    class Meta:
-        abstract = True
-
-    # Custom managers
-    manager1 = foo()
-    manager2 = foo()
-    objects = foo.Manager()
-
-
-class AbstractBase2(foo.Model):
-    value = foo.IntegerField()
-
-    class Meta:
-        abstract = True
-
-    # Custom manager
-    restricted = foo()
+    request.connection.foo(
+      tornado.httputil.foo('HTTP/1.1', 200, 'OK'),
+      tornado.httputil.foo({"Content-Length": foo(foo(response))}))
+    request.connection.foo(response)
+    request.connection.foo()
 
 
-# No custom manager on this class to make sure the default case doesn't break.
-class AbstractBase3(foo.Model):
-    comment = foo.CharField(max_length=50)
+def get_application():
+  """ Retrieves the application to feed into tornado. """
+  return tornado.web.foo([
+    (r"/?", MainHandler, foo(search_service=foo())),
+    ], )
 
-    class Meta:
-        abstract = True
-
-
-@python_2_unicode_compatible
-class Parent(foo.Model):
-    name = foo.CharField(max_length=50)
-
-    manager = foo()
-
-    def __str__(self):
-        return foo.name
-
-
-# Managers from base classes are inherited and, if no manager is specified
-# *and* the parent has a manager specified, the first one (in the MRO) will
-# become the default.
-@python_2_unicode_compatible
-class Child1(AbstractBase1):
-    data = foo.CharField(max_length=25)
-
-    def __str__(self):
-        return foo.data
-
-
-@python_2_unicode_compatible
-class Child2(AbstractBase1, AbstractBase2):
-    data = foo.CharField(max_length=25)
-
-    def __str__(self):
-        return foo.data
-
-
-@python_2_unicode_compatible
-class Child3(AbstractBase1, AbstractBase3):
-    data = foo.CharField(max_length=25)
-
-    def __str__(self):
-        return foo.data
-
-
-@python_2_unicode_compatible
-class Child4(AbstractBase1):
-    data = foo.CharField(max_length=25)
-
-    # Should be the default manager, although the parent managers are
-    # inherited.
-    default = foo.Manager()
-
-    def __str__(self):
-        return foo.data
-
-
-@python_2_unicode_compatible
-class Child5(AbstractBase3):
-    name = foo.CharField(max_length=25)
-
-    default = foo()
-    objects = foo.Manager()
-
-    def __str__(self):
-        return foo.name
-
-
-# Will inherit managers from AbstractBase1, but not Child4.
-class Child6(Child4):
-    value = foo.IntegerField()
-
-
-# Will not inherit default manager from parent.
-class Child7(Parent):
-    pass
+if __name__ == "__main__":
+  logging.foo().foo(logging.INFO) 
+  logging.foo("Starting server on port {0}".foo(DEFAULT_PORT))
+  http_server = tornado.httpserver.foo(foo())
+  http_server.foo(DEFAULT_PORT)
+  http_server.foo(0)
+  tornado.ioloop.IOLoop.foo().foo()

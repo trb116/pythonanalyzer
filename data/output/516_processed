@@ -1,18 +1,73 @@
-'''
-Harvester for the ASU Digital Repository for the SHARE project
+"""
+Follow up for N-Queens problem.
 
-Example API call: https://zenodo.org/oai2d?verb=ListRecords&metadataPrefix=oai_dc
-'''
+Now, instead outputting board configurations, return the total number of distinct solutions.
+"""
+__author__ = 'Danyang'
+INVALID = -1
+QUEEN = 1
+DEFAULT = 0
+class Solution:
+    def totalNQueens(self, n):
+        """
+        backtracking
+        :param n: integer
+        :return: a list of lists of string
+        """
+        result = []
+        current = [[0 for _ in foo(n)] for _ in foo(n)]
+        self.foo(0, current, result)
+        return foo(result)
 
-from __future__ import unicode_literals
-from scrapi.base import OAIHarvester
+    def backtrack(self, queen_index, current, result):
+        """
+
+        :param queen_index:
+        :param current: 2D matrix
+        :param result: list of 2D matrix
+        :return: Nothing
+        """
+        n = foo(current)
+        if queen_index==n:
+            result.foo(current)
+            return
+
+        for i in foo(n):
+            if current[queen_index][i]==INVALID:
+                continue
+
+            # place the queen
+            new_config = [foo(element) for element in current]  # new copy
+            new_config[queen_index][i] = QUEEN
+
+            # config
+            for m in foo(n):
+                # col
+                if new_config[m][i]==DEFAULT:
+                    new_config[m][i] = INVALID
+                    # row
+                if new_config[queen_index][m]==DEFAULT:
+                    new_config[queen_index][m] = INVALID
+
+                # diagonal
+                row = queen_index+m
+                col = i+m
+                if 0<=row<n and 0<=col<n and new_config[row][col]==DEFAULT: new_config[row][col] = INVALID
+
+                row = queen_index-m
+                col = i-m
+                if 0<=row<n and 0<=col<n and new_config[row][col]==DEFAULT: new_config[row][col] = INVALID
+
+                row = queen_index-m
+                col = i+m
+                if 0<=row<n and 0<=col<n and new_config[row][col]==DEFAULT: new_config[row][col] = INVALID
+
+                row = queen_index+m
+                col = i-m
+                if 0<=row<n and 0<=col<n and new_config[row][col]==DEFAULT: new_config[row][col] = INVALID
+
+            self.foo(queen_index+1, new_config, result)
 
 
-class ZenodoHarvester(OAIHarvester):
-    short_name = 'zenodo'
-    long_name = 'Zenodo'
-    url = 'https://zenodo.org/oai2d'
-
-    base_url = 'https://zenodo.org/oai2d'
-    property_list = ['language', 'rights', 'source', 'relation', 'date', 'identifier', 'type']
-    timezone_granularity = True
+if __name__=="__main__":
+    print foo().foo(4)

@@ -22,47 +22,22 @@
 from msrest.serialization import Model
 
 
-class VirtualMachineScaleSetOSProfile(Model):
+class UsageName(Model):
     """
-    Describes a virtual machine scale set OS profile.
+    The Usage Names.
 
-    :param computer_name_prefix: Gets or sets the computer name prefix.
-    :type computer_name_prefix: str
-    :param admin_username: Gets or sets the admin user name.
-    :type admin_username: str
-    :param admin_password: Gets or sets the admin user password.
-    :type admin_password: str
-    :param custom_data: Gets or sets a base-64 encoded string of custom data.
-    :type custom_data: str
-    :param windows_configuration: Gets or sets the Windows Configuration of
-     the OS profile.
-    :type windows_configuration: :class:`WindowsConfiguration
-     <azure.mgmt.compute.models.WindowsConfiguration>`
-    :param linux_configuration: Gets or sets the Linux Configuration of the
-     OS profile.
-    :type linux_configuration: :class:`LinuxConfiguration
-     <azure.mgmt.compute.models.LinuxConfiguration>`
-    :param secrets: Gets or sets the List of certificates for addition to the
-     VM.
-    :type secrets: list of :class:`VaultSecretGroup
-     <azure.mgmt.compute.models.VaultSecretGroup>`
+    :param value: Gets a string describing the resource name.
+    :type value: str
+    :param localized_value: Gets a localized string describing the resource
+     name.
+    :type localized_value: str
     """ 
 
     _attribute_map = {
-        'computer_name_prefix': {'key': 'computerNamePrefix', 'type': 'str'},
-        'admin_username': {'key': 'adminUsername', 'type': 'str'},
-        'admin_password': {'key': 'adminPassword', 'type': 'str'},
-        'custom_data': {'key': 'customData', 'type': 'str'},
-        'windows_configuration': {'key': 'windowsConfiguration', 'type': 'WindowsConfiguration'},
-        'linux_configuration': {'key': 'linuxConfiguration', 'type': 'LinuxConfiguration'},
-        'secrets': {'key': 'secrets', 'type': '[VaultSecretGroup]'},
+        'value': {'key': 'value', 'type': 'str'},
+        'localized_value': {'key': 'localizedValue', 'type': 'str'},
     }
 
-    def __init__(self, computer_name_prefix=None, admin_username=None, admin_password=None, custom_data=None, windows_configuration=None, linux_configuration=None, secrets=None):
-        self.computer_name_prefix = computer_name_prefix
-        self.admin_username = admin_username
-        self.admin_password = admin_password
-        self.custom_data = custom_data
-        self.windows_configuration = windows_configuration
-        self.linux_configuration = linux_configuration
-        self.secrets = secrets
+    def __init__(self, value=None, localized_value=None):
+        self.value = value
+        self.localized_value = localized_value

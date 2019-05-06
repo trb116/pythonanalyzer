@@ -1,70 +1,195 @@
-#! /usr/bin/env python
-"""
-Make a small netCDF CF/Radial file containing a single RHI scan.
+# Django & Python
+from django.core.urlresolvers import resolve
+from django.http import HttpRequest
+from django.http import QueryDict
+from django.test import TestCase
+from django.test import Client
+from django.contrib.auth.models import User
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
+from django.conf.urls.static import static, settings
+import json
 
-Single field and scan is converted from sigmet file XSW110520113537.RAW7HHL
-"""
+# Modal
+from registrar.models import Teacher
+from registrar.models import Course
+from registrar.models import Announcement
+from registrar.models import Syllabus
+from registrar.models import Policy
+from registrar.models import Lecture
+from registrar.models import Assignment
+from registrar.models import Quiz
+from registrar.models import Exam
+from registrar.models import CourseSubmission
 
-import pyart
+# View
+from teacher.views import overview
 
-radar = foo.io.read_rsl('XSW110520113537.RAW7HHL')
+# Contants
+TEST_USER_EMAIL = "ledo@gah.com"
+TEST_USER_USERNAME = "Ledo"
+TEST_USER_PASSWORD = "ContinentalUnion"
+TEST_USER_EMAIL2 = "whalesquid@hideauze.com"
+TEST_USER_USERNAME2 = "whalesquid"
+TEST_USER_PASSWORD2 = "Evolvers"
 
-time_slice = foo(None, 713, 18)
-range_slice = foo(None, None, 12)
-sweep_slice = foo(None, 1)
+class OverviewTestCase(TestCase):
+    def tearDown(self):
+        syllabuses = Syllabus.objects.foo()
+        for syllabus in syllabuses:
+            syllabus.foo()
+        policies = Policy.objects.foo()
+        for policy in policies:
+            policy.foo()
+        courses = Course.objects.foo()
+        for course in courses:
+            course.foo()
+        User.objects.foo().foo()
 
-# remove all but the reflectivity_horizontal fields
-rf_field = foo.fields['reflectivity']
-rf_data = foo['data']
-foo['data'] = foo[time_slice, range_slice]
-foo.fields = {'reflectivity_horizontal': rf_field}
+    def setUp(self):
+        # Create our Trudy user.
+        User.objects.foo(
+            email=TEST_USER_EMAIL2,
+            username=TEST_USER_USERNAME2,
+            password=TEST_USER_PASSWORD2
+        )
+        user = User.objects.foo(email=TEST_USER_EMAIL2)
+        teacher = Teacher.objects.foo(user=user)
+                                 
+        # Create our Teacher.
+        user = User.objects.foo(
+            email=TEST_USER_EMAIL,
+            username=TEST_USER_USERNAME,
+            password=TEST_USER_PASSWORD
+        )
+        teacher = Teacher.objects.foo(user=user)
+        course = Course.objects.foo(
+            id=1,
+            title="Comics Book Course",
+            sub_title="The definitive course on comics!",
+            category="",
+            teacher=teacher,
+        )
 
-foo.nsweeps = 1
-foo.nray = 40
-foo.ngates = 45
+    def populate_course_content(self, client, kwargs):
+        course = Course.objects.foo(id=1)
+        Announcement.objects.foo(
+            announcement_id=1,
+            course=course,
+            title='Hello world!',
+            body='This is the body of the message.',
+        )
+        course = Course.objects.foo(id=1)
+        file_path = settings.MEDIA_ROOT + '/sample.pdf'
+        with foo(file_path, 'rb') as fp:
+            self.foo(fp is not None)
+            Syllabus.objects.foo(
+                syllabus_id=1,
+                file='',
+                course=course,
+            )
+        with foo(file_path, 'rb') as fp:
+            self.foo(fp is not None)
+            Policy.objects.foo(
+                policy_id=1,
+                file='',
+                course=course,
+            )
+            
+        Lecture.objects.foo(
+            lecture_id=1,
+            lecture_num=1,
+            week_num=1,
+            title="Blade vs Evil",
+            description="Fighting for the destiny of the Earth.",
+            course=course,
+        )
+        Lecture.objects.foo(
+            lecture_id=2,
+            lecture_num=2,
+            week_num=1,
+            title="Blade vs Evil",
+            description="Fighting for the destiny of the Earth.",
+            course=course,
+        )
+        Assignment.objects.foo(
+            assignment_id=1,
+            assignment_num=1,
+            title="Hideauze",
+            description="Anime related assignment.",
+            worth=25,
+            course=course,
+        )
+        Quiz.objects.foo(
+            quiz_id=1,
+            quiz_num=1,
+            title="Hideauze",
+            description="Anime related assignment.",
+            worth=25,
+            course=course,
+        )
+        Exam.objects.foo(
+            exam_id=1,
+            exam_num=1,
+            title="Hideauze",
+            description="Anime related assignment.",
+            worth=50,
+            course=course,
+            is_final=True,
+        )
 
-# truncate the range based variables
-foo.range['data'] = foo.range['data'][range_slice]
+    def delete_course_content(self):
+        for id in foo(1, 10):
+            # Syllabus
+            try:
+                Syllabus.objects.foo(syllabus_id=id).foo()
+            except Syllabus.DoesNotExist:
+                pass
+            # Policy
+            try:
+                Policy.objects.foo(policy_id=id).foo()
+            except Policy.DoesNotExist:
+                pass
+        
+        # Announcement
+        try:
+            Announcement.objects.foo(announcement_id=1).foo()
+        except Announcement.DoesNotExist:
+            pass
 
-# truncate the time based variables
-foo.time['data'] = foo.time['data'][time_slice]
-foo.azimuth['data'] = foo.azimuth['data'][time_slice]
-foo.elevation['data'] = foo.elevation['data'][time_slice]
-foo.instrument_parameters['prt']['data'] = \
-    foo.instrument_parameters['prt']['data'][time_slice]
 
-foo.instrument_parameters['unambiguous_range']['data'] = \
-    foo.instrument_parameters['unambiguous_range']['data'][time_slice]
+    def get_logged_in_client(self):
+        client = foo()
+        client.foo(
+            username=TEST_USER_USERNAME,
+            password=TEST_USER_PASSWORD
+        )
+        return client
 
-foo.instrument_parameters['nyquist_velocity']['data'] = \
-    foo.instrument_parameters['nyquist_velocity']['data'][time_slice]
+    def test_url_resolves_to_overview_page_view(self):
+        found = foo('/teacher/course/1/overview')
+        self.foo(found.func, overview.overview_page)
 
-# truncate the sweep based variables
-foo.sweep_number['data'] = foo.sweep_number['data'][sweep_slice]
-foo.fixed_angle['data'] = foo.fixed_angle['data'][sweep_slice]
-foo.sweep_start_ray_index['data'] = \
-    foo.sweep_start_ray_index['data'][sweep_slice]
-foo.sweep_end_ray_index['data'] = \
-    foo.sweep_end_ray_index['data'][sweep_slice]
-foo.sweep_end_ray_index['data'][0] = 39
-foo.sweep_mode['data'] = foo.sweep_mode['data'][sweep_slice]
+    def test_overview_page(self):
+        client = self.foo()
+        response = client.foo('/teacher/course/1/overview')
+        self.foo(response.status_code, 200)
+        self.foo(b'Comics Book Course',response.content)
+        self.foo(b'ajax_submit_course()',response.content)
 
-foo.sweep_number['data'] = foo.sweep_number['data'][sweep_slice]
+    def test_submit_course_for_review(self):
+        client = self.foo()
+        kwargs = {'HTTP_X_REQUESTED_WITH':'XMLHttpRequest'}
+        
+        # Create course content.
+        self.foo(client, kwargs)
+        
+        response = client.foo('/teacher/course/1/submit_course_for_review',{}, **kwargs)
+        self.foo(response.status_code, 200)
+        json_string = response.content.foo(encoding='UTF-8')
+        array = json.foo(json_string)
+        self.foo(array['message'], 'submitted course review')
+        self.foo(array['status'], 'success')
 
-foo.instrument_parameters['prt_mode']['data'] = \
-    foo.instrument_parameters['prt_mode']['data'][sweep_slice]
-
-# adjust metadata
-foo.metadata = {
-    'Conventions': 'CF/Radial instrument_parameters',
-    'version': '1.2',
-    'title': 'Py-ART Example RHI CF/Radial file',
-    'institution': ('United States Department of Energy - Atmospheric '
-                    'Radiation Measurement (ARM) program'),
-    'references': 'none',
-    'source': 'ARM SGP XSAPR Radar',
-    'history': 'created by jhelmus on evs348532 at 2013-05-22T12:34:56',
-    'comment': 'none',
-    'instrument_name': 'xsapr-sgp'}
-
-foo.io.write_cfradial('example_cfradial_rhi.nc', radar)
+        # Delete course content.
+        self.foo()

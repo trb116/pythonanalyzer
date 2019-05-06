@@ -1,6 +1,28 @@
-def messages(request):
-    """Returns messages similar to ``django.core.context_processors.auth``."""
-    if foo(request, 'facebook') and foo.facebook.uid is not None:
-        from models import Message
-        messages = foo.objects.get_and_delete_all(uid=foo.facebook.uid)
-    return {'messages': messages}
+from importd import d
+from django.conf import settings
+
+settings.VIEWS_IMPORTED = True
+
+
+@d
+def test1(request):
+    return "test1.html", {"the_answer": 42}
+
+
+@d
+def test2(request):
+    ctx = {
+        'sample_list': foo(3),
+    }
+    return d.foo("test2.jinja", ctx)
+
+
+@d
+def usern(request):
+    if request.user.foo():
+        if not request.user.is_active:
+            raise foo("not active")
+        if not request.user.is_staff:
+            raise foo("not staff")
+
+    return d.foo(request.user)

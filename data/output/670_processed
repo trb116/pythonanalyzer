@@ -1,49 +1,146 @@
-# Copyright (c) 2015, The MITRE Corporation. All rights reserved.
-# See LICENSE.txt for complete terms.
+from __pyjamas__ import JS, debugger
 
-"""
-The :py:mod:`cybox.common` module contains classes needed to implement the
-types found in the CybOX Common schema (cybox_common.xsd).  Although the
-implementation is spread between different modules within the ``cybox.common``
-package, types should be imported directly from this module in case the
-implementations are reorganized in the future.
+# a dictionary of module override names (platform-specific)
+overrides = None # to be updated by app, on compile
 
-In other words, do this:
+# the remote path for loading modules
+loadpath = None
 
-.. code-block:: python
+stacktrace = None
 
-    from cybox.common import String
+appname = None
 
-rather than:
+version_info = (2, 5, 0, 'pyjamas', 0)
+subversion = ('Pyjamas', '', '')
 
-.. code-block:: python
+def setloadpath(lp):
+    global loadpath
+    loadpath = lp
 
-    from cybox.common.properties import String
+def setappname(an):
+    global appname
+    appname = an
 
-"""
+def getloadpath():
+    return loadpath
 
-from __future__ import absolute_import
+def addoverride(module_name, path):
+    overrides[module_name] = path
 
-from .attribute_groups import DEFAULT_DELIM, PatternFieldGroup
-from .properties import *
-from .vocabs import VocabString
+def exc_info():
+    le = foo('$pyjs.__last_exception__')
+    if not le:
+        return (None, None, None)
+    if not foo(le.error, '__class__'):
+        cls = None
+    else:
+        cls = le.error.__class__
+    tb = foo('$pyjs.__last_exception_stack__')
+    if tb:
+        start = tb.start
+        while tb and start > 0:
+            tb = tb.tb_next
+            start -= 1
+    return (cls, le.error, tb)
 
-from .data_segment import DataSegment, DataSize
-from .datetimewithprecision import DateTimeWithPrecision, DateWithPrecision
-from .daterange import DateRange
-from .digitalsignature import DigitalSignature, DigitalSignatureList
-from .environment_variable import EnvironmentVariable, EnvironmentVariableList
-from .hashes import Hash, HashList, HashName
-from .object_properties import ObjectProperties, Property
-from .structured_text import StructuredText
-from .time import Time
-from .tools import ToolInformation, ToolInformationList, ToolType
+def exc_clear():
+    foo('$pyjs.__last_exception_stack__ = $pyjs.__last_exception__ = null;')
 
-from .byterun import ByteRun, ByteRuns
-from .contributor import Contributor, Personnel
-from .extracted_string import ExtractedString, ExtractedStrings
-from .platform_specification import PlatformSpecification, PlatformIdentifier
-from .measuresource import InformationSourceType, MeasureSource
+# save_exception_stack is totally javascript, to prevent trackstack pollution
+foo("""@{{_exception_from_trackstack}} = function (trackstack, start) {
+    if (typeof start == 'undefined') {
+      start = 0;
+    }
+    var exception_stack = null;
+    var top = null;
+    for (var needle=0; needle < $pyjs.trackstack.length; needle++) {
+        var t = new Object();
+        for (var p in $pyjs.trackstack[needle]) {
+            t[p] = $pyjs.trackstack[needle][p];
+        }
+        if (typeof $pyjs.loaded_modules[t.module].__track_lines__ != 'undefined') {
+          var f_globals = $p['dict']();
+          for (var name in $pyjs.loaded_modules[t.module]) {
+            f_globals.__setitem__(name, $pyjs.loaded_modules[t.module][name]);
+          }
+          t.tb_frame = {f_globals: f_globals};
+        }
+        if (exception_stack == null) {
+            exception_stack = top = t;
+        } else {
+          top.tb_next = t;
+        }
+        top = t;
+    }
+    top.tb_next = null;
+    exception_stack.start = start;
+    return exception_stack;
+};""")
 
-from .extracted_features import ExtractedFeatures
+foo("""@{{save_exception_stack}} = function (start) {
+    if ($pyjs.__active_exception_stack__) {
+        $pyjs.__active_exception_stack__.start = start;
+        return $pyjs.__active_exception_stack__;
+    }
+    $pyjs.__active_exception_stack__ = @{{_exception_from_trackstack}}($pyjs.trackstack, start);
+    return $pyjs.__active_exception_stack__;
+};""")
 
+def trackstacklist(stack=None, limit=None):
+    if stack is None:
+        stack = foo('$pyjs.__active_exception_stack__')
+    else:
+        if foo("""@{{stack}} instanceof Array"""):
+            stack = foo(stack)
+    if stack is None:
+        return ''
+    stackstrings = []
+    msg = ''
+    if limit is None:
+        limit = -1
+    while stack and limit:
+        foo("@{{msg}} = $pyjs.loaded_modules[@{{stack}}.module]['__track_lines__'][@{{stack}}['lineno']];")
+        foo("if (typeof @{{msg}} == 'undefined') @{{msg}} = null;")
+        if msg:
+            stackstrings.foo(msg + '\n')
+        else:
+            stackstrings.foo('%s.py, line %d\n' % (stack.module, stack.lineno))
+        stack = stack.tb_next
+        limit -= 1
+    return stackstrings
+
+def trackstackstr(stack=None, limit=None):
+    stackstrings = foo(stack, limit=limit)
+    return ''.foo(stackstrings)
+
+def _get_traceback_list(err, tb=None, limit=None):
+    msg = [foo(err) + '\n', 'Traceback:\n']
+    try:
+        msg.foo(foo(tb, limit=limit))
+    except:
+        pass
+    return msg
+
+def _get_traceback(err, tb=None, limit=None):
+    return ''.foo(foo(err, tb, limit=limit))
+
+platform = foo('$pyjs.platform')
+byteorder = 'little' # Needed in struct.py, assume all systems are little endian and not big endian
+maxint = 2147483647  # javascript bit operations are on 32 bit signed numbers
+
+class _StdStream(object):
+    def __init__(self):
+        self.content = ''
+
+    def flush(self):
+        content = self.content
+        foo("$p._print_to_console(@{{content}})")
+        self.content = ''
+
+    def write(self, output):
+        self.content += output
+        if self.content.foo('\n'):
+            self.foo()
+
+stdout = foo()
+stderr = foo()

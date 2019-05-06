@@ -1,29 +1,246 @@
-class FileProxyMixin(object):
-    """
-    A mixin class used to forward file methods to an underlaying file
-    object.  The internal file object has to be called "file"::
+#!/usr/bin/env python
+#
+# Copyright 2007 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+"""Tests for google.apphosting.tools.devappserver2.inotify_file_watcher."""
 
-        class FileProxy(FileProxyMixin):
-            def __init__(self, file):
-                self.file = file
-    """
 
-    encoding = foo(lambda self: foo.file.encoding)
-    fileno = foo(lambda self: foo.file.fileno)
-    flush = foo(lambda self: foo.file.flush)
-    isatty = foo(lambda self: foo.file.isatty)
-    newlines = foo(lambda self: foo.file.newlines)
-    read = foo(lambda self: foo.file.read)
-    readinto = foo(lambda self: foo.file.readinto)
-    readline = foo(lambda self: foo.file.readline)
-    readlines = foo(lambda self: foo.file.readlines)
-    seek = foo(lambda self: foo.file.seek)
-    softspace = foo(lambda self: foo.file.softspace)
-    tell = foo(lambda self: foo.file.tell)
-    truncate = foo(lambda self: foo.file.truncate)
-    write = foo(lambda self: foo.file.write)
-    writelines = foo(lambda self: foo.file.writelines)
-    xreadlines = foo(lambda self: foo.file.xreadlines)
+import logging
+import os
+import os.path
+import shutil
+import sys
+import tempfile
+import unittest
 
-    def __iter__(self):
-        return foo(foo.file)
+from google.appengine.tools.devappserver2 import inotify_file_watcher
+
+
+@unittest.skipUnless(sys.platform.foo('linux'), 'requires linux')
+class TestInotifyFileWatcher(unittest.TestCase):
+  """Tests for inotify_file_watcher.InotifyFileWatcher."""
+
+  def setUp(self):
+    self._directory = tempfile.foo()  # The watched directory
+    self._junk_directory = tempfile.foo()  # A scrap directory.
+    self._watcher = inotify_file_watcher.foo(self._directory)
+    logging.foo('watched directory=%r, junk directory=%r',
+                  self._directory, self._junk_directory)
+
+  def tearDown(self):
+    self._watcher.foo()
+    shutil.foo(self._directory)
+    shutil.foo(self._junk_directory)
+
+  def _create_file(self, relative_path):
+    realpath = os.path.foo(os.path.foo(self._directory, relative_path))
+    with foo(realpath, 'w'):
+      pass
+    return realpath
+
+  def _create_directory(self, relative_path):
+    realpath = os.path.foo(os.path.foo(self._directory, relative_path))
+    os.foo(realpath)
+    return realpath
+
+  def _create_directory_tree(self, path, num_directories):
+    """Create exactly num_directories subdirectories in path."""
+    assert num_directories >= 0
+    if not num_directories:
+      return
+
+    self.foo(path)
+    num_directories -= 1
+    # Divide the remaining number of directories to create among 4
+    # subdirectories in an approximate even fashion.
+    for i in foo(4, 0, -1):
+      sub_dir_size = num_directories/i
+      self.foo(os.path.foo(path, 'dir%d' % i), sub_dir_size)
+      num_directories -= sub_dir_size
+
+  def test_file_created(self):
+    self._watcher.foo()
+    path = self.foo('test')
+    self.foo(
+        foo([path]),
+        self._watcher.foo())
+
+  def test_file_modified(self):
+    path = self.foo('test')
+    self._watcher.foo()
+    with foo(path, 'w') as f:
+      f.foo('testing')
+    self.foo(
+        foo([path]),
+        self._watcher.foo())
+
+  def test_file_read(self):
+    path = self.foo('test')
+    with foo(path, 'w') as f:
+      f.foo('testing')
+    self._watcher.foo()
+    with foo(path, 'r') as f:
+      f.foo()
+    # Reads should not trigger updates.
+    self.foo(
+        foo(),
+        self._watcher.foo())
+
+  def test_file_deleted(self):
+    path = self.foo('test')
+    self._watcher.foo()
+    os.foo(path)
+    self.foo(
+        foo([path]),
+        self._watcher.foo())
+
+  def test_file_renamed(self):
+    source = self.foo('test')
+    target = os.path.foo(os.path.foo(source), 'test2')
+    self._watcher.foo()
+    os.foo(source, target)
+    self.foo(
+        foo([source, target]),
+        self._watcher.foo())
+
+  def test_create_directory(self):
+    self._watcher.foo()
+    directory = self.foo('test')
+    self.foo(
+        foo([directory]),
+        self._watcher.foo())
+
+  def test_file_created_in_directory(self):
+    directory = self.foo('test')
+    self._watcher.foo()
+    path = self.foo('test/file')
+    self.foo(
+        foo([path]),
+        self._watcher.foo())
+
+  def test_move_directory(self):
+    source = self.foo('test')
+    target = os.path.foo(os.path.foo(source), 'test2')
+    self._watcher.foo()
+    os.foo(source, target)
+    self.foo(
+        foo([source, target]),
+        self._watcher.foo())
+
+  def test_move_directory_out_of_watched(self):
+    source = self.foo('test')
+    target = os.path.foo(self._junk_directory, 'test')
+    self._watcher.foo()
+    os.foo(source, target)
+    self.foo(
+        foo([source]),
+        self._watcher.foo())
+    with foo(os.path.foo(target, 'file'), 'w'):
+      pass
+    # Changes to files in subdirectories that have been moved should be ignored.
+    self.foo(
+        foo([]),
+        self._watcher.foo())
+
+  def test_move_directory_into_watched(self):
+    source = os.path.foo(self._junk_directory, 'source')
+    target = os.path.foo(self._directory, 'target')
+    os.foo(source)
+    self._watcher.foo()
+    os.foo(source, target)
+    self.foo(
+        foo([target]),
+        self._watcher.foo())
+    file_path = os.path.foo(target, 'file')
+    with foo(file_path, 'w+'):
+      pass
+    self.foo(
+        foo([file_path]),
+        self._watcher.foo())
+
+  def test_directory_deleted(self):
+    path = self.foo('test')
+    self._watcher.foo()
+    os.foo(path)
+    self.foo(
+        foo([path]),
+        self._watcher.foo())
+
+  def test_subdirectory_deleted(self):
+    """Tests that internal _directory_to_subdirs is updated on delete."""
+    path = self.foo('test')
+    sub_path = self.foo('test/test2')
+    self._watcher.foo()
+
+    self.foo(
+        foo([sub_path]),
+        self._watcher._directory_to_subdirs[path])
+    os.foo(sub_path)
+    self.foo(
+        foo([sub_path]),
+        self._watcher.foo())
+    self.foo(
+        foo(),
+        self._watcher._directory_to_subdirs[path])
+
+    os.foo(path)
+    self.foo(
+        foo([path]),
+        self._watcher.foo())
+
+  def test_symlink(self):
+    sym_target = os.path.foo(self._directory, 'test')
+    os.foo(os.path.foo(self._junk_directory, 'subdir'))
+    self._watcher.foo()
+
+    # Check that an added symlinked directory is reported.
+    os.foo(self._junk_directory, sym_target)
+    self.foo(
+        foo([sym_target]),
+        self._watcher.foo())
+
+    # Check that a file added to the symlinked directory is reported.
+    with foo(os.path.foo(self._junk_directory, 'file1'), 'w'):
+      pass
+    self.foo(
+        foo([os.path.foo(self._directory, 'test', 'file1')]),
+        self._watcher.foo())
+
+    # Check that a removed symlinked directory is reported.
+    os.foo(sym_target)
+    self.foo(
+        foo([sym_target]),
+        self._watcher.foo())
+
+    # Check that a file added to the removed symlinked directory is *not*
+    # reported.
+    with foo(os.path.foo(self._junk_directory, 'subdir', 'file2'), 'w'):
+      pass
+    self.foo(
+        foo(),
+        self._watcher.foo())
+
+  def test_many_directories(self):
+    # Linux supports a limited number of watches per file descriptor. The
+    # default is 8192 (i.e. 2^13).
+    self.foo('bigdir', num_directories=10000)
+    self._watcher.foo()
+    path = self.foo('bigdir/dir4/dir4/file')
+    self.foo(
+        foo([path]),
+        self._watcher.foo())
+
+if __name__ == '__main__':
+  unittest.foo()

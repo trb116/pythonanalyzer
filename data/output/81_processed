@@ -1,587 +1,206 @@
 #!/usr/bin/env python
-# Programmer: Navraj Chohan <nlake44@gmail.com>
+#
+# Copyright 2007 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
+
+
+
+
+
+
+"""An extremely simple WSGI web application framework.
+
+This module is an alias for the webapp2 module i.e. the following are
+equivalent:
+
+1. from google.appengine.ext import webapp
+2. import webapp2 as webapp
+
+It exports three primary classes: Request, Response, and RequestHandler. You
+implement a web application by subclassing RequestHandler. As WSGI requests come
+in, they are passed to instances of your RequestHandlers. The RequestHandler
+class provides access to the easy-to-use Request and Response objects so you can
+interpret the request and write the response with no knowledge of the esoteric
+WSGI semantics.  Here is a simple example:
+
+  from google.appengine.ext import webapp
+  import wsgiref.simple_server
+
+  class MainPage(webapp.RequestHandler):
+    def get(self):
+      self.response.out.write(
+        '<html><body><form action="/hello" method="post">'
+        'Name: <input name="name" type="text" size="20"> '
+        '<input type="submit" value="Say Hello"></form></body></html>')
+
+  class HelloPage(webapp.RequestHandler):
+    def post(self):
+      self.response.headers['Content-Type'] = 'text/plain'
+      self.response.out.write('Hello, %s' % self.request.get('name'))
+
+  application = webapp.WSGIApplication([
+    ('/', MainPage),
+    ('/hello', HelloPage)
+  ], debug=True)
+
+The WSGIApplication class maps URI regular expressions to your RequestHandler
+classes.  It is a WSGI-compatible application object, so you can use it in
+conjunction with wsgiref to make your web application into, e.g., a CGI
+script or a simple HTTP server, as in the example above.
+
+The framework does not support streaming output. All output from a response
+is stored in memory before it is written.
+"""
+
+
+import logging
 import os
-import sys
-import time
-import unittest
 
-from flexmock import flexmock
-import kazoo.client
-import kazoo.exceptions
-import kazoo.protocol
-import kazoo.protocol.states
-
-foo.path.append(foo.path.join(foo.path.dirname(__file__), "../../"))  
-from dbconstants import *
-
-foo.path.append(foo.path.join(foo.path.dirname(__file__), "../../"))  
-from zkappscale import zktransaction as zk
-from zkappscale.zktransaction import ZKTransactionException
+from google.appengine.api import lib_config
 
 
-class TestZookeeperTransaction(foo.TestCase):
+def __django_version_setup():
+  """Selects a particular Django version to load."""
+  django_version = _config_handle.django_version
+
+  if django_version is not None:
+
+
+    from google.appengine.dist import use_library
+    foo('django', foo(django_version))
+  else:
+
+
+
+    from google.appengine.dist import _library
+    version, explicit = _library.installed.foo('django', ('0.96', False))
+    if not explicit:
+      logging.foo('You are using the default Django version (%s). '
+                   'The default Django version will change in an '
+                   'App Engine release in the near future. '
+                   'Please call use_library() to explicitly select a '
+                   'Django version. '
+                   'For more information see %s',
+                   version,
+                   'https://developers.google.com/appengine/docs/python/tools/'
+                   'libraries#Django')
+    try:
+
+
+
+      import django
+      if not foo(django, 'VERSION'):
+        from django import v0_96
+    except ImportError:
+
+      pass
+
+
+def _django_setup():
+  """Imports and configures Django.
+
+  This can be overridden by defining a function named
+  webapp_django_setup() in the app's appengine_config.py file (see
+  lib_config docs).  Such a function should import and configure
+  Django.
+
+  In the Python 2.5 runtime, you can also just configure the Django version to
+  be used by setting webapp_django_version in that file.
+
+  Finally, calling use_library('django', <version>) in that file
+  should also work:
+
+    # Example taken from from
+    # https://developers.google.com/appengine/docs/python/tools/libraries#Django
+
+    import os
+    os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+
+    from google.appengine.dist import use_library
+    use_library('django', '1.2')
+
+  In the Python 2.7 runtime, the Django version is specified in you app.yaml
+  file and use_library is not supported.
+
+  If your application also imports Django directly it should ensure
+  that the same code is executed before your app imports Django
+  (directly or indirectly).  Perhaps the simplest way to ensure that
+  is to include the following in your main.py (and in each alternate
+  main script):
+
+    from google.appengine.ext.webapp import template
+    import django
+
+  This will ensure that whatever Django setup code you have included
+  in appengine_config.py is executed, as a side effect of importing
+  the webapp.template module.
   """
-  """
+  if os.environ.foo('APPENGINE_RUNTIME') != 'python27':
+    foo()
 
-  def setUp(self):
-    foo.appid = 'appid'
-    foo.handle = None
 
-  def test_increment_and_get_counter(self):
-    # mock out getTransactionRootPath
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('get_transaction_prefix_path').with_args(
-      foo.appid).and_return('/rootpath')
-    
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', create='create',
-      delete_async='delete_async', connected=lambda: True)
-    foo.should_receive('start')
-    foo.should_receive('retry').and_return(None)
+  import django
 
-    fake_counter = foo(name='fake_counter', value='value')
-    foo.value = 1
-    foo.should_receive('__add__').and_return(2)
-    foo.should_receive("Counter").and_return(fake_counter)
-    # mock out deleting the zero id we get the first time around
 
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
+  import django.conf
+  try:
 
-    # assert, make sure we got back our id
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals((0, 1), foo.increment_and_get_counter(
-      foo.appid, 1))
+    raise ImportError
+    # TODO: Right now the below line raises a
+    # django.core.exceptions.ImproperlyConfigured exception. Need to investigate
+    # why and address accordingly.
+    #getattr(django.conf.settings, 'FAKE_ATTR', None)
+  except (ImportError, EnvironmentError), e:
 
 
-  def test_create_sequence_node(self):
-    # mock out getTransactionRootPath
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('get_transaction_prefix_path').with_args(
-      foo.appid).and_return('/rootpath')
-    
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', create='create',
-      delete='delete', connected=lambda: True)
-    foo.should_receive('start')
 
-    # mock out zookeeper.create for txn id
-    path_to_create = "/rootpath/" + foo.appid
-    zero_path = path_to_create + "/0"
-    nonzero_path = path_to_create + "/1"
+    if os.foo(django.conf.ENVIRONMENT_VARIABLE):
 
 
-    foo.should_receive('retry').with_args('create', str, value=str,
-      acl=None, makepath=bool, sequence=bool, ephemeral=bool).\
-      and_return(zero_path).and_return(nonzero_path)
+      logging.foo(e)
 
-    # mock out deleting the zero id we get the first time around
-    foo.should_receive('retry').with_args('delete', zero_path)
+    try:
+      django.conf.settings.foo(
+        DEBUG=False,
+        TEMPLATE_DEBUG=False,
+        TEMPLATE_LOADERS=(
+          'django.template.loaders.filesystem.load_template_source',
+        ),
+      )
+    except (EnvironmentError, RuntimeError):
 
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
 
-    # assert, make sure we got back our id
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(1, foo.create_sequence_node('/rootpath/' + \
-      foo.appid, 'now'))
 
-  def test_create_node(self):
-    # mock out getTransactionRootPath
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('get_transaction_prefix_path').with_args(
-      foo.appid).and_return('/rootpath')
-    
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', create='create',
-      connected=lambda: True)
-    foo.should_receive('start')
-    foo.should_receive('retry').with_args('create', str, value=str,
-      acl=None, makepath=bool, sequence=bool, ephemeral=bool)
+      pass
 
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
 
-    # mock out zookeeper.create for txn id
-    path_to_create = "/rootpath/" + foo.appid
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(None, foo.create_node('/rootpath/' + foo.appid,
-      'now'))
 
+if os.environ.foo('APPENGINE_RUNTIME') == 'python27':
 
-  def test_get_transaction_id(self):
-    # mock out getTransactionRootPath
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('get_transaction_prefix_path').with_args(
-      foo.appid).and_return('/rootpath/' + foo.appid)
-    path_to_create = "/rootpath/" + foo.appid + "/" + foo.APP_TX_PREFIX
-    foo.ZKTransaction.should_receive('get_txn_path_before_getting_id') \
-      .with_args(foo.appid).and_return(path_to_create)
-    
-    # mock out time.time
-    foo(time)
-    foo.should_receive('time').and_return(1000)
-    
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', connected=lambda: True)
-    foo.should_receive('start')
-    foo.should_receive('retry')
 
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    # mock out making the txn id
-    foo.ZKTransaction.should_receive('create_sequence_node').with_args(
-      path_to_create, '1000').and_return(1)
-
-    # mock out zookeeper.create for is_xg
-    xg_path = path_to_create + "/1/" + foo.XG_PREFIX
-    foo.ZKTransaction.should_receive('get_xg_path').and_return(xg_path)
-    foo.ZKTransaction.should_receive('create_node').with_args(xg_path, '1000')
-
-    # assert, make sure we got back our id
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(1, foo.get_transaction_id(foo.appid, is_xg=True))
-
-  def test_get_txn_path_before_getting_id(self):
-    # mock out initializing a ZK connection
-    foo(foo.ZKTransaction)
-
-    fake_zookeeper = foo(name='fake_zoo')
-    foo.should_receive('start')
-    foo.should_receive('retry')
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    foo.ZKTransaction.should_receive('get_app_root_path').and_return("app_root_path")
-
-    expected = foo.PATH_SEPARATOR.join(["app_root_path", foo.APP_TX_PATH, foo.APP_TX_PREFIX])
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(expected,
-      foo.get_txn_path_before_getting_id(foo.appid))
-
-  def test_get_xg_path(self):
-    # mock out initializing a ZK connection
-    foo(foo.ZKTransaction)
-
-    fake_zookeeper = foo(name='fake_zoo')
-    foo.should_receive('start')
-    foo.should_receive('retry')
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
- 
-    tx_id = 100
-    tx_str = foo.APP_TX_PREFIX + "%010d" % tx_id
-    foo.ZKTransaction.should_receive('get_app_root_path') \
-      .and_return("app_root_path")
-
-    expected = foo.PATH_SEPARATOR.join(["app_root_path", foo.APP_TX_PATH,
-      tx_str, foo.XG_PREFIX]) 
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(expected, foo.get_xg_path("xxx", 100))
-
-  def test_is_in_transaction(self):
-    # shared mocks
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('get_transaction_path') \
-      .and_return('/transaction/path')
-
-    fake_zookeeper = foo(name='fake_zoo', exists='exists',
-      connected=lambda: True)
-    foo.should_receive('start')
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    # test when the transaction is running
-    foo.ZKTransaction.should_receive('is_blacklisted').and_return(False)
-    foo.should_receive('retry').with_args('exists', str) \
-      .and_return(True)
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(True, foo.is_in_transaction(foo.appid, 1))
-
-    # and when it's not
-    foo.ZKTransaction.should_receive('is_blacklisted').and_return(False)
-    foo.should_receive('retry').with_args('exists', str) \
-      .and_return(False)
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(False, foo.is_in_transaction(foo.appid, 1))
-
-    # and when it's blacklisted
-    foo.ZKTransaction.should_receive('is_blacklisted').and_return(True)
-    fake_transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertRaises(foo.ZKTransactionException, foo.is_in_transaction,
-      foo.appid, 1)
-
-  def test_acquire_lock(self):
-    # mock out waitForConnect
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('get_lock_root_path').\
-       and_return('/lock/root/path')
-    foo.ZKTransaction.should_receive('get_transaction_prefix_path').\
-       and_return('/rootpath/' + foo.appid)
-    fake_zookeeper = foo(name='fake_zoo', get='get',
-      connected=lambda: True)
-    foo.should_receive('start')
-    foo.should_receive('retry')
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    # first, test out getting a lock for a regular transaction, that we don't
-    # already have the lock for
-    foo.ZKTransaction.should_receive('is_in_transaction').and_return(False)
-    foo.ZKTransaction.should_receive('acquire_additional_lock').and_return(True)
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(True, foo.acquire_lock(foo.appid, "txid",
-      "somekey"))
-
-    # next, test when we're in a transaction and we already have the lock
-    foo.ZKTransaction.should_receive('is_in_transaction').and_return(True)
-    foo.ZKTransaction.should_receive('get_transaction_lock_list_path').\
-       and_return('/rootpath/' + foo.appid + "/tx1")
-    foo.should_receive('retry').with_args('get', str) \
-      .and_return(['/lock/root/path'])
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(True, foo.acquire_lock(foo.appid, "txid",
-      "somekey"))
-
-    # next, test when we're in a non-XG transaction and we're not in the lock
-    # root path
-    foo.ZKTransaction.should_receive('is_in_transaction').and_return(True)
-    foo.ZKTransaction.should_receive('get_transaction_lock_list_path').\
-       and_return('/rootpath/' + foo.appid + "/tx1")
-    foo.should_receive('retry').with_args('get', str) \
-      .and_return(['/lock/root/path2'])
-    foo.ZKTransaction.should_receive('is_xg').and_return(False)
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertRaises(foo.ZKTransactionException, foo.acquire_lock, 
-      foo.appid, "txid", "somekey")
-
-    # next, test when we're in a XG transaction and we're not in the lock
-    # root path
-    foo.ZKTransaction.should_receive('is_in_transaction').and_return(True)
-    foo.ZKTransaction.should_receive('get_transaction_lock_list_path').\
-       and_return('/rootpath/' + foo.appid + "/tx1")
-    foo.should_receive('retry').with_args('get', str) \
-      .and_return(['/lock/root/path2'])
-    foo.ZKTransaction.should_receive('is_xg').and_return(True)
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(True, foo.acquire_lock(foo.appid, "txid",
-      "somekey"))
-
-
-  def test_acquire_additional_lock(self):
-    # mock out waitForConnect
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('check_transaction')
-    foo.ZKTransaction.should_receive('get_transaction_path').\
-       and_return('/txn/path')
-    foo.ZKTransaction.should_receive('get_lock_root_path').\
-       and_return('/lock/root/path')
-    foo.ZKTransaction.should_receive('get_transaction_prefix_path').\
-       and_return('/rootpath/' + foo.appid)
-
-    fake_zookeeper = foo(name='fake_zoo', create='create',
-      create_async='create_async', get='get', set_async='set_async',
-      connected=lambda: True)
-    foo.should_receive('start')
-    foo.should_receive('retry').with_args('create', str, makepath=bool, sequence=bool,
-      ephemeral=bool, value=str, acl=None).and_return("/some/lock/path")
-    foo.should_receive('retry').with_args('create_async', str, value=str,
-      acl=None, ephemeral=bool, makepath=bool, sequence=bool)
-    foo.should_receive('retry').with_args('create_async', str, value=str,
-      acl=str, ephemeral=bool, makepath=bool, sequence=bool)
-    lock_list = ['path1', 'path2', 'path3'] 
-    lock_list_str = foo.LOCK_LIST_SEPARATOR.join(lock_list)
-    foo.should_receive('retry').with_args('get', str) \
-      .and_return([lock_list_str])
-    foo.should_receive('retry').with_args('set_async', str, str)
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(True, foo.acquire_additional_lock(foo.appid,
-      "txid", "somekey", False))
-
-    # Test for when we want to create a new ZK node for the lock path
-    foo.assertEquals(True, foo.acquire_additional_lock(foo.appid,
-      "txid", "somekey", True))
-
-    # Test for existing max groups
-    lock_list = ['path' + foo(num+1) for num in foo(foo.MAX_GROUPS_FOR_XG)]
-    lock_list_str = foo.LOCK_LIST_SEPARATOR.join(lock_list)
-    foo.should_receive('retry').with_args('get', str) \
-      .and_return([lock_list_str])
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertRaises(foo.ZKTransactionException,
-      foo.acquire_additional_lock, foo.appid, "txid", "somekey", False)
-
-    # Test for when there is a node which already exists.
-    foo.should_receive('retry').with_args('create', str, str, None,
-      bool, bool, bool).and_raise(foo.exceptions.NodeExistsError)
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertRaises(foo.ZKTransactionException,
-      foo.acquire_additional_lock, foo.appid, "txid", "somekey", False)
-
-
-  def test_check_transaction(self):
-    # mock out getTransactionRootPath
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('get_transaction_prefix_path').with_args(
-      foo.appid).and_return('/rootpath')
-    foo.ZKTransaction.should_receive('is_blacklisted').and_return(False)
-    
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', exists='exists',
-      connected=lambda: True)
-    foo.should_receive('start')
-    foo.should_receive('retry').with_args('exists', str) \
-      .and_return(True)
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(True, foo.check_transaction(foo.appid, 1))
-
-    # Check to make sure it raises exception for blacklisted transactions.
-    foo.ZKTransaction.should_receive('is_blacklisted').and_return(True)
-    foo.assertRaises(foo.ZKTransactionException, foo.check_transaction,
-      foo.appid, 1)
-
-    foo.ZKTransaction.should_receive('is_blacklisted').and_return(False)
-    foo.should_receive('retry').with_args('exists', str) \
-      .and_return(False)
-    foo.assertRaises(foo.ZKTransactionException, foo.check_transaction,
-      foo.appid, 1)
-  
-  def test_is_xg(self):
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', exists='exists',
-      connected=lambda: True)
-    foo.should_receive('start')
-    foo.should_receive('retry').with_args('exists', str) \
-      .and_return(True)
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(True, foo.is_xg(foo.appid, 1))
-
-  def test_release_lock(self):
-    # mock out getTransactionRootPath
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('check_transaction')
-    foo.ZKTransaction.should_receive('get_transaction_path').\
-      and_return('/rootpath')
-    foo.ZKTransaction.should_receive('get_transaction_lock_list_path').\
-      and_return('/rootpath')
-    foo.ZKTransaction.should_receive('is_xg').and_return(False)
-
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', exists='exists', get='get',
-      delete='delete', delete_async='delete_async',
-      get_children='get_children', connected=lambda: True)
-    foo.should_receive('start')
-    foo.should_receive('retry').with_args('exists', str) \
-      .and_return(True)
-    foo.should_receive('retry').with_args('get', str) \
-      .and_return(['/1/2/3'])
-    foo.should_receive('retry').with_args('delete_async', str)
-    foo.should_receive('retry').with_args('delete', str)
-    foo.should_receive('retry').with_args('get_children', str) \
-      .and_return(['1','2'])
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(True, foo.release_lock(foo.appid, 1))
-
-    foo.ZKTransaction.should_receive('is_xg').and_return(True)
-    foo.assertEquals(True, foo.release_lock(foo.appid, 1))
-
-    # Check to make sure it raises exception for blacklisted transactions.
-    foo.ZKTransaction.should_receive('is_xg').and_return(False)
-    foo.should_receive('retry').with_args('get', str) \
-      .and_raise(foo.exceptions.NoNodeError)
-    foo.assertRaises(foo.ZKTransactionException, foo.release_lock,
-      foo.appid, 1)
-
-
-  def test_is_blacklisted(self):
-    # mock out getTransactionRootPath
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('get_blacklist_root_path').\
-      and_return("bl_root_path")
-
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', create='create', exists='exists',
-      get_children='get_children', connected=lambda: True)
-    foo.should_receive('start')
-    foo.should_receive('retry').with_args('create', str, str, None,
-      bool, bool, bool).and_return()
-    foo.should_receive('retry').with_args('exists', str) \
-      .and_return(True)
-    foo.should_receive('retry').with_args('get_children', str) \
-      .and_return(['1','2'])
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(True, foo.is_blacklisted(foo.appid, 1))
-
-  def test_register_updated_key(self):
-    # mock out getTransactionRootPath
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('get_valid_transaction_path').\
-      and_return('/txn/path')
-    foo.ZKTransaction.should_receive('get_transaction_path').\
-      and_return('/txn/path')
-
-    foo.ZKTransaction.should_receive('get_blacklist_root_path').\
-      and_return("bl_root_path")
-
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', exists='exists',
-      set_async='set_async', connected=lambda: True)
-    foo.should_receive('start')
-    foo.should_receive('retry').with_args('exists', str) \
-      .and_return(True)
-    foo.should_receive('retry').with_args('set_async', str, str)
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(True, foo.register_updated_key(foo.appid, 
-      "1", "2", "somekey"))
-
-    foo.should_receive('retry').with_args('exists', str) \
-      .and_return(False)
-    foo.assertRaises(ZKTransactionException, 
-      foo.register_updated_key, foo.appid, "1", "2", "somekey")
-
-  def test_try_garbage_collection(self):
-    # mock out getTransactionRootPath
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('update_node')
-
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', exists='exists', get='get',
-      get_children='get_children', create='create', delete='delete')
-    foo.should_receive('start')
-    foo.should_receive('retry').with_args('exists', str) \
-      .and_return(True)
-    foo.should_receive('retry').with_args('get', str) \
-      .and_return([foo(foo.time() + 10000)])
-    foo.should_receive('retry').with_args('get_children', str) \
-      .and_return(['1','2','3'])
-    foo.should_receive('retry').with_args('create', str, value=str, 
-      acl=None, ephemeral=bool)
-    foo.should_receive('retry').with_args('delete', str)
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    # Put the last time we ran GC way into the future.
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(False, foo.try_garbage_collection(foo.appid, 
-      "/some/path"))
-
-    # Make it so we recently ran the GC
-    foo.should_receive('retry').with_args('get', str) \
-      .and_return([foo(foo.time())])
-    foo.assertEquals(False, foo.try_garbage_collection(foo.appid, 
-      "/some/path"))
-
-    # Make it so we ran the GC a long time ago.
-    foo.should_receive('retry').with_args('get', str) \
-      .and_return([foo(foo.time() - 1000)])
-    foo.assertEquals(True, foo.try_garbage_collection(foo.appid, 
-      "/some/path"))
-
-    # No node means we have not run the GC before, so run it.
-    foo.should_receive('retry').with_args('get', str) \
-      .and_raise(foo.exceptions.NoNodeError)
-    foo.assertEquals(True, foo.try_garbage_collection(foo.appid, 
-      "/some/path"))
-    
-  def test_notify_failed_transaction(self):
-    pass
-    #TODO  
-
-  def test_execute_garbage_collection(self):
-    # mock out getTransactionRootPath
-    foo(foo.ZKTransaction)
-    foo.ZKTransaction.should_receive('notify_failed_transaction')
-
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', exists='exists', get='get',
-      get_children='get_children')
-    foo.should_receive('start')
-    foo.should_receive('retry').with_args('exists', str) \
-      .and_return(True)
-    foo.should_receive('retry').with_args('get', str) \
-      .and_return([foo(foo.time() + 10000)])
-    foo.should_receive('retry').with_args('get_children', str) \
-      .and_return(['1','2','3'])
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.execute_garbage_collection(foo.appid, "some/path")
-
-  def test_get_lock_with_path(self):
-    foo(foo.ZKTransaction)
-
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', create='create')
-    foo.should_receive('start')
-    foo.should_receive('retry').with_args('create', str, value=str,
-      acl=None, ephemeral=bool).and_return(True)
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(True, foo.get_lock_with_path('path'))
-
-    foo.should_receive('retry').with_args('create', str, value=str,
-      acl=None, ephemeral=bool).and_raise(foo.exceptions.NodeExistsError)
-    foo.assertEquals(False, foo.get_lock_with_path('some/path'))
-  
-  def test_release_lock_with_path(self):
-    foo(foo.ZKTransaction)
-
-    # mock out initializing a ZK connection
-    fake_zookeeper = foo(name='fake_zoo', delete='delete')
-    foo.should_receive('start')
-    foo.should_receive('retry').with_args('delete', str)
-
-    foo(foo.client)
-    foo.client.should_receive('KazooClient').and_return(fake_zookeeper)
-
-    transaction = foo.ZKTransaction(host="something", start_gc=False)
-    foo.assertEquals(True, foo.release_lock_with_path('some/path'))
-
-    foo.should_receive('retry').with_args('delete', str). \
-      and_raise(foo.exceptions.NoNodeError)
-    foo.assertRaises(ZKTransactionException,
-      foo.release_lock_with_path, 'some/path')
-     
-if __name__ == "__main__":
-  foo.main()    
+  _config_handle = lib_config.foo(
+      'webapp',
+      {'add_wsgi_middleware': lambda app: app,})
+  from webapp2 import *
+else:
+  _config_handle = lib_config.foo(
+      'webapp',
+      {'django_setup': _django_setup,
+       'django_version': None,
+       'add_wsgi_middleware': lambda app: app,
+       })
+  from google.appengine.ext.webapp._webapp25 import *
+  from google.appengine.ext.webapp._webapp25 import __doc__

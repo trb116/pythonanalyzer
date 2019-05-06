@@ -1,100 +1,73 @@
-import sys
-import re
-import logging
-from optparse import OptionParser
+# -*- coding: utf-8 -*-
+"""This is a fast Python implementation of SLFN.
+
+Created on Sun Sep  6 11:18:55 2015
+@author: akusok
+"""
+
+import os
+import platform
+
+from .slfn import SLFN
 import numpy as np
-from scipy.spatial.distance import cdist
-import pylab
-import cpa
-from .profiles import add_common_options
-from .preprocessing import NullPreprocessor
-from .cache import Cache, normalizations
+from scipy.linalg import blas, lapack
 
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG)
 
-    parser = OptionParser("usage: %prog [options] PROPERTIES-FILE CACHE-DIR PREPROCESSOR [NSTEPS]")
-    parser.add_option('-f', dest='filter', help='only profile images matching this CPAnalyst filter')
-    add_common_options(parser)
-    options, args = parser.parse_args()
+class SLFNPython(SLFN):
+    """Single Layer Feed-forward Network (SLFN), the neural network that ELM trains.
+    """
 
-    if len(args) not in [3, 4]:
-        parser.error('Incorrect number of arguments')
-    properties_file, cache_dir, preprocess_file = args[:3]
-    nsteps = int(args[3]) if len(args) == 4 else 20
+    def __init__(self, inputs, outputs, norm=None, precision=np.float64):
 
-    normalization = normalizations[options.normalization]
-    if preprocess_file is None:
-        preprocessor = NullPreprocessor(normalization.colnames)
-    else:
-        preprocessor = cpa.util.unpickle1(preprocess_file)
-    cpa.properties.LoadFile(properties_file)
-    cache = Cache(cache_dir)
+        super(SLFNPython, self).__init__(inputs, outputs, norm, precision)
+        # get correct BLAS/LAPACK functions for precision
+        if precision is np.float32:
+            self.syrk = blas.ssyrk
+            self.posv = lapack.sposv
+        elif precision is np.float64:
+            self.syrk = blas.dsyrk
+            self.posv = lapack.dposv
 
-    if options.filter:
-        image_keys = cpa.db.GetFilteredImages(options.filter)
-    else:
-        image_keys = cpa.db.GetAllImageKeys()
 
-    nfactors = len(preprocessor.variables)
-    min_distances = np.ones(nfactors * nsteps) * np.inf
-    nearest_neighbors = [None] * nfactors * nsteps
-    min_profile = np.ones(nfactors) * np.inf
-    max_profile = np.ones(nfactors) * -np.inf
+    def add_batch(self, X, T, wc=None):
+        """Add a batch using Symmetric Rank-K matrix update for HH.
+        """
+        H = self._project(X)
+        T = T.astype(self.precision)
+        if wc is not None:  # apply weights if given
+            w = np.array(wc**0.5, dtype=self.precision)[:, None]  # re-shape to column matrix
+            H *= w
+            T *= w
 
-    njobs = len(image_keys)
+        if self.HH is None:  # initialize space for self.HH, self.HT
+            self.HH = np.zeros((self.L, self.L), dtype=self.precision)
+            self.HT = np.zeros((self.L, self.outputs), dtype=self.precision)
+            np.fill_diagonal(self.HH, self.norm)
 
-    def make_progress():
-        show_progress = True
-        if show_progress:
-            import progressbar
-            return progressbar.ProgressBar(widgets=[progressbar.Percentage(), ' ',
-                                                        progressbar.Bar(), ' ', 
-                                                        progressbar.Counter(), '/', 
-                                                        str(njobs), ' ',
-                                                        progressbar.ETA()],
-                                               maxval=njobs)
-        else:
-            return lambda x: x
+        #self.syrk(1, H.T, 1, self.HH, trans=0, overwrite_c=1)  # 'overwrite_c' does not work
+        self.HH = self.syrk(1, H.T, 1, self.HH, trans=0)  # self.HH += np.dot(H.T, H)
+        self.HT += np.dot(H.T, T)
 
-    # Get the range of each variable
+    def solve_corr(self, HH, HT):
+        """Compute output weights B for given HH and HT.
 
-    for image_key in make_progress()(image_keys):
-        data, colnames, object_keys = cache.load([image_key], normalization=normalization)
-        if len(data) == 0:
-            continue
-        data = preprocessor(data)
-        min_profile = np.minimum(min_profile, np.min(data, 0))
-        max_profile = np.maximum(max_profile, np.max(data, 0))
+        Simple but inefficient version, see a better one in solver_python.
 
-    print >>sys.stderr, 'RANGES:'
-    for i in range(nfactors):
-        print >>sys.stderr, i + 1, min_profile[i], max_profile[i]
-    print >>sys.stderr
+        Args:
+            HH (matrix): covariance matrix of hidden layer represenation H, size (`L` * `L`)
+            HT (matrix): correlation matrix between H and outputs T, size (`L` * `outputs`)
+        """
+        _, B, info = self.posv(HH, HT)
+        if info > 0:
+            print("Covariance matrix is not full rank; solving with SVD (slow)")
+            print("This happened because you have duplicated or too many neurons")
+            HH = HH + np.triu(HH, k=1).T
+            B = np.linalg.lstsq(HH, HT)[0]
+        return B
 
-    values = np.vstack([np.linspace(min_profile[i], max_profile[i], nsteps)
-                        for i in range(nfactors)])
 
-    # Pick cells
-
-    for image_key in make_progress()(image_keys):
-        data, colnames, object_keys = cache.load([image_key], normalization=normalization)
-        if len(data) == 0:
-            continue
-        data = preprocessor(data)
-        distances = np.zeros((len(data), nfactors * nsteps))
-        for i in range(len(data)):
-            for factor in range(nfactors):
-                for step in range(nsteps):
-                    distance = np.abs(data[i, factor] - values[factor, step])
-                    distances[i, factor * nsteps + step] = distance
-        assert distances.shape[1] == nfactors * nsteps
-        cell_indices, target_indices = np.nonzero(distances < min_distances)
-        for i, j in zip(cell_indices, target_indices):
-            min_distances[j] = distances[i, j]
-            nearest_neighbors[j] = image_key + (object_keys[i],)
-
-    print 'label', ' '.join([re.sub(' ', '_', v) for v in preprocessor.variables])
-    for i, label in enumerate(preprocessor.variables):
-        for j in range(nsteps):
-            print re.sub(' ', '_', label), ' '.join(map(str, nearest_neighbors[i * nsteps + j]))
+    def get_corr(self):
+        """Return current correlation matrices.
+        """
+        HH = self.HH + np.triu(self.HH, k=1).T
+        return HH, self.HT

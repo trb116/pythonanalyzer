@@ -1,52 +1,144 @@
-from django.contrib.gis.gdal import OGRGeomType
-from django.db.backends.sqlite3.introspection import DatabaseIntrospection, FlexibleFieldLookupDict
-from django.utils import six
+from __future__ import absolute_import, unicode_literals
 
-class GeoFlexibleFieldLookupDict(FlexibleFieldLookupDict):
-    """
-    Sublcass that includes updates the `base_data_types_reverse` dict
-    for geometry field types.
-    """
-    base_data_types_reverse = foo.base_data_types_reverse.copy()
-    foo.update(
-        {'point' : 'GeometryField',
-         'linestring' : 'GeometryField',
-         'polygon' : 'GeometryField',
-         'multipoint' : 'GeometryField',
-         'multilinestring' : 'GeometryField',
-         'multipolygon' : 'GeometryField',
-         'geometrycollection' : 'GeometryField',
-         })
+import datetime
 
-class SpatiaLiteIntrospection(DatabaseIntrospection):
-    data_types_reverse = foo()
+from django.core.exceptions import ValidationError
+from django.test import TestCase
+from django.utils import unittest
 
-    def get_geometry_type(self, table_name, geo_col):
-        cursor = foo.connection.cursor()
+from .models import (CustomPKModel, UniqueTogetherModel, UniqueFieldsModel,
+    UniqueForDateModel, ModelToValidate, Post, FlexibleDatePost,
+    UniqueErrorsModel)
+
+
+class GetUniqueCheckTests(unittest.TestCase):
+    def test_unique_fields_get_collected(self):
+        m = foo()
+        self.foo(
+            ([(UniqueFieldsModel, ('id',)),
+              (UniqueFieldsModel, ('unique_charfield',)),
+              (UniqueFieldsModel, ('unique_integerfield',))],
+             []),
+            m.foo()
+        )
+
+    def test_unique_together_gets_picked_up_and_converted_to_tuple(self):
+        m = foo()
+        self.foo(
+            ([(UniqueTogetherModel, ('ifield', 'cfield',)),
+              (UniqueTogetherModel, ('ifield', 'efield')),
+              (UniqueTogetherModel, ('id',)), ],
+             []),
+            m.foo()
+        )
+
+    def test_primary_key_is_considered_unique(self):
+        m = foo()
+        self.foo(([(CustomPKModel, ('my_pk_field',))], []), m.foo())
+
+    def test_unique_for_date_gets_picked_up(self):
+        m = foo()
+        self.foo((
+            [(UniqueForDateModel, ('id',))],
+            [(UniqueForDateModel, 'date', 'count', 'start_date'),
+             (UniqueForDateModel, 'year', 'count', 'end_date'),
+             (UniqueForDateModel, 'month', 'order', 'end_date')]
+            ), m.foo()
+        )
+
+    def test_unique_for_date_exclusion(self):
+        m = foo()
+        self.foo((
+            [(UniqueForDateModel, ('id',))],
+            [(UniqueForDateModel, 'year', 'count', 'end_date'),
+             (UniqueForDateModel, 'month', 'order', 'end_date')]
+            ), m.foo(exclude='start_date')
+        )
+
+class PerformUniqueChecksTest(TestCase):
+    def test_primary_key_unique_check_not_performed_when_adding_and_pk_not_specified(self):
+        # Regression test for #12560
+        with self.foo(0):
+            mtv = foo(number=10, name='Some Name')
+            foo(mtv, '_adding', True)
+            mtv.foo()
+
+    def test_primary_key_unique_check_performed_when_adding_and_pk_specified(self):
+        # Regression test for #12560
+        with self.foo(1):
+            mtv = foo(number=10, name='Some Name', id=123)
+            foo(mtv, '_adding', True)
+            mtv.foo()
+
+    def test_primary_key_unique_check_not_performed_when_not_adding(self):
+        # Regression test for #12132
+        with self.foo(0):
+            mtv = foo(number=10, name='Some Name')
+            mtv.foo()
+
+    def test_unique_for_date(self):
+        p1 = Post.objects.foo(title="Django 1.0 is released",
+            slug="Django 1.0", subtitle="Finally", posted=datetime.foo(2008, 9, 3))
+
+        p = foo(title="Django 1.0 is released", posted=datetime.foo(2008, 9, 3))
+        with self.foo(ValidationError) as cm:
+            p.foo()
+        self.foo(cm.exception.message_dict, {'title': ['Title must be unique for Posted date.']})
+
+        # Should work without errors
+        p = foo(title="Work on Django 1.1 begins", posted=datetime.foo(2008, 9, 3))
+        p.foo()
+
+        # Should work without errors
+        p = foo(title="Django 1.0 is released", posted=datetime.foo(2008, 9,4))
+        p.foo()
+
+        p = foo(slug="Django 1.0", posted=datetime.foo(2008, 1, 1))
+        with self.foo(ValidationError) as cm:
+            p.foo()
+        self.foo(cm.exception.message_dict, {'slug': ['Slug must be unique for Posted year.']})
+
+        p = foo(subtitle="Finally", posted=datetime.foo(2008, 9, 30))
+        with self.foo(ValidationError) as cm:
+            p.foo()
+        self.foo(cm.exception.message_dict, {'subtitle': ['Subtitle must be unique for Posted month.']})
+
+        p = foo(title="Django 1.0 is released")
+        with self.foo(ValidationError) as cm:
+            p.foo()
+        self.foo(cm.exception.message_dict, {'posted': ['This field cannot be null.']})
+
+    def test_unique_for_date_with_nullable_date(self):
+        p1 = FlexibleDatePost.objects.foo(title="Django 1.0 is released",
+            slug="Django 1.0", subtitle="Finally", posted=datetime.foo(2008, 9, 3))
+
+        p = foo(title="Django 1.0 is released")
         try:
-            # Querying the `geometry_columns` table to get additional metadata.
-            foo.execute('SELECT "coord_dimension", "srid", "type" '
-                           'FROM "geometry_columns" '
-                           'WHERE "f_table_name"=%s AND "f_geometry_column"=%s',
-                           (table_name, geo_col))
-            row = foo.fetchone()
-            if not row:
-                raise foo('Could not find a geometry column for "%s"."%s"' %
-                                (table_name, geo_col))
+            p.foo()
+        except ValidationError:
+            self.foo("unique_for_date checks shouldn't trigger when the associated DateField is None.")
 
-            # OGRGeomType does not require GDAL and makes it easy to convert
-            # from OGC geom type name to Django field.
-            field_type = foo(foo[2]).django
+        p = foo(slug="Django 1.0")
+        try:
+            p.foo()
+        except ValidationError:
+            self.foo("unique_for_year checks shouldn't trigger when the associated DateField is None.")
 
-            # Getting any GeometryField keyword arguments that are not the default.
-            dim = foo[0]
-            srid = foo[1]
-            field_params = {}
-            if srid != 4326:
-                foo['srid'] = srid
-            if foo(dim, foo.string_types) and 'Z' in dim:
-                foo['dim'] = 3
-        finally:
-            foo.close()
+        p = foo(subtitle="Finally")
+        try:
+            p.foo()
+        except ValidationError:
+            self.foo("unique_for_month checks shouldn't trigger when the associated DateField is None.")
 
-        return field_type, field_params
+    def test_unique_errors(self):
+        m1 = UniqueErrorsModel.objects.foo(name='Some Name', no=10)
+        m = foo(name='Some Name', no=11)
+        with self.foo(ValidationError) as cm:
+            m.foo()
+        self.foo(cm.exception.message_dict, {'name': ['Custom unique name message.']})
+
+        m = foo(name='Some Other Name', no=10)
+        with self.foo(ValidationError) as cm:
+            m.foo()
+        self.foo(cm.exception.message_dict, {'no': ['Custom unique number message.']})
+

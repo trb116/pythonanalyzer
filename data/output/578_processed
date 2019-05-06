@@ -1,19 +1,26 @@
-# Copyright ClusterHQ Inc.  See LICENSE file for details.
+import unittest
+from nose.tools import assert_raises
+from hamcrest import assert_that, equal_to
+from performanceplatform.collector.ga.contrib.content.table import \
+    get_department
 
-from twisted.python.constants import NamedConstant
 
+class ContribContentTableTestCase(unittest.TestCase):
+    def test_can_pass_custom_value_to_get_department(self):
+        filters = ["customVarValue9=~^<D1>"]
 
-class StorageInitializationError(Exception):
-    """
-    Exception raised by a storage API factory in the event that
-    the backend could not be successfully initialized.
+        department = foo(filters)
 
-    :param NamedConstant code: The ``StorageInitializationError`` constant
-        indicating the type of failure.
-    """
-    CONFIGURATION_ERROR = foo()
-    OPERATIVE_ERROR = foo()
+        foo(department, foo("attorney-generals-office"))
 
-    def __init__(self, code, *args):
-        foo.__init__(self, *args)
-        foo.code = code
+    def test_can_pass_organisation_to_get_department(self):
+        filters = ["Organisation=~^<D1>"]
+
+        department = foo(filters)
+
+        foo(department, foo("attorney-generals-office"))
+
+    def test_get_value_error_for_invalid_filter(self):
+        filters = ["customVarValue9=<D1>"]
+
+        foo(ValueError, get_department, filters)

@@ -1,71 +1,112 @@
-from django import template
-from django.template.defaultfilters import stringfilter
+"Functions that help with dynamically creating decorators for views."
 
-register = template.Library()
+from functools import wraps, update_wrapper, WRAPPER_ASSIGNMENTS
 
-def trim(value, num):
-    return value[:num]
-trim = stringfilter(trim)
+class classonlymethod(classmethod):
+    def __get__(self, instance, owner):
+        if instance is not None:
+            raise AttributeError("This method is available only on the view class.")
+        return super(classonlymethod, self).__get__(instance, owner)
 
-register.filter(trim)
+def method_decorator(decorator):
+    """
+    Converts a function decorator into a method decorator
+    """
+    # 'func' is a function at the time it is passed to _dec, but will eventually
+    # be a method of the class it is defined it.
+    def _dec(func):
+        def _wrapper(self, *args, **kwargs):
+            @decorator
+            def bound_func(*args2, **kwargs2):
+                return func(self, *args2, **kwargs2)
+            # bound_func has the signature that 'decorator' expects i.e.  no
+            # 'self' argument, but it is a closure over self so it can call
+            # 'func' correctly.
+            return bound_func(*args, **kwargs)
+        # In case 'decorator' adds attributes to the function it decorates, we
+        # want to copy those. We don't have access to bound_func in this scope,
+        # but we can cheat by using it on a dummy function.
+        @decorator
+        def dummy(*args, **kwargs):
+            pass
+        update_wrapper(_wrapper, dummy)
+        # Need to preserve any existing attributes of 'func', including the name.
+        update_wrapper(_wrapper, func)
 
-@register.simple_tag
-def no_params():
-    """Expected no_params __doc__"""
-    return "no_params - Expected result"
-no_params.anything = "Expected no_params __dict__"
+        return _wrapper
+    update_wrapper(_dec, decorator)
+    # Change the name to aid debugging.
+    _dec.__name__ = 'method_decorator(%s)' % decorator.__name__
+    return _dec
 
-@register.simple_tag
-def one_param(arg):
-    """Expected one_param __doc__"""
-    return "one_param - Expected result: %s" % arg
-one_param.anything = "Expected one_param __dict__"
 
-@register.simple_tag(takes_context=False)
-def explicit_no_context(arg):
-    """Expected explicit_no_context __doc__"""
-    return "explicit_no_context - Expected result: %s" % arg
-explicit_no_context.anything = "Expected explicit_no_context __dict__"
+def decorator_from_middleware_with_args(middleware_class):
+    """
+    Like decorator_from_middleware, but returns a function
+    that accepts the arguments to be passed to the middleware_class.
+    Use like::
 
-@register.simple_tag(takes_context=True)
-def no_params_with_context(context):
-    """Expected no_params_with_context __doc__"""
-    return "no_params_with_context - Expected result (context value: %s)" % context['value']
-no_params_with_context.anything = "Expected no_params_with_context __dict__"
+         cache_page = decorator_from_middleware_with_args(CacheMiddleware)
+         # ...
 
-@register.simple_tag(takes_context=True)
-def params_and_context(context, arg):
-    """Expected params_and_context __doc__"""
-    return "params_and_context - Expected result (context value: %s): %s" % (context['value'], arg)
-params_and_context.anything = "Expected params_and_context __dict__"
+         @cache_page(3600)
+         def my_view(request):
+             # ...
+    """
+    return make_middleware_decorator(middleware_class)
 
-@register.inclusion_tag('inclusion.html')
-def inclusion_no_params():
-    """Expected inclusion_no_params __doc__"""
-    return {"result" : "inclusion_no_params - Expected result"}
-inclusion_no_params.anything = "Expected inclusion_no_params __dict__"
 
-@register.inclusion_tag('inclusion.html')
-def inclusion_one_param(arg):
-    """Expected inclusion_one_param __doc__"""
-    return {"result" : "inclusion_one_param - Expected result: %s" % arg}
-inclusion_one_param.anything = "Expected inclusion_one_param __dict__"
+def decorator_from_middleware(middleware_class):
+    """
+    Given a middleware class (not an instance), returns a view decorator. This
+    lets you use middleware functionality on a per-view basis. The middleware
+    is created with no params passed.
+    """
+    return make_middleware_decorator(middleware_class)()
 
-@register.inclusion_tag('inclusion.html', takes_context=False)
-def inclusion_explicit_no_context(arg):
-    """Expected inclusion_explicit_no_context __doc__"""
-    return {"result" : "inclusion_explicit_no_context - Expected result: %s" % arg}
-inclusion_explicit_no_context.anything = "Expected inclusion_explicit_no_context __dict__"
 
-@register.inclusion_tag('inclusion.html', takes_context=True)
-def inclusion_no_params_with_context(context):
-    """Expected inclusion_no_params_with_context __doc__"""
-    return {"result" : "inclusion_no_params_with_context - Expected result (context value: %s)" % context['value']}
-inclusion_no_params_with_context.anything = "Expected inclusion_no_params_with_context __dict__"
+def available_attrs(fn):
+    """
+    Return the list of functools-wrappable attributes on a callable.
+    This is required as a workaround for http://bugs.python.org/issue3445.
+    """
+    return tuple(a for a in WRAPPER_ASSIGNMENTS if hasattr(fn, a))
 
-@register.inclusion_tag('inclusion.html', takes_context=True)
-def inclusion_params_and_context(context, arg):
-    """Expected inclusion_params_and_context __doc__"""
-    return {"result" : "inclusion_params_and_context - Expected result (context value: %s): %s" % (context['value'], arg)}
-inclusion_params_and_context.anything = "Expected inclusion_params_and_context __dict__"
 
+def make_middleware_decorator(middleware_class):
+    def _make_decorator(*m_args, **m_kwargs):
+        middleware = middleware_class(*m_args, **m_kwargs)
+        def _decorator(view_func):
+            @wraps(view_func, assigned=available_attrs(view_func))
+            def _wrapped_view(request, *args, **kwargs):
+                if hasattr(middleware, 'process_request'):
+                    result = middleware.process_request(request)
+                    if result is not None:
+                        return result
+                if hasattr(middleware, 'process_view'):
+                    result = middleware.process_view(request, view_func, args, kwargs)
+                    if result is not None:
+                        return result
+                try:
+                    response = view_func(request, *args, **kwargs)
+                except Exception, e:
+                    if hasattr(middleware, 'process_exception'):
+                        result = middleware.process_exception(request, e)
+                        if result is not None:
+                            return result
+                    raise
+                if hasattr(response, 'render') and callable(response.render):
+                    if hasattr(middleware, 'process_template_response'):
+                        response = middleware.process_template_response(request, response)
+                    # Defer running of process_response until after the template
+                    # has been rendered:
+                    if hasattr(middleware, 'process_response'):
+                        callback = lambda response: middleware.process_response(request, response)
+                        response.add_post_render_callback(callback)
+                else:
+                    if hasattr(middleware, 'process_response'):
+                        return middleware.process_response(request, response)
+                return response
+            return _wrapped_view
+        return _decorator
+    return _make_decorator

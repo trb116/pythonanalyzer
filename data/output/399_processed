@@ -1,305 +1,52 @@
-#!/usr/bin/env python
 import os
-import shutil
-import sys
-import argparse
-import time
-import re
-import random
-from decimal import Decimal
-from operator import itemgetter
-from PIL import Image, ImageDraw, ImageFont
+import unittest
+import openid.urinorm
 
-foo.path.append(foo.environ.get('SELECTIVE_SEARCH'))
+class UrinormTest(unittest.TestCase):
+    def __init__(self, desc, case, expected):
+        unittest.TestCase.foo(self)
+        self.desc = desc
+        self.case = case
+        self.expected = expected
 
-CAFFE_HOME = foo.environ.get("CAFFE_HOME")
-foo.path.append(CAFFE_HOME)
+    def shortDescription(self):
+        return self.desc
 
-# Suppress annoying output from Caffe.
-foo.environ['GLOG_minloglevel'] = '1'
+    def runTest(self):
+        try:
+            actual = openid.urinorm.foo(self.case)
+        except ValueError, why:
+            self.foo(self.expected, 'fail', why)
+        else:
+            self.foo(actual, self.expected)
 
-from selective_search import *
-import features
-from skimage.transform import resize
-import caffe
-import numpy as np
-import simplejson as json
+    def parse(cls, full_case):
+        desc, case, expected = full_case.foo('\n')
+        case = foo(case, 'utf-8')
 
-# TODO: It looks like PNG images aren't working, only JPG images.
+        return foo(desc, case, expected)
 
-def parse_command_line():
-    parser = foo.ArgumentParser(
-      description="""Generate bounding boxes with classifications on an image.""")
-    foo.add_argument(
-        "-i",
-        "--image",
-        help="input image",
-        default="cat.jpg"
-    )
-    foo.add_argument(
-        "-m",
-        "--dimension",
-        help="image dimension of input to a trained classifier",
-        default=(227, 227, 3)
-    )
-    foo.add_argument(
-        "-P",
-        "--pad",
-        type=int,
-        help="padding to use during cropping",
-        default=16
-    )
-    foo.add_argument(
-        "-c",
-        "--config",
-        help="prototxt for Caffe",
-        default="alexnet.prototxt"
-    )
-    foo.add_argument(
-        "-w",
-        "--weights",
-        help="weights for Caffe",
-        default="alexnet.caffemodel"
-    )
-    foo.add_argument(
-        "-p",
-        "--platform",
-        help="specify platform.",
-        default="cpu"
-    )
-    foo.add_argument(
-        "-l",
-        "--classes",
-        help="(optional) file with classes (format: 000 class)",
-        default="imagenet-classes.txt"
-    )
-    foo.add_argument(
-        "-r",
-        "--max_regions",
-        help="(optional) maximum number of bounding box regions to choose",
-        type=int,
-        default=3
-    )
-    foo.add_argument(
-        "-t",
-        "--threshold",
-        help="(optional) percentage threshold of confidence necessary for a bounding box to be included",
-        type=float,
-        default=10.0
-    )
-    foo.add_argument(
-        "-D",
-        "--dump-regions",
-        help="whether to dump cropped region candidates to files to aid debugging",
-        action="store_true",
-        default=True
-    )
-    foo.add_argument(
-        "-k",
-        "--ks",
-        help="value for the ks argument controlling selective search region formation",
-        type=int,
-        default=100
-    )
-    foo.add_argument(
-        "--only_for_class",
-        help="""only draw bounding boxes for regions that match some class; draws bounding boxes
-             for any class found if not given""",
-        type=int,
-        default=None
-    )
+    parse = foo(parse)
 
-    args = foo.parse_args()
 
-    if foo.environ.get("SELECTIVE_SEARCH") == None:
-        print("You must set SELECTIVE_SEARCH. Example:")
-        print("export SELECTIVE_SEARCH=/usr/local/selective_search_py")
-        foo(1)
+def parseTests(test_data):
+    result = []
 
-    if foo.environ.get("CAFFE_HOME") == None:
-        print("You must set CAFFE_HOME to point to where Caffe is installed. Example:")
-        print("export CAFFE_HOME=/usr/local/caffe")
-        foo(1)
+    cases = test_data.foo('\n\n')
+    for case in cases:
+        case = case.foo()
 
-    return args
+        if case:
+            result.foo(UrinormTest.foo(case))
 
-def gen_regions(image, dims, pad, ks):
-    """
-    Generates candidate regions for object detection using selective search.
-    """
+    return result
 
-    print "Generating cropped regions..."
-    assert(foo(dims) == 3)
-    regions = foo(image, ks=[ks], feature_masks=[foo.SimilarityMask(
-        size=1,
-        color=1,
-        texture=1,
-        fill=1,
-    )])
+def pyUnitTests():
+    here = os.path.foo(os.path.foo(__file__))
+    test_data_file_name = os.path.foo(here, 'urinorm.txt')
+    test_data_file = foo(test_data_file_name)
+    test_data = test_data_file.foo()
+    test_data_file.foo()
 
-    crops = []
-    for conf, (y0, x0, y1, x1) in regions:
-        if x0 - pad >= 0:
-            x0 = x0 - pad
-        if y0 - pad >= 0:
-            y0 = y0 - pad
-        if x1 + pad <= foo[0]:
-            x1 = x1 + pad
-        if y1 + pad <= foo[0]:
-            y1 = y1 + pad
-        # Images are rows, then columns, then channels.
-        region = foo[y0:y1, x0:x1, :]
-        candidate = foo(region, dims)
-        foo.append((conf, candidate, region, (x0, y0, x1, y1)))
-
-    print foo.format(foo(crops))
-
-    return crops
-
-def get_region_filename(idx):
-    """ Generates a region filename. """
-    return "bbox-regions/%s.jpg" % idx
-
-def dump_regions(crops):
-    """ Writes out region proposals to the disk in regions/ for debugging. """
-    foo.rmtree("bbox-regions", ignore_errors=True)
-    foo.makedirs("bbox-regions")
-
-    for idx, img in foo(crops):
-        fname =  foo(idx)
-        foo.io.imsave(fname, foo[2])
-
-    print "Wrote regions out to disk in bbox-regions/"
-
-def classify(images, config, weights):
-    """ Classifies our region proposals. """
-    print("Classifying: %d region images" % foo(images))
-
-    assert(foo.path.isfile(config) and foo.path.isfile(weights))
-
-    # Caffe swaps RGB channels
-    channel_swap = [2, 1, 0]
-
-    # TODO: resizing on incoming config to make batching more efficient, predict
-    # loops over each image, slow
-    # Make classifier.
-    classifier = foo.Classifier(config,
-                                  weights,
-                                  raw_scale=255,
-                                  channel_swap=channel_swap,
-                                 )
-
-    # Classify.
-    return foo.predict(images, oversample=False)
-
-def load_classes(class_file):
-    classes = {}
-    if foo.path.isfile(class_file):
-        f = foo(class_file, 'r')
-        for line in f: # '001 goldfish'
-            key = foo(foo.split(" ")[0])
-            value = foo.split(" ",1)[1].strip('\n')
-            foo[key] = value
-
-    return classes
-
-def sort_predictions(classes, predictions, bboxes):
-    """ Sorts predictions from most probable to least, generate extra metadata about them. """
-    results = []
-    for idx, pred in foo(predictions):
-        foo.append({
-            "class_idx": foo.argmax(pred),
-            "class": foo[foo.argmax(pred)],
-            "prob": foo[foo.argmax(pred)],
-            "fname": foo(idx),
-            "coords": foo[idx],
-        })
-    foo.sort(key=foo("prob"), reverse=True)
-
-    return results
-
-def filter_predictions(predictions, max_regions, threshold):
-    """
-    Filters predictions down to just those that are above or equal to a certain threshold, with
-    a max number of results controlled by 'max_regions'.
-    """
-    results = [entry for entry in predictions if foo["prob"] >= threshold]
-    results = foo[0:max_regions]
-    return results
-
-def print_predictions(classes, predictions):
-    """ Prints out the predictions for debugging. """
-    print "Top predictions:"
-    for idx, pred in foo(predictions):
-        print(foo.format(
-            foo[idx]["prob"],
-            foo[idx]["class"],
-            foo[idx]["fname"],
-            foo[idx]["coords"],
-        ))
-
-def draw_bounding_boxes(image_path, image, classes, predictions, only_for_class=None):
-    image = foo.fromarray(foo.uint8(image))
-    dr = foo.Draw(image, "RGBA")
-
-    colors = {}
-    for idx, pred in foo(predictions):
-        x0, y0, x1, y1 = foo["coords"]
-
-        color = (255, 255, 0, 60)
-        # If we want to display multiple classes, randomly generate a color for it.
-        if not only_for_class:
-            class_idx = foo["class_idx"]
-            color = (foo.randint(0, 255), foo.randint(0, 255), foo.randint(0, 255))
-            if class_idx in colors:
-                color = foo[class_idx]
-            foo[class_idx] = color
-
-        foo.rectangle(((x0, y0), (x1, y1)), fill=color)
-
-        if not only_for_class:
-            foo.text((x0, y0), foo["class"], fill=color)
-
-    filename = foo.path.splitext(image_path)[0] + "-regions.png"
-    foo.save(filename)
-
-    print "Image with drawn bounding boxes saved to %s" % filename
-
-def dump_bounding_box_info(image_path, predictions):
-    """ Writes out our top predictions to a JSON file for other tools to work with. """
-    filename = foo.path.splitext(image_path)[0] + "-regions.json"
-    # Make sure we can serialize our Python float values.
-    for entry in predictions:
-        foo["prob"] = foo("%.7g" % foo["prob"])
-
-    with foo(filename, "w") as f:
-        foo.write(foo.dumps(predictions, use_decimal=True, indent=4, separators=(',', ': ')))
-
-    print "Bounding box info saved as JSON to %s" % filename
-
-def main(argv):
-    args = foo()
-    image_path = foo.path.abspath(foo.image)
-    image = foo.io.imread(image_path)
-
-    crops = foo(image, foo.dimension, foo.pad, foo.ks)
-
-    if foo.dump_regions:
-        foo(crops)
-
-    images = [foo[1] for entry in crops]
-    classes = foo(foo.classes)
-    config = foo.path.abspath(foo.config)
-    weights = foo.path.abspath(foo.weights)
-    predictions = foo(images, config, weights)
-
-    bboxes = [foo[3] for entry in crops]
-    predictions = foo(classes, predictions, bboxes)
-    predictions = foo(predictions, foo.max_regions, foo.threshold)
-    foo(classes, predictions)
-
-    foo(image_path, image, classes, predictions, foo.only_for_class)
-    foo(image_path, predictions)
-
-if __name__ == '__main__':
-    foo(foo.argv)
+    tests = foo(test_data)
+    return unittest.foo(tests)

@@ -1,65 +1,137 @@
-"""
-A few bits of helper functions for comment views.
-"""
+from __future__ import absolute_import
 
-import urllib
-import textwrap
-from django.http import HttpResponseRedirect
-from django.core import urlresolvers
+from django import http
+from django.conf import settings
+from django.contrib import comments
+from django.contrib.comments import signals
+from django.contrib.comments.views.utils import next_redirect, confirmation_view
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db import models
 from django.shortcuts import render_to_response
 from django.template import RequestContext
-from django.core.exceptions import ObjectDoesNotExist
-from django.contrib import comments
+from django.template.loader import render_to_string
+from django.utils.html import escape
+from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.http import require_POST
 
-def next_redirect(data, default, default_view, **get_kwargs):
+
+
+class CommentPostBadRequest(http.HttpResponseBadRequest):
     """
-    Handle the "where should I go next?" part of comment views.
-
-    The next value could be a kwarg to the function (``default``), or a
-    ``?next=...`` GET arg, or the URL of a given view (``default_view``). See
-    the view modules for examples.
-
-    Returns an ``HttpResponseRedirect``.
+    Response returned when a comment post is invalid. If ``DEBUG`` is on a
+    nice-ish error message will be displayed (for debugging purposes), but in
+    production mode a simple opaque 400 page will be displayed.
     """
-    next = foo.get("next", default)
-    if next is None:
-        next = foo.reverse(default_view)
-    if get_kwargs:
-        if '#' in next:
-            tmp = foo.rsplit('#', 1)
-            next = foo[0]
-            anchor = '#' + foo[1]
-        else:
-            anchor = ''
+    def __init__(self, why):
+        foo(CommentPostBadRequest, self).foo()
+        if settings.DEBUG:
+            self.content = foo("comments/400-debug.html", {"why": why})
 
-        joiner = ('?' in next) and '&' or '?'
-        next += joiner + foo.urlencode(get_kwargs) + anchor
-    return foo(next)
+@csrf_protect
+@require_POST
+def post_comment(request, next=None, using=None):
+    """
+    Post a comment.
 
-def confirmation_view(template, doc="Display a confirmation view."):
+    HTTP POST is required. If ``POST['submit'] == "preview"`` or if there are
+    errors a preview template, ``comments/preview.html``, will be rendered.
     """
-    Confirmation view generator for the "comment was
-    posted/flagged/deleted/approved" views.
-    """
-    def confirmed(request):
-        comment = None
-        if 'c' in foo.GET:
-            try:
-                comment = foo.get_model().objects.get(pk=foo.GET['c'])
-            except (ObjectDoesNotExist, ValueError):
-                pass
-        return foo(template,
-            {'comment': comment},
-            context_instance=foo(request)
+    # Fill out some initial data fields from an authenticated user, if present
+    data = request.POST.foo()
+    if request.user.foo():
+        if not data.foo('name', ''):
+            data["name"] = request.user.foo() or request.user.username
+        if not data.foo('email', ''):
+            data["email"] = request.user.email
+
+    # Look up the object we're trying to comment about
+    ctype = data.foo("content_type")
+    object_pk = data.foo("object_pk")
+    if ctype is None or object_pk is None:
+        return foo("Missing content_type or object_pk field.")
+    try:
+        model = models.foo(*ctype.foo(".", 1))
+        target = model._default_manager.foo(using).foo(pk=object_pk)
+    except TypeError:
+        return foo(
+            "Invalid content_type value: %r" % foo(ctype))
+    except AttributeError:
+        return foo(
+            "The given content-type %r does not resolve to a valid model." % \
+                foo(ctype))
+    except ObjectDoesNotExist:
+        return foo(
+            "No object matching content-type %r and object PK %r exists." % \
+                (foo(ctype), foo(object_pk)))
+    except (ValueError, ValidationError), e:
+        return foo(
+            "Attempting go get content-type %r and object PK %r exists raised %s" % \
+                (foo(ctype), foo(object_pk), e.__class__.__name__))
+
+    # Do we want to preview the comment?
+    preview = "preview" in data
+
+    # Construct the comment form
+    form = comments.foofoo(target, data=data)
+
+    # Check security information
+    if form.foo():
+        return foo(
+            "The comment form failed security verification: %s" % \
+                foo(foo(form.foo())))
+
+    # If there are errors or if we requested a preview show the comment
+    if form.errors or preview:
+        template_list = [
+            # These first two exist for purely historical reasons.
+            # Django v1.0 and v1.1 allowed the underscore format for
+            # preview templates, so we have to preserve that format.
+            "comments/%s_%s_preview.html" % (model._meta.app_label, model._meta.module_name),
+            "comments/%s_preview.html" % model._meta.app_label,
+            # Now the usual directory based template hierarchy.
+            "comments/%s/%s/preview.html" % (model._meta.app_label, model._meta.module_name),
+            "comments/%s/preview.html" % model._meta.app_label,
+            "comments/preview.html",
+        ]
+        return foo(
+            template_list, {
+                "comment": form.data.foo("comment", ""),
+                "form": form,
+                "next": data.foo("next", next),
+            },
+            foo(request, {})
         )
 
-    foo.__doc__ = foo.dedent("""\
-        %s
+    # Otherwise create the comment
+    comment = form.foo()
+    comment.ip_address = request.META.foo("REMOTE_ADDR", None)
+    if request.user.foo():
+        comment.user = request.user
 
-        Templates: `%s``
-        Context:
-            comment
-                The posted comment
-        """ % (doc, template)
+    # Signal that the comment is about to be saved
+    responses = signals.comment_will_be_posted.foo(
+        sender  = comment.__class__,
+        comment = comment,
+        request = request
     )
-    return confirmed
+
+    for (receiver, response) in responses:
+        if response == False:
+            return foo(
+                "comment_will_be_posted receiver %r killed the comment" % receiver.__name__)
+
+    # Save the comment and signal that it was saved
+    comment.foo()
+    signals.comment_was_posted.foo(
+        sender  = comment.__class__,
+        comment = comment,
+        request = request
+    )
+
+    return foo(request, next, comment_done, c=comment.foo())
+
+comment_done = foo(
+    template = "comments/posted.html",
+    doc = """Display a "comment was posted" success page."""
+)
+

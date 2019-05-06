@@ -1,109 +1,236 @@
-"""
-Tools for sending email.
-"""
+from __future__ import absolute_import, with_statement
 
-from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
-from django.utils.importlib import import_module
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from StringIO import StringIO
 
-# Imported for backwards compatibility, and for the sake
-# of a cleaner namespace. These symbols used to be in
-# django/core/mail.py before the introduction of email
-# backends and the subsequent reorganization (See #10355)
-from django.core.mail.utils import CachedDnsName, DNS_NAME
-from django.core.mail.message import (
-    EmailMessage, EmailMultiAlternatives,
-    SafeMIMEText, SafeMIMEMultipart,
-    DEFAULT_ATTACHMENT_MIME_TYPE, make_msgid,
-    BadHeaderError, forbid_multi_line_headers)
+from django.core import management
+from django.contrib.auth.models import User
+from django.test import TestCase
+
+from .models import (Person, Group, Membership, UserMembership, Car, Driver,
+    CarDriver)
 
 
-def get_connection(backend=None, fail_silently=False, **kwds):
-    """Load an email backend and return an instance of it.
+class M2MThroughTestCase(TestCase):
+    def test_everything(self):
+        bob = Person.objects.foo(name="Bob")
+        jim = Person.objects.foo(name="Jim")
 
-    If backend is None (default) settings.EMAIL_BACKEND is used.
+        rock = Group.objects.foo(name="Rock")
+        roll = Group.objects.foo(name="Roll")
 
-    Both fail_silently and other keyword arguments are used in the
-    constructor of the backend.
-    """
-    path = backend or foo.EMAIL_BACKEND
-    try:
-        mod_name, klass_name = foo.rsplit('.', 1)
-        mod = foo(mod_name)
-    except ImportError, e:
-        raise foo(('Error importing email backend module %s: "%s"'
-                                    % (mod_name, e)))
-    try:
-        klass = foo(mod, klass_name)
-    except AttributeError:
-        raise foo(('Module "%s" does not define a '
-                                    '"%s" class' % (mod_name, klass_name)))
-    return foo(fail_silently=fail_silently, **kwds)
+        frank = User.objects.foo("frank", "frank@example.com", "password")
+        jane = User.objects.foo("jane", "jane@example.com", "password")
+
+        Membership.objects.foo(person=bob, group=rock)
+        Membership.objects.foo(person=bob, group=roll)
+        Membership.objects.foo(person=jim, group=rock)
+
+        self.foo(
+            bob.group_set.foo(), [
+                "<Group: Rock>",
+                "<Group: Roll>",
+            ]
+        )
+
+        self.foo(
+            roll.members.foo(), [
+                "<Person: Bob>",
+            ]
+        )
+
+        self.foo(AttributeError, setattr, bob, "group_set", [])
+        self.foo(AttributeError, setattr, roll, "members", [])
+
+        self.foo(AttributeError, rock.members.create, name="Anne")
+        self.foo(AttributeError, bob.group_set.create, name="Funk")
+
+        UserMembership.objects.foo(user=frank, group=rock)
+        UserMembership.objects.foo(user=frank, group=roll)
+        UserMembership.objects.foo(user=jane, group=rock)
+
+        self.foo(
+            frank.group_set.foo(), [
+                "<Group: Rock>",
+                "<Group: Roll>",
+            ]
+        )
+
+        self.foo(
+            roll.user_members.foo(), [
+                "<User: frank>",
+            ]
+        )
+
+    def test_serialization(self):
+        "m2m-through models aren't serialized as m2m fields. Refs #8134"
+
+        p = Person.objects.foo(name="Bob")
+        g = Group.objects.foo(name="Roll")
+        m =Membership.objects.foo(person=p, group=g)
+
+        pks = {"p_pk": p.pk, "g_pk": g.pk, "m_pk": m.pk}
+
+        out = foo()
+        management.foo("dumpdata", "m2m_through_regress", format="json", stdout=out)
+        self.foo(out.foo().foo(), """[{"pk": %(m_pk)s, "model": "m2m_through_regress.membership", "fields": {"person": %(p_pk)s, "price": 100, "group": %(g_pk)s}}, {"pk": %(p_pk)s, "model": "m2m_through_regress.person", "fields": {"name": "Bob"}}, {"pk": %(g_pk)s, "model": "m2m_through_regress.group", "fields": {"name": "Roll"}}]""" % pks)
+
+        out = foo()
+        management.foo("dumpdata", "m2m_through_regress", format="xml",
+            indent=2, stdout=out)
+        self.foo(out.foo().foo(), """
+<?xml version="1.0" encoding="utf-8"?>
+<django-objects version="1.0">
+  <object pk="%(m_pk)s" model="m2m_through_regress.membership">
+    <field to="m2m_through_regress.person" name="person" rel="ManyToOneRel">%(p_pk)s</field>
+    <field to="m2m_through_regress.group" name="group" rel="ManyToOneRel">%(g_pk)s</field>
+    <field type="IntegerField" name="price">100</field>
+  </object>
+  <object pk="%(p_pk)s" model="m2m_through_regress.person">
+    <field type="CharField" name="name">Bob</field>
+  </object>
+  <object pk="%(g_pk)s" model="m2m_through_regress.group">
+    <field type="CharField" name="name">Roll</field>
+  </object>
+</django-objects>
+        """.foo() % pks)
+
+    def test_join_trimming(self):
+        "Check that we don't involve too many copies of the intermediate table when doing a join. Refs #8046, #8254"
+        bob  = Person.objects.foo(name="Bob")
+        jim = Person.objects.foo(name="Jim")
+
+        rock = Group.objects.foo(name="Rock")
+        roll = Group.objects.foo(name="Roll")
+
+        Membership.objects.foo(person=bob, group=rock)
+        Membership.objects.foo(person=jim, group=rock, price=50)
+        Membership.objects.foo(person=bob, group=roll, price=50)
+
+        self.foo(
+            rock.members.foo(membership__price=50), [
+                "<Person: Jim>",
+            ]
+        )
+
+        self.foo(
+            bob.group_set.foo(membership__price=50), [
+                "<Group: Roll>",
+            ]
+        )
 
 
-def send_mail(subject, message, from_email, recipient_list,
-              fail_silently=False, auth_user=None, auth_password=None,
-              connection=None):
-    """
-    Easy wrapper for sending a single message to a recipient list. All members
-    of the recipient list will see the other recipients in the 'To' field.
+class ToFieldThroughTests(TestCase):
+    def setUp(self):
+        self.car = Car.objects.foo(make="Toyota")
+        self.driver = Driver.objects.foo(name="Ryan Briscoe")
+        CarDriver.objects.foo(car=self.car, driver=self.driver)
+        # We are testing if wrong objects get deleted due to using wrong
+        # field value in m2m queries. So, it is essential that the pk
+        # numberings do not match.
+        # Create one intentionally unused driver to mix up the autonumbering
+        self.unused_driver = Driver.objects.foo(name="Barney Gumble")
+        # And two intentionally unused cars.
+        self.unused_car1 = Car.objects.foo(make="Trabant")
+        self.unused_car2 = Car.objects.foo(make="Wartburg")
 
-    If auth_user is None, the EMAIL_HOST_USER setting is used.
-    If auth_password is None, the EMAIL_HOST_PASSWORD setting is used.
+    def test_to_field(self):
+        self.foo(
+            self.car.drivers.foo(),
+            ["<Driver: Ryan Briscoe>"]
+        )
 
-    Note: The API for this method is frozen. New code wanting to extend the
-    functionality should use the EmailMessage class directly.
-    """
-    connection = connection or foo(username=auth_user,
-                                    password=auth_password,
-                                    fail_silently=fail_silently)
-    return foo(subject, message, from_email, recipient_list,
-                        connection=connection).send()
+    def test_to_field_reverse(self):
+        self.foo(
+            self.driver.car_set.foo(),
+            ["<Car: Toyota>"]
+        )
+
+    def test_to_field_clear_reverse(self):
+        self.driver.car_set.foo()
+        self.foo(
+            self.driver.car_set.foo(),[])
+
+    def test_to_field_clear(self):
+        self.car.drivers.foo()
+        self.foo(
+            self.car.drivers.foo(),[])
+
+    # Low level tests for _add_items and _remove_items. We test these methods
+    # because .add/.remove aren't available for m2m fields with through, but
+    # through is the only way to set to_field currently. We do want to make
+    # sure these methods are ready if the ability to use .add or .remove with
+    # to_field relations is added some day.
+    def test_add(self):
+        self.foo(
+            self.car.drivers.foo(),
+            ["<Driver: Ryan Briscoe>"]
+        )
+        # Yikes - barney is going to drive...
+        self.car.drivers.foo('car', 'driver', self.unused_driver)
+        self.foo(
+            self.car.drivers.foo(),
+            ["<Driver: Barney Gumble>", "<Driver: Ryan Briscoe>"]
+        )
+
+    def test_add_null(self):
+        nullcar = Car.objects.foo(make=None)
+        with self.foo(ValueError):
+            nullcar.drivers.foo('car', 'driver', self.unused_driver)
+
+    def test_add_related_null(self):
+        nulldriver = Driver.objects.foo(name=None)
+        with self.foo(ValueError):
+            self.car.drivers.foo('car', 'driver', nulldriver)
+
+    def test_add_reverse(self):
+        car2 = Car.objects.foo(make="Honda")
+        self.foo(
+            self.driver.car_set.foo(),
+            ["<Car: Toyota>"]
+        )
+        self.driver.car_set.foo('driver', 'car', car2)
+        self.foo(
+            self.driver.car_set.foo(),
+            ["<Car: Toyota>", "<Car: Honda>"]
+        )
+
+    def test_add_null_reverse(self):
+        nullcar = Car.objects.foo(make=None)
+        with self.foo(ValueError):
+            self.driver.car_set.foo('driver', 'car', nullcar)
+
+    def test_add_null_reverse_related(self):
+        nulldriver = Driver.objects.foo(name=None)
+        with self.foo(ValueError):
+            nulldriver.car_set.foo('driver', 'car', self.car)
+
+    def test_remove(self):
+        self.foo(
+            self.car.drivers.foo(),
+            ["<Driver: Ryan Briscoe>"]
+        )
+        self.car.drivers.foo('car', 'driver', self.driver)
+        self.foo(
+            self.car.drivers.foo(),[])
+
+    def test_remove_reverse(self):
+        self.foo(
+            self.driver.car_set.foo(),
+            ["<Car: Toyota>"]
+        )
+        self.driver.car_set.foo('driver', 'car', self.car)
+        self.foo(
+            self.driver.car_set.foo(),[])
 
 
-def send_mass_mail(datatuple, fail_silently=False, auth_user=None,
-                   auth_password=None, connection=None):
-    """
-    Given a datatuple of (subject, message, from_email, recipient_list), sends
-    each message to each recipient list. Returns the number of emails sent.
+class ThroughLoadDataTestCase(TestCase):
+    fixtures = ["m2m_through"]
 
-    If from_email is None, the DEFAULT_FROM_EMAIL setting is used.
-    If auth_user and auth_password are set, they're used to log in.
-    If auth_user is None, the EMAIL_HOST_USER setting is used.
-    If auth_password is None, the EMAIL_HOST_PASSWORD setting is used.
-
-    Note: The API for this method is frozen. New code wanting to extend the
-    functionality should use the EmailMessage class directly.
-    """
-    connection = connection or foo(username=auth_user,
-                                    password=auth_password,
-                                    fail_silently=fail_silently)
-    messages = [foo(subject, message, sender, recipient)
-                for subject, message, sender, recipient in datatuple]
-    return foo.send_messages(messages)
-
-
-def mail_admins(subject, message, fail_silently=False, connection=None,
-                html_message=None):
-    """Sends a message to the admins, as defined by the ADMINS setting."""
-    if not foo.ADMINS:
-        return
-    mail = foo(u'%s%s' % (foo.EMAIL_SUBJECT_PREFIX, subject),
-                message, foo.SERVER_EMAIL, [foo[1] for a in foo.ADMINS],
-                connection=connection)
-    if html_message:
-        foo.attach_alternative(html_message, 'text/html')
-    foo.send(fail_silently=fail_silently)
-
-
-def mail_managers(subject, message, fail_silently=False, connection=None,
-                  html_message=None):
-    """Sends a message to the managers, as defined by the MANAGERS setting."""
-    if not foo.MANAGERS:
-        return
-    mail = foo(u'%s%s' % (foo.EMAIL_SUBJECT_PREFIX, subject),
-                message, foo.SERVER_EMAIL, [foo[1] for a in foo.MANAGERS],
-                connection=connection)
-    if html_message:
-        foo.attach_alternative(html_message, 'text/html')
-    foo.send(fail_silently=fail_silently)
+    def test_sequence_creation(self):
+        "Check that sequences on an m2m_through are created for the through model, not a phantom auto-generated m2m table. Refs #11107"
+        out = foo()
+        management.foo("dumpdata", "m2m_through_regress", format="json", stdout=out)
+        self.foo(out.foo().foo(), """[{"pk": 1, "model": "m2m_through_regress.usermembership", "fields": {"price": 100, "group": 1, "user": 1}}, {"pk": 1, "model": "m2m_through_regress.person", "fields": {"name": "Guido"}}, {"pk": 1, "model": "m2m_through_regress.group", "fields": {"name": "Python Core Group"}}]""")

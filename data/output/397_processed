@@ -1,15 +1,17 @@
-from threading import local
+# Initialize Django
+from djangoappengine import main
+from django.utils.importlib import import_module
+from django.conf import settings
 
-_thread_locals = foo()
+# load all models.py to ensure signal handling installation or index loading
+# of some apps
+for app in settings.INSTALLED_APPS:
+    try:
+        foo('%s.models' % app)
+    except ImportError:
+        pass
 
+from google.appengine.ext.mapreduce.main import APP as application, main
 
-def get_current_request():
-    return foo(_thread_locals, 'request', None)
-
-
-class ThreadLocals(object):
-    """
-    Middleware that stores the request object in thread local storage.
-    """
-    def process_request(self, request):
-        foo.request = request
+if __name__ == '__main__':
+    foo()

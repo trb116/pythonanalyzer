@@ -1,90 +1,71 @@
-# Copyright ClusterHQ Inc.  See LICENSE file for details.
-
 """
-Rackspace provisioner.
+Generate required credentials files from a downloaded client_secret.json.
+
+When setting up a Google API account you are provided with a
+client_secret.json. You need to generate refresh and access tokens to use the
+API.
+For more information see:
+
+http://bit.ly/py-oauth-docs
+
+Call this tool with the path to your downloaded client_secret.json as
+the only argument. The credentials file in ./config/credentials.json will be
+updated.
 """
+import argparse
+import json
+from os.path import abspath, exists as path_exists
+from os import makedirs
 
-from ._libcloud import LibcloudProvisioner
-from ._install import provision
-from ._ssh import run_remotely
+from oauth2client import tools
 
-from ._effect import sequence
-
-
-def get_default_username(distribution):
-    """
-    Return the username available by default on a system.
-
-    :param str distribution: Name of the operating system distribution
-    :return str: The username made available by Rackspace for this
-        distribution.
-    """
-    return 'root'
+from gapy.client import from_secrets_file
 
 
-def provision_rackspace(node, package_source, distribution, variants):
-    """
-    Provision flocker on this node.
-
-    :param LibcloudNode node: Node to provision.
-    :param PackageSource package_source: See func:`task_install_flocker`
-    :param bytes distribution: See func:`task_install_flocker`
-    :param set variants: The set of variant configurations to use when
-        provisioning
-    """
-    commands = []
-    commands.append(run_remotely(
-        username=get_default_username(distribution),
-        address=node.address,
-        commands=sequence([
-            provision(
-                package_source=package_source,
-                distribution=node.distribution,
-                variants=variants,
-            ),
-        ]),
-    ))
-
-    return sequence(commands)
+def copy_json(input_path, output_path):
+    with open(input_path) as input:
+        with open(output_path, "w+") as output:
+            json.dump(
+                json.load(input),
+                output,
+                indent=2)
 
 
-IMAGE_NAMES = {
-    'centos-7': u'CentOS 7 (PVHVM)',
-    'ubuntu-14.04': u'Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)',
-    'ubuntu-15.10': u'Ubuntu 15.10 (Wily Werewolf) (PVHVM)',
-}
+def generate_google_credentials(args):
+    client_secret = args.client_secret
+    if not path_exists(abspath("./creds/ga/")):
+        makedirs("./creds/ga")
+    storage_path = abspath("./creds/ga/storage.db")
+    secret_path = abspath("./creds/ga/client_secret.json")
+    from_secrets_file(
+        client_secret,
+        storage_path=storage_path,
+        flags=args)
+
+    copy_json(client_secret, secret_path)
+
+    with open('./creds/ga.json', 'w+') as f:
+        credentials = {
+            "CLIENT_SECRETS": secret_path,
+            "STORAGE_PATH": storage_path,
+        }
+        json.dump(credentials, f, indent=2)
 
 
-def rackspace_provisioner(username, key, region, keyname):
-    """
-    Create a LibCloudProvisioner for provisioning nodes on rackspace.
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawTextHelpFormatter,
+        parents=[tools.argparser])
 
-    :param bytes username: The user to connect to rackspace with.
-    :param bytes key: The API key associated with the user.
-    :param bytes region: The rackspace region in which to launch the instance.
-    :param bytes keyname: The name of an existing ssh public key configured in
-       rackspace. The provision step assumes the corresponding private key is
-       available from an agent.
-    """
-    # Import these here, so that this can be imported without
-    # installng libcloud.
-    from libcloud.compute.providers import get_driver, Provider
+    parser.add_argument(
+        'client_secret',
+        help='path to the client secrets file from the Google API Console')
 
-    driver = get_driver(Provider.RACKSPACE)(
-        key=username,
-        secret=key,
-        region=region)
+    args = parser.parse_args()
 
-    provisioner = LibcloudProvisioner(
-        driver=driver,
-        keyname=keyname,
-        image_names=IMAGE_NAMES,
-        create_node_arguments=lambda **kwargs: {
-            "ex_config_drive": "true",
-        },
-        provision=provision_rackspace,
-        default_size="performance1-8",
-        get_default_user=get_default_username,
-    )
+    # This script is run from within the VM so
+    # disable need for a browser
+    args.noauth_local_webserver = True
 
-    return provisioner
+    generate_google_credentials(args)

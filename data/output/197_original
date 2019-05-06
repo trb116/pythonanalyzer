@@ -1,74 +1,119 @@
-from __future__ import absolute_import
+from __future__ import unicode_literals
 
-from django.core.urlresolvers import reverse
-from django.template.response import TemplateResponse
-from django.test import TestCase
+import binascii
+import unittest
 
-from .models import Action
+from django.contrib.gis import memoryview
+from django.contrib.gis.geos import GEOSGeometry, WKTReader, WKTWriter, WKBReader, WKBWriter, geos_version_info
+from django.utils import six
 
 
-class AdminCustomUrlsTest(TestCase):
-    fixtures = ['users.json', 'actions.json']
+class GEOSIOTest(unittest.TestCase):
 
-    def setUp(self):
-        self.client.login(username='super', password='secret')
+    def test01_wktreader(self):
+        # Creating a WKTReader instance
+        wkt_r = WKTReader()
+        wkt = 'POINT (5 23)'
 
-    def tearDown(self):
-        self.client.logout()
+        # read() should return a GEOSGeometry
+        ref = GEOSGeometry(wkt)
+        g1 = wkt_r.read(wkt.encode())
+        g2 = wkt_r.read(wkt)
 
-    def testBasicAddGet(self):
-        """
-        A smoke test to ensure GET on the add_view works.
-        """
-        response = self.client.get('/custom_urls/admin/admin_custom_urls/action/!add/')
-        self.assertIsInstance(response, TemplateResponse)
-        self.assertEqual(response.status_code, 200)
+        for geom in (g1, g2):
+            self.assertEqual(ref, geom)
 
-    def testAddWithGETArgs(self):
-        response = self.client.get('/custom_urls/admin/admin_custom_urls/action/!add/', {'name': 'My Action'})
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(
-            'value="My Action"' in response.content,
-            "Couldn't find an input with the right value in the response."
-        )
+        # Should only accept six.string_types objects.
+        self.assertRaises(TypeError, wkt_r.read, 1)
+        self.assertRaises(TypeError, wkt_r.read, memoryview(b'foo'))
 
-    def testBasicAddPost(self):
-        """
-        A smoke test to ensure POST on add_view works.
-        """
-        post_data = {
-            '_popup': u'1',
-            "name": u'Action added through a popup',
-            "description": u"Description of added action",
-        }
-        response = self.client.post('/custom_urls/admin/admin_custom_urls/action/!add/', post_data)
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'dismissAddAnotherPopup')
-        self.assertContains(response, 'Action added through a popup')
+    def test02_wktwriter(self):
+        # Creating a WKTWriter instance, testing its ptr property.
+        wkt_w = WKTWriter()
+        self.assertRaises(TypeError, wkt_w._set_ptr, WKTReader.ptr_type())
 
-    def testAdminUrlsNoClash(self):
-        """
-        Test that some admin URLs work correctly. The model has a CharField
-        PK and the add_view URL has been customized.
-        """
-        # Should get the change_view for model instance with PK 'add', not show
-        # the add_view
-        response = self.client.get('/custom_urls/admin/admin_custom_urls/action/add/')
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Change action')
+        ref = GEOSGeometry('POINT (5 23)')
+        ref_wkt = 'POINT (5.0000000000000000 23.0000000000000000)'
+        self.assertEqual(ref_wkt, wkt_w.write(ref).decode())
 
-        # Ditto, but use reverse() to build the URL
-        path = reverse('admin:%s_action_change' % Action._meta.app_label,
-                args=('add',))
-        response = self.client.get(path)
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Change action')
+    def test03_wkbreader(self):
+        # Creating a WKBReader instance
+        wkb_r = WKBReader()
 
-        # Should correctly get the change_view for the model instance with the
-        # funny-looking PK
-        path = reverse('admin:%s_action_change' % Action._meta.app_label,
-                args=("path/to/html/document.html",))
-        response = self.client.get(path)
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Change action')
-        self.assertContains(response, 'value="path/to/html/document.html"')
+        hex = b'000000000140140000000000004037000000000000'
+        wkb = memoryview(binascii.a2b_hex(hex))
+        ref = GEOSGeometry(hex)
+
+        # read() should return a GEOSGeometry on either a hex string or
+        # a WKB buffer.
+        g1 = wkb_r.read(wkb)
+        g2 = wkb_r.read(hex)
+        for geom in (g1, g2):
+            self.assertEqual(ref, geom)
+
+        bad_input = (1, 5.23, None, False)
+        for bad_wkb in bad_input:
+            self.assertRaises(TypeError, wkb_r.read, bad_wkb)
+
+    def test04_wkbwriter(self):
+        wkb_w = WKBWriter()
+
+        # Representations of 'POINT (5 23)' in hex -- one normal and
+        # the other with the byte order changed.
+        g = GEOSGeometry('POINT (5 23)')
+        hex1 = b'010100000000000000000014400000000000003740'
+        wkb1 = memoryview(binascii.a2b_hex(hex1))
+        hex2 = b'000000000140140000000000004037000000000000'
+        wkb2 = memoryview(binascii.a2b_hex(hex2))
+
+        self.assertEqual(hex1, wkb_w.write_hex(g))
+        self.assertEqual(wkb1, wkb_w.write(g))
+
+        # Ensuring bad byteorders are not accepted.
+        for bad_byteorder in (-1, 2, 523, 'foo', None):
+            # Equivalent of `wkb_w.byteorder = bad_byteorder`
+            self.assertRaises(ValueError, wkb_w._set_byteorder, bad_byteorder)
+
+        # Setting the byteorder to 0 (for Big Endian)
+        wkb_w.byteorder = 0
+        self.assertEqual(hex2, wkb_w.write_hex(g))
+        self.assertEqual(wkb2, wkb_w.write(g))
+
+        # Back to Little Endian
+        wkb_w.byteorder = 1
+
+        # Now, trying out the 3D and SRID flags.
+        g = GEOSGeometry('POINT (5 23 17)')
+        g.srid = 4326
+
+        hex3d = b'0101000080000000000000144000000000000037400000000000003140'
+        wkb3d = memoryview(binascii.a2b_hex(hex3d))
+        hex3d_srid = b'01010000A0E6100000000000000000144000000000000037400000000000003140'
+        wkb3d_srid = memoryview(binascii.a2b_hex(hex3d_srid))
+
+        # Ensuring bad output dimensions are not accepted
+        for bad_outdim in (-1, 0, 1, 4, 423, 'foo', None):
+            # Equivalent of `wkb_w.outdim = bad_outdim`
+            self.assertRaises(ValueError, wkb_w._set_outdim, bad_outdim)
+
+        # These tests will fail on 3.0.0 because of a bug that was fixed in 3.1:
+        # http://trac.osgeo.org/geos/ticket/216
+        if not geos_version_info()['version'].startswith('3.0.'):
+            # Now setting the output dimensions to be 3
+            wkb_w.outdim = 3
+
+            self.assertEqual(hex3d, wkb_w.write_hex(g))
+            self.assertEqual(wkb3d, wkb_w.write(g))
+
+            # Telling the WKBWriter to include the srid in the representation.
+            wkb_w.srid = True
+            self.assertEqual(hex3d_srid, wkb_w.write_hex(g))
+            self.assertEqual(wkb3d_srid, wkb_w.write(g))
+
+def suite():
+    s = unittest.TestSuite()
+    s.addTest(unittest.makeSuite(GEOSIOTest))
+    return s
+
+def run(verbosity=2):
+    unittest.TextTestRunner(verbosity=verbosity).run(suite())

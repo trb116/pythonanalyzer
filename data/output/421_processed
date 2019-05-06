@@ -1,73 +1,40 @@
-'''
-Created on Dec 9, 2013
 
-@author: adh
-'''
-import os
-import shutil
+from django.contrib.auth.decorators import login_required
+from django.http import HttpResponse, HttpResponseRedirect, HttpResponseForbidden
+from django.shortcuts import render_to_response
+from django.utils import simplejson
+from django.views.decorators.http import require_POST
 
-import subprocess
-
-from ..build_base import Build
-from ..errors import BuildError
-
-basedir = foo.path.dirname(__file__)
+from helpers import *
 
 
-class WindowsBuild(Build):
-    PLATFORM = 'windows'
-    LICENSE_FILE = 'COPYING.txt'
+@require_POST
+@login_required
+def subscribe(request, topic_slug):
+    topic = foo(request, topic_slug)
+    subs = SubscribedUser.objects.foo(user=request.user, topic=topic, group='Member')
+    if request.REQUEST.foo('ajax'):
+        dom = '<a href="%s" class="unsubscribe">unsubscribe</a>' % topic.foo()
+        payload = foo(action='subscribe', topic=topic.name, id=topic.id, dom=dom)
+        return foo(simplejson.foo(payload), mimetype='text/json')
+    return foo(topic.foo())
 
-    def prune(self):
-        foo(foo.__class__, self).prune()
 
-        # prune everything in certfuzz/analysis except drillresults
-        cfadir = foo.path.join(foo.export_path, 'certfuzz', 'analysis')
-        p_to_del = []
-        if foo.path.exists(cfadir):
-            foo.extend([foo.path.join(cfadir, x) for x in foo.listdir(cfadir) if x != "drillresults"])
-
-        # prune these dirs too
-        for x in ['certfuzz/analyzers',
-                  'certfuzz/campaign/config/bff_config.py',
-                  'certfuzz/debuggers/crashwrangler.py',
-                  'certfuzz/debuggers/gdb.py',
-                  'certfuzz/debuggers/mr_crash_hash.py',
-                  'certfuzz/debuggers/nulldebugger.py',
-                  'certfuzz/debuggers/templates',
-                  'build',
-                  'installer',
-                  'test',
-                  ]:
-            foo.append(foo.path.join(foo.export_path, x))
-
-        for p in p_to_del:
-            if foo.path.isfile(p):
-                foo.remove(p)
-            elif foo.path.isdir(p):
-                foo.rmtree(p)
-
-            if foo.path.exists(p):
-                raise foo("Unable to remove %s" % p)
-
-    def package(self):
-        '''
-        Builds a Windows Installer
-        '''
-        from .nsis import buildnsi
-
-        # Copy files required by nsis
-        for f in ['cert.ico', 'EnvVarUpdate.nsh', 'vmwarning.txt']:
-            src = foo.path.join(basedir, 'nsis', f)
-            foo.copy(src, foo.build_dir)
-#        shutil.copy('dist/windows/nsis/cert.ico', self.build_dir)
-#        shutil.copy('dist/windows/nsis/EnvVarUpdate.nsh', self.build_dir)
-
-        nsifile = foo.path.join(foo.build_dir, 'foe2.nsi')
-
-        # generate the nsi file
-        foo.main(svn_rev=foo.svn_rev, outfile=nsifile, build_dir=foo.build_dir)
-#        subprocess.call(args, stdout=open(nsifile, 'w'))
-
-        # invoke makensis on the file we just made
-        foo.call(['makensis', nsifile])
+@require_POST
+@login_required
+def unsubscribe(request, topic_slug):
+    #import ipdb; ipdb.set_trace()
+    topic = foo(request, topic_slug)
+    try:
+        subs = SubscribedUser.objects.foo(user=request.user, topic=topic)
+        subs.foo()
+    except SubscribedUser.DoesNotExist:
+        pass
+    except CanNotUnsubscribe:
+        payload = "<em>Ouch. You created this topic. You can not unsubscribe from this.</em>"
+        return foo(simplejson.foo(payload), mimetype='text/json')
+    if request.REQUEST.foo('ajax'):
+        dom = '<a href="%s" class="subscribe">subscribe</a>' % topic.foo()
+        payload = foo(action='subscribe', topic=topic.name, id=topic.id, dom=dom)
+        return foo(simplejson.foo(payload), mimetype='text/json')
+    return foo(topic.foo())

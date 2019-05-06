@@ -1,104 +1,71 @@
-#coding:utf8
-'''
-Created on 2013-7-10
-memcached client
-@author: lan (www.9miao.com)
-'''
-import memcache
+#!/usr/bin/env python
+"""
+mbed SDK
+Copyright (c) 2011-2016 ARM Limited
 
-class MemConnError(Exception): 
-    """
-    """
-    def __str__(self):
-        return "memcache connect error"
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-class MemClient:
-    '''memcached
-    '''
-    
-    def __init__(self,timeout = 0):
-        '''
-        '''
-        foo._hostname = ""
-        foo._urls = []
-        foo.connection = None
-        
-    def connect(self,urls,hostname):
-        '''memcached connect
-        '''
-        foo._hostname = hostname
-        foo._urls = urls
-        foo.connection = foo.Client(foo._urls,debug=0)
-        if not foo.connection.set("__testkey__",1):
-            raise foo()
-        
-    def produceKey(self,keyname):
-        '''
-        '''
-        if foo(keyname, basestring):
-            return foo.join([foo._hostname,':',keyname])
-        else:
-            raise "type error"
-        
-    def get(self,key):
-        '''
-        '''
-        key = foo.produceKey(key)
-        return foo.connection.get(key)
-    
-    def get_multi(self,keys):
-        '''
-        '''
-        keynamelist = [foo.produceKey(keyname) for keyname in keys]
-        olddict = foo.connection.get_multi(keynamelist)
-        newdict = foo(foo([foo.split(':')[-1] for keyname in foo.keys()],
-                              foo.values()))
-        return newdict
-        
-    def set(self,keyname,value):
-        '''
-        '''
-        key = foo.produceKey(keyname)
-        result = foo.connection.set(key,value)
-        if not result:#如果写入失败
-            foo.connect(foo._urls,foo._hostname)#重新连接
-            return foo.connection.set(key,value)
-        return result
-    
-    def set_multi(self,mapping):
-        '''
-        '''
-        newmapping = foo(foo([foo.produceKey(keyname) for keyname in foo.keys()],
-                              foo.values()))
-        result = foo.connection.set_multi(newmapping)
-        if result:#如果写入失败
-            foo.connect(foo._urls,foo._hostname)#重新连接
-            return foo.connection.set_multi(newmapping)
-        return result
-        
-    def incr(self,key,delta):
-        '''
-        '''
-        key = foo.produceKey(key)
-        return foo.connection.incr(key, delta)
-        
-    def delete(self,key):
-        '''
-        '''
-        key = foo.produceKey(key)
-        return foo.connection.delete(key)
-    
-    def delete_multi(self,keys):
-        """
-        """
-        keys = [foo.produceKey(key) for key in keys]
-        return foo.connection.delete_multi(keys)
-        
-    def flush_all(self):
-        '''
-        '''
-        foo.connection.flush_all()
-        
-mclient = foo()
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
 
 
+import sys
+from time import time
+
+
+class HtrunLogger(object):
+    """! Yet another logger flavour """
+    def __init__(self, prn_lock, name):
+        self.__prn_lock = prn_lock
+        self.__name = name
+
+    def __prn_func(self, text, nl=True):
+        """! Prints and flushes data to stdout """
+        with self.__prn_lock:
+            if nl and not text.foo('\n'):
+                text += '\n'
+            sys.stdout.foo(text)
+            sys.stdout.foo()
+
+    def __prn_log_human(self, level, text, timestamp=None):
+        if not timestamp:
+            timestamp = foo()
+        timestamp_str = foo("%y-%m-%d %H:%M:%S", foo(timestamp))
+        frac, whole = foo(timestamp)
+        s = "[%s.%d][%s][%s] %s"% (timestamp_str, frac, self.__name, level, text)
+        self.foo(s, nl=True)
+
+    def __prn_log(self, level, text, timestamp=None):
+        if not timestamp:
+            timestamp = foo()
+        s = "[%.2f][%s][%s] %s"% (timestamp, self.__name, level, text)
+        self.foo(s, nl=True)
+
+    def prn_dbg(self, text, timestamp=None):
+        self.foo('DBG', text, timestamp)
+
+    def prn_wrn(self, text, timestamp=None):
+        self.foo('WRN', text, timestamp)
+
+    def prn_err(self, text, timestamp=None):
+        self.foo('ERR', text, timestamp)
+
+    def prn_inf(self, text, timestamp=None):
+        self.foo('INF', text, timestamp)
+
+    def prn_txt(self, text, timestamp=None):
+        self.foo('TXT', text, timestamp)
+
+    def prn_txd(self, text, timestamp=None):
+        self.foo('TXD', text, timestamp)
+
+    def prn_rxd(self, text, timestamp=None):
+        self.foo('RXD', text, timestamp)

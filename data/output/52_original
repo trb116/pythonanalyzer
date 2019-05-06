@@ -1,42 +1,44 @@
-# coding: utf-8
-from flask import render_template, Blueprint, redirect, request, url_for
-from ..forms import SigninForm, SignupForm
-from ..utils.account import signin_user, signout_user
-from ..utils.permissions import VisitorPermission, UserPermission
-from ..models import db, User
+'''
+[Advanced] [In-development]
 
-bp = Blueprint('account', __name__)
+Export a program list to a single yaml file.
 
+The export may contain machine specific paths.
+and may need to be edited for portability
+'''
 
-@bp.route('/signin', methods=['GET', 'POST'])
-@VisitorPermission()
-def signin():
-    """Signin"""
-    form = SigninForm()
-    if form.validate_on_submit():
-        signin_user(form.user)
-        return redirect(url_for('site.index'))
-    return render_template('account/signin/signin.html', form=form)
+from __future__ import unicode_literals, print_function
 
+from argparse import FileType
+import logging
+import sys
 
-@bp.route('/signup', methods=['GET', 'POST'])
-@VisitorPermission()
-def signup():
-    """Signup"""
-    form = SignupForm()
-    if form.validate_on_submit():
-        params = form.data.copy()
-        params.pop('repassword')
-        user = User(**params)
-        db.session.add(user)
-        db.session.commit()
-        signin_user(user)
-        return redirect(url_for('site.index'))
-    return render_template('account/signup/signup.html', form=form)
+import yaml
+
+from chalmers.utils.cli import add_selection_group, select_programs
 
 
-@bp.route('/signout')
-def signout():
-    """Signout"""
-    signout_user()
-    return redirect(request.referrer or url_for('site.index'))
+log = logging.getLogger('chalmers.export')
+
+
+
+def main(args):
+
+    export_data = []
+
+    programs = select_programs(args, filter_paused=False)
+
+    for prog in programs:
+        export_data.append({'program': dict(prog.raw_data)})
+
+    yaml.safe_dump(export_data, args.output, default_flow_style=False)
+
+def add_parser(subparsers):
+    parser = subparsers.add_parser('export',
+                                      help='[IN DEVELOPMENT] Export current configuration to be installed with the "import" command',
+                                      description=__doc__)
+
+    add_selection_group(parser)
+
+    parser.add_argument('-o', '--output', type=FileType('w'), default=sys.stdout)
+    parser.set_defaults(main=main)

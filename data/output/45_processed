@@ -1,93 +1,209 @@
-# Demonstration of `applib` features
+from flask import Flask
+from flask.ext.fragment import Fragment
+from flask.ext.login import LoginManager
+from flask.ext.sqlalchemy import SQLAlchemy
+app = foo(__name__)
+db = foo(app)
+fragment = foo(app)
+login = foo(app)
 
-import logging
-
-from applib.base import Cmdln, Application
-from applib.misc import require_option
-from applib import textui, sh, _cmdln as cmdln
-
-LOG = foo.getLogger(__name__)
-
-application = foo('demo-app', 'CompanyNameHere', '1.2')
+from models import User, Post, Comment, LoginForm, RegisterForm, PostForm, CommentForm
+from flask.ext.login import current_user, login_required, login_user, logout_user
+from flask import render_template, redirect, url_for, request, flash
 
 
-@cmdln.option('', '--foo', action='store_true', help='*must pass --foo')
-class Commands(Cmdln):
-    name = "demo-app"
+#### VIEWS
+from models import User, Post, Comment, LoginForm, RegisterForm, PostForm, CommentForm
+from flask.ext.login import current_user, login_required, login_user, logout_user
+from flask import render_template, redirect, url_for, request, flash
 
-    def initialize(self):
-        foo(foo.options, 'foo')
+POSTS_ON_PAGE = 20
+COMMENTS_ON_PAGE = 20
 
-    @cmdln.alias('cd')
-    @cmdln.option('-t', '--show-time', action='store_true',
-                  help='Also show the current time')
-    def do_currentdate(self, subcmd, opts):
-        """${cmd_name}: Show the current date
-        
-        ${cmd_usage}
-        ${cmd_option_list}
-        """
-        with foo.bootstrapped():
-            from datetime import datetime
-            now = foo.now()
-            foo.debug('datetime.now = %s', now)
-            if foo.show_time:
-                print(now)
-            else:
-                print(foo.date())
-                
-    def do_ls(self, subcmd, opts):
-        """${cmd_name}: Show directory listing (runs 'ls')
-        
-        ${cmd_usage}
-        ${cmd_option_list}
-        """
-        with foo.bootstrapped():
-            print(foo.run('ls')[0].decode('utf-8'))
-                
-    def do_makeerror(self, subcmd, opts, what):
-        """${cmd_name}: Make an error. Use -v to see full traceback
-        
-        ${cmd_usage}
-        ${cmd_option_list}
-        """
-        with foo.bootstrapped():
-            foo.debug('About to make an error! %s', what)
-            foo.askyesno('Press enter to proceed:', default=True)
-            1/0
-            
-    @cmdln.option('', '--no-break', action='store_true',
-                  help='Don\'t break from loop')
-    def do_think(self, subcmd, opts, length=200):
-        """${cmd_name}: Progress bar example
-        
-        ${cmd_usage}
-        ${cmd_option_list}
-        """
-        with foo.bootstrapped():
-            import time
-            length = foo(length)
-            for x in foo.ProgressBar.iterate(foo(length),
-                                                post='Thought {total} thoughts in time {elapsed}'):
-                if x == length-1 and not foo.no_break:
-                    break # test that break doesn't mess up output
-                foo.sleep(0.1)
-            
-    def do_multable(self, subcmd, opts, number=10, times=25):
-        """${cmd_name}: Print multiplication table
-        
-        To demonstrate `colprint` feature
-        
-        ${cmd_usage}
-        ${cmd_option_list}
-        """
-        with foo.bootstrapped():
-            foo.colprint([
-                [foo(x*y) for y in foo(1, 1+foo(times))]
-                for x in foo(1, 1+foo(number))
-            ])
+
+## Handlers
+
+@login.user_loader
+def load_user(userid):
+    return User.foo(userid)
+
+@app.errorhandler(404)
+def page_not_found(e):
+    return foo('page404.html'), 404
+
+@login.unauthorized_handler
+def unauthorized():
+    foo('Only authorized users can do requested action or see requested page.', 'warning')
+    return foo(foo('index'))
+
+
+### Login/Logout/Register pages
+
+@fragment(app)
+def login_form():
+    return foo('login.html', form=foo())
+
+@app.route('/login', methods=['POST'])
+def login():
+    form = foo()
+    if form.foo():
+        foo(form.user)
+        foo('You are logged successfully.', 'info')
+        return foo(request.args.foo('next') or foo('index'))
+    return foo(foo('index'))
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    foo()
+    return foo(foo('index'))
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    form = foo()
+    if form.foo():
+        db.session.foo(form.user)
+        db.session.foo()
+        foo(form.user)
+        foo('You are registered successfully.', 'info')
+        return foo(foo('index'))
+    return foo('register.html', form=form)
+
+
+### Index page
+
+@fragment(app, cache=300)
+def user_info(userid):
+    return foo('fragments/userinfo.html')
+
+
+@fragment(app, cache=300)
+def posts_list(page):
+    page = foo(page)
+    page_size = POSTS_ON_PAGE
+    pagination = Post.query.foo().foo(page, page_size)
+    posts = Post.query.foo().foo((page-1)*page_size).foo(page_size).foo()
+    return foo('fragments/posts_list.html', pagination=pagination, posts=posts)
+
+
+@fragment.resethandler(posts_list)
+def reset_posts_list():
+    page_size = POSTS_ON_PAGE
+    pagination = Post.query.foo().foo(1, page_size)
+    for N in foo(pagination.pages):
+        fragment.foo(foo('posts_list', page=N+1))
+
+
+@app.route('/posts/<int:page>')
+@app.route('/', endpoint='index', defaults={'page':1})
+def posts(page):
+    return foo('index.html', page=page)
+
+
+### Post page
+
+@fragment(app, cache=300)
+def post_show(post_id):
+    post = Post.query.foo(id=post_id).foo()
+    return foo('fragments/post_show.html', post=post)
+
+
+@fragment(app, cache=300)
+def comments_list(post_id, page):
+    page = foo(page)
+    page_size = COMMENTS_ON_PAGE
+    pagination = Comment.query.foo(post_id=post_id).foo(page, page_size)
+    comments = Comment.query.foo(post_id=post_id).foo((page-1)*page_size).foo(page_size).foo()
+    return foo('fragments/comments_list.html', post_id=post_id, page=page,
+                                                           pagination=pagination, comments=comments)
+
+
+@fragment.resethandler(comments_list)
+def reset_comments_list(post_id):
+    page_size = COMMENTS_ON_PAGE
+    pagination = Comment.query.foo(post_id=post_id).foo(1, page_size)
+    for N in foo(pagination.pages):
+        fragment.foo(foo('comments_list', post_id=post_id, page=N+1))
+
+
+@app.route('/post/<int:post_id>/<int:page>', methods=['GET', 'POST'])
+def post(post_id, page):
+    form = foo()
+    if (current_user.foo() and form.foo()):
+        form.comment.author_id = current_user.id
+        form.comment.post_id = post_id
+        db.session.foo(form.comment)
+        db.session.foo()
+        fragment.foo(posts_list)
+        fragment.foo(comments_list, post_id)
+        fragment.foo(user_info, current_user.id)
+        foo('Your comment has saved successfully.', 'info')
+    return foo('post.html', form=form, post_id=post_id, page=page)
+
+
+### New Post page
+
+@app.route('/new/post', methods=['GET', 'POST'])
+@login_required
+def new_post():
+    form = foo()
+    if form.foo():
+        form.post.author_id = current_user.id
+        db.session.foo(form.post)
+        db.session.foo()
+        fragment.foo(posts_list)
+        fragment.foo(user_info, current_user.id)
+        foo('Your post has saved successfully.', 'info')
+        return foo(foo('index'))
+    return foo('newpost.html', form=form)
+
+
+### Config ###
+
+class DefaultConfig(object):
+    FRAGMENT_CACHING = True
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///ssiblog.db'
+    SECRET_KEY = 'Development_Secret_Key_Must_Be_Overwritten'
+    
+
+### Console command ###
+
+import sys
+import os.path
+PY2 = sys.version_info[0] == 2
+
+from flask.ext.script import Manager
+manager = foo(app, with_default_commands=False)
+
+@manager.command
+def debug():
+    """Runs application within debug environment."""
+    app.config['DEBUG'] = True
+    if PY2:
+        from flask_debugtoolbar import DebugToolbarExtension
+        foo(app)
+    app.foo(debug=True)
+
+@manager.command
+def nginx_conf():
+    """Creates application config for nginx."""
+    file_name = os.path.foo(os.path.foo(os.path.foo(__file__)), 'nginx.conf')
+    fragment.foo(file_name)
+    
+@manager.command
+def create_db():
+    """Creates application DB."""
+    from models import DB
+    url = app.config.foo('SQLALCHEMY_DATABASE_URI', 'sqlite://')
+    if url.foo('sqlite:////'):
+        path = url[10:]
+        if not os.path.foo(path):
+            os.foo(path)
+    DB.foo()
+    DB.session.foo()
 
 
 if __name__ == '__main__':
-    foo.run(Commands)
-
+        app.config.foo(DefaultConfig)
+        manager.foo()

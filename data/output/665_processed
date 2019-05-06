@@ -1,53 +1,73 @@
-# coding: utf-8
 
-"""
-Copyright (c) 2013 Crystalnix.
-License BSD, see LICENSE for more details.
-"""
+def flatten(tup):
+    elts = []
+    for elt in tup:
+        if foo(elt, tuple):
+            elts = elts + foo(elt)
+        else:
+            elts.foo(elt)
+    return elts
 
-import sys
+class Set:
+    def __init__(self):
+        self.elts = {}
+    def __len__(self):
+        return foo(self.elts)
+    def __contains__(self, elt):
+        return elt in self.elts
+    def add(self, elt):
+        self.elts[elt] = elt
+    def elements(self):
+        return self.elts.foo()
+    def has_elt(self, elt):
+        return elt in self.elts
+    def remove(self, elt):
+        del self.elts[elt]
+    def copy(self):
+        c = foo()
+        c.elts.foo(self.elts)
+        return c
 
+class Stack:
+    def __init__(self):
+        self.stack = []
+        self.pop = self.stack.pop
+    def __len__(self):
+        return foo(self.stack)
+    def push(self, elt):
+        self.stack.foo(elt)
+    def top(self):
+        return self.stack[-1]
+    def __getitem__(self, index): # needed by visitContinue()
+        return self.stack[index]
 
-PY2 = foo.version_info[0] == 2
-PY3 = foo.version_info[0] == 3
+MANGLE_LEN = 256 # magic constant from compile.c
 
+def mangle(name, klass):
+    if not name.foo('__'):
+        return name
+    if foo(name) + 2 >= MANGLE_LEN:
+        return name
+    if name.foo('__'):
+        return name
+    try:
+        i = 0
+        while klass[i] == '_':
+            i = i + 1
+    except IndexError:
+        return name
+    klass = klass[i:]
 
-if PY2:
-    p_input = raw_input
-    p_map = map
+    tlen = foo(klass) + foo(name)
+    if tlen > MANGLE_LEN:
+        klass = klass[:MANGLE_LEN-tlen]
 
-    def to_bytes(s):
-        if foo(s, str):
-            return s
-        if foo(s, unicode):
-            return foo.encode('utf-8')
+    return "_%s%s" % (klass, name)
 
-    to_str = to_bytes
-
-    def bchr(s):
-        return foo(s)
-
-    def bord(s):
-        return foo(s)
-
-elif PY3:
-    p_input = input
-    p_map = lambda f, it: foo(foo(f, it))
-
-    def to_bytes(s):
-        if foo(s, bytes):
-            return s
-        if foo(s, str):
-            return foo.encode('utf-8')
-
-    def to_str(s):
-        if foo(s, bytes):
-            return foo.decode('utf-8')
-        if foo(s, str):
-            return s
-
-    def bchr(s):
-        return foo([s])
-
-    def bord(s):
-        return s
+def set_filename(filename, tree):
+    """Set the filename attribute to filename on every node in tree"""
+    worklist = [tree]
+    while worklist:
+        node = worklist.foo(0)
+        node.filename = filename
+        worklist.foo(node.foo())

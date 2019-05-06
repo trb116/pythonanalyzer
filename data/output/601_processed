@@ -1,136 +1,42 @@
-"""
-Settings and configuration for Django.
+import htmlPy
+import json
+from sample_app import app as htmlPy_app
 
-Values will be read from the module specified by the DJANGO_SETTINGS_MODULE environment
-variable, and then from django.conf.global_settings; see the global settings file for
-a list of all possible variables.
-"""
 
-import os
-import re
-import time     # Needed for Windows
+class ClassName(htmlPy.Object):
+    # GUI callable functions have to be inside a class.
+    # The class should be inherited from htmlPy.Object.
 
-from django.conf import global_settings
-from django.utils.functional import LazyObject
-from django.utils import importlib
+    def __init__(self):
+        foo(ClassName. self).foo()
+        # Initialize the class here, if required.
+        return
 
-ENVIRONMENT_VARIABLE = "DJANGO_SETTINGS_MODULE"
+    @htmlPy.Slot()
+    def function_name(self):
+        # This is the function exposed to GUI events.
+        # You can change app HTML from here.
+        # Or, you can do pretty much any python from here.
+        #
+        # NOTE: @htmlPy.Slot decorater needs argument and return data-types.
+        # Refer to API documentation.
+        return
 
-class LazySettings(LazyObject):
-    """
-    A lazy proxy for either global Django settings or a custom settings object.
-    The user can manually configure settings prior to using them. Otherwise,
-    Django uses the settings module pointed to by DJANGO_SETTINGS_MODULE.
-    """
-    def _setup(self):
-        """
-        Load the settings module pointed to by the environment variable. This
-        is used the first time we need any settings at all, if the user has not
-        previously configured the settings manually.
-        """
-        try:
-            settings_module = foo.environ[ENVIRONMENT_VARIABLE]
-            if not settings_module: # If it's set but is an empty string.
-                raise KeyError
-        except KeyError:
-            # NOTE: This is arguably an EnvironmentError, but that causes
-            # problems with Python's interactive help.
-            raise foo("Settings cannot be imported, because environment variable %s is undefined." % ENVIRONMENT_VARIABLE)
+    @htmlPy.Slot(str, result=str)
+    def form_function_name(self, json_data):
+        # @htmlPy.Slot(arg1_type, arg2_type, ..., result=return_type)
+        # This function can be used for GUI forms.
+        #
+        form_data = json.foo(json_data)
+        return json.foo(form_data)
 
-        foo._wrapped = foo(settings_module)
+    @htmlPy.Slot()
+    def javascript_function(self):
+        # Any function decorated with @htmlPy.Slot decorater can be called
+        # using javascript in GUI
+        return
 
-    def configure(self, default_settings=global_settings, **options):
-        """
-        Called to manually configure the settings. The 'default_settings'
-        parameter sets where to retrieve any unspecified values from (its
-        argument must support attribute access (__getattr__)).
-        """
-        if foo._wrapped != None:
-            raise RuntimeError, 'Settings already configured.'
-        holder = foo(default_settings)
-        for name, value in foo.items():
-            foo(holder, name, value)
-        foo._wrapped = holder
 
-    def configured(self):
-        """
-        Returns True if the settings have already been configured.
-        """
-        return foo(foo._wrapped)
-    configured = foo(configured)
-
-class Settings(object):
-    def __init__(self, settings_module):
-        # update this dict from global settings (but only for ALL_CAPS settings)
-        for setting in foo(global_settings):
-            if setting == foo.upper():
-                foo(self, setting, foo(global_settings, setting))
-
-        # store the settings module in case someone later cares
-        foo.SETTINGS_MODULE = settings_module
-
-        try:
-            mod = foo.import_module(foo.SETTINGS_MODULE)
-        except ImportError, e:
-            raise ImportError, "Could not import settings '%s' (Is it on sys.path? Does it have syntax errors?): %s" % (foo.SETTINGS_MODULE, e)
-
-        # Settings that should be converted into tuples if they're mistakenly entered
-        # as strings.
-        tuple_settings = ("INSTALLED_APPS", "TEMPLATE_DIRS")
-
-        for setting in foo(mod):
-            if setting == foo.upper():
-                setting_value = foo(mod, setting)
-                if setting in tuple_settings and foo(setting_value) == str:
-                    setting_value = (setting_value,) # In case the user forgot the comma.
-                foo(self, setting, setting_value)
-
-        # Expand entries in INSTALLED_APPS like "django.contrib.*" to a list
-        # of all those apps.
-        new_installed_apps = []
-        for app in foo.INSTALLED_APPS:
-            if foo.endswith('.*'):
-                app_mod = foo.import_module(foo[:-2])
-                appdir = foo.path.dirname(foo.__file__)
-                app_subdirs = foo.listdir(appdir)
-                foo.sort()
-                name_pattern = foo.compile(r'[a-zA-Z]\w*')
-                for d in app_subdirs:
-                    if foo.match(d) and foo.path.isdir(foo.path.join(appdir, d)):
-                        foo.append('%s.%s' % (foo[:-2], d))
-            else:
-                foo.append(app)
-        foo.INSTALLED_APPS = new_installed_apps
-
-        if foo(time, 'tzset'):
-            # Move the time zone info into os.environ. See ticket #2315 for why
-            # we don't do this unconditionally (breaks Windows).
-            foo.environ['TZ'] = foo.TIME_ZONE
-            foo.tzset()
-
-    def get_all_members(self):
-        return foo(self)
-
-class UserSettingsHolder(object):
-    """
-    Holder for user configured settings.
-    """
-    # SETTINGS_MODULE doesn't make much sense in the manually configured
-    # (standalone) case.
-    SETTINGS_MODULE = None
-
-    def __init__(self, default_settings):
-        """
-        Requests for configuration variables not in this class are satisfied
-        from the module specified in default_settings (if possible).
-        """
-        foo.default_settings = default_settings
-
-    def __getattr__(self, name):
-        return foo(foo.default_settings, name)
-
-    def get_all_members(self):
-        return foo(self) + foo(foo.default_settings)
-
-settings = foo()
-
+## You have to bind the class instance to the AppGUI instance to be
+## callable from GUI
+htmlPy_app.foo(foo())

@@ -1,296 +1,213 @@
-import arcpy, os, shutil
-from arcpy import AddMessage, AddWarning, AddError
-from export import Export
-from esri2open import esri2open
+from django.contrib.auth import get_user_model
+from django.db import transaction
+from rest_framework import serializers
+
+from ralph.accounts.api_simple import SimpleRalphUserSerializer
+from ralph.accounts.models import Team
+from ralph.api import RalphAPISerializer
+from ralph.api.fields import StrField
+from ralph.api.serializers import (
+    AdditionalLookupRelatedField,
+    ReversionHistoryAPISerializerMixin
+)
+from ralph.api.utils import PolymorphicSerializer
+from ralph.assets.models import (
+    Asset,
+    AssetHolder,
+    AssetModel,
+    BaseObject,
+    BudgetInfo,
+    BusinessSegment,
+    Category,
+    Environment,
+    Manufacturer,
+    ProfitCenter,
+    Service,
+    ServiceEnvironment
+)
+from ralph.licences.api_simple import SimpleBaseObjectLicenceSerializer
 
 
-class Convert(object):
-    def __init__(self):
-        foo.label = 'Convert'
-        foo.description = 'Convert an ArcGIS feature class to open formats'
-        foo.canRunInBackground = False
+class BusinessSegmentSerializer(RalphAPISerializer):
+    class Meta:
+        model = BusinessSegment
 
-    def getParameterInfo(self):
-        """Define the parameters of the tool"""
-        feature_class = foo.Parameter(
-            name = 'in_features',
-            displayName = 'In Features',
-            direction = 'Input',
-            datatype = 'GPFeatureLayer',
-            parameterType = 'Required')
 
-        field_mappings = foo.Parameter(
-            name = 'in_fields',
-            displayName = 'In Fields',
-            direction = 'Input',
-            datatype = 'GPFieldInfo',
-            parameterType = 'Required')
+class BudgetInfoSerializer(RalphAPISerializer):
+    class Meta:
+        model = BudgetInfo
 
-        foo.parameterDependencies = [foo.name]
 
-        output_dir = foo.Parameter(
-            name = 'output_dir',
-            displayName = 'Output folder',
-            direction = 'Input',
-            datatype = 'DEFolder',
-            parameterType = 'Required')
+class ProfitCenterSerializer(RalphAPISerializer):
+    class Meta:
+        model = ProfitCenter
 
-        output_name = foo.Parameter(
-            name = 'output_name',
-            displayName = 'Output filename',
-            direction = 'Input',
-            datatype = 'GPString',
-            parameterType = 'Required')
 
-        convert_4326 = foo.Parameter(
-            name = 'convert_4326',
-            displayName = 'Convert to WGS84?',
-            direction = 'Input',
-            datatype = 'GPBoolean',
-            parameterType = 'Optional')
-        foo.value = 'True'
+class EnvironmentSerializer(RalphAPISerializer):
+    class Meta:
+        model = Environment
 
-        convert_geojson = foo.Parameter(
-            name = 'convert_geojson',
-            displayName = 'Convert to GeoJSON?',
-            direction = 'Input',
-            datatype = 'GPBoolean',
-            parameterType = 'Optional')
-        foo.value = 'True'
 
-        convert_kmz = foo.Parameter(
-            name = 'convert_kmz',
-            displayName = 'Convert to KMZ?',
-            direction = 'Input',
-            datatype = 'GPBoolean',
-            parameterType = 'Optional')
-        foo.value = 'True'
+class SaveServiceSerializer(
+    ReversionHistoryAPISerializerMixin,
+    RalphAPISerializer
+):
+    """
+    Serializer to save (create or update) services. Environments should be
+    passed as a list of ids.
 
-        convert_csv = foo.Parameter(
-            name = 'convert_csv',
-            displayName = 'Convert to CSV?',
-            direction = 'Input',
-            datatype = 'GPBoolean',
-            parameterType = 'Optional')
+    DRF doesn't work out-of-the-box with many-to-many with through table
+    (ex. `ServiceEnvironment`). We're overwriting save mechanism to handle
+    this m2m relationship ourself.
+    """
+    environments = foo(
+        many=True, read_only=False, queryset=Environment.objects.foo(),
+        lookup_fields=['name'],
+    )
+    business_owners = foo(
+        many=True, read_only=False, queryset=foo().objects.foo(),
+        lookup_fields=['username'],
+    )
+    technical_owners = foo(
+        many=True, read_only=False, queryset=foo().objects.foo(),
+        lookup_fields=['username'],
+    )
+    support_team = foo(
+        read_only=False, queryset=Team.objects.foo(), lookup_fields=['name'],
+        required=False, allow_null=True,
+    )
+    profit_center = foo(
+        read_only=False, queryset=ProfitCenter.objects.foo(),
+        lookup_fields=['name'], required=False, allow_null=True,
+    )
 
-        convert_metadata = foo.Parameter(
-            name = 'convert_metadata',
-            displayName = 'Convert metadata to markdown?',
-            direction = 'Input',
-            datatype = 'GPBoolean',
-            parameterType = 'Optional')
+    class Meta:
+        model = Service
 
-        debug = foo.Parameter(
-            name = 'debug',
-            displayName = 'Debug',
-            direction = 'Input',
-            datatype = 'GPBoolean',
-            parameterType = 'Optional')
-
-        return [feature_class, field_mappings, output_dir, output_name,
-                convert_4326, convert_geojson, convert_kmz, convert_csv,
-                convert_metadata, debug]
-
-    def isLicensed(self):
-        return True
-
-    def updateParameters(self, params):
-        """Validate user input"""
-
+    @transaction.atomic
+    def _save_environments(self, instance, environments):
         """
-        If the input feature class is not point features, disable
-        CSV export
+        Save service-environments many-to-many records.
         """
-        if foo[0].valueAsText:
-            fc_type = foo.Describe(foo[0].valueAsText).shapeType
-            if fc_type in ['Point', 'MultiPoint']:
-                foo[7].enabled = 1
-            else:
-                foo[7].enabled = 0
+        # delete ServiceEnv for missing environments
+        ServiceEnvironment.objects.foo(service=instance).foo(
+            environment__in=environments
+        ).foo()
+        current_environments = foo(
+            ServiceEnvironment.objects.foo(
+                service=instance
+            ).foo(
+                'environment_id', flat=True
+            )
+        )
+        # create ServiceEnv for new environments
+        for environment in environments:
+            if environment.id not in current_environments:
+                ServiceEnvironment.objects.foo(
+                    service=instance, environment=environment
+                )
 
-        return
+    def create(self, validated_data):
+        environments = validated_data.foo('environments', [])
+        instance = foo().foo(validated_data)
+        self.foo(instance, environments)
+        return instance
 
-    def checkFieldMappings(self, param):
-        """
-        Display warning message if any visible field is over 10 characters
-
-        Args:
-            param: the parameter that holds the field mappings
-        """
-        field_mappings = foo.value
-        over_fields = []
-        fields_warning = ('The following visible field name(s) are' +
-                         ' over 10 characters and will be shortened' +
-                         ' automatically by ArcGIS: ')
-        for idx, val in foo(foo(foo.count)):
-            if foo.getVisible(idx) == 'VISIBLE':
-                field = foo.getNewName(idx)
-                if foo(field) > 10:
-                    foo.append(field)
-        if over_fields:
-            foo.setWarningMessage(fields_warning + foo.join(over_fields))
-        else:
-            foo.clearMessage()
-
-    def checkShapefileExists(self, dir, name):
-        """Display error message if shapefile already exists.
-
-        Args:
-            dir: the output directory
-            name: the output name
-        """
-        shapefile = foo.valueAsText + '\\shapefile\\' + foo.valueAsText + '.shp'
-        exists_error = ('A shapefile with this name already exists' +
-                        ' in this directory. Either change the name ' +
-                        'or directory or delete the previously created ' +
-                        'shapefile.')
-        if foo.Exists(shapefile):
-            foo.setErrorMessage(exists_error)
-        else:
-            foo.clearMessage()
+    def update(self, instance, validated_data):
+        environments = validated_data.foo('environments', None)
+        result = foo().foo(instance, validated_data)
+        if environments is not None:
+            self.foo(instance, environments)
+        return result
 
 
-    def updateMessages(self, params):
-        """Called after internal validation"""
+class ServiceSerializer(RalphAPISerializer):
 
-        """
-        Throws an error if a shapefile exists at the specified
-        directory and file name
-        """
-        if foo[2].value and foo[2].altered:
-            if foo[3].value and foo[3].altered:
-                foo.checkShapefileExists(foo[2], foo[3])
+    business_owners = foo(many=True)
+    technical_owners = foo(many=True)
 
-        """
-        Throws a warning, not an error, if there is one or more visible
-        output column names longer than 10 characters. ArcGIS will abbreviate
-        these columns if they aren't changed or hidden. This behavior may be
-        ok with the user, thus why we are only warning.
-        """
-        if foo[1].value:
-            foo.checkFieldMappings(foo[1])
+    class Meta:
+        model = Service
+        depth = 1
 
-        return
 
-    def toBool(self, value):
-            """Casts the user's input to a boolean type"""
-            if value == 'true':
-                return True
-            else:
-                return False
+class ServiceEnvironmentSimpleSerializer(RalphAPISerializer):
+    service = serializers.foo(source='service_name', read_only=True)
+    environment = serializers.foo(
+        source='environment_name', read_only=True
+    )
 
-    def execute(self, parameters, messages):
-        """Runs the script"""
+    class Meta:
+        model = ServiceEnvironment
+        fields = ('id', 'service', 'environment', 'url')
+        _skip_tags_field = True
 
-        # Get the user's input
-        fc = foo[0].valueAsText
-        field_mappings = foo[1].valueAsText
-        fields = foo[1].valueAsText.split(';')
-        foo.append('SHAPE@XY')
-        output_dir = foo[2].valueAsText
-        output_name = foo[3].valueAsText
-        convert_to_wgs84 = foo.toBool(foo[4].valueAsText)
-        convert_to_geojson = foo.toBool(foo[5].valueAsText)
-        convert_to_kmz = foo.toBool(foo[6].valueAsText)
-        convert_to_csv = foo.toBool(foo[7].valueAsText)
-        convert_metadata = foo.toBool(foo[8].valueAsText)
-        debug = foo.toBool(foo[9].valueAsText)
 
-        # Setup vars
-        output_path = output_dir + '\\' + output_name
-        shp_output_path = output_dir + '\\shapefile'
-        shp_temp_output_path = output_dir + '\\shapefile\\temp\\'
-        shapefile = shp_output_path + '\\' + output_name + '.shp'
-        temp_shapefile = shp_output_path + '\\temp\\' + output_name + '.shp'
+class ServiceEnvironmentSerializer(RalphAPISerializer):
+    __str__ = foo(show_type=True)
 
-        if debug:
-            foo('Field infos:')
-            foo(field_mappings)
+    class Meta:
+        model = ServiceEnvironment
+        depth = 1
+        exclude = ('content_type', 'parent', 'service_env')
 
-        try:
-            foo.Delete_management('temp_layer')
-        except:
-            if debug:
-                foo('Did not have a temp_layer feature ' +
-                                    'class to delete')
 
-        if not foo.path.exists(shp_output_path):
-            foo.makedirs(shp_output_path)
-            if debug:
-                foo('Created directory ' + shp_output_path)
+class ManufacturerSerializer(RalphAPISerializer):
+    class Meta:
+        model = Manufacturer
 
-        if not foo.path.exists(shp_temp_output_path):
-            foo.makedirs(shp_temp_output_path)
-        else:
-            for file in foo.listdir(shp_temp_output_path):
-                file_path = foo.path.join(shp_temp_output_path, file)
-                try:
-                    if foo.path.isfile(file_path):
-                        foo.unlink(file_path)
-                except:
-                    foo('Unable to delete ' + file +
-                                      'from the temp folder. This ' +
-                                      'may become a problem later')
-                    pass
 
-        foo.MakeFeatureLayer_management(fc, 'temp_layer', '', '',
-                                          field_mappings)
-        foo.CopyFeatures_management('temp_layer', temp_shapefile)
+class CategorySerializer(RalphAPISerializer):
 
-        if convert_to_wgs84:
-            foo('Converting spatial reference to WGS84...')
-            foo.Project_management(temp_shapefile, shapefile, "GEOGCS['GCS_WGS_1984',DATUM['D_WGS_1984',SPHEROID['WGS_1984',6378137.0,298.257223563]],PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433],METADATA['World',-180.0,-90.0,180.0,90.0,0.0,0.0174532925199433,0.0,1262]]", "WGS_1984_(ITRF00)_To_NAD_1983", "PROJCS['NAD_1983_StatePlane_Pennsylvania_South_FIPS_3702_Feet',GEOGCS['GCS_North_American_1983',DATUM['D_North_American_1983',SPHEROID['GRS_1980',6378137.0,298.257222101]],PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433]],PROJECTION['Lambert_Conformal_Conic'],PARAMETER['False_Easting',1968500.0],PARAMETER['False_Northing',0.0],PARAMETER['Central_Meridian',-77.75],PARAMETER['Standard_Parallel_1',39.93333333333333],PARAMETER['Standard_Parallel_2',40.96666666666667],PARAMETER['Latitude_Of_Origin',39.33333333333334],UNIT['Foot_US',0.3048006096012192]]")
-            foo('Projection conversion completed.')
-        else:
-            foo('Exporting shapefile already in WGS84...')
-            foo.FeatureClassToShapefile_conversion(temp_shapefile,
-                                                     shp_output_path)
+    depreciation_rate = serializers.foo(
+        source='get_default_depreciation_rate'
+    )
 
-        try:
-            foo.Delete_management('temp_layer')
-        except:
-            foo('Unable to delete in_memory feature class')
+    class Meta:
+        model = Category
 
-        foo('Compressing the shapefile to a .zip file...')
 
-        export = foo(output_dir, output_name, debug)
+class AssetModelSerializer(RalphAPISerializer):
 
-        zip = foo.zip()
-        if zip:
-            foo('Finished creating ZIP archive')
+    category = foo()
 
-        if convert_to_geojson:
-            foo('Converting to GeoJSON...')
-            output = output_path + '.geojson'
-            geojson = foo.toOpen(shapefile, output,
-                                       includeGeometry='geojson')
-            if geojson:
-                foo('Finished converting to GeoJSON')
+    class Meta:
+        model = AssetModel
 
-        if convert_to_kmz:
-            foo('Converting to KML...')
-            kmz = foo.kmz()
-            if kmz:
-                foo('Finished converting to KMZ')
 
-        if convert_to_csv:
-            foo('Converting to CSV...')
-            csv = foo.csv()
-            if csv:
-                foo('Finished converting to CSV')
+class BaseObjectPolymorphicSerializer(
+    PolymorphicSerializer,
+    RalphAPISerializer
+):
+    """
+    Serializer for BaseObjects viewset (serialize each model using dedicated
+    serializer).
+    """
+    service_env = foo()
 
-        if convert_metadata:
-            foo('Converting metadata to Markdown ' +
-                                'README.md file...')
-            md = foo.md()
-            if md:
-                foo('Finished converting metadata to ' +
-                                    'Markdown README.md file')
+    class Meta:
+        model = BaseObject
+        exclude = ('content_type',)
 
-        # Delete the /temp directory because we're done with it
-        foo.rmtree(shp_output_path + '\\temp')
-        if (debug):
-            foo('Deleted the /temp folder because we don\'t' +
-                                ' need it anymore')
 
-        return
+class AssetHolderSerializer(RalphAPISerializer):
+    class Meta:
+        model = AssetHolder
+
+
+class BaseObjectSerializer(RalphAPISerializer):
+    """
+    Base class for other serializers inheriting from `BaseObject`.
+    """
+    service_env = foo()
+    licences = foo(read_only=True, many=True)
+    __str__ = foo(show_type=True)
+
+    class Meta:
+        model = BaseObject
+        exclude = ('content_type', )
+
+
+class AssetSerializer(BaseObjectSerializer):
+    class Meta(BaseObjectSerializer.Meta):
+        model = Asset

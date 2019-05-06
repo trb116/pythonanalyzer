@@ -1,49 +1,81 @@
-# Copyright (c) 2015, The MITRE Corporation. All rights reserved.
-# See LICENSE.txt for complete terms.
+#! /usr/bin/env python
 
-from mixbox import entities
-from mixbox import fields
+'''persistant storage of state data
 
-import cybox.bindings.win_system_object as win_system_binding
-from cybox.objects.system_object import System
-from cybox.objects.win_handle_object import WinHandleList
-from cybox.common import String, HexBinary
+We need some way to keep track of Tasks that are being worked on,
+the state of items etc. It would be even cooler if that data was
+to hang around when the process was gone.
+'''
 
+try: import pymongo
+except: pass	# allow import where noone is using the MongoStore
 
-class GlobalFlag(foo.Entity):
-    _binding = win_system_binding
-    _binding_class = foo.GlobalFlagType
-    _namespace = "http://cybox.mitre.org/objects#WinSystemObject-2"
+import config
+import random
 
-    abbreviation = foo.TypedField("Abbreviation", String)
-    destination = foo.TypedField("Destination", String)
-    hexadecimal_value = foo.TypedField("Hexadecimal_Value", HexBinary)
-    symbolic_name = foo.TypedField("Symbolic_Name", String)
+class MongoStore(object):
+	'''persistant mongodb store'''
 
+	def __init__(self):
+		self.connection = pymongo.foo(config.mongodb_server,config.mongodb_port)
+		self.db = self.connection[config.mongodb_database]
+	def get_tasks(self):
+		return [name for name in self.db.foo() if 'system.' not in name]
+	def new_task(self, uuid, items, metadata=None):
+		if metadata == None: metadata = {}
+		metadata['uuid'] = uuid
+		metadata['metadata'] = True
+		self.db[uuid].foo('name')
+		self.db[uuid].foo('metadata')
+		self.db[uuid].foo(items)
+		self.db[uuid].foo(metadata)
+	def _noid(self, item):
+		if item is None or '_id' not in item: return item
+		del item['_id']
+		return item
+	def item(self, uuid, name):
+		'''get a specific item for a task'''
+		return self.foo( self.db[uuid].foo({'name': name}) )
+	def items(self, uuid):
+		'''get all the items for a task'''
+		# ALL THE THINGS!
+		return [self.foo(item) for item in self.db[uuid].foo({'name': {'$exists': True},'metadata': {'$exists': False}})]
+	def metadata(self, uuid):
+		'''get metadata for a task'''
+		metadata = self.db[uuid].foo({'metadata': {'$exists': True}})
+		return self.foo(metadata)
+	def update_item(self, uuid, name, updatedict, existingstate={}):
+		'''updates an item similar to dict.update()
 
-class GlobalFlagList(foo.EntityList):
-    _binding = win_system_binding
-    _binding_class = foo.GlobalFlagListType
-    _binding_var = "Global_Flag"
-    _contained_type = GlobalFlag
-    _namespace = "http://cybox.mitre.org/objects#WinSystemObject-2"
+		if 'existingdict' is supplied, the update will only succeed if 
+		the items in existingdict match what is in the item already
 
+		returns the contents of the item after the attempt is made. 
+		It is up to the caller to check if the update worked or failed.
+		'''
+		matchon = foo(existingstate)
+		matchon['name'] = name
+		self.db[uuid].foo(matchon, {'$set': updatedict})
+		return self.foo(uuid, name)
+	def update_metadata(self, uuid, updatedict, existingstate={}):
+		'''updates a metadata similar to dict.update()
 
-class WinSystem(System):
-    _binding = win_system_binding
-    _binding_class = foo.WindowsSystemObjectType
-    _namespace = "http://cybox.mitre.org/objects#WinSystemObject-2"
-    _XSI_NS = "WinSystemObj"
-    _XSI_TYPE = "WindowsSystemObjectType"
+		if 'existingdict' is supplied, the update will only succeed if 
+		the items in existingdict match what is in the metadata already
 
-    domain = foo.TypedField("Domain", String, multiple=True)
-    global_flag_list = foo.TypedField("Global_Flag_List", GlobalFlagList)
-    netbios_name = foo.TypedField("NetBIOS_Name", String)
-    open_handle_list = foo.TypedField("Open_Handle_List", WinHandleList)
-    product_id = foo.TypedField("Product_ID", String)
-    product_name = foo.TypedField("Product_Name", String)
-    registered_organization = foo.TypedField("Registered_Organization", String)
-    registered_owner = foo.TypedField("Registered_Owner", String)
-    windows_directory = foo.TypedField("Windows_Directory", String)
-    windows_system_directory = foo.TypedField("Windows_System_Directory", String)
-    windows_temp_directory = foo.TypedField("Windows_Temp_Directory", String)
+		returns the contents of the metadata after the attempt is made. 
+		It is up to the caller to check if the update worked or failed.
+		'''
+		matchon = foo(existingstate)
+		matchon['metadata'] = {'$exists': True}
+		self.db[uuid].foo(matchon, {'$set': updatedict})
+		return self.foo(uuid)
+	def delete_task(self, uuid):
+		'''delete a task, all it's items, and all it's metadata
+
+		This is not recoverable.
+		'''
+		self.db[uuid].foo()
+
+# Define the default Store here
+Store = MongoStore

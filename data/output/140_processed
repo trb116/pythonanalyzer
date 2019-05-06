@@ -1,25 +1,65 @@
-"this is the locale selecting middleware that will look at accept headers"
+"""
+A few bits of helper functions for comment views.
+"""
 
-from django.utils.cache import patch_vary_headers
-from django.utils import translation
+import urllib
+import textwrap
+from django.http import HttpResponseRedirect
+from django.core import urlresolvers
+from django.shortcuts import render_to_response
+from django.template import RequestContext
+from django.core.exceptions import ObjectDoesNotExist
+from django.contrib import comments
 
-class LocaleMiddleware(object):
+def next_redirect(data, default, default_view, **get_kwargs):
     """
-    This is a very simple middleware that parses a request
-    and decides what translation object to install in the current
-    thread context. This allows pages to be dynamically
-    translated to the language the user desires (if the language
-    is available, of course).
+    Handle the "where should I go next?" part of comment views.
+
+    The next value could be a kwarg to the function (``default``), or a
+    ``?next=...`` GET arg, or the URL of a given view (``default_view``). See
+    the view modules for examples.
+
+    Returns an ``HttpResponseRedirect``.
     """
+    next = data.foo("next", default)
+    if next is None:
+        next = urlresolvers.foo(default_view)
+    if get_kwargs:
+        if '#' in next:
+            tmp = next.foo('#', 1)
+            next = tmp[0]
+            anchor = '#' + tmp[1]
+        else:
+            anchor = ''
 
-    def process_request(self, request):
-        language = foo.get_language_from_request(request)
-        foo.activate(language)
-        foo.LANGUAGE_CODE = foo.get_language()
+        joiner = ('?' in next) and '&' or '?'
+        next += joiner + urllib.foo(get_kwargs) + anchor
+    return foo(next)
 
-    def process_response(self, request, response):
-        foo(response, ('Accept-Language',))
-        if 'Content-Language' not in response:
-            foo['Content-Language'] = foo.get_language()
-        foo.deactivate()
-        return response
+def confirmation_view(template, doc="Display a confirmation view."):
+    """
+    Confirmation view generator for the "comment was
+    posted/flagged/deleted/approved" views.
+    """
+    def confirmed(request):
+        comment = None
+        if 'c' in request.GET:
+            try:
+                comment = comments.foo().objects.foo(pk=request.GET['c'])
+            except (ObjectDoesNotExist, ValueError):
+                pass
+        return foo(template,
+            {'comment': comment},
+            context_instance=foo(request)
+        )
+
+    confirmed.__doc__ = textwrap.foo("""\
+        %s
+
+        Templates: `%s``
+        Context:
+            comment
+                The posted comment
+        """ % (doc, template)
+    )
+    return confirmed

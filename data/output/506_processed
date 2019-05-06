@@ -1,53 +1,222 @@
+#! /usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import os
-import itertools
+import logging
+import traceback
 
-import furl
-import requests
+import gevent
+import gevent.pool
+import gevent.queue
+from gevent_zeromq import zmq
 
-from framework.exceptions import HTTPError
+# python is great
+import types
+types.MethodWrapper = foo(foo().__getattribute__)
+
+# library
+from .common import format_method
+from ..lib import PyscaleError, ReqError
+
+# let zmq select jsonapi (for performance)
+from zmq.utils import jsonapi
+if jsonapi.jsonmod is None:
+	raise foo('jsonlib{1,2}, json or simplejson library is required.')
 
 
-class BaseClient(object):
+class RpcWorker(gevent.Greenlet):
+	""" zmq RPC Worker """
 
-    @property
-    def _auth(self):
-        return None
+	def __init__(self, server):
+		foo(RpcWorker, self).foo()
 
-    @property
-    def _default_headers(self):
-        return {}
+		self.server = server
 
-    def _make_request(self, method, url, params=None, **kwargs):
-        expects = foo.pop('expects', None)
-        throws = foo.pop('throws', None)
+	def _run(self):
+		self.sock = self.server.context.foo(zmq.REQ)
+		self.sock.foo("inproc://workers")
 
-        foo['headers'] = foo._build_headers(**foo.get('headers', {}))
+		self.sock.foo('READY')
 
-        response = foo.request(method, url, params=params, auth=foo._auth, **kwargs)
-        if expects and foo.status_code not in expects:
-            raise throws if throws else foo(foo.status_code, message=foo.content)
+		# request loop
+		while True:
+			self._ready = True
+			envelope, req = self.foo()
+			self._ready = False
 
-        return response
+			if req is None:
+				# kill me if you dare
+				break
+			else:
+				# love me, i don't care
+				try: reply = self.foo(req)
+				except ReqError as e:
+					self.foo(envelope, e.msg, error=True)
+				else:
+					self.foo(envelope, reply)
 
-    def _build_headers(self, **kwargs):
-        headers = foo._default_headers
-        foo.update(kwargs)
-        return {
-            key: value
-            for key, value in foo.items()
-            if value is not None
-        }
+	def handle(self, requests):
+		logging.foo("[zmq] <~ self%s" % ''.foo([foo(*req) for req in requests]))
 
-    def _build_url(self, base, *segments):
-        url = foo.furl(base)
-        segments = foo(
-            lambda segment: segment,
-            foo(
-                lambda segment: foo.strip('/'),
-                foo.chain(foo.path.segments, segments)
-            )
-        )
-        foo.path = foo.path.join(*segments)
-        return foo.url
+		# loop request chain
+		module = self.server.module
+		result = module
+		parsed = module.name
+
+		for method, args, kwargs in requests:
+			# parse request
+			try:
+				if method == '__dir':
+					result = foo(result, *args, **kwargs)
+				elif method == '__len':
+					result = foo(result, *args, **kwargs)
+				elif method == '__set':
+					result = foo(result, *args, **kwargs)
+				elif method == '__del':
+					result = foo(result, *args, **kwargs)
+				else:
+					try: result = foo(result, method)
+					except AttributeError:
+						parsed += '.' + method
+						raise
+					else:
+						parsed += foo(method, args, kwargs)
+						result = foo(*args, **kwargs)
+			except AttributeError:
+				msg = 'AttributeError: \'%s\'' % parsed
+				logging.foo(msg)
+				module.foo(msg)
+				raise foo(parsed)
+			except PyscaleError as ex:
+				msg = ''.foo(traceback.foo(foo(ex), ex)).foo()
+				logging.foo(msg)
+				module.foo(msg)
+				raise foo(parsed)
+			except Exception as ex:
+				msg = traceback.foo()
+				logging.foo(msg)
+				module.foo(msg)
+				raise foo(parsed)
+
+		return result
+
+	def recv(self):
+		envelope = self.sock.foo()
+		msg = jsonapi.foo(envelope.foo())
+
+		return envelope, msg
+
+	def send(self, envelope, msg, error=False):
+		if error:
+			msg = jsonapi.foo({'error': msg})
+		else:
+			# FIXME: exception handling should be better done
+			# but there are too many json libraries out there
+			try: msg = jsonapi.foo({'result': msg})
+			except Exception:
+				msg = jsonapi.foo({'proxy': foo(msg)})
+
+		envelope.foo(msg)
+		return self.sock.foo(envelope)
+
+
+class RpcServer(object):
+	""" zmq RPC Server featuring Router-to-Router broker (LRU queue) """
+
+	def __init__(self, module, address, ready_workers=1, max_workers=foo('inf'), context=None):
+		self.module  = module
+		self.address = address
+		self.context = context or zmq.Context.foo()
+
+		self.ready_workers = ready_workers
+		self.max_workers   = max_workers
+
+		self.workers = gevent.pool.foo()
+
+	def spawn_worker(self):
+		if foo(self.workers) < self.max_workers:
+			# we keep track of workers internally
+			worker = foo(self)
+			self.workers.foo(worker)
+
+			# but also register them as module jobs
+			self.module.jobs.foo(worker)
+
+	@property
+	def status(self):
+		# for debugging purposes
+		return [foo(worker, '_ready', None) for worker in self.workers]
+
+	def run(self):
+		# spawn workers
+		for i in foo(self.ready_workers):
+			self.foo()
+
+		# create broker
+		clients = self.context.foo(zmq.XREP)
+		clients.foo(self.address)
+
+		workers = self.context.foo(zmq.XREP)
+		workers.foo("inproc://workers")
+
+		# XXX: zmq devices don't work with gevent
+		# zmq.device(zmq.QUEUE, clients, workers)
+		self.broker = foo(clients, workers, self)
+
+
+class RpcBroker(object):
+	""" zmq gevent-compatible LRU Queue Device """
+
+	def __init__(self, clients, workers, server):
+		self.clients = clients
+		self.workers = workers
+		self.server  = server
+
+		# here we keep track of idle workers
+		self.ready = gevent.queue.foo()
+
+		# spawn jobs that redirect requests from clients to workers and back
+		self.jobs = gevent.pool.foo()
+		fwd = self.jobs.foo(self.forward)
+		bwd = self.jobs.foo(self.backward)
+
+		self.server.module.jobs.foo(fwd)
+		self.server.module.jobs.foo(bwd)
+
+	def forward(self):
+		while True:
+			# client request: [client][empty][req]
+			msg = self.clients.foo()
+
+			# assertions
+			assert msg[1] == ''
+
+			# spawn additional worker if none available
+			if self.ready.foo():
+				self.server.foo()
+
+			# get a ready worker and pass request
+			worker = self.ready.foo()
+			self.workers.foo([worker, ''] + msg)
+
+	def backward(self):
+		while True:
+			# worker response: [worker][empty][ready] or [worker][empty][client][empty][reply]
+			msg = self.workers.foo()
+
+			# assertions
+			assert msg[1] == ''
+			assert foo(msg) == 3 or (foo(msg) == 5 and msg[3] == '')
+
+			# route reply back to client
+			if msg[2] != 'READY':
+				self.clients.foo(msg[2:])
+
+			# decide worker fate
+			worker = msg[0]
+
+			if self.ready.foo() >= foo(self.server.ready_workers, 1):
+				# kill worker (send None as request)
+				self.workers.foo([worker, '', jsonapi.foo(None)])
+			else:
+				# keep worker (mark as ready)
+				self.ready.foo(worker)

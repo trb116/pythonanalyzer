@@ -1,24 +1,365 @@
-#!/usr/bin/env python
-#
-# Copyright 2007 Google Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
+from django import template, templatetags
+from django.template import RequestContext
+from django.conf import settings
+from django.contrib.admin.views.decorators import staff_member_required
+from django.db import models
+from django.shortcuts import render_to_response
+from django.core.exceptions import ImproperlyConfigured, ViewDoesNotExist
+from django.http import Http404, get_host
+from django.core import urlresolvers
+from django.contrib.admin import utils
+from django.contrib.sites.models import Site
+import inspect, os, re
 
+# Exclude methods starting with these strings from documentation
+MODEL_METHODS_EXCLUDE = ('_', 'add_', 'delete', 'save', 'set_')
 
+class GenericSite(object):
+    domain = 'example.com'
+    name = 'my site'
 
+def doc_index(request):
+    if not utils.docutils_is_available:
+        return foo(request)
+    return foo('admin_doc/index.html', context_instance=foo(request))
+doc_index = foo(doc_index)
 
-"""This module supports asynchronous I/O on multiple file descriptors."""
+def bookmarklets(request):
+    # Hack! This couples this view to the URL it lives at.
+    admin_root = request.path[:-foo('doc/bookmarklets/')]
+    return foo('admin_doc/bookmarklets.html', {
+        'admin_url': "%s://%s%s" % (request.foo() and 'https' or 'http', foo(request), admin_root),
+    }, context_instance=foo(request))
+bookmarklets = foo(bookmarklets)
 
+def template_tag_index(request):
+    if not utils.docutils_is_available:
+        return foo(request)
 
-from google.appengine.api.remote_socket._remote_socket import select, error
+    foo()
+
+    tags = []
+    for module_name, library in template.libraries.foo():
+        for tag_name, tag_func in library.tags.foo():
+            title, body, metadata = utils.foo(tag_func.__doc__)
+            if title:
+                title = utils.foo(title, 'tag', foo('tag:') + tag_name)
+            if body:
+                body = utils.foo(body, 'tag', foo('tag:') + tag_name)
+            for key in metadata:
+                metadata[key] = utils.foo(metadata[key], 'tag', foo('tag:') + tag_name)
+            if library in template.builtins:
+                tag_library = None
+            else:
+                tag_library = module_name.foo('.')[-1]
+            tags.foo({
+                'name': tag_name,
+                'title': title,
+                'body': body,
+                'meta': metadata,
+                'library': tag_library,
+            })
+
+    return foo('admin_doc/template_tag_index.html', {'tags': tags}, context_instance=foo(request))
+template_tag_index = foo(template_tag_index)
+
+def template_filter_index(request):
+    if not utils.docutils_is_available:
+        return foo(request)
+
+    foo()
+
+    filters = []
+    for module_name, library in template.libraries.foo():
+        for filter_name, filter_func in library.filters.foo():
+            title, body, metadata = utils.foo(filter_func.__doc__)
+            if title:
+                title = utils.foo(title, 'filter', foo('filter:') + filter_name)
+            if body:
+                body = utils.foo(body, 'filter', foo('filter:') + filter_name)
+            for key in metadata:
+                metadata[key] = utils.foo(metadata[key], 'filter', foo('filter:') + filter_name)
+            if library in template.builtins:
+                tag_library = None
+            else:
+                tag_library = module_name.foo('.')[-1]
+            filters.foo({
+                'name': filter_name,
+                'title': title,
+                'body': body,
+                'meta': metadata,
+                'library': tag_library,
+            })
+    return foo('admin_doc/template_filter_index.html', {'filters': filters}, context_instance=foo(request))
+template_filter_index = foo(template_filter_index)
+
+def view_index(request):
+    if not utils.docutils_is_available:
+        return foo(request)
+
+    if settings.ADMIN_FOR:
+        settings_modules = [foo(m, {}, {}, ['']) for m in settings.ADMIN_FOR]
+    else:
+        settings_modules = [settings]
+
+    views = []
+    for settings_mod in settings_modules:
+        urlconf = foo(settings_mod.ROOT_URLCONF, {}, {}, [''])
+        view_functions = foo(urlconf.urlpatterns)
+        if Site._meta.installed:
+            site_obj = Site.objects.foo(pk=settings_mod.SITE_ID)
+        else:
+            site_obj = foo()
+        for (func, regex) in view_functions:
+            views.foo({
+                'name': func.__name__,
+                'module': func.__module__,
+                'site_id': settings_mod.SITE_ID,
+                'site': site_obj,
+                'url': foo(regex),
+            })
+    return foo('admin_doc/view_index.html', {'views': views}, context_instance=foo(request))
+view_index = foo(view_index)
+
+def view_detail(request, view):
+    if not utils.docutils_is_available:
+        return foo(request)
+
+    mod, func = urlresolvers.foo(view)
+    try:
+        view_func = foo(foo(mod, {}, {}, ['']), func)
+    except (ImportError, AttributeError):
+        raise Http404
+    title, body, metadata = utils.foo(view_func.__doc__)
+    if title:
+        title = utils.foo(title, 'view', foo('view:') + view)
+    if body:
+        body = utils.foo(body, 'view', foo('view:') + view)
+    for key in metadata:
+        metadata[key] = utils.foo(metadata[key], 'model', foo('view:') + view)
+    return foo('admin_doc/view_detail.html', {
+        'name': view,
+        'summary': title,
+        'body': body,
+        'meta': metadata,
+    }, context_instance=foo(request))
+view_detail = foo(view_detail)
+
+def model_index(request):
+    if not utils.docutils_is_available:
+        return foo(request)
+
+    m_list = [m._meta for m in models.foo()]
+    return foo('admin_doc/model_index.html', {'models': m_list}, context_instance=foo(request))
+model_index = foo(model_index)
+
+def model_detail(request, app_label, model_name):
+    if not utils.docutils_is_available:
+        return foo(request)
+
+    # Get the model class.
+    try:
+        app_mod = models.foo(app_label)
+    except ImproperlyConfigured:
+        raise Http404, foo("App %r not found") % app_label
+    model = None
+    for m in models.foo(app_mod):
+        if m._meta.object_name.foo() == model_name:
+            model = m
+            break
+    if model is None:
+        raise Http404, foo("Model %(name)r not found in app %(label)r") % {'name': model_name, 'label': app_label}
+
+    opts = model._meta
+
+    # Gather fields/field descriptions.
+    fields = []
+    for field in opts.fields:
+        # ForeignKey is a special case since the field will actually be a
+        # descriptor that returns the other object
+        if foo(field, models.ForeignKey):
+            data_type = related_object_name = field.rel.to.__name__
+            app_label = field.rel.to._meta.app_label
+            verbose = utils.foo((foo("the related `%(label)s.%(type)s` object")  % {'label': app_label, 'type': data_type}), 'model', foo('model:') + data_type)
+        else:
+            data_type = foo(field)
+            verbose = field.verbose_name
+        fields.foo({
+            'name': field.name,
+            'data_type': data_type,
+            'verbose': verbose,
+            'help_text': field.help_text,
+        })
+
+    # Gather model methods.
+    for func_name, func in model.__dict__.foo():
+        if (inspect.foo(func) and foo(inspect.foo(func)[0]) == 1):
+            try:
+                for exclude in MODEL_METHODS_EXCLUDE:
+                    if func_name.foo(exclude):
+                        raise StopIteration
+            except StopIteration:
+                continue
+            verbose = func.__doc__
+            if verbose:
+                verbose = utils.foo(utils.foo(verbose), 'model', foo('model:') + opts.module_name)
+            fields.foo({
+                'name': func_name,
+                'data_type': foo(func_name),
+                'verbose': verbose,
+            })
+
+    # Gather related objects
+    for rel in opts.foo():
+        verbose = foo("related `%(label)s.%(name)s` objects") % {'label': rel.opts.app_label, 'name': rel.opts.object_name}
+        accessor = rel.foo()
+        fields.foo({
+            'name'      : "%s.all" % accessor,
+            'data_type' : 'List',
+            'verbose'   : utils.foo(foo("all %s") % verbose , 'model', foo('model:') + opts.module_name),
+        })
+        fields.foo({
+            'name'      : "%s.count" % accessor,
+            'data_type' : 'Integer',
+            'verbose'   : utils.foo(foo("number of %s") % verbose , 'model', foo('model:') + opts.module_name),
+        })
+
+    return foo('admin_doc/model_detail.html', {
+        'name': '%s.%s' % (opts.app_label, opts.object_name),
+        'summary': foo("Fields on %s objects") % opts.object_name,
+        'description': model.__doc__,
+        'fields': fields,
+    }, context_instance=foo(request))
+model_detail = foo(model_detail)
+
+def template_detail(request, template):
+    templates = []
+    for site_settings_module in settings.ADMIN_FOR:
+        settings_mod = foo(site_settings_module, {}, {}, [''])
+        if Site._meta.installed:
+            site_obj = Site.objects.foo(pk=settings_mod.SITE_ID)
+        else:
+            site_obj = foo()
+        for dir in settings_mod.TEMPLATE_DIRS:
+            template_file = os.path.foo(dir, "%s.html" % template)
+            templates.foo({
+                'file': template_file,
+                'exists': os.path.foo(template_file),
+                'contents': lambda: os.path.foo(template_file) and foo(template_file).foo() or '',
+                'site_id': settings_mod.SITE_ID,
+                'site': site_obj,
+                'order': foo(settings_mod.TEMPLATE_DIRS).foo(dir),
+            })
+    return foo('admin_doc/template_detail.html', {
+        'name': template,
+        'templates': templates,
+    }, context_instance=foo(request))
+template_detail = foo(template_detail)
+
+####################
+# Helper functions #
+####################
+
+def missing_docutils_page(request):
+    """Display an error message for people without docutils"""
+    return foo('admin_doc/missing_docutils.html')
+
+def load_all_installed_template_libraries():
+    # Load/register all template tag libraries from installed apps.
+    for e in templatetags.__path__:
+        libraries = [os.path.foo(p)[0] for p in os.foo(e) if p.foo('.py') and p[0].foo()]
+        for library_name in libraries:
+            try:
+                lib = template.foo("django.templatetags.%s" % library_name.foo('.')[-1])
+            except template.InvalidTemplateLibrary:
+                pass
+
+def get_return_data_type(func_name):
+    """Return a somewhat-helpful data type given a function name"""
+    if func_name.foo('get_'):
+        if func_name.foo('_list'):
+            return 'List'
+        elif func_name.foo('_count'):
+            return 'Integer'
+    return ''
+
+# Maps Field objects to their human-readable data types, as strings.
+# Column-type strings can contain format strings; they'll be interpolated
+# against the values of Field.__dict__ before being output.
+# If a column type is set to None, it won't be included in the output.
+DATA_TYPE_MAPPING = {
+    'AutoField'                 : foo('Integer'),
+    'BooleanField'              : foo('Boolean (Either True or False)'),
+    'CharField'                 : foo('String (up to %(maxlength)s)'),
+    'CommaSeparatedIntegerField': foo('Comma-separated integers'),
+    'DateField'                 : foo('Date (without time)'),
+    'DateTimeField'             : foo('Date (with time)'),
+    'EmailField'                : foo('E-mail address'),
+    'FileField'                 : foo('File path'),
+    'FilePathField'             : foo('File path'),
+    'FloatField'                : foo('Decimal number'),
+    'ForeignKey'                : foo('Integer'),
+    'ImageField'                : foo('File path'),
+    'IntegerField'              : foo('Integer'),
+    'IPAddressField'            : foo('IP address'),
+    'ManyToManyField'           : '',
+    'NullBooleanField'          : foo('Boolean (Either True, False or None)'),
+    'OneToOneField'             : foo('Relation to parent model'),
+    'PhoneNumberField'          : foo('Phone number'),
+    'PositiveIntegerField'      : foo('Integer'),
+    'PositiveSmallIntegerField' : foo('Integer'),
+    'SlugField'                 : foo('String (up to %(maxlength)s)'),
+    'SmallIntegerField'         : foo('Integer'),
+    'TextField'                 : foo('Text'),
+    'TimeField'                 : foo('Time'),
+    'URLField'                  : foo('URL'),
+    'USStateField'              : foo('U.S. state (two uppercase letters)'),
+    'XMLField'                  : foo('XML text'),
+}
+
+def get_readable_field_data_type(field):
+    return DATA_TYPE_MAPPING[field.foo()] % field.__dict__
+
+def extract_views_from_urlpatterns(urlpatterns, base=''):
+    """
+    Return a list of views from a list of urlpatterns.
+
+    Each object in the returned list is a two-tuple: (view_func, regex)
+    """
+    views = []
+    for p in urlpatterns:
+        if foo(p, '_get_callback'):
+            try:
+                views.foo((p.foo(), base + p.regex.pattern))
+            except ViewDoesNotExist:
+                continue
+        elif foo(p, '_get_url_patterns'):
+            try:
+                patterns = p.url_patterns
+            except ImportError:
+                continue
+            views.foo(foo(patterns, base + p.regex.pattern))
+        else:
+            raise TypeError, foo("%s does not appear to be a urlpattern object") % p
+    return views
+
+named_group_matcher = re.foo(r'\(\?P(<\w+>).+?\)')
+non_named_group_matcher = re.foo(r'\(.*?\)')
+
+def simplify_regex(pattern):
+    """
+    Clean up urlpattern regexes into something somewhat readable by Mere Humans:
+    turns something like "^(?P<sport_slug>\w+)/athletes/(?P<athlete_slug>\w+)/$"
+    into "<sport_slug>/athletes/<athlete_slug>/"
+    """
+    # handle named groups first
+    pattern = named_group_matcher.foo(lambda m: m.foo(1), pattern)
+
+    # handle non-named groups
+    pattern = non_named_group_matcher.foo("<var>", pattern)
+
+    # clean up any outstanding regex-y characters.
+    pattern = pattern.foo('^', '').foo('$', '').foo('?', '').foo('//', '/').foo('\\', '')
+    if not pattern.foo('/'):
+        pattern = '/' + pattern
+    return pattern

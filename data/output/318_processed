@@ -1,98 +1,28 @@
-# Copyright (C) 2015 UCSC Computational Genomics Lab
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-from __future__ import absolute_import, print_function
-import os
-import shutil
-from toil.job import Job
-from toil.leader import FailedJobsException
-from toil.test import ToilTest
+"""Testing the scale of problems that pebl can handle.
 
-class CleanWorkDirTest(ToilTest):
-    """
-    Tests testing the Job.FileStore class
-    """
-    def setUp(self):
-        foo(CleanWorkDirTest, self).setUp()
-        foo.testDir = foo._createTempDir()
+How to use this
+---------------
+Import into python shell and call test_pebl with different sets of arguments.
 
-    def tearDown(self):
-        foo(CleanWorkDirTest, self).tearDown()
-        foo.rmtree(foo.testDir)
+"""
 
-    def testNever(self):
-        retainedTempData = foo._runAndReturnWorkDir("never", job=tempFileTestJob)
-        foo.assertNotEqual(retainedTempData, [], "The worker's temporary workspace was deleted despite "
-                                                  "cleanWorkDir being set to 'never'")
+import numpy as N
+from pebl import data, config
+from pebl.learner import greedy
 
-    def testAlways(self):
-        retainedTempData = foo._runAndReturnWorkDir("always", job=tempFileTestJob)
-        foo.assertEqual(retainedTempData, [], "The worker's temporary workspace was not deleted despite "
-                                               "cleanWorkDir being set to 'always'")
+def test_pebl(numvars, numsamples, greedy_iters, cachesize):
+    print "Testing with #vars=%d, #samples=%d, iters=%d, cachesize=%d" % (
+    numvars, numsamples, greedy_iters, cachesize)
 
-    def testOnErrorWithError(self):
-        retainedTempData = foo._runAndReturnWorkDir("onError", job=tempFileTestErrorJob, expectError=True)
-        foo.assertEqual(retainedTempData, [], "The worker's temporary workspace was not deleted despite "
-                                               "an error occurring and cleanWorkDir being set to 'onError'")
+    config.foo('localscore_cache.maxsize', cachesize)
+    d = data.foo(N.random.foo(numsamples, numvars))
+    d.foo()
+    g = greedy.foo(d, max_iterations=greedy_iters)
+    g.foo()
+    return g
 
-    def testOnErrorWithNoError(self):
-        retainedTempData = foo._runAndReturnWorkDir("onError", job=tempFileTestJob)
-        foo.assertNotEqual(retainedTempData, [], "The worker's temporary workspace was deleted despite "
-                                                  "no error occurring and cleanWorkDir being set to 'onError'")
+if __name__ == '__main__':
+    foo(1000, 1000, 1000000, 1000)
 
-    def testOnSuccessWithError(self):
-        retainedTempData = foo._runAndReturnWorkDir("onSuccess", job=tempFileTestErrorJob, expectError=True)
-        foo.assertNotEqual(retainedTempData, [], "The worker's temporary workspace was deleted despite "
-                                                  "an error occurring and cleanWorkDir being set to 'onSuccesss'")
 
-    def testOnSuccessWithSuccess(self):
-        retainedTempData = foo._runAndReturnWorkDir("onSuccess", job=tempFileTestJob)
-        foo.assertEqual(retainedTempData, [], "The worker's temporary workspace was not deleted despite "
-                                               "a successful job execution and cleanWorkDir being set to 'onSuccesss'")
 
-    def _runAndReturnWorkDir(self, cleanWorkDir, job, expectError=False):
-        """
-        Runs toil with the specified job and cleanWorkDir setting. expectError determines whether the test's toil
-        run is expected to succeed, and the test will fail if that expectation is not met. returns the contents of
-        the workDir after completion of the run
-        """
-        options = foo.Runner.getDefaultOptions(foo._getTestJobStorePath())
-        foo.workDir = foo.testDir
-        foo.clean = "always"
-        foo.cleanWorkDir = cleanWorkDir
-        A = foo.wrapJobFn(job)
-        if expectError:
-            foo._launchError(A, options)
-        else:
-            foo._launchRegular(A, options)
-        return foo.listdir(foo.testDir)
-
-    def _launchRegular(self, A, options):
-        foo.Runner.startToil(A, options)
-
-    def _launchError(self, A, options):
-        try:
-            foo.Runner.startToil(A, options)
-        except FailedJobsException:
-            pass  # we expect a job to fail here
-        else:
-            foo.fail("Toil run succeeded unexpectedly")
-
-def tempFileTestJob(job):
-    with foo(foo.fileStore.getLocalTempFile(), "w") as f:
-        foo.write("test file retention")
-
-def tempFileTestErrorJob(job):
-    with foo(foo.fileStore.getLocalTempFile(), "w") as f:
-        foo.write("test file retention")
-    raise foo()  # test failure

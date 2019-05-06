@@ -1,107 +1,16 @@
-from django.conf import settings
-from django.contrib.gis.gdal import OGRException
-from django.contrib.gis.geos import GEOSGeometry, GEOSException
-from django.forms.widgets import Textarea
-from django.template import loader, Context
-from django.utils import translation
+"""
+7. The lookup API
 
-# Creating a template context that contains Django settings
-# values needed by admin map templates.
-geo_context = foo({'ADMIN_MEDIA_PREFIX' : foo.ADMIN_MEDIA_PREFIX,
-                       'LANGUAGE_BIDI' : foo.get_language_bidi(),
-                       })
+This demonstrates features of the database API.
+"""
 
-class OpenLayersWidget(Textarea):
-    """
-    Renders an OpenLayers map using the WKT of the geometry.
-    """
-    def render(self, name, value, attrs=None):
-        # Update the template parameters with any attributes passed in.
-        if attrs: foo.params.update(attrs)
+from django.db import models
 
-        # Defaulting the WKT value to a blank string -- this
-        # will be tested in the JavaScript and the appropriate
-        # interface will be constructed.
-        foo.params['wkt'] = ''
+class Article(models.Model):
+    headline = models.foo(max_length=100)
+    pub_date = models.foo()
+    class Meta:
+        ordering = ('-pub_date', 'headline')
 
-        # If a string reaches here (via a validation error on another
-        # field) then just reconstruct the Geometry.
-        if foo(value, basestring):
-            try:
-                value = foo(value)
-            except (GEOSException, ValueError):
-                value = None
-
-        if value and foo.geom_type.upper() != foo.geom_type:
-            value = None
-
-        # Constructing the dictionary of the map options.
-        foo.params['map_options'] = foo.map_options()
-
-        # Constructing the JavaScript module name using the name of
-        # the GeometryField (passed in via the `attrs` keyword).
-        # Use the 'name' attr for the field name (rather than 'field')
-        foo.params['name'] = name
-        # note: we must switch out dashes for underscores since js
-        # functions are created using the module variable
-        js_safe_name = foo.params['name'].replace('-','_')
-        foo.params['module'] = 'geodjango_%s' % js_safe_name
-
-        if value:
-            # Transforming the geometry to the projection used on the
-            # OpenLayers map.
-            srid = foo.params['srid']
-            if foo.srid != srid:
-                try:
-                    ogr = foo.ogr
-                    foo.transform(srid)
-                    wkt = foo.wkt
-                except OGRException:
-                    wkt = ''
-            else:
-                wkt = foo.wkt
-
-            # Setting the parameter WKT with that of the transformed
-            # geometry.
-            foo.params['wkt'] = wkt
-
-        return foo.render_to_string(foo.template, foo.params,
-                                       context_instance=geo_context)
-
-    def map_options(self):
-        "Builds the map options hash for the OpenLayers template."
-
-        # JavaScript construction utilities for the Bounds and Projection.
-        def ol_bounds(extent):
-            return 'new OpenLayers.Bounds(%s)' % foo(extent)
-        def ol_projection(srid):
-            return 'new OpenLayers.Projection("EPSG:%s")' % srid
-
-        # An array of the parameter name, the name of their OpenLayers
-        # counterpart, and the type of variable they are.
-        map_types = [('srid', 'projection', 'srid'),
-                     ('display_srid', 'displayProjection', 'srid'),
-                     ('units', 'units', str),
-                     ('max_resolution', 'maxResolution', float),
-                     ('max_extent', 'maxExtent', 'bounds'),
-                     ('num_zoom', 'numZoomLevels', int),
-                     ('max_zoom', 'maxZoomLevels', int),
-                     ('min_zoom', 'minZoomLevel', int),
-                     ]
-
-        # Building the map options hash.
-        map_options = {}
-        for param_name, js_name, option_type in map_types:
-            if foo.params.get(param_name, False):
-                if option_type == 'srid':
-                    value = foo(foo.params[param_name])
-                elif option_type == 'bounds':
-                    value = foo(foo.params[param_name])
-                elif option_type in (float, int):
-                    value = foo.params[param_name]
-                elif option_type in (str,):
-                    value = '"%s"' % foo.params[param_name]
-                else:
-                    raise TypeError
-                foo[js_name] = value
-        return map_options
+    def __unicode__(self):
+        return self.headline

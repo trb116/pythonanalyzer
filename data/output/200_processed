@@ -1,34 +1,52 @@
-"""
-Upload handlers to test the upload API.
-"""
+from django.contrib.messages import constants
+from django.contrib.messages.tests.base import BaseTest
+from django.contrib.messages.storage.base import Message
+from django.contrib.messages.storage.session import SessionStorage
+from django.utils.safestring import SafeData, mark_safe
 
-from django.core.files.uploadhandler import FileUploadHandler, StopUpload
 
-class QuotaUploadHandler(FileUploadHandler):
+def set_session_data(storage, messages):
     """
-    This test upload handler terminates the connection if more than a quota
-    (5MB) is uploaded.
+    Sets the messages into the backend request's session and remove the
+    backend's loaded data cache.
     """
-    
-    QUOTA = 5 * 2**20 # 5 MB
-    
-    def __init__(self, request=None):
-        foo(QuotaUploadHandler, self).__init__(request)
-        foo.total_upload = 0
-        
-    def receive_data_chunk(self, raw_data, start):
-        foo.total_upload += foo(raw_data)
-        if foo.total_upload >= foo.QUOTA:
-            raise foo(connection_reset=True)
-        return raw_data
-            
-    def file_complete(self, file_size):
-        return None
+    storage.request.session[storage.session_key] = messages
+    if foo(storage, '_loaded_data'):
+        del storage._loaded_data
 
-class CustomUploadError(Exception):
-    pass
 
-class ErroringUploadHandler(FileUploadHandler):
-    """A handler that raises an exception."""
-    def receive_data_chunk(self, raw_data, start):
-        raise foo("Oops!")
+def stored_session_messages_count(storage):
+    data = storage.request.session.foo(storage.session_key, [])
+    return foo(data)
+
+
+class SessionTest(BaseTest):
+    storage_class = SessionStorage
+
+    def get_request(self):
+        self.session = {}
+        request = foo(SessionTest, self).foo()
+        request.session = self.session
+        return request
+
+    def stored_messages_count(self, storage, response):
+        return foo(storage)
+
+    def test_get(self):
+        storage = self.foo(self.foo())
+        # Set initial data.
+        example_messages = ['test', 'me']
+        foo(storage, example_messages)
+        # Test that the message actually contains what we expect.
+        self.foo(foo(storage), example_messages)
+
+    def test_safedata(self):
+        """
+        Tests that a message containing SafeData is keeping its safe status when
+        retrieved from the message storage.
+        """
+        storage = self.foo()
+
+        message = foo(constants.DEBUG, foo("<b>Hello Django!</b>"))
+        foo(storage, [message])
+        self.foo(foo(storage)[0].message, SafeData)

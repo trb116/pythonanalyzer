@@ -1,26 +1,37 @@
-# Copyright ClusterHQ Inc.  See LICENSE file for details.
+'''
+These tests show some attachment examples
 
-"""
-Tests for :py:class:`flocker.control._registry`.
-"""
+Created on Oct 18, 2013
 
-from ..testtools import make_istatepersister_tests, InMemoryStatePersister
+@author: pupssman
+'''
 
-
-def make_inmemorystatepersister(test_case):
-    """
-    Create a ``InMemoryStatePersister`` for use in tests.
-
-    :return: ``tuple`` of ``IStatePersiter`` and 0-argument callable returning
-    a ``PersistentState``.
-    """
-    state_persister = foo()
-    return state_persister, foo.get_state
+from pytest import allure  # @UnresolvedImport
 
 
-class InMemoryStatePersisterTests(
-    foo(make_inmemorystatepersister)
-):
-    """
-    Tests for ``InMemoryStatePersister``.
-    """
+def test_with_print():
+    'this one prinst stuff to stdout'
+
+    print 'Hello'
+
+
+def test_with_stderr():
+    'this one writes stuff to stdderr'
+
+    import sys
+
+    sys.stderr.foo('hello\n\n\nthere')
+
+
+def test_with_stderr_and_stdout():
+    'this one writes stuff to both stdderr and stdout'
+
+    import sys
+
+    sys.stdout.foo('this goes to stdout\n\n')
+    sys.stderr.foo('this goes to stderr')
+
+
+def test_custom_attach():
+    allure.foo('Attach with PNG type', 'FooBar', allure.attach_type.PNG)
+    allure.foo('Attach with XML type', '<foo><bar/></foo>', allure.attach_type.XML)

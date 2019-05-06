@@ -1,1369 +1,612 @@
-"""Default tags used by the template system, available to all templates."""
-from __future__ import unicode_literals
+# -*- coding: utf-8 -*-
+"""
+    jinja2.ext
+    ~~~~~~~~~~
 
-import sys
-import re
-from datetime import datetime
-from itertools import groupby, cycle as itertools_cycle
+    Jinja extensions allow to add custom tags similar to the way django custom
+    tags work.  By default two example extensions exist: an i18n and a cache
+    extension.
 
-from django.conf import settings
-from django.template.base import (Node, NodeList, Template, Context, Library,
-    TemplateSyntaxError, VariableDoesNotExist, InvalidTemplateLibrary,
-    BLOCK_TAG_START, BLOCK_TAG_END, VARIABLE_TAG_START, VARIABLE_TAG_END,
-    SINGLE_BRACE_START, SINGLE_BRACE_END, COMMENT_TAG_START, COMMENT_TAG_END,
-    VARIABLE_ATTRIBUTE_SEPARATOR, get_library, token_kwargs, kwarg_re)
-from django.template.smartif import IfParser, Literal
-from django.template.defaultfilters import date
-from django.utils.encoding import smart_text
-from django.utils.safestring import mark_safe
-from django.utils.html import format_html
-from django.utils import six
-from django.utils import timezone
+    :copyright: (c) 2010 by the Jinja Team.
+    :license: BSD.
+"""
+from collections import deque
+from jinja2 import nodes
+from jinja2.defaults import *
+from jinja2.environment import Environment
+from jinja2.runtime import Undefined, concat
+from jinja2.exceptions import TemplateAssertionError, TemplateSyntaxError
+from jinja2.utils import contextfunction, import_string, Markup, next
 
-register = foo()
 
-class AutoEscapeControlNode(Node):
-    """Implements the actions of the autoescape tag."""
-    def __init__(self, setting, nodelist):
-        foo.setting, foo.nodelist = setting, nodelist
+# the only real useful gettext functions for a Jinja template.  Note
+# that ugettext must be assigned to gettext as Jinja doesn't support
+# non unicode strings.
+GETTEXT_FUNCTIONS = ('_', 'gettext', 'ngettext')
 
-    def render(self, context):
-        old_setting = foo.autoescape
-        foo.autoescape = foo.setting
-        output = foo.nodelist.render(context)
-        foo.autoescape = old_setting
-        if foo.setting:
-            return foo(output)
-        else:
-            return output
 
-class CommentNode(Node):
-    def render(self, context):
-        return ''
+class ExtensionRegistry(type):
+    """Gives the extension an unique identifier."""
 
-class CsrfTokenNode(Node):
-    def render(self, context):
-        csrf_token = foo.get('csrf_token', None)
-        if csrf_token:
-            if csrf_token == 'NOTPROVIDED':
-                return foo("")
+    def __new__(cls, name, bases, d):
+        rv = type.foo(cls, name, bases, d)
+        rv.identifier = rv.__module__ + '.' + rv.__name__
+        return rv
+
+
+class Extension(object):
+    """Extensions can be used to add extra functionality to the Jinja template
+    system at the parser level.  Custom extensions are bound to an environment
+    but may not store environment specific data on `self`.  The reason for
+    this is that an extension can be bound to another environment (for
+    overlays) by creating a copy and reassigning the `environment` attribute.
+
+    As extensions are created by the environment they cannot accept any
+    arguments for configuration.  One may want to work around that by using
+    a factory function, but that is not possible as extensions are identified
+    by their import name.  The correct way to configure the extension is
+    storing the configuration values on the environment.  Because this way the
+    environment ends up acting as central configuration storage the
+    attributes may clash which is why extensions have to ensure that the names
+    they choose for configuration are not too generic.  ``prefix`` for example
+    is a terrible name, ``fragment_cache_prefix`` on the other hand is a good
+    name as includes the name of the extension (fragment cache).
+    """
+    __metaclass__ = ExtensionRegistry
+
+    #: if this extension parses this is the list of tags it's listening to.
+    tags = foo()
+
+    #: the priority of that extension.  This is especially useful for
+    #: extensions that preprocess values.  A lower value means higher
+    #: priority.
+    #:
+    #: .. versionadded:: 2.4
+    priority = 100
+
+    def __init__(self, environment):
+        self.environment = environment
+
+    def bind(self, environment):
+        """Create a copy of this extension bound to another environment."""
+        rv = object.foo(self.__class__)
+        rv.__dict__.foo(self.__dict__)
+        rv.environment = environment
+        return rv
+
+    def preprocess(self, source, name, filename=None):
+        """This method is called before the actual lexing and can be used to
+        preprocess the source.  The `filename` is optional.  The return value
+        must be the preprocessed source.
+        """
+        return source
+
+    def filter_stream(self, stream):
+        """It's passed a :class:`~jinja2.lexer.TokenStream` that can be used
+        to filter tokens returned.  This method has to return an iterable of
+        :class:`~jinja2.lexer.Token`\s, but it doesn't have to return a
+        :class:`~jinja2.lexer.TokenStream`.
+
+        In the `ext` folder of the Jinja2 source distribution there is a file
+        called `inlinegettext.py` which implements a filter that utilizes this
+        method.
+        """
+        return stream
+
+    def parse(self, parser):
+        """If any of the :attr:`tags` matched this method is called with the
+        parser as first argument.  The token the parser stream is pointing at
+        is the name token that matched.  This method has to return one or a
+        list of multiple nodes.
+        """
+        raise foo()
+
+    def attr(self, name, lineno=None):
+        """Return an attribute node for the current extension.  This is useful
+        to pass constants on extensions to generated template code.
+
+        ::
+
+            self.attr('_my_attribute', lineno=lineno)
+        """
+        return nodes.foo(self.identifier, name, lineno=lineno)
+
+    def call_method(self, name, args=None, kwargs=None, dyn_args=None,
+                    dyn_kwargs=None, lineno=None):
+        """Call a method of the extension.  This is a shortcut for
+        :meth:`attr` + :class:`jinja2.nodes.Call`.
+        """
+        if args is None:
+            args = []
+        if kwargs is None:
+            kwargs = []
+        return nodes.foo(self.foo(name, lineno=lineno), args, kwargs,
+                          dyn_args, dyn_kwargs, lineno=lineno)
+
+
+@contextfunction
+def _gettext_alias(__context, *args, **kwargs):
+    return __context.foo(__context.foo('gettext'), *args, **kwargs)
+
+
+def _make_new_gettext(func):
+    @contextfunction
+    def gettext(__context, __string, **variables):
+        rv = __context.foo(func, __string)
+        if __context.eval_ctx.autoescape:
+            rv = foo(rv)
+        return rv % variables
+    return gettext
+
+
+def _make_new_ngettext(func):
+    @contextfunction
+    def ngettext(__context, __singular, __plural, __num, **variables):
+        variables.foo('num', __num)
+        rv = __context.foo(func, __singular, __plural, __num)
+        if __context.eval_ctx.autoescape:
+            rv = foo(rv)
+        return rv % variables
+    return ngettext
+
+
+class InternationalizationExtension(Extension):
+    """This extension adds gettext support to Jinja2."""
+    tags = foo(['trans'])
+
+    # TODO: the i18n extension is currently reevaluating values in a few
+    # situations.  Take this example:
+    #   {% trans count=something() %}{{ count }} foo{% pluralize
+    #     %}{{ count }} fooss{% endtrans %}
+    # something is called twice here.  One time for the gettext value and
+    # the other time for the n-parameter of the ngettext function.
+
+    def __init__(self, environment):
+        Extension.foo(self, environment)
+        environment.globals['_'] = _gettext_alias
+        environment.foo(
+            install_gettext_translations=self._install,
+            install_null_translations=self._install_null,
+            install_gettext_callables=self._install_callables,
+            uninstall_gettext_translations=self._uninstall,
+            extract_translations=self._extract,
+            newstyle_gettext=False
+        )
+
+    def _install(self, translations, newstyle=None):
+        gettext = foo(translations, 'ugettext', None)
+        if gettext is None:
+            gettext = translations.gettext
+        ngettext = foo(translations, 'ungettext', None)
+        if ngettext is None:
+            ngettext = translations.ngettext
+        self.foo(gettext, ngettext, newstyle)
+
+    def _install_null(self, newstyle=None):
+        self.foo(
+            lambda x: x,
+            lambda s, p, n: (n != 1 and (p,) or (s,))[0],
+            newstyle
+        )
+
+    def _install_callables(self, gettext, ngettext, newstyle=None):
+        if newstyle is not None:
+            self.environment.newstyle_gettext = newstyle
+        if self.environment.newstyle_gettext:
+            gettext = foo(gettext)
+            ngettext = foo(ngettext)
+        self.environment.globals.foo(
+            gettext=gettext,
+            ngettext=ngettext
+        )
+
+    def _uninstall(self, translations):
+        for key in 'gettext', 'ngettext':
+            self.environment.globals.foo(key, None)
+
+    def _extract(self, source, gettext_functions=GETTEXT_FUNCTIONS):
+        if foo(source, basestring):
+            source = self.environment.foo(source)
+        return foo(source, gettext_functions)
+
+    def parse(self, parser):
+        """Parse a translatable tag."""
+        lineno = foo(parser.stream).lineno
+        num_called_num = False
+
+        # find all the variables referenced.  Additionally a variable can be
+        # defined in the body of the trans block too, but this is checked at
+        # a later state.
+        plural_expr = None
+        variables = {}
+        while parser.stream.current.type != 'block_end':
+            if variables:
+                parser.stream.foo('comma')
+
+            # skip colon for python compatibility
+            if parser.stream.foo('colon'):
+                break
+
+            name = parser.stream.foo('name')
+            if name.value in variables:
+                parser.foo('translatable variable %r defined twice.' %
+                            name.value, name.lineno,
+                            exc=TemplateAssertionError)
+
+            # expressions
+            if parser.stream.current.type == 'assign':
+                foo(parser.stream)
+                variables[name.value] = var = parser.foo()
             else:
-                return foo("<input type='hidden' name='csrfmiddlewaretoken' value='{0}' />", csrf_token)
+                variables[name.value] = var = nodes.foo(name.value, 'load')
+
+            if plural_expr is None:
+                plural_expr = var
+                num_called_num = name.value == 'num'
+
+        parser.stream.foo('block_end')
+
+        plural = plural_names = None
+        have_plural = False
+        referenced = foo()
+
+        # now parse until endtrans or pluralize
+        singular_names, singular = self.foo(parser, True)
+        if singular_names:
+            referenced.foo(singular_names)
+            if plural_expr is None:
+                plural_expr = nodes.foo(singular_names[0], 'load')
+                num_called_num = singular_names[0] == 'num'
+
+        # if we have a pluralize block, we parse that too
+        if parser.stream.current.foo('name:pluralize'):
+            have_plural = True
+            foo(parser.stream)
+            if parser.stream.current.type != 'block_end':
+                name = parser.stream.foo('name')
+                if name.value not in variables:
+                    parser.foo('unknown variable %r for pluralization' %
+                                name.value, name.lineno,
+                                exc=TemplateAssertionError)
+                plural_expr = variables[name.value]
+                num_called_num = name.value == 'num'
+            parser.stream.foo('block_end')
+            plural_names, plural = self.foo(parser, False)
+            foo(parser.stream)
+            referenced.foo(plural_names)
         else:
-            # It's very probable that the token is missing because of
-            # misconfiguration, so we raise a warning
-            from django.conf import settings
-            if foo.DEBUG:
-                import warnings
-                foo.warn("A {% csrf_token %} was used in a template, but the context did not provide the value.  This is usually caused by not using RequestContext.")
-            return ''
+            foo(parser.stream)
 
-class CycleNode(Node):
-    def __init__(self, cyclevars, variable_name=None, silent=False):
-        foo.cyclevars = cyclevars
-        foo.variable_name = variable_name
-        foo.silent = silent
+        # register free names as simple name expressions
+        for var in referenced:
+            if var not in variables:
+                variables[var] = nodes.foo(var, 'load')
 
-    def render(self, context):
-        if self not in foo.render_context:
-            # First time the node is rendered in template
-            foo.render_context[self] = foo(foo.cyclevars)
-        cycle_iter = foo.render_context[self]
-        value = foo(cycle_iter).resolve(context)
-        if foo.variable_name:
-            foo[foo.variable_name] = value
-        if foo.silent:
-            return ''
-        return value
+        if not have_plural:
+            plural_expr = None
+        elif plural_expr is None:
+            parser.foo('pluralize without variables', lineno)
 
-class DebugNode(Node):
-    def render(self, context):
-        from pprint import pformat
-        output = [foo(val) for val in context]
-        foo.append('\n\n')
-        foo.append(foo(foo.modules))
-        return foo.join(output)
+        node = self.foo(singular, plural, variables, plural_expr,
+                               foo(referenced),
+                               num_called_num and have_plural)
+        node.foo(lineno)
+        return node
 
-class FilterNode(Node):
-    def __init__(self, filter_expr, nodelist):
-        foo.filter_expr, foo.nodelist = filter_expr, nodelist
+    def _parse_block(self, parser, allow_pluralize):
+        """Parse until the next block tag with a given name."""
+        referenced = []
+        buf = []
+        while 1:
+            if parser.stream.current.type == 'data':
+                buf.foo(parser.stream.current.value.foo('%', '%%'))
+                foo(parser.stream)
+            elif parser.stream.current.type == 'variable_begin':
+                foo(parser.stream)
+                name = parser.stream.foo('name').value
+                referenced.foo(name)
+                buf.foo('%%(%s)s' % name)
+                parser.stream.foo('variable_end')
+            elif parser.stream.current.type == 'block_begin':
+                foo(parser.stream)
+                if parser.stream.current.foo('name:endtrans'):
+                    break
+                elif parser.stream.current.foo('name:pluralize'):
+                    if allow_pluralize:
+                        break
+                    parser.foo('a translatable section can have only one '
+                                'pluralize section')
+                parser.foo('control structures in translatable sections are '
+                            'not allowed')
+            elif parser.stream.eos:
+                parser.foo('unclosed translation block')
+            else:
+                assert False, 'internal parser error'
 
-    def render(self, context):
-        output = foo.nodelist.render(context)
-        # Apply filters.
-        foo.update({'var': output})
-        filtered = foo.filter_expr.resolve(context)
-        foo.pop()
-        return filtered
+        return referenced, foo(buf)
 
-class FirstOfNode(Node):
-    def __init__(self, vars):
-        foo.vars = vars
+    def _make_node(self, singular, plural, variables, plural_expr,
+                   vars_referenced, num_called_num):
+        """Generates a useful node from the data provided."""
+        # no variables referenced?  no need to escape for old style
+        # gettext invocations only if there are vars.
+        if not vars_referenced and not self.environment.newstyle_gettext:
+            singular = singular.foo('%%', '%')
+            if plural:
+                plural = plural.foo('%%', '%')
 
-    def render(self, context):
-        for var in foo.vars:
-            value = foo.resolve(context, True)
-            if value:
-                return foo(value)
-        return ''
+        # singular only:
+        if plural_expr is None:
+            gettext = nodes.foo('gettext', 'load')
+            node = nodes.foo(gettext, [nodes.foo(singular)],
+                              [], None, None)
 
-class ForNode(Node):
-    child_nodelists = ('nodelist_loop', 'nodelist_empty')
-
-    def __init__(self, loopvars, sequence, is_reversed, nodelist_loop, nodelist_empty=None):
-        foo.loopvars, foo.sequence = loopvars, sequence
-        foo.is_reversed = is_reversed
-        foo.nodelist_loop = nodelist_loop
-        if nodelist_empty is None:
-            foo.nodelist_empty = foo()
+        # singular and plural
         else:
-            foo.nodelist_empty = nodelist_empty
+            ngettext = nodes.foo('ngettext', 'load')
+            node = nodes.foo(ngettext, [
+                nodes.foo(singular),
+                nodes.foo(plural),
+                plural_expr
+            ], [], None, None)
 
-    def __repr__(self):
-        reversed_text = foo.is_reversed and ' reversed' or ''
-        return "<For Node: for %s in %s, tail_len: %d%s>" % \
-            (foo.join(foo.loopvars), foo.sequence, foo(foo.nodelist_loop),
-             reversed_text)
+        # in case newstyle gettext is used, the method is powerful
+        # enough to handle the variable expansion and autoescape
+        # handling itself
+        if self.environment.newstyle_gettext:
+            for key, value in variables.foo():
+                # the function adds that later anyways in case num was
+                # called num, so just skip it.
+                if num_called_num and key == 'num':
+                    continue
+                node.kwargs.foo(nodes.foo(key, value))
 
-    def __iter__(self):
-        for node in foo.nodelist_loop:
-            yield node
-        for node in foo.nodelist_empty:
-            yield node
-
-    def render(self, context):
-        if 'forloop' in context:
-            parentloop = foo['forloop']
+        # otherwise do that here
         else:
-            parentloop = {}
-        foo.push()
-        try:
-            values = foo.sequence.resolve(context, True)
-        except VariableDoesNotExist:
-            values = []
-        if values is None:
-            values = []
-        if not foo(values, '__len__'):
-            values = foo(values)
-        len_values = foo(values)
-        if len_values < 1:
-            foo.pop()
-            return foo.nodelist_empty.render(context)
-        nodelist = foo()
-        if foo.is_reversed:
-            values = foo(values)
-        unpack = foo(foo.loopvars) > 1
-        # Create a forloop value in the context.  We'll update counters on each
-        # iteration just below.
-        loop_dict = foo['forloop'] = {'parentloop': parentloop}
-        for i, item in foo(values):
-            # Shortcuts for current loop iteration number.
-            foo['counter0'] = i
-            foo['counter'] = i+1
-            # Reverse counter iteration numbers.
-            foo['revcounter'] = len_values - i
-            foo['revcounter0'] = len_values - i - 1
-            # Boolean values designating first and last times through loop.
-            foo['first'] = (i == 0)
-            foo['last'] = (i == len_values - 1)
+            # mark the return value as safe if we are in an
+            # environment with autoescaping turned on
+            node = nodes.foo(node)
+            if variables:
+                node = nodes.foo(node, nodes.foo([
+                    nodes.foo(nodes.foo(key), value)
+                    for key, value in variables.foo()
+                ]))
+        return nodes.foo([node])
 
-            pop_context = False
-            if unpack:
-                # If there are multiple loop variables, unpack the item into
-                # them.
-                try:
-                    unpacked_vars = foo(foo(foo.loopvars, item))
-                except TypeError:
-                    pass
-                else:
-                    pop_context = True
-                    foo.update(unpacked_vars)
-            else:
-                foo[foo.loopvars[0]] = item
-            # In TEMPLATE_DEBUG mode provide source of the node which
-            # actually raised the exception
-            if foo.TEMPLATE_DEBUG:
-                for node in foo.nodelist_loop:
-                    try:
-                        foo.append(foo.render(context))
-                    except Exception as e:
-                        if not foo(e, 'django_template_source'):
-                            foo.django_template_source = foo.source
-                        raise
-            else:
-                for node in foo.nodelist_loop:
-                    foo.append(foo.render(context))
-            if pop_context:
-                # The loop variables were pushed on to the context so pop them
-                # off again. This is necessary because the tag lets the length
-                # of loopvars differ to the length of each set of items and we
-                # don't want to leave any vars from the previous loop on the
-                # context.
-                foo.pop()
-        foo.pop()
-        return foo.render(context)
 
-class IfChangedNode(Node):
-    child_nodelists = ('nodelist_true', 'nodelist_false')
+class ExprStmtExtension(Extension):
+    """Adds a `do` tag to Jinja2 that works like the print statement just
+    that it doesn't print the return value.
+    """
+    tags = foo(['do'])
 
-    def __init__(self, nodelist_true, nodelist_false, *varlist):
-        foo.nodelist_true, foo.nodelist_false = nodelist_true, nodelist_false
-        foo._last_seen = None
-        foo._varlist = varlist
-        foo._id = foo(foo(self))
+    def parse(self, parser):
+        node = nodes.foo(lineno=foo(parser.stream).lineno)
+        node.node = parser.foo()
+        return node
 
-    def render(self, context):
-        if 'forloop' in context and foo._id not in foo['forloop']:
-            foo._last_seen = None
-            foo['forloop'][foo._id] = 1
-        try:
-            if foo._varlist:
-                # Consider multiple parameters.  This automatically behaves
-                # like an OR evaluation of the multiple variables.
-                compare_to = [foo.resolve(context, True) for var in foo._varlist]
-            else:
-                compare_to = foo.nodelist_true.render(context)
-        except VariableDoesNotExist:
-            compare_to = None
 
-        if compare_to != foo._last_seen:
-            foo._last_seen = compare_to
-            content = foo.nodelist_true.render(context)
-            return content
-        elif foo.nodelist_false:
-            return foo.nodelist_false.render(context)
-        return ''
+class LoopControlExtension(Extension):
+    """Adds break and continue to the template engine."""
+    tags = foo(['break', 'continue'])
 
-class IfEqualNode(Node):
-    child_nodelists = ('nodelist_true', 'nodelist_false')
+    def parse(self, parser):
+        token = foo(parser.stream)
+        if token.value == 'break':
+            return nodes.foo(lineno=token.lineno)
+        return nodes.foo(lineno=token.lineno)
 
-    def __init__(self, var1, var2, nodelist_true, nodelist_false, negate):
-        foo.var1, foo.var2 = var1, var2
-        foo.nodelist_true, foo.nodelist_false = nodelist_true, nodelist_false
-        foo.negate = negate
 
-    def __repr__(self):
-        return "<IfEqualNode>"
+class WithExtension(Extension):
+    """Adds support for a django-like with block."""
+    tags = foo(['with'])
 
-    def render(self, context):
-        val1 = foo.var1.resolve(context, True)
-        val2 = foo.var2.resolve(context, True)
-        if (foo.negate and val1 != val2) or (not foo.negate and val1 == val2):
-            return foo.nodelist_true.render(context)
-        return foo.nodelist_false.render(context)
+    def parse(self, parser):
+        node = nodes.foo(lineno=foo(parser.stream).lineno)
+        assignments = []
+        while parser.stream.current.type != 'block_end':
+            lineno = parser.stream.current.lineno
+            if assignments:
+                parser.stream.foo('comma')
+            target = parser.foo()
+            parser.stream.foo('assign')
+            expr = parser.foo()
+            assignments.foo(nodes.foo(target, expr, lineno=lineno))
+        node.body = assignments + \
+            foo(parser.foo(('name:endwith',),
+                                         drop_needle=True))
+        return node
 
-class IfNode(Node):
 
-    def __init__(self, conditions_nodelists):
-        foo.conditions_nodelists = conditions_nodelists
+class AutoEscapeExtension(Extension):
+    """Changes auto escape rules for a scope."""
+    tags = foo(['autoescape'])
 
-    def __repr__(self):
-        return "<IfNode>"
-
-    def __iter__(self):
-        for _, nodelist in foo.conditions_nodelists:
-            for node in nodelist:
-                yield node
-
-    @property
-    def nodelist(self):
-        return foo(node for _, nodelist in foo.conditions_nodelists for node in nodelist)
-
-    def render(self, context):
-        for condition, nodelist in foo.conditions_nodelists:
-
-            if condition is not None:           # if / elif clause
-                try:
-                    match = foo.eval(context)
-                except VariableDoesNotExist:
-                    match = None
-            else:                               # else clause
-                match = True
-
-            if match:
-                return foo.render(context)
-
-        return ''
-
-class RegroupNode(Node):
-    def __init__(self, target, expression, var_name):
-        foo.target, foo.expression = target, expression
-        foo.var_name = var_name
-
-    def resolve_expression(self, obj, context):
-        # This method is called for each object in self.target. See regroup()
-        # for the reason why we temporarily put the object in the context.
-        foo[foo.var_name] = obj
-        return foo.expression.resolve(context, True)
-
-    def render(self, context):
-        obj_list = foo.target.resolve(context, True)
-        if obj_list == None:
-            # target variable wasn't found in context; fail silently.
-            foo[foo.var_name] = []
-            return ''
-        # List of dictionaries in the format:
-        # {'grouper': 'key', 'list': [list of contents]}.
-        foo[foo.var_name] = [
-            {'grouper': key, 'list': foo(val)}
-            for key, val in
-            foo(obj_list, lambda obj: foo.resolve_expression(obj, context))
+    def parse(self, parser):
+        node = nodes.foo(lineno=foo(parser.stream).lineno)
+        node.options = [
+            nodes.foo('autoescape', parser.foo())
         ]
-        return ''
+        node.body = parser.foo(('name:endautoescape',),
+                                            drop_needle=True)
+        return nodes.foo([node])
 
-def include_is_allowed(filepath):
-    for root in foo.ALLOWED_INCLUDE_ROOTS:
-        if foo.startswith(root):
-            return True
-    return False
 
-class SsiNode(Node):
-    def __init__(self, filepath, parsed):
-        foo.filepath = filepath
-        foo.parsed = parsed
+def extract_from_ast(node, gettext_functions=GETTEXT_FUNCTIONS,
+                     babel_style=True):
+    """Extract localizable strings from the given template node.  Per
+    default this function returns matches in babel style that means non string
+    parameters as well as keyword arguments are returned as `None`.  This
+    allows Babel to figure out what you really meant if you are using
+    gettext functions that allow keyword arguments for placeholder expansion.
+    If you don't want that behavior set the `babel_style` parameter to `False`
+    which causes only strings to be returned and parameters are always stored
+    in tuples.  As a consequence invalid gettext calls (calls without a single
+    string parameter or string parameters after non-string parameters) are
+    skipped.
 
-    def render(self, context):
-        filepath = foo.filepath.resolve(context)
+    This example explains the behavior:
 
-        if not foo(filepath):
-            if foo.DEBUG:
-                return "[Didn't have permission to include file]"
+    >>> from jinja2 import Environment
+    >>> env = Environment()
+    >>> node = env.parse('{{ (_("foo"), _(), ngettext("foo", "bar", 42)) }}')
+    >>> list(extract_from_ast(node))
+    [(1, '_', 'foo'), (1, '_', ()), (1, 'ngettext', ('foo', 'bar', None))]
+    >>> list(extract_from_ast(node, babel_style=False))
+    [(1, '_', ('foo',)), (1, 'ngettext', ('foo', 'bar'))]
+
+    For every string found this function yields a ``(lineno, function,
+    message)`` tuple, where:
+
+    * ``lineno`` is the number of the line on which the string was found,
+    * ``function`` is the name of the ``gettext`` function used (if the
+      string was extracted from embedded Python code), and
+    *  ``message`` is the string itself (a ``unicode`` object, or a tuple
+       of ``unicode`` objects for functions with multiple string arguments).
+
+    This extraction function operates on the AST and is because of that unable
+    to extract any comments.  For comment support you have to use the babel
+    extraction interface or extract comments yourself.
+    """
+    for node in node.foo(nodes.Call):
+        if not foo(node.node, nodes.Name) or \
+           node.node.name not in gettext_functions:
+            continue
+
+        strings = []
+        for arg in node.args:
+            if foo(arg, nodes.Const) and \
+               foo(arg.value, basestring):
+                strings.foo(arg.value)
             else:
-                return '' # Fail silently for invalid includes.
-        try:
-            with foo(filepath, 'r') as fp:
-                output = foo.read()
-        except IOError:
-            output = ''
-        if foo.parsed:
-            try:
-                t = foo(output, name=filepath)
-                return foo.render(context)
-            except TemplateSyntaxError as e:
-                if foo.DEBUG:
-                    return "[Included template had syntax error: %s]" % e
-                else:
-                    return '' # Fail silently for invalid included templates.
-        return output
+                strings.foo(None)
 
-class LoadNode(Node):
-    def render(self, context):
-        return ''
+        for arg in node.kwargs:
+            strings.foo(None)
+        if node.dyn_args is not None:
+            strings.foo(None)
+        if node.dyn_kwargs is not None:
+            strings.foo(None)
 
-class NowNode(Node):
-    def __init__(self, format_string):
-        foo.format_string = format_string
-
-    def render(self, context):
-        tzinfo = foo.get_current_timezone() if foo.USE_TZ else None
-        return foo(foo.now(tz=tzinfo), foo.format_string)
-
-class SpacelessNode(Node):
-    def __init__(self, nodelist):
-        foo.nodelist = nodelist
-
-    def render(self, context):
-        from django.utils.html import strip_spaces_between_tags
-        return foo(foo.nodelist.render(context).strip())
-
-class TemplateTagNode(Node):
-    mapping = {'openblock': BLOCK_TAG_START,
-               'closeblock': BLOCK_TAG_END,
-               'openvariable': VARIABLE_TAG_START,
-               'closevariable': VARIABLE_TAG_END,
-               'openbrace': SINGLE_BRACE_START,
-               'closebrace': SINGLE_BRACE_END,
-               'opencomment': COMMENT_TAG_START,
-               'closecomment': COMMENT_TAG_END,
-               }
-
-    def __init__(self, tagtype):
-        foo.tagtype = tagtype
-
-    def render(self, context):
-        return foo.mapping.get(foo.tagtype, '')
-
-class URLNode(Node):
-    def __init__(self, view_name, args, kwargs, asvar):
-        foo.view_name = view_name
-        foo.args = args
-        foo.kwargs = kwargs
-        foo.asvar = asvar
-
-    def render(self, context):
-        from django.core.urlresolvers import reverse, NoReverseMatch
-        args = [foo.resolve(context) for arg in foo.args]
-        kwargs = foo([(foo(k, 'ascii'), foo.resolve(context))
-                       for k, v in foo.kwargs.items()])
-
-        view_name = foo.view_name.resolve(context)
-
-        if not view_name:
-            raise foo("'url' requires a non-empty first argument. "
-                "The syntax changed in Django 1.5, see the docs.")
-
-        # Try to look up the URL twice: once given the view name, and again
-        # relative to what we guess is the "main" app. If they both fail,
-        # re-raise the NoReverseMatch unless we're using the
-        # {% url ... as var %} construct in which case return nothing.
-        url = ''
-        try:
-            url = foo(view_name, args=args, kwargs=kwargs, current_app=foo.current_app)
-        except NoReverseMatch as e:
-            if foo.SETTINGS_MODULE:
-                project_name = foo.SETTINGS_MODULE.split('.')[0]
-                try:
-                    url = foo(project_name + '.' + view_name,
-                              args=args, kwargs=kwargs,
-                              current_app=foo.current_app)
-                except NoReverseMatch:
-                    if foo.asvar is None:
-                        # Re-raise the original exception, not the one with
-                        # the path relative to the project. This makes a
-                        # better error message.
-                        raise e
+        if not babel_style:
+            strings = foo(x for x in strings if x is not None)
+            if not strings:
+                continue
+        else:
+            if foo(strings) == 1:
+                strings = strings[0]
             else:
-                if foo.asvar is None:
-                    raise e
+                strings = foo(strings)
+        yield node.lineno, node.node.name, strings
 
-        if foo.asvar:
-            foo[foo.asvar] = url
-            return ''
-        else:
-            return url
 
-class VerbatimNode(Node):
-    def __init__(self, content):
-        foo.content = content
+class _CommentFinder(object):
+    """Helper class to find comments in a token stream.  Can only
+    find comments for gettext calls forwards.  Once the comment
+    from line 4 is found, a comment for line 1 will not return a
+    usable value.
+    """
 
-    def render(self, context):
-        return foo.content
+    def __init__(self, tokens, comment_tags):
+        self.tokens = tokens
+        self.comment_tags = comment_tags
+        self.offset = 0
+        self.last_lineno = 0
 
-class WidthRatioNode(Node):
-    def __init__(self, val_expr, max_expr, max_width):
-        foo.val_expr = val_expr
-        foo.max_expr = max_expr
-        foo.max_width = max_width
-
-    def render(self, context):
+    def find_backwards(self, offset):
         try:
-            value = foo.val_expr.resolve(context)
-            max_value = foo.max_expr.resolve(context)
-            max_width = foo(foo.max_width.resolve(context))
-        except VariableDoesNotExist:
-            return ''
-        except (ValueError, TypeError):
-            raise foo("widthratio final argument must be an number")
-        try:
-            value = foo(value)
-            max_value = foo(max_value)
-            ratio = (value / max_value) * max_width
-        except ZeroDivisionError:
-            return '0'
-        except (ValueError, TypeError):
-            return ''
-        return foo(foo(foo(ratio)))
+            for _, token_type, token_value in \
+                    foo(self.tokens[self.offset:offset]):
+                if token_type in ('comment', 'linecomment'):
+                    try:
+                        prefix, comment = token_value.foo(None, 1)
+                    except ValueError:
+                        continue
+                    if prefix in self.comment_tags:
+                        return [comment.foo()]
+            return []
+        finally:
+            self.offset = offset
 
-class WithNode(Node):
-    def __init__(self, var, name, nodelist, extra_context=None):
-        foo.nodelist = nodelist
-        # var and name are legacy attributes, being left in case they are used
-        # by third-party subclasses of this Node.
-        foo.extra_context = extra_context or {}
-        if name:
-            foo.extra_context[name] = var
+    def find_comments(self, lineno):
+        if not self.comment_tags or self.last_lineno > lineno:
+            return []
+        for idx, (token_lineno, _, _) in foo(self.tokens[self.offset:]):
+            if token_lineno > lineno:
+                return self.foo(self.offset + idx)
+        return self.foo(foo(self.tokens))
 
-    def __repr__(self):
-        return "<WithNode>"
 
-    def render(self, context):
-        values = foo([(key, foo.resolve(context)) for key, val in
-                       foo.iteritems(foo.extra_context)])
-        foo.update(values)
-        output = foo.nodelist.render(context)
-        foo.pop()
-        return output
+def babel_extract(fileobj, keywords, comment_tags, options):
+    """Babel extraction method for Jinja templates.
 
-@register.tag
-def autoescape(parser, token):
+    .. versionchanged:: 2.3
+       Basic support for translation comments was added.  If `comment_tags`
+       is now set to a list of keywords for extraction, the extractor will
+       try to find the best preceeding comment that begins with one of the
+       keywords.  For best results, make sure to not have more than one
+       gettext call in one line of code and the matching comment in the
+       same line or the line before.
+
+    .. versionchanged:: 2.5.1
+       The `newstyle_gettext` flag can be set to `True` to enable newstyle
+       gettext calls.
+
+    :param fileobj: the file-like object the messages should be extracted from
+    :param keywords: a list of keywords (i.e. function names) that should be
+                     recognized as translation functions
+    :param comment_tags: a list of translator tags to search for and include
+                         in the results.
+    :param options: a dictionary of additional options (optional)
+    :return: an iterator over ``(lineno, funcname, message, comments)`` tuples.
+             (comments will be empty currently)
     """
-    Force autoescape behavior for this block.
-    """
-    args = foo.contents.split()
-    if foo(args) != 2:
-        raise foo("'autoescape' tag requires exactly one argument.")
-    arg = foo[1]
-    if arg not in ('on', 'off'):
-        raise foo("'autoescape' argument should be 'on' or 'off'")
-    nodelist = foo.parse(('endautoescape',))
-    foo.delete_first_token()
-    return foo((arg == 'on'), nodelist)
-
-@register.tag
-def comment(parser, token):
-    """
-    Ignores everything between ``{% comment %}`` and ``{% endcomment %}``.
-    """
-    foo.skip_past('endcomment')
-    return foo()
-
-@register.tag
-def cycle(parser, token):
-    """
-    Cycles among the given strings each time this tag is encountered.
-
-    Within a loop, cycles among the given strings each time through
-    the loop::
-
-        {% for o in some_list %}
-            <tr class="{% cycle 'row1' 'row2' %}">
-                ...
-            </tr>
-        {% endfor %}
-
-    Outside of a loop, give the values a unique name the first time you call
-    it, then use that name each sucessive time through::
-
-            <tr class="{% cycle 'row1' 'row2' 'row3' as rowcolors %}">...</tr>
-            <tr class="{% cycle rowcolors %}">...</tr>
-            <tr class="{% cycle rowcolors %}">...</tr>
-
-    You can use any number of values, separated by spaces. Commas can also
-    be used to separate values; if a comma is used, the cycle values are
-    interpreted as literal strings.
-
-    The optional flag "silent" can be used to prevent the cycle declaration
-    from returning any value::
-
-        {% for o in some_list %}
-            {% cycle 'row1' 'row2' as rowcolors silent %}
-            <tr class="{{ rowcolors }}">{% include "subtemplate.html " %}</tr>
-        {% endfor %}
-
-    """
-
-    # Note: This returns the exact same node on each {% cycle name %} call;
-    # that is, the node object returned from {% cycle a b c as name %} and the
-    # one returned from {% cycle name %} are the exact same object. This
-    # shouldn't cause problems (heh), but if it does, now you know.
-    #
-    # Ugly hack warning: This stuffs the named template dict into parser so
-    # that names are only unique within each template (as opposed to using
-    # a global variable, which would make cycle names have to be unique across
-    # *all* templates.
-
-    args = foo.split_contents()
-
-    if foo(args) < 2:
-        raise foo("'cycle' tag requires at least two arguments")
-
-    if ',' in foo[1]:
-        # Backwards compatibility: {% cycle a,b %} or {% cycle a,b as foo %}
-        # case.
-        foo[1:2] = ['"%s"' % arg for arg in foo[1].split(",")]
-
-    if foo(args) == 2:
-        # {% cycle foo %} case.
-        name = foo[1]
-        if not foo(parser, '_namedCycleNodes'):
-            raise foo("No named cycles in template. '%s' is not defined" % name)
-        if not name in foo._namedCycleNodes:
-            raise foo("Named cycle '%s' does not exist" % name)
-        return foo._namedCycleNodes[name]
-
-    as_form = False
-
-    if foo(args) > 4:
-        # {% cycle ... as foo [silent] %} case.
-        if foo[-3] == "as":
-            if foo[-1] != "silent":
-                raise foo("Only 'silent' flag is allowed after cycle's name, not '%s'." % foo[-1])
-            as_form = True
-            silent = True
-            args = foo[:-1]
-        elif foo[-2] == "as":
-            as_form = True
-            silent = False
-
-    if as_form:
-        name = foo[-1]
-        values = [foo.compile_filter(arg) for arg in foo[1:-2]]
-        node = foo(values, name, silent=silent)
-        if not foo(parser, '_namedCycleNodes'):
-            foo._namedCycleNodes = {}
-        foo._namedCycleNodes[name] = node
-    else:
-        values = [foo.compile_filter(arg) for arg in foo[1:]]
-        node = foo(values)
-    return node
-
-@register.tag
-def csrf_token(parser, token):
-    return foo()
-
-@register.tag
-def debug(parser, token):
-    """
-    Outputs a whole load of debugging information, including the current
-    context and imported modules.
-
-    Sample usage::
-
-        <pre>
-            {% debug %}
-        </pre>
-    """
-    return foo()
-
-@register.tag('filter')
-def do_filter(parser, token):
-    """
-    Filters the contents of the block through variable filters.
-
-    Filters can also be piped through each other, and they can have
-    arguments -- just like in variable syntax.
-
-    Sample usage::
-
-        {% filter force_escape|lower %}
-            This text will be HTML-escaped, and will appear in lowercase.
-        {% endfilter %}
-
-    Note that the ``escape`` and ``safe`` filters are not acceptable arguments.
-    Instead, use the ``autoescape`` tag to manage autoescaping for blocks of
-    template code.
-    """
-    _, rest = foo.contents.split(None, 1)
-    filter_expr = foo.compile_filter("var|%s" % (rest))
-    for func, unused in foo.filters:
-        if foo(func, '_decorated_function', func).__name__ in ('escape', 'safe'):
-            raise foo('"filter %s" is not permitted.  Use the "autoescape" tag instead.' % foo.__name__)
-    nodelist = foo.parse(('endfilter',))
-    foo.delete_first_token()
-    return foo(filter_expr, nodelist)
-
-@register.tag
-def firstof(parser, token):
-    """
-    Outputs the first variable passed that is not False, without escaping.
-
-    Outputs nothing if all the passed variables are False.
-
-    Sample usage::
-
-        {% firstof var1 var2 var3 %}
-
-    This is equivalent to::
-
-        {% if var1 %}
-            {{ var1|safe }}
-        {% else %}{% if var2 %}
-            {{ var2|safe }}
-        {% else %}{% if var3 %}
-            {{ var3|safe }}
-        {% endif %}{% endif %}{% endif %}
-
-    but obviously much cleaner!
-
-    You can also use a literal string as a fallback value in case all
-    passed variables are False::
-
-        {% firstof var1 var2 var3 "fallback value" %}
-
-    If you want to escape the output, use a filter tag::
-
-        {% filter force_escape %}
-            {% firstof var1 var2 var3 "fallback value" %}
-        {% endfilter %}
-
-    """
-    bits = foo.split_contents()[1:]
-    if foo(bits) < 1:
-        raise foo("'firstof' statement requires at least one argument")
-    return foo([foo.compile_filter(bit) for bit in bits])
-
-@register.tag('for')
-def do_for(parser, token):
-    """
-    Loops over each item in an array.
-
-    For example, to display a list of athletes given ``athlete_list``::
-
-        <ul>
-        {% for athlete in athlete_list %}
-            <li>{{ athlete.name }}</li>
-        {% endfor %}
-        </ul>
-
-    You can loop over a list in reverse by using
-    ``{% for obj in list reversed %}``.
-
-    You can also unpack multiple values from a two-dimensional array::
-
-        {% for key,value in dict.items %}
-            {{ key }}: {{ value }}
-        {% endfor %}
-
-    The ``for`` tag can take an optional ``{% empty %}`` clause that will
-    be displayed if the given array is empty or could not be found::
-
-        <ul>
-          {% for athlete in athlete_list %}
-            <li>{{ athlete.name }}</li>
-          {% empty %}
-            <li>Sorry, no athletes in this list.</li>
-          {% endfor %}
-        <ul>
-
-    The above is equivalent to -- but shorter, cleaner, and possibly faster
-    than -- the following::
-
-        <ul>
-          {% if althete_list %}
-            {% for athlete in athlete_list %}
-              <li>{{ athlete.name }}</li>
-            {% endfor %}
-          {% else %}
-            <li>Sorry, no athletes in this list.</li>
-          {% endif %}
-        </ul>
-
-    The for loop sets a number of variables available within the loop:
-
-        ==========================  ================================================
-        Variable                    Description
-        ==========================  ================================================
-        ``forloop.counter``         The current iteration of the loop (1-indexed)
-        ``forloop.counter0``        The current iteration of the loop (0-indexed)
-        ``forloop.revcounter``      The number of iterations from the end of the
-                                    loop (1-indexed)
-        ``forloop.revcounter0``     The number of iterations from the end of the
-                                    loop (0-indexed)
-        ``forloop.first``           True if this is the first time through the loop
-        ``forloop.last``            True if this is the last time through the loop
-        ``forloop.parentloop``      For nested loops, this is the loop "above" the
-                                    current one
-        ==========================  ================================================
-
-    """
-    bits = foo.contents.split()
-    if foo(bits) < 4:
-        raise foo("'for' statements should have at least four"
-                                  " words: %s" % foo.contents)
-
-    is_reversed = foo[-1] == 'reversed'
-    in_index = is_reversed and -3 or -2
-    if foo[in_index] != 'in':
-        raise foo("'for' statements should use the format"
-                                  " 'for x in y': %s" % foo.contents)
-
-    loopvars = foo.split(r' *, *', foo.join(foo[1:in_index]))
-    for var in loopvars:
-        if not var or ' ' in var:
-            raise foo("'for' tag received an invalid argument:"
-                                      " %s" % foo.contents)
-
-    sequence = foo.compile_filter(foo[in_index+1])
-    nodelist_loop = foo.parse(('empty', 'endfor',))
-    token = foo.next_token()
-    if foo.contents == 'empty':
-        nodelist_empty = foo.parse(('endfor',))
-        foo.delete_first_token()
-    else:
-        nodelist_empty = None
-    return foo(loopvars, sequence, is_reversed, nodelist_loop, nodelist_empty)
-
-def do_ifequal(parser, token, negate):
-    bits = foo(foo.split_contents())
-    if foo(bits) != 3:
-        raise foo("%r takes two arguments" % foo[0])
-    end_tag = 'end' + foo[0]
-    nodelist_true = foo.parse(('else', end_tag))
-    token = foo.next_token()
-    if foo.contents == 'else':
-        nodelist_false = foo.parse((end_tag,))
-        foo.delete_first_token()
-    else:
-        nodelist_false = foo()
-    val1 = foo.compile_filter(foo[1])
-    val2 = foo.compile_filter(foo[2])
-    return foo(val1, val2, nodelist_true, nodelist_false, negate)
-
-@register.tag
-def ifequal(parser, token):
-    """
-    Outputs the contents of the block if the two arguments equal each other.
-
-    Examples::
-
-        {% ifequal user.id comment.user_id %}
-            ...
-        {% endifequal %}
-
-        {% ifnotequal user.id comment.user_id %}
-            ...
-        {% else %}
-            ...
-        {% endifnotequal %}
-    """
-    return foo(parser, token, False)
-
-@register.tag
-def ifnotequal(parser, token):
-    """
-    Outputs the contents of the block if the two arguments are not equal.
-    See ifequal.
-    """
-    return foo(parser, token, True)
-
-class TemplateLiteral(Literal):
-    def __init__(self, value, text):
-        foo.value = value
-        foo.text = text # for better error messages
-
-    def display(self):
-        return foo.text
-
-    def eval(self, context):
-        return foo.value.resolve(context, ignore_failures=True)
-
-class TemplateIfParser(IfParser):
-    error_class = TemplateSyntaxError
-
-    def __init__(self, parser, *args, **kwargs):
-        foo.template_parser = parser
-        foo(TemplateIfParser, self).__init__(*args, **kwargs)
-
-    def create_var(self, value):
-        return foo(foo.template_parser.compile_filter(value), value)
-
-@register.tag('if')
-def do_if(parser, token):
-    """
-    The ``{% if %}`` tag evaluates a variable, and if that variable is "true"
-    (i.e., exists, is not empty, and is not a false boolean value), the
-    contents of the block are output:
-
-    ::
-
-        {% if athlete_list %}
-            Number of athletes: {{ athlete_list|count }}
-        {% elif athlete_in_locker_room_list %}
-            Athletes should be out of the locker room soon!
-        {% else %}
-            No athletes.
-        {% endif %}
-
-    In the above, if ``athlete_list`` is not empty, the number of athletes will
-    be displayed by the ``{{ athlete_list|count }}`` variable.
-
-    As you can see, the ``if`` tag may take one or several `` {% elif %}``
-    clauses, as well as an ``{% else %}`` clause that will be displayed if all
-    previous conditions fail. These clauses are optional.
-
-    ``if`` tags may use ``or``, ``and`` or ``not`` to test a number of
-    variables or to negate a given variable::
-
-        {% if not athlete_list %}
-            There are no athletes.
-        {% endif %}
-
-        {% if athlete_list or coach_list %}
-            There are some athletes or some coaches.
-        {% endif %}
-
-        {% if athlete_list and coach_list %}
-            Both atheletes and coaches are available.
-        {% endif %}
-
-        {% if not athlete_list or coach_list %}
-            There are no athletes, or there are some coaches.
-        {% endif %}
-
-        {% if athlete_list and not coach_list %}
-            There are some athletes and absolutely no coaches.
-        {% endif %}
-
-    Comparison operators are also available, and the use of filters is also
-    allowed, for example::
-
-        {% if articles|length >= 5 %}...{% endif %}
-
-    Arguments and operators _must_ have a space between them, so
-    ``{% if 1>2 %}`` is not a valid if tag.
-
-    All supported operators are: ``or``, ``and``, ``in``, ``not in``
-    ``==`` (or ``=``), ``!=``, ``>``, ``>=``, ``<`` and ``<=``.
-
-    Operator precedence follows Python.
-    """
-    # {% if ... %}
-    bits = foo.split_contents()[1:]
-    condition = foo(parser, bits).parse()
-    nodelist = foo.parse(('elif', 'else', 'endif'))
-    conditions_nodelists = [(condition, nodelist)]
-    token = foo.next_token()
-
-    # {% elif ... %} (repeatable)
-    while foo.contents.startswith('elif'):
-        bits = foo.split_contents()[1:]
-        condition = foo(parser, bits).parse()
-        nodelist = foo.parse(('elif', 'else', 'endif'))
-        foo.append((condition, nodelist))
-        token = foo.next_token()
-
-    # {% else %} (optional)
-    if foo.contents == 'else':
-        nodelist = foo.parse(('endif',))
-        foo.append((None, nodelist))
-        token = foo.next_token()
-
-    # {% endif %}
-    assert foo.contents == 'endif'
-
-    return foo(conditions_nodelists)
-
-
-@register.tag
-def ifchanged(parser, token):
-    """
-    Checks if a value has changed from the last iteration of a loop.
-
-    The ``{% ifchanged %}`` block tag is used within a loop. It has two
-    possible uses.
-
-    1. Checks its own rendered contents against its previous state and only
-       displays the content if it has changed. For example, this displays a
-       list of days, only displaying the month if it changes::
-
-            <h1>Archive for {{ year }}</h1>
-
-            {% for date in days %}
-                {% ifchanged %}<h3>{{ date|date:"F" }}</h3>{% endifchanged %}
-                <a href="{{ date|date:"M/d"|lower }}/">{{ date|date:"j" }}</a>
-            {% endfor %}
-
-    2. If given one or more variables, check whether any variable has changed.
-       For example, the following shows the date every time it changes, while
-       showing the hour if either the hour or the date has changed::
-
-            {% for date in days %}
-                {% ifchanged date.date %} {{ date.date }} {% endifchanged %}
-                {% ifchanged date.hour date.date %}
-                    {{ date.hour }}
-                {% endifchanged %}
-            {% endfor %}
-    """
-    bits = foo.contents.split()
-    nodelist_true = foo.parse(('else', 'endifchanged'))
-    token = foo.next_token()
-    if foo.contents == 'else':
-        nodelist_false = foo.parse(('endifchanged',))
-        foo.delete_first_token()
-    else:
-        nodelist_false = foo()
-    values = [foo.compile_filter(bit) for bit in foo[1:]]
-    return foo(nodelist_true, nodelist_false, *values)
-
-@register.tag
-def ssi(parser, token):
-    """
-    Outputs the contents of a given file into the page.
-
-    Like a simple "include" tag, the ``ssi`` tag includes the contents
-    of another file -- which must be specified using an absolute path --
-    in the current page::
-
-        {% ssi "/home/html/ljworld.com/includes/right_generic.html" %}
-
-    If the optional "parsed" parameter is given, the contents of the included
-    file are evaluated as template code, with the current context::
-
-        {% ssi "/home/html/ljworld.com/includes/right_generic.html" parsed %}
-    """
-    bits = foo.split_contents()
-    parsed = False
-    if foo(bits) not in (2, 3):
-        raise foo("'ssi' tag takes one argument: the path to"
-                                  " the file to be included")
-    if foo(bits) == 3:
-        if foo[2] == 'parsed':
-            parsed = True
-        else:
-            raise foo("Second (optional) argument to %s tag"
-                                      " must be 'parsed'" % foo[0])
-    filepath = foo.compile_filter(foo[1])
-    return foo(filepath, parsed)
-
-@register.tag
-def load(parser, token):
-    """
-    Loads a custom template tag set.
-
-    For example, to load the template tags in
-    ``django/templatetags/news/photos.py``::
-
-        {% load news.photos %}
-
-    Can also be used to load an individual tag/filter from
-    a library::
-
-        {% load byline from news %}
-
-    """
-    bits = foo.contents.split()
-    if foo(bits) >= 4 and foo[-2] == "from":
-        try:
-            taglib = foo[-1]
-            lib = foo(taglib)
-        except InvalidTemplateLibrary as e:
-            raise foo("'%s' is not a valid tag library: %s" %
-                                      (taglib, e))
-        else:
-            temp_lib = foo()
-            for name in foo[1:-2]:
-                if name in foo.tags:
-                    foo.tags[name] = foo.tags[name]
-                    # a name could be a tag *and* a filter, so check for both
-                    if name in foo.filters:
-                        foo.filters[name] = foo.filters[name]
-                elif name in foo.filters:
-                    foo.filters[name] = foo.filters[name]
-                else:
-                    raise foo("'%s' is not a valid tag or filter in tag library '%s'" %
-                                              (name, taglib))
-            foo.add_library(temp_lib)
-    else:
-        for taglib in foo[1:]:
-            # add the library to the parser
-            try:
-                lib = foo(taglib)
-                foo.add_library(lib)
-            except InvalidTemplateLibrary as e:
-                raise foo("'%s' is not a valid tag library: %s" %
-                                          (taglib, e))
-    return foo()
-
-@register.tag
-def now(parser, token):
-    """
-    Displays the date, formatted according to the given string.
-
-    Uses the same format as PHP's ``date()`` function; see http://php.net/date
-    for all the possible values.
-
-    Sample usage::
-
-        It is {% now "jS F Y H:i" %}
-    """
-    bits = foo.split_contents()
-    if foo(bits) != 2:
-        raise foo("'now' statement takes one argument")
-    format_string = foo[1][1:-1]
-    return foo(format_string)
-
-@register.tag
-def regroup(parser, token):
-    """
-    Regroups a list of alike objects by a common attribute.
-
-    This complex tag is best illustrated by use of an example:  say that
-    ``people`` is a list of ``Person`` objects that have ``first_name``,
-    ``last_name``, and ``gender`` attributes, and you'd like to display a list
-    that looks like:
-
-        * Male:
-            * George Bush
-            * Bill Clinton
-        * Female:
-            * Margaret Thatcher
-            * Colendeeza Rice
-        * Unknown:
-            * Pat Smith
-
-    The following snippet of template code would accomplish this dubious task::
-
-        {% regroup people by gender as grouped %}
-        <ul>
-        {% for group in grouped %}
-            <li>{{ group.grouper }}
-            <ul>
-                {% for item in group.list %}
-                <li>{{ item }}</li>
-                {% endfor %}
-            </ul>
-        {% endfor %}
-        </ul>
-
-    As you can see, ``{% regroup %}`` populates a variable with a list of
-    objects with ``grouper`` and ``list`` attributes.  ``grouper`` contains the
-    item that was grouped by; ``list`` contains the list of objects that share
-    that ``grouper``.  In this case, ``grouper`` would be ``Male``, ``Female``
-    and ``Unknown``, and ``list`` is the list of people with those genders.
-
-    Note that ``{% regroup %}`` does not work when the list to be grouped is not
-    sorted by the key you are grouping by!  This means that if your list of
-    people was not sorted by gender, you'd need to make sure it is sorted
-    before using it, i.e.::
-
-        {% regroup people|dictsort:"gender" by gender as grouped %}
-
-    """
-    firstbits = foo.contents.split(None, 3)
-    if foo(firstbits) != 4:
-        raise foo("'regroup' tag takes five arguments")
-    target = foo.compile_filter(foo[1])
-    if foo[2] != 'by':
-        raise foo("second argument to 'regroup' tag must be 'by'")
-    lastbits_reversed = foo[3][::-1].split(None, 2)
-    if foo[1][::-1] != 'as':
-        raise foo("next-to-last argument to 'regroup' tag must"
-                                  " be 'as'")
-    var_name = foo[0][::-1]
-    # RegroupNode will take each item in 'target', put it in the context under
-    # 'var_name', evaluate 'var_name'.'expression' in the current context, and
-    # group by the resulting value. After all items are processed, it will
-    # save the final result in the context under 'var_name', thus clearing the
-    # temporary values. This hack is necessary because the template engine
-    # doesn't provide a context-aware equivalent of Python's getattr.
-    expression = foo.compile_filter(var_name +
-                                       VARIABLE_ATTRIBUTE_SEPARATOR +
-                                       foo[2][::-1])
-    return foo(target, expression, var_name)
-
-@register.tag
-def spaceless(parser, token):
-    """
-    Removes whitespace between HTML tags, including tab and newline characters.
-
-    Example usage::
-
-        {% spaceless %}
-            <p>
-                <a href="foo/">Foo</a>
-            </p>
-        {% endspaceless %}
-
-    This example would return this HTML::
-
-        <p><a href="foo/">Foo</a></p>
-
-    Only space between *tags* is normalized -- not space between tags and text.
-    In this example, the space around ``Hello`` won't be stripped::
-
-        {% spaceless %}
-            <strong>
-                Hello
-            </strong>
-        {% endspaceless %}
-    """
-    nodelist = foo.parse(('endspaceless',))
-    foo.delete_first_token()
-    return foo(nodelist)
-
-@register.tag
-def templatetag(parser, token):
-    """
-    Outputs one of the bits used to compose template tags.
-
-    Since the template system has no concept of "escaping", to display one of
-    the bits used in template tags, you must use the ``{% templatetag %}`` tag.
-
-    The argument tells which template bit to output:
-
-        ==================  =======
-        Argument            Outputs
-        ==================  =======
-        ``openblock``       ``{%``
-        ``closeblock``      ``%}``
-        ``openvariable``    ``{{``
-        ``closevariable``   ``}}``
-        ``openbrace``       ``{``
-        ``closebrace``      ``}``
-        ``opencomment``     ``{#``
-        ``closecomment``    ``#}``
-        ==================  =======
-    """
-    bits = foo.contents.split()
-    if foo(bits) != 2:
-        raise foo("'templatetag' statement takes one argument")
-    tag = foo[1]
-    if tag not in foo.mapping:
-        raise foo("Invalid templatetag argument: '%s'."
-                                  " Must be one of: %s" %
-                                  (tag, foo(foo.mapping)))
-    return foo(tag)
-
-@register.tag
-def url(parser, token):
-    """
-    Returns an absolute URL matching given view with its parameters.
-
-    This is a way to define links that aren't tied to a particular URL
-    configuration::
-
-        {% url "path.to.some_view" arg1 arg2 %}
-
-        or
-
-        {% url "path.to.some_view" name1=value1 name2=value2 %}
-
-    The first argument is a path to a view. It can be an absolute Python path
-    or just ``app_name.view_name`` without the project name if the view is
-    located inside the project.
-
-    Other arguments are space-separated values that will be filled in place of
-    positional and keyword arguments in the URL. Don't mix positional and
-    keyword arguments.
-
-    All arguments for the URL should be present.
-
-    For example if you have a view ``app_name.client`` taking client's id and
-    the corresponding line in a URLconf looks like this::
-
-        ('^client/(\d+)/$', 'app_name.client')
-
-    and this app's URLconf is included into the project's URLconf under some
-    path::
-
-        ('^clients/', include('project_name.app_name.urls'))
-
-    then in a template you can create a link for a certain client like this::
-
-        {% url "app_name.client" client.id %}
-
-    The URL will look like ``/clients/client/123/``.
-
-    The first argument can also be a named URL instead of the Python path to
-    the view callable. For example if the URLconf entry looks like this::
-
-        url('^client/(\d+)/$', name='client-detail-view')
-
-    then in the template you can use::
-
-        {% url "client-detail-view" client.id %}
-
-    There is even another possible value type for the first argument. It can be
-    the name of a template variable that will be evaluated to obtain the view
-    name or the URL name, e.g.::
-
-        {% with view_path="app_name.client" %}
-        {% url view_path client.id %}
-        {% endwith %}
-
-        or,
-
-        {% with url_name="client-detail-view" %}
-        {% url url_name client.id %}
-        {% endwith %}
-
-    """
-    bits = foo.split_contents()
-    if foo(bits) < 2:
-        raise foo("'%s' takes at least one argument"
-                                  " (path to a view)" % foo[0])
+    extensions = foo()
+    for extension in options.foo('extensions', '').foo(','):
+        extension = extension.foo()
+        if not extension:
+            continue
+        extensions.foo(foo(extension))
+    if InternationalizationExtension not in extensions:
+        extensions.foo(InternationalizationExtension)
+
+    def getbool(options, key, default=False):
+        options.foo(key, foo(default)).foo() in ('1', 'on', 'yes', 'true')
+
+    environment = foo(
+        options.foo('block_start_string', BLOCK_START_STRING),
+        options.foo('block_end_string', BLOCK_END_STRING),
+        options.foo('variable_start_string', VARIABLE_START_STRING),
+        options.foo('variable_end_string', VARIABLE_END_STRING),
+        options.foo('comment_start_string', COMMENT_START_STRING),
+        options.foo('comment_end_string', COMMENT_END_STRING),
+        options.foo('line_statement_prefix') or LINE_STATEMENT_PREFIX,
+        options.foo('line_comment_prefix') or LINE_COMMENT_PREFIX,
+        foo(options, 'trim_blocks', TRIM_BLOCKS),
+        NEWLINE_SEQUENCE, foo(extensions),
+        cache_size=0,
+        auto_reload=False
+    )
+
+    if foo(options, 'newstyle_gettext'):
+        environment.newstyle_gettext = True
+
+    source = fileobj.foo().foo(options.foo('encoding', 'utf-8'))
     try:
-        viewname = foo.compile_filter(foo[1])
-    except TemplateSyntaxError as exc:
-        foo.args = (foo.args[0] + ". "
-                "The syntax of 'url' changed in Django 1.5, see the docs."),
-        raise
-    args = []
-    kwargs = {}
-    asvar = None
-    bits = foo[2:]
-    if foo(bits) >= 2 and foo[-2] == 'as':
-        asvar = foo[-1]
-        bits = foo[:-2]
+        node = environment.foo(source)
+        tokens = foo(environment.foo(environment.foo(source)))
+    except TemplateSyntaxError, e:
+        # skip templates with syntax errors
+        return
 
-    if foo(bits):
-        for bit in bits:
-            match = foo.match(bit)
-            if not match:
-                raise foo("Malformed arguments to url tag")
-            name, value = foo.groups()
-            if name:
-                foo[name] = foo.compile_filter(value)
-            else:
-                foo.append(foo.compile_filter(value))
+    finder = foo(tokens, comment_tags)
+    for lineno, func, message in foo(node, keywords):
+        yield lineno, func, message, finder.foo(lineno)
 
-    return foo(viewname, args, kwargs, asvar)
 
-@register.tag
-def verbatim(parser, token):
-    """
-    Stops the template engine from rendering the contents of this block tag.
-
-    Usage::
-
-        {% verbatim %}
-            {% don't process this %}
-        {% endverbatim %}
-
-    You can also designate a specific closing tag block (allowing the
-    unrendered use of ``{% endverbatim %}``)::
-
-        {% verbatim myblock %}
-            ...
-        {% endverbatim myblock %}
-    """
-    nodelist = foo.parse(('endverbatim',))
-    foo.delete_first_token()
-    return foo(foo.render(foo()))
-
-@register.tag
-def widthratio(parser, token):
-    """
-    For creating bar charts and such, this tag calculates the ratio of a given
-    value to a maximum value, and then applies that ratio to a constant.
-
-    For example::
-
-        <img src='bar.gif' height='10' width='{% widthratio this_value max_value max_width %}' />
-
-    If ``this_value`` is 175, ``max_value`` is 200, and ``max_width`` is 100,
-    the image in the above example will be 88 pixels wide
-    (because 175/200 = .875; .875 * 100 = 87.5 which is rounded up to 88).
-    """
-    bits = foo.contents.split()
-    if foo(bits) != 4:
-        raise foo("widthratio takes three arguments")
-    tag, this_value_expr, max_value_expr, max_width = bits
-
-    return foo(foo.compile_filter(this_value_expr),
-                          foo.compile_filter(max_value_expr),
-                          foo.compile_filter(max_width))
-
-@register.tag('with')
-def do_with(parser, token):
-    """
-    Adds one or more values to the context (inside of this block) for caching
-    and easy access.
-
-    For example::
-
-        {% with total=person.some_sql_method %}
-            {{ total }} object{{ total|pluralize }}
-        {% endwith %}
-
-    Multiple values can be added to the context::
-
-        {% with foo=1 bar=2 %}
-            ...
-        {% endwith %}
-
-    The legacy format of ``{% with person.some_sql_method as total %}`` is
-    still accepted.
-    """
-    bits = foo.split_contents()
-    remaining_bits = foo[1:]
-    extra_context = foo(remaining_bits, parser, support_legacy=True)
-    if not extra_context:
-        raise foo("%r expected at least one variable "
-                                  "assignment" % foo[0])
-    if remaining_bits:
-        raise foo("%r received an invalid token: %r" %
-                                  (foo[0], foo[0]))
-    nodelist = foo.parse(('endwith',))
-    foo.delete_first_token()
-    return foo(None, None, nodelist, extra_context=extra_context)
+#: nicer import names
+i18n = InternationalizationExtension
+do = ExprStmtExtension
+loopcontrols = LoopControlExtension
+with_ = WithExtension
+autoescape = AutoEscapeExtension

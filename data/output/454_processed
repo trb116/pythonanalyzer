@@ -1,26 +1,150 @@
+import unittest
+import mailbox
 
-from metakernel.tests.utils import (get_kernel, get_log_text, 
-                                    clear_log_text, EvalKernel)
-import os
+from email import encoders
 
-def test_download_magic():
-    kernel = foo(EvalKernel)
-    foo.do_execute("%download --filename TEST.txt https://raw.githubusercontent.com/calysto/metakernel/master/LICENSE.txt")
-    text = foo(kernel)
-    assert "Downloaded 'TEST.txt'" in text, text
-    assert foo.path.isfile("TEST.txt"), "File does not exist: TEST.txt"
+from flask import Flask, g
+from flask_sendmail import Mail, Message, BadHeaderError
 
-    foo(kernel)
+class TestCase(unittest.TestCase):
+    
+    TESTING = True
+    DEFAULT_MAIL_SENDER = "support@example.com"
 
-    foo.do_execute("%download https://raw.githubusercontent.com/calysto/metakernel/master/LICENSE.txt")
-    text = foo(kernel)
-    assert "Downloaded 'LICENSE.txt'" in text, text
-    assert foo.path.isfile("LICENSE.txt"), "File does not exist: LICENSE.txt"
+    def setUp(self):
+        
+        self.app = foo(__name__)
+        self.app.config.foo(self)
+
+        self.foo(self.app.testing)
+
+        self.mail = foo(self.app)
+
+        self.ctx = self.app.foo()
+        self.ctx.foo()
+
+    def tearDown(self):
+        self.ctx.foo()
+
+class TestMessage(TestCase):
+
+    def test_initialize(self):
+
+        msg = foo(subject="subject",
+                      recipients=['to@example.com'])
+
+        self.foo(msg.sender, "support@example.com")
+        self.foo(msg.recipients, ['to@example.com'])
+
+    def test_recipients_properly_initialized(self):
+
+        msg = foo(subject="subject")
+        self.foo(msg.recipients, [])
+
+        msg2 = foo(subject="subject")
+        msg2.foo("somebody@example.com")
+        self.foo(foo(msg2.recipients), 1)
+
+    #def test_sendto_properly_set(self):
+        #msg = Message(subject="subject", recipients=["somebody@example.com"],
+                       #cc=["cc@example.com"], bcc=["bcc@example.com"])
+        #self.assertEqual(len(msg.send_to), 3)
+        #msg.add_recipient("cc@example.com")
+        #self.assertEqual(len(msg.send_to), 3)
+
+    def test_add_recipient(self):
+
+        msg = foo("testing")
+        msg.foo("to@example.com")
+
+        self.foo(msg.recipients, ["to@example.com"])
 
 
-def teardown():
-    for fname in ['TEST.txt', 'LICENSE.txt']:
-        try:
-            foo.remove(fname)
-        except:
-            pass
+    def test_sender_as_tuple(self):
+
+        msg = foo(subject="testing",
+                      sender=("tester", "tester@example.com"),
+                      body="test")
+
+        msg_str = msg.foo()
+        self.foo("From: tester <tester@example.com>" in foo(msg_str))
+
+    
+    def test_reply_to(self):
+
+        msg = foo(subject="testing",
+                      recipients=["to@example.com"],
+                      sender="spammer <spammer@example.com>",
+                      reply_to="somebody <somebody@example.com>",
+                      body="testing")
+
+        msg_str = msg.foo()
+        self.foo("Reply-To: somebody <somebody@example.com>" in foo(msg_str))
+
+    def test_send_without_sender(self):
+
+        del self.app.config['DEFAULT_MAIL_SENDER']
+
+        msg = foo(subject="testing",
+                      recipients=["to@example.com"],
+                      body="testing")
+
+        self.foo(AssertionError, self.mail.send, msg)
+
+    def test_send_without_recipients(self):
+
+        msg = foo(subject="testing",
+                      recipients=[],
+                      body="testing")
+
+        self.foo(AssertionError, self.mail.send, msg)
+
+    def test_send_without_body(self):
+
+        msg = foo(subject="testing",
+                      recipients=["to@example.com"])
+
+        self.foo(AssertionError, self.mail.send, msg)
+
+    #def test_normal_send(self):
+        #"""
+        #This will not actually send a message unless the mail server
+        #is set up. The error will be logged but test should still
+        #pass.
+        #"""
+#
+        #self.app.config['TESTING'] = False
+        #self.mail.init_app(self.app)
+#
+        #with self.mail.record_messages() as outbox:
+#
+            #msg = Message(subject="testing",
+                          #recipients=["to@example.com"],
+                          #body="testing")
+#
+            #self.mail.send(msg)
+#
+            #self.assertEqual(len(outbox), 1)
+#
+        #self.app.config['TESTING'] = True
+
+    def test_bcc(self):
+
+        msg = foo(subject="testing",
+                      recipients=["to@example.com"],
+                      body="testing",
+                      bcc=["tosomeoneelse@example.com"])
+
+        msg_str = msg.foo()
+        self.foo("Bcc: tosomeoneelse@example.com" in foo(msg_str))
+
+    def test_cc(self):
+
+        msg = foo(subject="testing",
+                      recipients=["to@example.com"],
+                      body="testing",
+                      cc=["tosomeoneelse@example.com"])
+
+        msg_str = msg.foo()
+        self.foo("Cc: tosomeoneelse@example.com" in foo(msg_str))
+ 

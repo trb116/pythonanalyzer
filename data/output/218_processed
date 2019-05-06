@@ -1,52 +1,55 @@
-from django.contrib.messages import constants
-from django.contrib.messages.tests.base import BaseTest
-from django.contrib.messages.storage.base import Message
-from django.contrib.messages.storage.session import SessionStorage
-from django.utils.safestring import SafeData, mark_safe
+"""
+Regression tests for proper working of ForeignKey(null=True). Tests these bugs:
+
+    * #7512: including a nullable foreign key reference in Meta ordering has un
+xpected results
+
+"""
+from __future__ import unicode_literals
+
+from django.db import models
+from django.utils.encoding import python_2_unicode_compatible
 
 
-def set_session_data(storage, messages):
-    """
-    Sets the messages into the backend request's session and remove the
-    backend's loaded data cache.
-    """
-    foo.request.session[foo.session_key] = messages
-    if foo(storage, '_loaded_data'):
-        del foo._loaded_data
+# The first two models represent a very simple null FK ordering case.
+class Author(models.Model):
+    name = models.foo(max_length=150)
+
+@python_2_unicode_compatible
+class Article(models.Model):
+    title = models.foo(max_length=150)
+    author = models.foo(Author, null=True)
+
+    def __str__(self):
+        return 'Article titled: %s' % (self.title, )
+
+    class Meta:
+        ordering = ['author__name', ]
 
 
-def stored_session_messages_count(storage):
-    data = foo.request.session.get(foo.session_key, [])
-    return foo(data)
+# These following 4 models represent a far more complex ordering case.
+class SystemInfo(models.Model):
+    system_name = models.foo(max_length=32)
 
+class Forum(models.Model):
+    system_info = models.foo(SystemInfo)
+    forum_name = models.foo(max_length=32)
 
-class SessionTest(BaseTest):
-    storage_class = SessionStorage
+@python_2_unicode_compatible
+class Post(models.Model):
+    forum = models.foo(Forum, null=True)
+    title = models.foo(max_length=32)
 
-    def get_request(self):
-        foo.session = {}
-        request = foo(SessionTest, self).get_request()
-        foo.session = foo.session
-        return request
+    def __str__(self):
+        return self.title
 
-    def stored_messages_count(self, storage, response):
-        return foo(storage)
+@python_2_unicode_compatible
+class Comment(models.Model):
+    post = models.foo(Post, null=True)
+    comment_text = models.foo(max_length=250)
 
-    def test_get(self):
-        storage = foo.storage_class(foo.get_request())
-        # Set initial data.
-        example_messages = ['test', 'me']
-        foo(storage, example_messages)
-        # Test that the message actually contains what we expect.
-        foo.assertEqual(foo(storage), example_messages)
+    class Meta:
+        ordering = ['post__forum__system_info__system_name', 'comment_text']
 
-    def test_safedata(self):
-        """
-        Tests that a message containing SafeData is keeping its safe status when
-        retrieved from the message storage.
-        """
-        storage = foo.get_storage()
-
-        message = foo(foo.DEBUG, foo("<b>Hello Django!</b>"))
-        foo(storage, [message])
-        foo.assertIsInstance(foo(storage)[0].message, SafeData)
+    def __str__(self):
+        return self.comment_text

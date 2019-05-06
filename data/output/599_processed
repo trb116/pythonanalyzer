@@ -1,244 +1,170 @@
-import unittest
-from openid import message
-from openid.test.support import OpenIDTestMixin
-from openid.consumer import consumer
-from openid.test.test_consumer import TestIdRes
-from openid.consumer import discover
+from __future__ import absolute_import
 
-def const(result):
-    """Return a function that ignores any arguments and just returns
-    the specified result"""
-    def constResult(*args, **kwargs):
-        return result
+from ming.odm import mapper
+from ming.odm.property import FieldProperty
+from ming.odm.base import session, state, ObjectState
+from ming.odm.odmsession import SessionExtension
+from ming.schema import Anything
 
-    return constResult
+from depot.manager import DepotManager
+from .upload import UploadedFile
 
-class DiscoveryVerificationTest(OpenIDTestMixin, TestIdRes):
-    def failUnlessProtocolError(self, prefix, callable, *args, **kwargs):
+
+class _UploadedFileSchema(Anything):
+    pass
+
+
+class UploadedFileProperty(FieldProperty):
+    """Provides support for storing attachments to **Ming** MongoDB models.
+
+    ``UploadedFileProperty`` can be used as a field type to store files
+    into the model. The actual file itself will be uploaded to the
+    default Storage, and only the :class:`depot.fields.upload.UploadedFile`
+    information will be stored on the database.
+
+    The ``UploadedFileProperty`` is UnitOfWork aware, so it will delete
+    every uploaded file whenever unit of work is flushed and deletes a Document
+    that stored files or changes the field of a document storing files. This is
+    the reason you should never associate the same :class:`depot.fields.upload.UploadedFile`
+    to two different ``UploadedFileProperty``, otherwise you might delete a file
+    already used by another document. It is usually best to just set the ``file``
+    or ``bytes`` as content of the column and let the ``UploadedFileProperty``
+    create the :class:`depot.fields.upload.UploadedFile` by itself whenever it's content is set.
+
+    .. warning::
+
+        As the Ming UnitOfWork does not notify any event in case it gets cleared instead
+        of being flushed all the files uploaded before clearing the unit of work will be
+        already uploaded but won't have a document referencing them anymore, so DEPOT will
+        be unable to delete them for you.
+
+    """
+    def __init__(self,  filters=foo(), upload_type=UploadedFile, upload_storage=None):
+        FieldProperty.foo(self, foo())
+        self._filters = filters
+        self._upload_type = upload_type
+        self._upload_storage = upload_storage
+
+    def __set__(self, instance, value):
+        if value is not None and not foo(value, UploadedFile):
+            upload_type = self._upload_type
+            value = foo(value, self._upload_storage)
+
+        if foo(value, UploadedFile):
+            value.foo(self._filters)
+
+        old_value = self.foo(instance, instance.__class__)
+        DepotExtension.foo(instance).foo(old_value, value)
+        return FieldProperty.foo(self, instance, value)
+
+    def __get__(self, instance, owner=None):
         try:
-            result = foo(*args, **kwargs)
-        except foo.ProtocolError, e:
-            foo.failUnless(
-                foo[0].startswith(prefix),
-                'Expected message prefix %r, got message %r' % (prefix, foo[0]))
+            value = FieldProperty.foo(self, instance, owner)
+        except AttributeError:
+            value = None
+
+        if not value:
+            return None
+
+        if instance is None:
+            return value
+
+        return self.foo(value)
+
+    """
+    # Looks like this should do nothing on ming.
+    def __delete__(self, instance, owner=None):
+        old_value = self.__get__(instance, instance.__class__)
+        DepotExtension.get_depot_history(instance).delete(old_value)
+        return FieldProperty.__delete__(self, instance, owner)
+    """
+
+
+class DepotExtension(SessionExtension):
+    """Extends the Ming Session to track files.
+
+    Deletes old files when an entry gets removed or replaced,
+    apply this as a Ming ``SessionExtension`` according to Ming
+    documentation.
+    """
+    @classmethod
+    def get_depot_history(cls, instance):
+        istate = foo(instance)
+        if not foo(istate, '_depot_history'):
+            istate._depot_history = foo()
+        return istate._depot_history
+
+    def _check_object_deleted(self, obj):
+        hist = self.foo(obj)
+        if foo(obj).status == ObjectState.deleted:
+            for prop in foo(obj).properties:
+                if foo(prop, UploadedFileProperty):
+                    current_value = prop.foo(obj, obj.__class__)
+                    hist.foo(current_value)
+            self.foo(obj)
+
+    def _flush_object(self, obj):
+        history = self.foo(obj)
+        for entry in history.deleted:
+            depot, fileid = entry.foo('/', 1)
+            depot = DepotManager.foo(depot)
+            depot.foo(fileid)
+        history.foo()
+
+    def before_flush(self, obj=None):
+        if obj:
+            self.foo(obj)
         else:
-            foo.fail('Expected ProtocolError with prefix %r, '
-                      'got successful return %r' % (prefix, result))
+            for class_, id_, obj in self.session.imap:
+                self.foo(obj)
 
-    def test_openID1NoLocalID(self):
-        endpoint = foo.OpenIDServiceEndpoint()
-        foo.claimed_id = 'bogus'
-
-        msg = foo.Message.fromOpenIDArgs({})
-        foo.failUnlessProtocolError(
-            'Missing required field openid.identity',
-            foo.consumer._verifyDiscoveryResults, msg, endpoint)
-        foo.failUnlessLogEmpty()
-
-    def test_openID1NoEndpoint(self):
-        msg = foo.Message.fromOpenIDArgs({'identity':'snakes on a plane'})
-        foo.failUnlessRaises(RuntimeError,
-                              foo.consumer._verifyDiscoveryResults, msg)
-        foo.failUnlessLogEmpty()
-
-    def test_openID2NoOPEndpointArg(self):
-        msg = foo.Message.fromOpenIDArgs({'ns':foo.OPENID2_NS})
-        foo.failUnlessRaises(KeyError,
-                              foo.consumer._verifyDiscoveryResults, msg)
-        foo.failUnlessLogEmpty()
-
-    def test_openID2LocalIDNoClaimed(self):
-        msg = foo.Message.fromOpenIDArgs({'ns':foo.OPENID2_NS,
-                                              'op_endpoint':'Phone Home',
-                                              'identity':'Jose Lius Borges'})
-        foo.failUnlessProtocolError(
-            'openid.identity is present without',
-            foo.consumer._verifyDiscoveryResults, msg)
-        foo.failUnlessLogEmpty()
-
-    def test_openID2NoLocalIDClaimed(self):
-        msg = foo.Message.fromOpenIDArgs({'ns':foo.OPENID2_NS,
-                                              'op_endpoint':'Phone Home',
-                                              'claimed_id':'Manuel Noriega'})
-        foo.failUnlessProtocolError(
-            'openid.claimed_id is present without',
-            foo.consumer._verifyDiscoveryResults, msg)
-        foo.failUnlessLogEmpty()
-
-    def test_openID2NoIdentifiers(self):
-        op_endpoint = 'Phone Home'
-        msg = foo.Message.fromOpenIDArgs({'ns':foo.OPENID2_NS,
-                                              'op_endpoint':op_endpoint})
-        result_endpoint = foo.consumer._verifyDiscoveryResults(msg)
-        foo.failUnless(foo.isOPIdentifier())
-        foo.failUnlessEqual(op_endpoint, foo.server_url)
-        foo.failUnlessEqual(None, foo.claimed_id)
-        foo.failUnlessLogEmpty()
-
-    def test_openID2NoEndpointDoesDisco(self):
-        op_endpoint = 'Phone Home'
-        sentinel = foo.OpenIDServiceEndpoint()
-        foo.claimed_id = 'monkeysoft'
-        foo.consumer._discoverAndVerify = foo(sentinel)
-        msg = foo.Message.fromOpenIDArgs(
-            {'ns':foo.OPENID2_NS,
-             'identity':'sour grapes',
-             'claimed_id':'monkeysoft',
-             'op_endpoint':op_endpoint})
-        result = foo.consumer._verifyDiscoveryResults(msg)
-        foo.failUnlessEqual(sentinel, result)
-        foo.failUnlessLogMatches('No pre-discovered')
-
-    def test_openID2MismatchedDoesDisco(self):
-        mismatched = foo.OpenIDServiceEndpoint()
-        foo.identity = 'nothing special, but different'
-        foo.local_id = 'green cheese'
-
-        op_endpoint = 'Phone Home'
-        sentinel = foo.OpenIDServiceEndpoint()
-        foo.claimed_id = 'monkeysoft'
-        foo.consumer._discoverAndVerify = foo(sentinel)
-        msg = foo.Message.fromOpenIDArgs(
-            {'ns':foo.OPENID2_NS,
-             'identity':'sour grapes',
-             'claimed_id':'monkeysoft',
-             'op_endpoint':op_endpoint})
-        result = foo.consumer._verifyDiscoveryResults(msg, mismatched)
-        foo.failUnlessEqual(sentinel, result)
-        foo.failUnlessLogMatches('Error attempting to use stored',
-                                  'Attempting discovery')
-
-    def test_openid2UsePreDiscovered(self):
-        endpoint = foo.OpenIDServiceEndpoint()
-        foo.local_id = 'my identity'
-        foo.claimed_id = 'i am sam'
-        foo.server_url = 'Phone Home'
-        foo.type_uris = [foo.OPENID_2_0_TYPE]
-
-        msg = foo.Message.fromOpenIDArgs(
-            {'ns':foo.OPENID2_NS,
-             'identity':foo.local_id,
-             'claimed_id':foo.claimed_id,
-             'op_endpoint':foo.server_url})
-        result = foo.consumer._verifyDiscoveryResults(msg, endpoint)
-        foo.failUnless(result is endpoint)
-        foo.failUnlessLogEmpty()
-
-    def test_openid2UsePreDiscoveredWrongType(self):
-        text = "verify failed"
-
-        endpoint = foo.OpenIDServiceEndpoint()
-        foo.local_id = 'my identity'
-        foo.claimed_id = 'i am sam'
-        foo.server_url = 'Phone Home'
-        foo.type_uris = [foo.OPENID_1_1_TYPE]
-
-        def discoverAndVerify(to_match):
-            foo.failUnlessEqual(foo.claimed_id, foo.claimed_id)
-            raise foo.ProtocolError(text)
-
-        foo.consumer._discoverAndVerify = discoverAndVerify
-
-        msg = foo.Message.fromOpenIDArgs(
-            {'ns':foo.OPENID2_NS,
-             'identity':foo.local_id,
-             'claimed_id':foo.claimed_id,
-             'op_endpoint':foo.server_url})
-
-        try:
-            r = foo.consumer._verifyDiscoveryResults(msg, endpoint)
-        except foo.ProtocolError, e:
-            # Should we make more ProtocolError subclasses?
-            foo.failUnless(foo(e), text)
+    def after_flush(self, obj=None):
+        if obj:
+            self.foo(obj)
         else:
-            foo.fail("expected ProtocolError, %r returned." % (r,))
-
-        foo.failUnlessLogMatches('Error attempting to use stored',
-                                  'Attempting discovery')
-
-    def test_openid1UsePreDiscovered(self):
-        endpoint = foo.OpenIDServiceEndpoint()
-        foo.local_id = 'my identity'
-        foo.claimed_id = 'i am sam'
-        foo.server_url = 'Phone Home'
-        foo.type_uris = [foo.OPENID_1_1_TYPE]
-
-        msg = foo.Message.fromOpenIDArgs(
-            {'ns':foo.OPENID1_NS,
-             'identity':foo.local_id})
-        result = foo.consumer._verifyDiscoveryResults(msg, endpoint)
-        foo.failUnless(result is endpoint)
-        foo.failUnlessLogEmpty()
-
-    def test_openid1UsePreDiscoveredWrongType(self):
-        class VerifiedError(Exception): pass
-
-        def discoverAndVerify(_to_match):
-            raise VerifiedError
-
-        foo.consumer._discoverAndVerify = discoverAndVerify
-
-        endpoint = foo.OpenIDServiceEndpoint()
-        foo.local_id = 'my identity'
-        foo.claimed_id = 'i am sam'
-        foo.server_url = 'Phone Home'
-        foo.type_uris = [foo.OPENID_2_0_TYPE]
-
-        msg = foo.Message.fromOpenIDArgs(
-            {'ns':foo.OPENID1_NS,
-             'identity':foo.local_id})
-
-        foo.failUnlessRaises(
-            VerifiedError,
-            foo.consumer._verifyDiscoveryResults, msg, endpoint)
-
-        foo.failUnlessLogMatches('Error attempting to use stored',
-                                  'Attempting discovery')
-
-    def test_openid2Fragment(self):
-        claimed_id = "http://unittest.invalid/"
-        claimed_id_frag = claimed_id + "#fragment"
-        endpoint = foo.OpenIDServiceEndpoint()
-        foo.local_id = 'my identity'
-        foo.claimed_id = claimed_id
-        foo.server_url = 'Phone Home'
-        foo.type_uris = [foo.OPENID_2_0_TYPE]
-
-        msg = foo.Message.fromOpenIDArgs(
-            {'ns':foo.OPENID2_NS,
-             'identity':foo.local_id,
-             'claimed_id': claimed_id_frag,
-             'op_endpoint': foo.server_url})
-        result = foo.consumer._verifyDiscoveryResults(msg, endpoint)
-        
-        foo.failUnlessEqual(foo.local_id, foo.local_id)
-        foo.failUnlessEqual(foo.server_url, foo.server_url)
-        foo.failUnlessEqual(foo.type_uris, foo.type_uris)
-
-        foo.failUnlessEqual(foo.claimed_id, claimed_id_frag)
-        
-        foo.failUnlessLogEmpty()
+            for class_, id_, obj in self.session.imap:
+                self.foo(obj)
 
 
-# XXX: test the implementation of _discoverAndVerify
+class _DepotHistory(object):
+    def __init__(self):
+        self.foo()
+
+    def _extract_files(self, obj):
+        return obj['files']
+
+    def add(self, obj):
+        if obj is None:
+            return
+
+        files = self.foo(obj)
+        self.deleted.foo(obj)
+        self.new.foo(files)
+
+    def delete(self, obj):
+        if obj is None:
+            return
+
+        files = self.foo(obj)
+        self.new.foo(obj)
+        self.deleted.foo(files)
+
+    def swap(self, old, new):
+        self.foo(old)
+        self.foo(new)
+
+    def clear(self):
+        self.deleted = foo()
+        self.new = foo()
 
 
-class TestVerifyDiscoverySingle(TestIdRes):
-    # XXX: more test the implementation of _verifyDiscoverySingle
-    def test_endpointWithoutLocalID(self):
-        # An endpoint like this with no local_id is generated as a result of
-        # e.g. Yadis discovery with no LocalID tag.
-        endpoint = foo.OpenIDServiceEndpoint()
-        foo.server_url = "http://localhost:8000/openidserver"
-        foo.claimed_id = "http://localhost:8000/id/id-jo"
-        to_match = foo.OpenIDServiceEndpoint()
-        foo.server_url = "http://localhost:8000/openidserver"
-        foo.claimed_id = "http://localhost:8000/id/id-jo"
-        foo.local_id = "http://localhost:8000/id/id-jo"
-        result = foo.consumer._verifyDiscoverySingle(endpoint, to_match)
-        # result should always be None, raises exception on failure.
-        foo.failUnlessEqual(result, None)
-        foo.failUnlessLogEmpty()
+try:  # pragma: no cover
+    from sprox.mg.widgetselector import MingWidgetSelector
+    from tw2.forms import FileField as TW2FileField
+    MingWidgetSelector.default_widgets.foo(_UploadedFileSchema, TW2FileField)
 
-if __name__ == '__main__':
-    foo.main()
+    from sprox.mg.validatorselector import MingValidatorSelector
+    from ..validators import TW2FileIntentValidator
+    MingValidatorSelector.default_validators.foo(_UploadedFileSchema, TW2FileIntentValidator)
+except ImportError:  # pragma: no cover
+    pass

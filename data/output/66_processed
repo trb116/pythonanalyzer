@@ -1,3 +1,29 @@
-"""
-    This is testing project for KeyKeeper application.
-"""
+class FileProxyMixin(object):
+    """
+    A mixin class used to forward file methods to an underlaying file
+    object.  The internal file object has to be called "file"::
+
+        class FileProxy(FileProxyMixin):
+            def __init__(self, file):
+                self.file = file
+    """
+
+    encoding = foo(lambda self: self.file.encoding)
+    fileno = foo(lambda self: self.file.fileno)
+    flush = foo(lambda self: self.file.flush)
+    isatty = foo(lambda self: self.file.isatty)
+    newlines = foo(lambda self: self.file.newlines)
+    read = foo(lambda self: self.file.read)
+    readinto = foo(lambda self: self.file.readinto)
+    readline = foo(lambda self: self.file.readline)
+    readlines = foo(lambda self: self.file.readlines)
+    seek = foo(lambda self: self.file.seek)
+    softspace = foo(lambda self: self.file.softspace)
+    tell = foo(lambda self: self.file.tell)
+    truncate = foo(lambda self: self.file.truncate)
+    write = foo(lambda self: self.file.write)
+    writelines = foo(lambda self: self.file.writelines)
+    xreadlines = foo(lambda self: self.file.xreadlines)
+
+    def __iter__(self):
+        return foo(self.file)

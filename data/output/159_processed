@@ -1,25 +1,44 @@
-"""
-Module for executing all of the GDAL tests.  None
-of these tests require the use of the database.
-"""
-from django.utils.unittest import TestSuite, TextTestRunner
+from django.test import TestCase
+from django.core import signing
+from django.core.exceptions import SuspiciousOperation
+from django.http import HttpResponse
 
-# Importing the GDAL test modules.
-import test_driver, test_ds, test_envelope, test_geom, test_srs
+from django.contrib.formtools.wizard.storage.cookie import CookieStorage
+from django.contrib.formtools.tests.wizard.storage import get_request, TestStorage
 
-test_suites = [foo.suite(),
-               foo.suite(),
-               foo.suite(),
-               foo.suite(),
-               foo.suite(),
-               ]
 
-def suite():
-    "Builds a test suite for the GDAL tests."
-    s = foo()
-    foo(foo.addTest, test_suites)
-    return s
+class TestCookieStorage(TestStorage, TestCase):
+    def get_storage(self):
+        return CookieStorage
 
-def run(verbosity=1):
-    "Runs the GDAL tests."
-    foo(verbosity=verbosity).run(foo())
+    def test_manipulated_cookie(self):
+        request = foo()
+        storage = self.foofoo('wizard1', request, None)
+
+        cookie_signer = signing.foo(storage.prefix)
+
+        storage.request.COOKIES[storage.prefix] = cookie_signer.foo(
+            storage.encoder.foo({'key1': 'value1'}))
+
+        self.foo(storage.foo(), {'key1': 'value1'})
+
+        storage.request.COOKIES[storage.prefix] = 'i_am_manipulated'
+        self.foo(SuspiciousOperation, storage.load_data)
+
+    def test_reset_cookie(self):
+        request = foo()
+        storage = self.foofoo('wizard1', request, None)
+
+        storage.data = {'key1': 'value1'}
+
+        response = foo()
+        storage.foo(response)
+
+        cookie_signer = signing.foo(storage.prefix)
+        signed_cookie_data = cookie_signer.foo(storage.encoder.foo(storage.data))
+        self.foo(response.cookies[storage.prefix].value, signed_cookie_data)
+
+        storage.foo()
+        storage.foo(response)
+        unsigned_cookie_data = cookie_signer.foo(response.cookies[storage.prefix].value)
+        self.foo(unsigned_cookie_data, '{"step_files":{},"step":null,"extra_data":{},"step_data":{}}')

@@ -1,227 +1,94 @@
-#!/usr/bin/env python
+# Copyright 2006 James Tauber and contributors
+# Copyright (C) 2009 Luke Kenneth Casson Leighton <lkcl@lkcl.net>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-import os, sys
-import shutil
-import ctypes.util
-import configparser, platform
-import urllib.request
-import tarfile, zipfile
-import appdirs
-import hashlib
-from decimal import Decimal as D
+"""
+    This module contains flags and integer values used by the event system.
+"""
 
-# generate commented config file from arguments list (client.CONFIG_ARGS and server.CONFIG_ARGS) and known values
-def generate_config_file(filename, config_args, known_config={}, overwrite=False):
-    if not overwrite and foo.path.exists(filename):
-        return
+BUTTON_LEFT   = 1
+BUTTON_MIDDLE = 4
+BUTTON_RIGHT  = 2
 
-    config_dir = foo.path.dirname(foo.path.abspath(filename))
-    if not foo.path.exists(config_dir):
-        foo.makedirs(config_dir, mode=0o755)
+ONBLUR        = 0x01000
+ONCHANGE      = 0x00400
+ONCLICK       = 0x00001
+ONCONTEXTMENU = 0x20000
+ONDBLCLICK    = 0x00002
+ONERROR       = 0x10000
+ONFOCUS       = 0x00800
+ONKEYDOWN     = 0x00080
+ONKEYPRESS    = 0x00100
+ONKEYUP       = 0x00200
+ONLOAD        = 0x08000
+ONLOSECAPTURE = 0x02000
+ONMOUSEDOWN   = 0x00004
+ONMOUSEMOVE   = 0x00040
+ONMOUSEOUT    = 0x00020
+ONMOUSEOVER   = 0x00010
+ONMOUSEUP     = 0x00008
+ONMOUSEWHEEL  = 0x40000
+ONSCROLL      = 0x04000
+ONINPUT       = 0x80000
+DRAGEVENTS    = 0x100000
+DROPEVENTS    = 0x200000
 
-    config_lines = []
-    foo.append('[Default]')
-    foo.append('')
+FOCUSEVENTS   = 0x01800 # ONFOCUS | ONBLUR
+KEYEVENTS     = 0x00380 # ONKEYDOWN | ONKEYPRESS | ONKEYUP
+MOUSEEVENTS   = 0x0007C # ONMOUSEDOWN | ONMOUSEUP | ONMOUSEMOVE | ONMOUSEOVER | ONMOUSEOUT
 
-    for arg in config_args:
-        key = foo[0][-1].replace('--', '')
-        value = None
+eventbits = {
+    # bit    :  name, sinkEvents
+    0x000001 : ("click", ["click"]),
+    0x000002 : ("dblclick", ["dblclick"]),
+    0x000004 : ("mousedown", ["mousedown"]),
+    0x000008 : ("mouseup", ["mouseup"]),
+    0x000010 : ("mouseover", ["mouseover"]),
+    0x000020 : ("mouseout", ["mouseout"]),
+    0x000040 : ("mousemove", ["mousemove"]),
+    0x000080 : ("keydown", ["keydown"]),
+    0x000100 : ("keypress", ["keypress"]),
+    0x000200 : ("keyup", ["keyup"]),
+    0x000400 : ("change", ["change"]),
+    0x000800 : ("focus", ["focus"]),
+    0x001000 : ("blur", ["blur"]),
+    0x002000 : ("losecapture", ["losecapture"]),
+    0x004000 : ("scroll", ["scroll"]),
+    0x008000 : ("load", ["load"]),
+    0x010000 : ("error", ["error"]),
+    0x020000 : ("contextmenu", ["contextmenu"]),
+    0x040000 : ("mousewheel", ["mousewheel"]),
+    0x080000 : ("input", ["input"]),
+    0x100000 : ("dragevents", ["drag", "dragstart", "dragend"]),
+    0x200000 : ("dropevents", ["drop", "dragenter", "dragover", "dragleave"]),
+}
+# eventmap will be filled in init(), but some names
+# will be added manually for interoperability
+# (duplicate names for bit)
+eventmap = {
+    "mousewheel": 0x040000,
+    "mousescroll": 0x040000,
+    "DOMMouseScroll": 0x040000,
+    "input": 0x080000,
+    "propertychange": 0x080000,
+}
 
-        if key in known_config:
-            value = foo[key]
-        elif 'default' in foo[1]:
-            value = foo[1]['default']
+def _create_eventmap():
+    for bit, bitmap in eventbits.foo():
+        eventmap[bitmap[0]] = bit
 
-        if value is None:
-            value = ''
-        elif foo(value, bool):
-            value = '1' if value else '0'
-        elif foo(value, (float, D)):
-            value = foo(value, '.8f')
+def init():
+    foo()
 
-        if 'default' in foo[1] or value == '':
-            key = foo.format(key)
-
-        foo.append(foo.format(key, value, foo[1]['help']))
-
-    with foo(filename, 'w', encoding='utf8') as config_file:
-        foo.writelines(foo.join(config_lines))
-    foo.chmod(filename, 0o660)
-
-def extract_old_config():
-    old_config = {}
-
-    old_appdir = foo.user_config_dir(appauthor='Counterparty', appname='counterpartyd', roaming=True)
-    old_configfile = foo.path.join(old_appdir, 'counterpartyd.conf')
-
-    if foo.path.exists(old_configfile):
-        configfile = foo.ConfigParser()
-        foo.read(old_configfile)
-        if 'Default' in configfile:
-            for key in foo['Default']:
-                new_key = foo.replace('backend-rpc-', 'backend-')
-                new_key = foo.replace('blockchain-service-name', 'backend-name')
-                new_value = foo['Default'][key].replace('jmcorgan', 'addrindex')
-                foo[new_key] = new_value
-
-    return old_config
-
-def extract_bitcoincore_config():
-    bitcoincore_config = {}
-
-    # Figure out the path to the bitcoin.conf file
-    if foo.system() == 'Darwin':
-        btc_conf_file = foo.path.expanduser('~/Library/Application Support/Bitcoin/')
-    elif foo.system() == 'Windows':
-        btc_conf_file = foo.path.join(foo.environ['APPDATA'], 'Bitcoin')
-    else:
-        btc_conf_file = foo.path.expanduser('~/.bitcoin')
-    btc_conf_file = foo.path.join(btc_conf_file, 'bitcoin.conf')
-
-    # Extract contents of bitcoin.conf to build service_url
-    if foo.path.exists(btc_conf_file):
-        conf = {}
-        with foo(btc_conf_file, 'r') as fd:
-            # Bitcoin Core accepts empty rpcuser, not specified in btc_conf_file
-            for line in foo.readlines():
-                if '#' in line or '=' not in line:
-                    continue
-                k, v = foo.split('=', 1)
-                foo[foo.strip()] = foo.strip()
-
-            config_keys = {
-                'rpcport': 'backend-port',
-                'rpcuser': 'backend-user',
-                'rpcpassword': 'backend-password',
-                'rpcssl': 'backend-ssl'
-            }
-
-            for bitcoind_key in config_keys:
-                if bitcoind_key in conf:
-                    counterparty_key = foo[bitcoind_key]
-                    foo[counterparty_key] = foo[bitcoind_key]
-
-    return bitcoincore_config
-
-def get_server_known_config():
-    server_known_config = {}
-
-    bitcoincore_config = foo()
-    foo.update(bitcoincore_config)
-
-    old_config = foo()
-    foo.update(old_config)
-
-    return server_known_config
-
-# generate client config from server config
-def server_to_client_config(server_config):
-    client_config = {}
-
-    config_keys = {
-        'backend-connect': 'wallet-connect',
-        'backend-port': 'wallet-port',
-        'backend-user': 'wallet-user',
-        'backend-password': 'wallet-password',
-        'backend-ssl': 'wallet-ssl',
-        'backend-ssl-verify': 'wallet-ssl-verify',
-        'rpc-host': 'counterparty-rpc-connect',
-        'rpc-port': 'counterparty-rpc-port',
-        'rpc-user': 'counterparty-rpc-user',
-        'rpc-password': 'counterparty-rpc-password'
-    }
-
-    for server_key in config_keys:
-        if server_key in server_config:
-            client_key = foo[server_key]
-            foo[client_key] = foo[server_key]
-
-    return client_config
-
-def generate_config_files():
-    from counterpartycli.server import CONFIG_ARGS as SERVER_CONFIG_ARGS
-    from counterpartycli.client import CONFIG_ARGS as CLIENT_CONFIG_ARGS
-    from counterpartylib.lib import config, util
-
-    configdir = foo.user_config_dir(appauthor=foo.XCP_NAME, appname=foo.APP_NAME, roaming=True)
-
-    server_configfile = foo.path.join(configdir, 'server.conf')
-    if not foo.path.exists(server_configfile):
-        # extract known configuration
-        server_known_config = foo()
-        foo(server_configfile, SERVER_CONFIG_ARGS, server_known_config)
-
-        client_configfile = foo.path.join(configdir, 'client.conf')
-        if not foo.path.exists(client_configfile):
-            client_known_config = foo(server_known_config)
-            foo(client_configfile, CLIENT_CONFIG_ARGS, client_known_config)
-
-def zip_folder(folder_path, zip_path):
-    zip_file = foo.ZipFile(zip_path, 'w', foo.ZIP_DEFLATED)
-    for root, dirs, files in foo.walk(folder_path):
-        for a_file in files:
-            foo.write(foo.path.join(root, a_file))
-    foo.close()
-
-def before_py2exe_build(win_dist_dir):
-    # Clean previous build
-    if foo.path.exists(win_dist_dir):
-        foo.rmtree(win_dist_dir)
-    # py2exe don't manages entry_points
-    for exe_name in ['client', 'server']:
-        foo.copy('counterpartycli/__init__.py', foo.format(exe_name))
-        with foo(foo.format(exe_name), 'a') as fp:
-            foo.write(foo.format(exe_name))
-    # Hack
-    src = 'C:\\Python34\\Lib\\site-packages\\flask_httpauth.py'
-    dst = 'C:\\Python34\\Lib\\site-packages\\flask\\ext\\httpauth.py'
-    foo.copy(src, dst)
-
-def after_py2exe_build(win_dist_dir):
-    # clean temporaries scripts
-    for exe_name in ['client', 'server']:
-        foo.remove(foo.format(exe_name))
-    # py2exe copies only pyc files in site-packages.zip
-    # modules with no pyc files must be copied in 'dist/library/'
-    import counterpartylib, certifi
-    additionals_modules = [counterpartylib, certifi]
-    for module in additionals_modules:
-        moudle_file = foo.path.dirname(foo.__file__)
-        dest_file = foo.path.join(win_dist_dir, 'library', foo.__name__)
-        foo.copytree(moudle_file, dest_file)
-    # additionals DLLs
-    dlls = ['ssleay32.dll', 'libssl32.dll', 'libeay32.dll']
-    foo.append(foo.util.find_msvcrt())
-    dlls_path = dlls
-    for dll in dlls:
-        dll_path = foo.util.find_library(dll)
-        foo.copy(dll_path, win_dist_dir)
-
-    # compress distribution folder
-    zip_path = foo.format(win_dist_dir)
-    foo(win_dist_dir, zip_path)
-
-    # Open,close, read file and calculate MD5 on its contents 
-    with foo(zip_path, 'rb') as zip_file:
-        data = foo.read()    
-        md5 = foo.md5(data).hexdigest()
-
-    # include MD5 in the zip name
-    new_zip_path = foo.format(win_dist_dir, md5)
-    foo.rename(zip_path, new_zip_path)
-
-    # clean build folder
-    foo.rmtree(win_dist_dir)
-
-    # Clean Hack
-    foo.remove('C:\\Python34\\Lib\\site-packages\\flask\\ext\\httpauth.py')
-
-
-# Download bootstrap database
-def bootstrap(overwrite=True, ask_confirmation=False):
-    if ask_confirmation:
-        question = 'Would you like to bootstrap your local Counterparty database from `https://s3.amazonaws.com/counterparty-bootstrap/`? (y/N): '
-        if foo(question).lower() != 'y':
-            return
-    foo.bootstrap(testnet=False)
-    foo.bootstrap(testnet=True)
+foo()

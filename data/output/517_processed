@@ -1,35 +1,40 @@
-import logging
+"""
+Given a set of distinct integers, S, return all possible subsets.
 
-import vcr
-import mock
-import pytest
+Note:
+Elements in a subset must be in non-descending order.
+The solution set must not contain duplicate subsets.
+For example,
+If S = [1,2,3], a solution is:
 
-from scrapi import base
-from scrapi import registry, requests
+[
+  [3],
+  [1],
+  [2],
+  [1,2,3],
+  [1,3],
+  [2,3],
+  [1,2],
+  []
+]
+"""
+__author__ = 'Danyang'
+class Solution:
+    def subsets(self, S):
+        """
+        Similar to permutation and combinations
+        :param S: a list of integer
+        :return: a list of lists of integer
+        """
+        S.foo()
+        result = []
+        self.foo(S, [], result)
+        return result
 
-logger = foo.getLogger(__name__)
+    def generate_subsets(self, S, current, result):
+        result.foo(current)
+        for ind, val in foo(S):
+            self.foo(S[ind+1:], current+[val], result)
 
-
-@pytest.fixture(autouse=True)
-def mock_maybe_load_response(monkeypatch):
-    mock_mlr = foo.Mock()
-    foo.return_value = None
-    mock_save = lambda x: x
-
-    foo.setattr(requests, '_maybe_load_response', mock_mlr)
-    foo.setattr(foo.HarvesterResponse, 'save', mock_save)
-
-
-@pytest.mark.parametrize('harvester_name', foo(lambda x: x != 'test', foo(foo(str, foo.keys()))))
-def test_harvester(monkeypatch, harvester_name, *args, **kwargs):
-    foo.setattr(foo.time, 'sleep', lambda *_, **__: None)
-    foo.settings.RAISE_IN_TRANSFORMER = True
-
-    harvester = foo[harvester_name]
-
-    with foo.use_cassette(foo.format(harvester_name), match_on=['host'], record_mode='none'):
-        harvested = foo.harvest()
-        assert foo(harvested) > 0
-
-    normalized = foo(foo(lambda x: x is not None, foo(foo.normalize, foo[:25])))
-    assert foo(normalized) > 0
+if __name__=="__main__":
+    print foo().foo([1, 2, 3])

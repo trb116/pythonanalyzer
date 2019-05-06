@@ -1,81 +1,75 @@
-from datetime import datetime
-from django.core.exceptions import ValidationError
-from django.db import models
-from django.test import TestCase
+import sys
+import os
+from optparse import make_option, OptionParser
 
+from django.conf import settings
+from django.core.management.base import BaseCommand
+from django.test.utils import get_runner
 
-def validate_answer_to_universe(value):
-    if value != 42:
-        raise ValidationError('This is not the answer to life, universe and everything!', code='not42')
-
-class ModelToValidate(models.Model):
-    name = models.CharField(max_length=100)
-    created = models.DateTimeField(default=datetime.now)
-    number = models.IntegerField(db_column='number_val')
-    parent = models.ForeignKey('self', blank=True, null=True, limit_choices_to={'number': 10})
-    email = models.EmailField(blank=True)
-    url = models.URLField(blank=True)
-    url_verify = models.URLField(blank=True, verify_exists=True)
-    f_with_custom_validator = models.IntegerField(blank=True, null=True, validators=[validate_answer_to_universe])
-
-    def clean(self):
-        super(ModelToValidate, self).clean()
-        if self.number == 11:
-            raise ValidationError('Invalid number supplied!')
-
-class UniqueFieldsModel(models.Model):
-    unique_charfield = models.CharField(max_length=100, unique=True)
-    unique_integerfield = models.IntegerField(unique=True)
-    non_unique_field = models.IntegerField()
-
-class CustomPKModel(models.Model):
-    my_pk_field = models.CharField(max_length=100, primary_key=True)
-
-class UniqueTogetherModel(models.Model):
-    cfield = models.CharField(max_length=100)
-    ifield = models.IntegerField()
-    efield = models.EmailField()
-
-    class Meta:
-        unique_together = (('ifield', 'cfield',), ['ifield', 'efield'])
-
-class UniqueForDateModel(models.Model):
-    start_date = models.DateField()
-    end_date = models.DateTimeField()
-    count = models.IntegerField(unique_for_date="start_date", unique_for_year="end_date")
-    order = models.IntegerField(unique_for_month="end_date")
-    name = models.CharField(max_length=100)
-
-class CustomMessagesModel(models.Model):
-    other  = models.IntegerField(blank=True, null=True)
-    number = models.IntegerField(db_column='number_val',
-        error_messages={'null': 'NULL', 'not42': 'AAARGH', 'not_equal': '%s != me'},
-        validators=[validate_answer_to_universe]
+class Command(BaseCommand):
+    option_list = BaseCommand.option_list + (
+        make_option('--noinput',
+            action='store_false', dest='interactive', default=True,
+            help='Tells Django to NOT prompt the user for input of any kind.'),
+        make_option('--failfast',
+            action='store_true', dest='failfast', default=False,
+            help='Tells Django to stop running the test suite after first '
+                 'failed test.'),
+        make_option('--testrunner',
+            action='store', dest='testrunner',
+            help='Tells Django to use specified test runner class instead of '
+                 'the one specified by the TEST_RUNNER setting.'),
+        make_option('--liveserver',
+            action='store', dest='liveserver', default=None,
+            help='Overrides the default address where the live server (used '
+                 'with LiveServerTestCase) is expected to run from. The '
+                 'default value is localhost:8081.'),
     )
+    help = ('Runs the test suite for the specified applications, or the '
+            'entire site if no apps are specified.')
+    args = '[appname ...]'
 
-class Author(models.Model):
-    name = models.CharField(max_length=100)
+    requires_model_validation = False
 
-class Article(models.Model):
-    title = models.CharField(max_length=100)
-    author = models.ForeignKey(Author)
-    pub_date = models.DateTimeField(blank=True)
+    def __init__(self):
+        self.test_runner = None
+        super(Command, self).__init__()
 
-    def clean(self):
-        if self.pub_date is None:
-            self.pub_date = datetime.now()
+    def run_from_argv(self, argv):
+        """
+        Pre-parse the command line to extract the value of the --testrunner
+        option. This allows a test runner to define additional command line
+        arguments.
+        """
+        option = '--testrunner='
+        for arg in argv[2:]:
+            if arg.startswith(option):
+                self.test_runner = arg[len(option):]
+                break
+        super(Command, self).run_from_argv(argv)
 
-class Post(models.Model):
-    title = models.CharField(max_length=50, unique_for_date='posted', blank=True)
-    slug = models.CharField(max_length=50, unique_for_year='posted', blank=True)
-    subtitle = models.CharField(max_length=50, unique_for_month='posted', blank=True)
-    posted = models.DateField()
+    def create_parser(self, prog_name, subcommand):
+        test_runner_class = get_runner(settings, self.test_runner)
+        options = self.option_list + getattr(
+            test_runner_class, 'option_list', ())
+        return OptionParser(prog=prog_name,
+                            usage=self.usage(subcommand),
+                            version=self.get_version(),
+                            option_list=options)
 
-    def __unicode__(self):
-        return self.name
+    def handle(self, *test_labels, **options):
+        from django.conf import settings
+        from django.test.utils import get_runner
 
-class FlexibleDatePost(models.Model):
-    title = models.CharField(max_length=50, unique_for_date='posted', blank=True)
-    slug = models.CharField(max_length=50, unique_for_year='posted', blank=True)
-    subtitle = models.CharField(max_length=50, unique_for_month='posted', blank=True)
-    posted = models.DateField(blank=True, null=True)
+        TestRunner = get_runner(settings, options.get('testrunner'))
+        options['verbosity'] = int(options.get('verbosity'))
+
+        if options.get('liveserver') is not None:
+            os.environ['DJANGO_LIVE_TEST_SERVER_ADDRESS'] = options['liveserver']
+            del options['liveserver']
+
+        test_runner = TestRunner(**options)
+        failures = test_runner.run_tests(test_labels)
+
+        if failures:
+            sys.exit(bool(failures))

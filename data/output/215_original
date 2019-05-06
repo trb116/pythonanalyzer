@@ -1,119 +1,129 @@
+# -*- coding:utf-8 -*-
 from __future__ import unicode_literals
 
-import binascii
-import unittest
+from datetime import datetime
 
-from django.contrib.gis import memoryview
-from django.contrib.gis.geos import GEOSGeometry, WKTReader, WKTWriter, WKBReader, WKBWriter, geos_version_info
-from django.utils import six
+from django.test import TestCase
 
 
-class GEOSIOTest(unittest.TestCase):
+FULL_RESPONSE = 'Test conditional get response'
+LAST_MODIFIED = datetime(2007, 10, 21, 23, 21, 47)
+LAST_MODIFIED_STR = 'Sun, 21 Oct 2007 23:21:47 GMT'
+LAST_MODIFIED_NEWER_STR = 'Mon, 18 Oct 2010 16:56:23 GMT'
+LAST_MODIFIED_INVALID_STR = 'Mon, 32 Oct 2010 16:56:23 GMT'
+EXPIRED_LAST_MODIFIED_STR = 'Sat, 20 Oct 2007 23:21:47 GMT'
+ETAG = 'b4246ffc4f62314ca13147c9d4f76974'
+EXPIRED_ETAG = '7fae4cd4b0f81e7d2914700043aa8ed6'
 
-    def test01_wktreader(self):
-        # Creating a WKTReader instance
-        wkt_r = WKTReader()
-        wkt = 'POINT (5 23)'
+class ConditionalGet(TestCase):
+    urls = 'regressiontests.conditional_processing.urls'
 
-        # read() should return a GEOSGeometry
-        ref = GEOSGeometry(wkt)
-        g1 = wkt_r.read(wkt.encode())
-        g2 = wkt_r.read(wkt)
+    def assertFullResponse(self, response, check_last_modified=True, check_etag=True):
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, FULL_RESPONSE.encode())
+        if check_last_modified:
+            self.assertEqual(response['Last-Modified'], LAST_MODIFIED_STR)
+        if check_etag:
+            self.assertEqual(response['ETag'], '"%s"' % ETAG)
 
-        for geom in (g1, g2):
-            self.assertEqual(ref, geom)
+    def assertNotModified(self, response):
+        self.assertEqual(response.status_code, 304)
+        self.assertEqual(response.content, b'')
 
-        # Should only accept six.string_types objects.
-        self.assertRaises(TypeError, wkt_r.read, 1)
-        self.assertRaises(TypeError, wkt_r.read, memoryview(b'foo'))
+    def testWithoutConditions(self):
+        response = self.client.get('/condition/')
+        self.assertFullResponse(response)
 
-    def test02_wktwriter(self):
-        # Creating a WKTWriter instance, testing its ptr property.
-        wkt_w = WKTWriter()
-        self.assertRaises(TypeError, wkt_w._set_ptr, WKTReader.ptr_type())
+    def testIfModifiedSince(self):
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
+        response = self.client.get('/condition/')
+        self.assertNotModified(response)
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_NEWER_STR
+        response = self.client.get('/condition/')
+        self.assertNotModified(response)
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_INVALID_STR
+        response = self.client.get('/condition/')
+        self.assertFullResponse(response)
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = EXPIRED_LAST_MODIFIED_STR
+        response = self.client.get('/condition/')
+        self.assertFullResponse(response)
 
-        ref = GEOSGeometry('POINT (5 23)')
-        ref_wkt = 'POINT (5.0000000000000000 23.0000000000000000)'
-        self.assertEqual(ref_wkt, wkt_w.write(ref).decode())
+    def testIfNoneMatch(self):
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
+        response = self.client.get('/condition/')
+        self.assertNotModified(response)
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % EXPIRED_ETAG
+        response = self.client.get('/condition/')
+        self.assertFullResponse(response)
 
-    def test03_wkbreader(self):
-        # Creating a WKBReader instance
-        wkb_r = WKBReader()
+        # Several etags in If-None-Match is a bit exotic but why not?
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s", "%s"' % (ETAG, EXPIRED_ETAG)
+        response = self.client.get('/condition/')
+        self.assertNotModified(response)
 
-        hex = b'000000000140140000000000004037000000000000'
-        wkb = memoryview(binascii.a2b_hex(hex))
-        ref = GEOSGeometry(hex)
+    def testIfMatch(self):
+        self.client.defaults['HTTP_IF_MATCH'] = '"%s"' % ETAG
+        response = self.client.put('/condition/etag/')
+        self.assertEqual(response.status_code, 200)
+        self.client.defaults['HTTP_IF_MATCH'] = '"%s"' % EXPIRED_ETAG
+        response = self.client.put('/condition/etag/')
+        self.assertEqual(response.status_code, 412)
 
-        # read() should return a GEOSGeometry on either a hex string or
-        # a WKB buffer.
-        g1 = wkb_r.read(wkb)
-        g2 = wkb_r.read(hex)
-        for geom in (g1, g2):
-            self.assertEqual(ref, geom)
+    def testBothHeaders(self):
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
+        response = self.client.get('/condition/')
+        self.assertNotModified(response)
 
-        bad_input = (1, 5.23, None, False)
-        for bad_wkb in bad_input:
-            self.assertRaises(TypeError, wkb_r.read, bad_wkb)
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = EXPIRED_LAST_MODIFIED_STR
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
+        response = self.client.get('/condition/')
+        self.assertFullResponse(response)
 
-    def test04_wkbwriter(self):
-        wkb_w = WKBWriter()
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % EXPIRED_ETAG
+        response = self.client.get('/condition/')
+        self.assertFullResponse(response)
 
-        # Representations of 'POINT (5 23)' in hex -- one normal and
-        # the other with the byte order changed.
-        g = GEOSGeometry('POINT (5 23)')
-        hex1 = b'010100000000000000000014400000000000003740'
-        wkb1 = memoryview(binascii.a2b_hex(hex1))
-        hex2 = b'000000000140140000000000004037000000000000'
-        wkb2 = memoryview(binascii.a2b_hex(hex2))
+    def testSingleCondition1(self):
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
+        response = self.client.get('/condition/last_modified/')
+        self.assertNotModified(response)
+        response = self.client.get('/condition/etag/')
+        self.assertFullResponse(response, check_last_modified=False)
 
-        self.assertEqual(hex1, wkb_w.write_hex(g))
-        self.assertEqual(wkb1, wkb_w.write(g))
+    def testSingleCondition2(self):
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
+        response = self.client.get('/condition/etag/')
+        self.assertNotModified(response)
+        response = self.client.get('/condition/last_modified/')
+        self.assertFullResponse(response, check_etag=False)
 
-        # Ensuring bad byteorders are not accepted.
-        for bad_byteorder in (-1, 2, 523, 'foo', None):
-            # Equivalent of `wkb_w.byteorder = bad_byteorder`
-            self.assertRaises(ValueError, wkb_w._set_byteorder, bad_byteorder)
+    def testSingleCondition3(self):
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = EXPIRED_LAST_MODIFIED_STR
+        response = self.client.get('/condition/last_modified/')
+        self.assertFullResponse(response, check_etag=False)
 
-        # Setting the byteorder to 0 (for Big Endian)
-        wkb_w.byteorder = 0
-        self.assertEqual(hex2, wkb_w.write_hex(g))
-        self.assertEqual(wkb2, wkb_w.write(g))
+    def testSingleCondition4(self):
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % EXPIRED_ETAG
+        response = self.client.get('/condition/etag/')
+        self.assertFullResponse(response, check_last_modified=False)
 
-        # Back to Little Endian
-        wkb_w.byteorder = 1
+    def testSingleCondition5(self):
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
+        response = self.client.get('/condition/last_modified2/')
+        self.assertNotModified(response)
+        response = self.client.get('/condition/etag2/')
+        self.assertFullResponse(response, check_last_modified=False)
 
-        # Now, trying out the 3D and SRID flags.
-        g = GEOSGeometry('POINT (5 23 17)')
-        g.srid = 4326
+    def testSingleCondition6(self):
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
+        response = self.client.get('/condition/etag2/')
+        self.assertNotModified(response)
+        response = self.client.get('/condition/last_modified2/')
+        self.assertFullResponse(response, check_etag=False)
 
-        hex3d = b'0101000080000000000000144000000000000037400000000000003140'
-        wkb3d = memoryview(binascii.a2b_hex(hex3d))
-        hex3d_srid = b'01010000A0E6100000000000000000144000000000000037400000000000003140'
-        wkb3d_srid = memoryview(binascii.a2b_hex(hex3d_srid))
-
-        # Ensuring bad output dimensions are not accepted
-        for bad_outdim in (-1, 0, 1, 4, 423, 'foo', None):
-            # Equivalent of `wkb_w.outdim = bad_outdim`
-            self.assertRaises(ValueError, wkb_w._set_outdim, bad_outdim)
-
-        # These tests will fail on 3.0.0 because of a bug that was fixed in 3.1:
-        # http://trac.osgeo.org/geos/ticket/216
-        if not geos_version_info()['version'].startswith('3.0.'):
-            # Now setting the output dimensions to be 3
-            wkb_w.outdim = 3
-
-            self.assertEqual(hex3d, wkb_w.write_hex(g))
-            self.assertEqual(wkb3d, wkb_w.write(g))
-
-            # Telling the WKBWriter to include the srid in the representation.
-            wkb_w.srid = True
-            self.assertEqual(hex3d_srid, wkb_w.write_hex(g))
-            self.assertEqual(wkb3d_srid, wkb_w.write(g))
-
-def suite():
-    s = unittest.TestSuite()
-    s.addTest(unittest.makeSuite(GEOSIOTest))
-    return s
-
-def run(verbosity=2):
-    unittest.TextTestRunner(verbosity=verbosity).run(suite())
+    def testInvalidETag(self):
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = r'"\"'
+        response = self.client.get('/condition/etag/')
+        self.assertFullResponse(response, check_last_modified=False)

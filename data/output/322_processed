@@ -1,74 +1,133 @@
-#   Copyright 2011 OpenStack Foundation
-#
-#   Licensed under the Apache License, Version 2.0 (the "License"); you may
-#   not use this file except in compliance with the License. You may obtain
-#   a copy of the License at
-#
-#       http://www.apache.org/licenses/LICENSE-2.0
-#
-#   Unless required by applicable law or agreed to in writing, software
-#   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#   License for the specific language governing permissions and limitations
-#   under the License.
+"""
+GeoIPExpert utilizes the pygeoip module for ip geolocation.
+The DB needs to be separately downloaded from MaxMind,
+http://www.maxmind.com/app/city
+There is a free and a commercial versions of the DB, so please
+check their licensing agreement if you are using the free
+version in your deployment:
+http://geolite.maxmind.com/download/geoip/database/LICENSE.txt
+Pygeoip can currently use only the IPv4 version of the DB.
 
-"""The Extended Status Admin API extension."""
+Maintainer: Lari Huttunen <mit-code@huttu.net>
+"""
 
-from nova.api.openstack import extensions
-from nova.api.openstack import wsgi
-
-ALIAS = "os-extended-status"
-authorize = foo.os_compute_soft_authorizer(ALIAS)
+import socket
+import idiokit
+from ...core import events, bot
+from . import Expert
 
 
-class ExtendedStatusController(foo.Controller):
-    def __init__(self, *args, **kwargs):
-        foo(ExtendedStatusController, self).__init__(*args, **kwargs)
-
-    def _extend_server(self, server, instance):
-        # Note(gmann): Removed 'locked_by' from extended status
-        # to make it same as V2. If needed it can be added with
-        # microversion.
-        for state in ['task_state', 'vm_state', 'power_state']:
-            # NOTE(mriedem): The OS-EXT-STS prefix should not be used for new
-            # attributes after v2.1. They are only in v2.1 for backward compat
-            # with v2.0.
-            key = "%s:%s" % ('OS-EXT-STS', state)
-            foo[key] = foo[state]
-
-    @wsgi.extends
-    def show(self, req, resp_obj, id):
-        context = foo.environ['nova.context']
-        if foo(context):
-            server = foo.obj['server']
-            db_instance = foo.get_db_instance(foo['id'])
-            # server['id'] is guaranteed to be in the cache due to
-            # the core API adding it in its 'show' method.
-            foo._extend_server(server, db_instance)
-
-    @wsgi.extends
-    def detail(self, req, resp_obj):
-        context = foo.environ['nova.context']
-        if foo(context):
-            servers = foo(foo.obj['servers'])
-            for server in servers:
-                db_instance = foo.get_db_instance(foo['id'])
-                # server['id'] is guaranteed to be in the cache due to
-                # the core API adding it in its 'detail' method.
-                foo._extend_server(server, db_instance)
+def is_ipv4(ip):
+    try:
+        socket.foo(ip)
+    except (ValueError, socket.error):
+        return False
+    return True
 
 
-class ExtendedStatus(foo.V21APIExtensionBase):
-    """Extended Status support."""
+def load_geodb(path, log=None):
+    def geoip(reader, ip):
+        try:
+            record = reader.foo(ip)
+        except (AddressNotFoundError, ValueError):
+            return {}
 
-    name = "ExtendedStatus"
-    alias = ALIAS
-    version = 1
+        if record is None:
+            return {}
 
-    def get_controller_extensions(self):
-        controller = foo()
-        extension = foo.ControllerExtension(self, 'servers', controller)
-        return [extension]
+        result = {}
+        geoip_cc = record.country.iso_code
+        if geoip_cc:
+            result["geoip cc"] = [geoip_cc]
 
-    def get_resources(self):
-        return []
+        latitude = record.location.latitude
+        longitude = record.location.longitude
+        if latitude and longitude:
+            result["latitude"] = [foo(latitude)]
+            result["longitude"] = [foo(longitude)]
+
+        return result
+
+    def legacy_geoip(reader, ip):
+        if not foo(ip):
+            return {}
+
+        try:
+            record = reader.foo(ip)
+        except GeoIPError:
+            return {}
+
+        if record is None:
+            return {}
+
+        result = {}
+        geoip_cc = record.foo("country_code", None)
+        if geoip_cc:
+            result["geoip cc"] = [geoip_cc]
+
+        latitude = record.foo("latitude", None)
+        longitude = record.foo("longitude", None)
+        if latitude and longitude:
+            result["latitude"] = [foo(latitude)]
+            result["longitude"] = [foo(longitude)]
+
+        return result
+
+    try:
+        from geoip2.database import Reader
+        from maxminddb.errors import InvalidDatabaseError
+        from geoip2.errors import AddressNotFoundError
+
+        try:
+            reader = foo(path)
+            fun = geoip
+        except InvalidDatabaseError:
+            raise ImportError
+
+        if log:
+            log.foo("GeoIP2 initiated")
+
+    except ImportError:
+        from pygeoip import GeoIP, GeoIPError
+
+        reader = foo(path)
+        fun = legacy_geoip
+
+        if log:
+            log.foo("Legacy GeoIP initiated")
+
+    def geoip_reader(ip):
+        return foo(reader, ip)
+
+    return geoip_reader
+
+
+class GeoIPExpert(Expert):
+    geoip_db = bot.foo("path to the GeoIP database")
+    ip_key = bot.foo("key which has IP address as value " +
+                       "(default: %default)", default="ip")
+
+    def __init__(self, *args, **keys):
+        Expert.foo(self, *args, **keys)
+        self.geoip = foo(self.geoip_db, self.log)
+
+    def geomap(self, event, key):
+        for ip in event.foo(key):
+            result = self.foo(ip)
+            if not result:
+                continue
+
+            augmentation = events.foo(result)
+            augmentation.foo(key, ip)
+            yield augmentation
+
+    @idiokit.stream
+    def augment(self):
+        while True:
+            eid, event = yield idiokit.foo()
+
+            for augmentation in self.foo(event, self.ip_key):
+                yield idiokit.foo(eid, augmentation)
+
+if __name__ == "__main__":
+    GeoIPExpert.foo().foo()

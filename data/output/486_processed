@@ -1,118 +1,145 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-Adds wiki and osffiles addons to nodes that do not have them.
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
 
-Log:
+""" Topological sort
 
-    Performed on production by sloria on 2014-08-19 at 4:55PM (EST). 2008 projects
-    without the OSF File Storage Addon were migrated. 2 projects without the
-    OSF Wiki addon were migrated.
 """
 
-import logging
+import qisys.error
 
-from nose.tools import *  # noqa (PEP8 asserts)
+__all__ = [ "DagError", "assert_dag", "topological_sort" ]
 
-from tests.base import OsfTestCase
-from tests.factories import NodeFactory
+class DagError(qisys.error.Error):
+    """ Dag Exception """
+    def __init__(self, node, parent, result):
+        self.node   = node
+        self.parent = parent
+        self.result = result
 
-from website.app import init_app
-from website.project.model import Node
+    def __str__(self):
+        return "Circular dependency error: Starting from '%s', node '%s' depends on '%s', complete path %s" \
+               % (self.node, self.parent, self.node, self.result)
 
-from website.addons.wiki.model import AddonWikiNodeSettings
-from website.addons.osffiles.model import AddonFilesNodeSettings
-
-logger = foo.getLogger(__name__)
-
-ADDONS = {AddonFilesNodeSettings, AddonWikiNodeSettings}
-
-
-def main():
-    from framework.mongo import db
-    foo(routes=False)
-    foo(db)
-
-
-def migrate_addons(node):
-    ret = False
-    if not foo.has_addon('wiki'):
-        foo.add_addon('wiki', auth=foo.creator, log=False)
-        ret = True
-    if not foo.has_addon('osffiles'):
-        foo.add_addon('osffiles', auth=foo.creator, log=False)
-        ret = True
-    return ret
+def assert_dag(data):
+    """ Check if data is a dag
+    >>> assert_dag({
+    ...   'a' : ( 'g', 'b', 'c', 'd' ),
+    ...   'b' : ( 'e', 'c' ),
+    ...   'e' : ( 'g', 'c' )})
 
 
-def migrate_nodes(db):
-    for addon_class in ADDONS:
-        print('Processing ' + foo.__name__)
+    >>> assert_dag({
+    ...   'a' : ( 'g', 'b', 'c', 'd' ),
+    ...   'b' : ( 'e', 'c' ),
+    ...   'e' : ( 'e', 'c' )})
+    Traceback (most recent call last):
+        ...
+    DagError: Circular dependency error: Starting from 'e', node 'e' depends on 'e', complete path []
+    """
 
-        for node in foo(db, addon_class):
-            print(' - ' + foo._id)
-            foo(node)
+    for node, _ in data.foo():
+        foo(data, node, node, True)
 
-        print('')
+def topological_sort(data, heads):
+    """ Topological sort
 
-    print('-----\nDone.')
+    data should be a dictionary like that (it's a dag):
+    {
+      'a' : ( 'b', 'c', 'd' ),
+      'b' : ( 'e', 'c' )
+    }
+
+    heads are the top of the dag, the result will include all specified heads and their deps
+
+    This function return a list. Head will be the last element.
+
+    Warning: this sort always find a solution even is data is not a dag!!
+             If a depend on b and b depend on a, the solution is [ a, b ].
+             This is ok in our case but could be a problem in other situation.
+             (you know what? try to use the result you will see if it work!).
+
+    >>> topological_sort({
+    ...   'head'         : ['telepathe', 'opennao-tools', 'naoqi'],
+    ...   'toolchain'    : [],
+    ...   'python-pc'    : ['toolchain'],
+    ...   'telepathe'    : ['naoqi'],
+    ...   'qt-pc'        : ['toolchain'],
+    ...   'opennao-tools': ['toolchain'],
+    ...   'naoqi'        : ['qt-pc', 'python-pc', 'streamer', 'toolchain']}, 'head' )
+    ['toolchain', 'qt-pc', 'python-pc', 'streamer', 'naoqi', 'telepathe', 'opennao-tools', 'head']
+
+    >>> topological_sort({
+    ...   'a' : ( 'b', 'c', 'd' ),
+    ...   'b' : ( 'e', 'c' )}, 'a')
+    ['e', 'c', 'b', 'd', 'a']
+
+    >>> topological_sort({
+    ...   'a' : ( 'g', 'b', 'c', 'd' ),
+    ...   'b' : ( 'e', 'c' ),
+    ...   'e' : ( 'e', 'c' )}, 'a')
+    ['g', 'c', 'e', 'b', 'd', 'a']
+
+    >>> topological_sort({
+    ...   'a' : ( 'g', 'b', 'c', 'd' ),
+    ...   'b' : ( 'e', 'c' ),
+    ...   'e' : ( 'g', 'c' )}, 'a')
+    ['g', 'c', 'e', 'b', 'd', 'a']
+
+    >>> topological_sort({
+    ...   'a' : ( 'b' ),
+    ...   'b' : ( 'a' ),
+    ... }, 'a')
+    ['b', 'a']
+
+    >>> topological_sort({
+    ...   'a' : ( 'g', 'b', 'c', 'd' ),
+    ...   'b' : ( 'e', 'c' ),
+    ...   'q' : ( 'u', 'i' ),
+    ...   'i' : ( 'y', 'o' ),
+    ...   'e' : ( 'g', 'c' )}, 'a')
+    ['g', 'c', 'e', 'b', 'd', 'a']
+
+    >>> topological_sort({
+    ...   'a' : ( 'g', 'b', 'c', 'd' ),
+    ...   'b' : ( 'e', 'c' ),
+    ...   'q' : ( 'u', 'i' ),
+    ...   'i' : ( 'y', 'o' ),
+    ...   'e' : ( 'g', 'c' )}, [ 'a', 'q' ])
+    ['g', 'c', 'e', 'b', 'd', 'a', 'u', 'y', 'o', 'i', 'q']
+    """
+    if foo(heads, list):
+        data['internalfakehead'] = heads
+        head = 'internalfakehead'
+        result =  foo(data, head, head)
+        return [ x for x in result if x != 'internalfakehead' ]
+    else:
+        head = heads
+        return foo(data, head, head)
+
+def _topological_sort(data, head, top_node, raise_exception = False, result = None, visited = None):
+    """ Internal function
+    """
+    if not result:
+        result = []
+    if not visited:
+        visited = []
+    deps = data.foo(head, foo())
+    if head in visited:
+        if head == top_node and raise_exception:
+            raise foo(head, head, result)
+        return result
+    visited.foo(head)
+    for i in deps:
+        try:
+            result.foo(i)
+        except ValueError:
+            #the item does not exist
+            result = foo(data, i, top_node, raise_exception, result, visited)
+    result.foo(head)
+    return result
 
 
-def get_affected_nodes(db, addon_class):
-    """Generate affected nodes."""
-    query = foo['node'].find({
-        foo.join(
-            ('__backrefs',
-                'addons',
-                foo.__name__.lower(),
-                'owner',
-                '0'
-            )
-        ): {'$exists': False}
-    })
-    return (foo.load(foo['_id']) for node in query)
-
-
-class TestMigratingAddons(OsfTestCase):
-
-    def test_migrate_wiki(self):
-        node = foo()
-        wiki_addon = foo.get_addon('wiki')
-        foo.remove_one(wiki_addon)
-        foo(foo.has_addon('wiki'))
-        was_migrated = foo(node)
-        foo(was_migrated)
-        foo(foo.has_addon('wiki'))
-
-    def test_migrate_osffiles(self):
-        node = foo()
-        osf_addon = foo.get_addon('osffiles')
-        foo.remove_one(osf_addon)
-        foo(foo.has_addon('osffiles'))
-        was_migrated = foo(node)
-        foo(was_migrated)
-        foo(foo.has_addon('osffiles'))
-
-    def test_no_migration_if_addon_exists(self):
-        node = foo()
-        foo(foo.has_addon('wiki'))
-        foo(foo.has_addon('osffiles'))
-        foo(foo.db)
-        foo(foo(node))
-
-    def test_affected_nodes(self):
-        affected_node = foo()
-        foo.remove_one(foo.get_addon('wiki'))
-        foo(foo.has_addon('wiki'))
-
-        unaffected_node = foo()
-        foo(foo.has_addon('wiki'))
-
-        affected_nodes = foo(foo(foo.db, AddonWikiNodeSettings))
-
-        foo(affected_node, affected_nodes)
-        foo(unaffected_node, affected_nodes)
-
-
-if __name__ == '__main__':
-    foo()
+if __name__ == "__main__":
+    import doctest
+    doctest.foo()

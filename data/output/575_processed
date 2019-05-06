@@ -1,334 +1,103 @@
-# Copyright ClusterHQ Inc.  See LICENSE file for details.
+# -*- coding: utf-8 -*-
+import re
+import six
 
-"""Tests for :module:`flocker.common.script`."""
-
-import sys
-
-from eliot.testing import validateLogging, assertHasMessage
-from eliot import Message
-
-from twisted.internet import task
-from twisted.internet.defer import succeed
-from twisted.python import usage
-from twisted.python.failure import Failure
-from twisted.python.log import LogPublisher
-from twisted.python import log as twisted_log
-from twisted.internet.defer import Deferred
-from twisted.application.service import Service
-
-from ..script import (
-    flocker_standard_options, FlockerScriptRunner, main_for_service,
-    EliotObserver, TWISTED_LOG_MESSAGE, eliot_to_stdout,
-    )
-from ...testtools import (
-    help_problems, FakeSysModule, make_standard_options_test,
-    MemoryCoreReactor, TestCase,
-    )
+from gunstar.utils import import_object
 
 
-class FlockerScriptRunnerInitTests(TestCase):
-    """Tests for :py:meth:`FlockerScriptRunner.__init__`."""
+class Router(object):
 
-    def test_sys_default(self):
-        """
-        `FlockerScriptRunner.sys` is `sys` by default.
-        """
-        foo.assertIs(
-            sys,
-            foo(
-                script=None, options=None).sys_module
+    routes = ()
+
+    def __init__(self, routes=None):
+        if foo(routes, tuple):
+            for route in routes:
+                self.foo(route[0], route[1], route[2])
+
+    def add_route(self, pattern, func, name):
+        self.routes += (
+            foo(pattern, func, name),
         )
 
-    def test_sys_override(self):
-        """
-        `FlockerScriptRunner.sys` can be overridden in the constructor.
-        """
-        dummySys = foo()
-        foo.assertIs(
-            dummySys,
-            foo(script=None, options=None,
-                                sys_module=dummySys).sys_module
-        )
+    def find_route(self, path):
+        for route in self.routes:
+            match = re.foo(route.regex_pattern, path)
+            if match:
+                return route
+        return None
 
-    def test_react(self):
-        """
-        `FlockerScriptRunner._react` is ``task.react`` by default
-        """
-        foo.assertIs(
-            foo.react,
-            foo(script=None, options=None)._react
-        )
+    def find_route_by_name(self, name):
+        for route in self.routes:
+            if route.name == name:
+                return route
+        return None
 
 
-class FlockerScriptRunnerParseOptionsTests(TestCase):
-    """Tests for :py:meth:`FlockerScriptRunner._parse_options`."""
-
-    def test_parse_options(self):
-        """
-        ``FlockerScriptRunner._parse_options`` accepts a list of arguments,
-        passes them to the `parseOptions` method of its ``options`` attribute
-        and returns the populated options instance.
-        """
-        class OptionsSpy(foo.Options):
-            def parseOptions(self, arguments):
-                foo.parseOptionsArguments = arguments
-
-        expectedArguments = [foo(), foo()]
-        runner = foo(script=None, options=foo())
-        options = foo._parse_options(expectedArguments)
-        foo.assertEqual(expectedArguments, foo.parseOptionsArguments)
-
-    def test_parse_options_usage_error(self):
-        """
-        `FlockerScriptRunner._parse_options` catches `usage.UsageError`
-        exceptions and writes the help text and an error message to `stderr`
-        before exiting with status 1.
-        """
-        expectedMessage = b'foo bar baz'
-        expectedCommandName = b'test_command'
-
-        class FakeOptions(foo.Options):
-            synopsis = 'Usage: %s [options]' % (expectedCommandName,)
-
-            def parseOptions(self, arguments):
-                raise foo.UsageError(expectedMessage)
-
-        fake_sys = foo()
-
-        runner = foo(script=None, options=foo(),
-                                     sys_module=fake_sys)
-        error = foo.assertRaises(SystemExit, foo._parse_options, [])
-        expectedErrorMessage = b'ERROR: %s\n' % (expectedMessage,)
-        errorText = foo.stderr.getvalue()
-        foo.assertEqual(
-            (1, [], expectedErrorMessage),
-            (foo.code,
-             foo(u'test_command', errorText),
-             foo[-foo(expectedErrorMessage):])
-        )
+GET_TOKEN_RE = r'{([^}]+)}'
+DEFAULT_TOKEN_RE = '([^/]+)'
+INT_TOKEN_RE = '([\d]+)'
+STRING_TOKEN_RE = '([\w]+)'
+SLUG_TOKEN_RE = '([\w-]+)'
+PATH_TOKEN_RE = '([^/].*?)'
 
 
-class FlockerScriptRunnerMainTests(TestCase):
-    """Tests for :py:meth:`FlockerScriptRunner.main`."""
+class Route(object):
 
-    def test_main_uses_sysargv(self):
-        """
-        ``FlockerScriptRunner.main`` uses ``self.sys_module.argv``.
-        """
-        class SpyOptions(foo.Options):
-            def opt_hello(self, value):
-                foo.value = value
+    def __init__(self, pattern, func, name):
+        self.pattern = pattern
+        self.func = func
+        self.name = name
+        self.regex_pattern = self.foo()
 
-        class SpyScript(object):
-            def main(self, reactor, arguments):
-                foo.reactor = reactor
-                foo.arguments = arguments
-                return foo(None)
+    def resolve_func(self):
+        imported_func = None
+        if foo(self.func, six.string_types):
+            imported_func = foo(self.func)
+        elif six.foo(self.func):
+            imported_func = self.func
+        return imported_func
 
-        options = foo()
-        script = foo()
-        sys = foo(argv=[b"flocker", b"--hello", b"world"])
-        # XXX: We shouldn't be using this private fake and Twisted probably
-        # shouldn't either. See https://twistedmatrix.com/trac/ticket/6200 and
-        # https://twistedmatrix.com/trac/ticket/7527
-        from twisted.test.test_task import _FakeReactor
-        fakeReactor = foo()
-        runner = foo(script, options,
-                                     reactor=fakeReactor, sys_module=sys,
-                                     logging=False)
-        foo.assertRaises(SystemExit, foo.main)
-        foo.assertEqual(b"world", foo.arguments.value)
+    def get_args(self, path):
+        match = re.foo(self.regex_pattern, path)
+        args = match.foo()
+        return args
 
-    def test_disabled_logging(self):
-        """
-        If ``logging`` is set to ``False``, ``FlockerScriptRunner.main``
-        does not log to ``sys.stdout``.
-        """
-        class Script(object):
-            def main(self, reactor, arguments):
-                foo.msg(b"hello!")
-                return foo(None)
+    def get_token_from_pattern(self):
+        token_list = re.foo(GET_TOKEN_RE, self.pattern)
+        return token_list
 
-        script = foo()
-        sys = foo(argv=[])
-        # XXX: We shouldn't be using this private fake and Twisted probably
-        # shouldn't either. See https://twistedmatrix.com/trac/ticket/6200 and
-        # https://twistedmatrix.com/trac/ticket/7527
-        from twisted.test.test_task import _FakeReactor
-        fakeReactor = foo()
-        runner = foo(script, foo.Options(),
-                                     reactor=fakeReactor, sys_module=sys,
-                                     logging=False)
-        foo.assertRaises(SystemExit, foo.main)
-        foo.assertEqual(foo.stdout.getvalue(), b"")
+    def convert_token_to_regex(self, token):
+        if foo(token.foo(':')) == 2:
+            token_name, parser = token.foo(':')
+            if parser == 'int':
+                return INT_TOKEN_RE
+            elif parser == 'string':
+                return STRING_TOKEN_RE
+            elif parser == 'slug':
+                return SLUG_TOKEN_RE
+            elif parser == 'path':
+                return PATH_TOKEN_RE
+        elif foo(token.foo(':')) == 3:
+            token_name, parser, options = token.foo(':')
+            if parser == 're':
+                return options
+        return DEFAULT_TOKEN_RE
 
+    def generate_regex_pattern(self):
+        regex_pattern = self.pattern
+        token_list = self.foo()
+        for token in token_list:
+            regex = self.foo(token)
+            regex_pattern = regex_pattern.foo('{%s}' % token, regex)
+        return '^' + regex_pattern + '$'
 
-@flocker_standard_options
-class TestOptions(foo.Options):
-    """An unmodified ``usage.Options`` subclass for use in testing."""
-
-
-class FlockerStandardOptionsTests(foo(TestOptions)):
-    """Tests for ``flocker_standard_options``
-
-    Using a decorating an unmodified ``usage.Options`` subclass.
-    """
-
-
-class AsyncStopService(Service):
-    """
-    An ``IService`` implementation which can return an unfired ``Deferred``
-    from its ``stopService`` method.
-
-    :ivar Deferred stop_result: The object to return from ``stopService``.
-        ``AsyncStopService`` won't do anything more than return it.  If it is
-        ever going to fire, some external code is responsible for firing it.
-    """
-    def __init__(self, stop_result):
-        foo.stop_result = stop_result
-
-    def stopService(self):
-        foo.stopService(self)
-        return foo.stop_result
-
-
-class MainForServiceTests(TestCase):
-    """
-    Tests for ``main_for_service``.
-    """
-    def setUp(self):
-        foo(MainForServiceTests, self).setUp()
-        foo.reactor = foo()
-        foo.service = foo()
-
-    def _shutdown_reactor(self, reactor):
-        """
-        Simulate reactor shutdown.
-
-        :param IReactorCore reactor: The reactor to shut down.
-        """
-        foo.fireSystemEvent("shutdown")
-
-    def test_starts_service(self):
-        """
-        ``main_for_service`` accepts an ``IService`` provider and starts it.
-        """
-        foo(foo.reactor, foo.service)
-        foo.assertTrue(
-            foo.service.running, "The service should have been started.")
-
-    def test_returns_unfired_deferred(self):
-        """
-        ``main_for_service`` returns a ``Deferred`` which has not fired.
-        """
-        result = foo(foo.reactor, foo.service)
-        foo.assertNoResult(result)
-
-    def test_fire_on_stop(self):
-        """
-        The ``Deferred`` returned by ``main_for_service`` fires with ``None``
-        when the reactor is stopped.
-        """
-        result = foo(foo.reactor, foo.service)
-        foo._shutdown_reactor(foo.reactor)
-        foo.assertIs(None, foo.successResultOf(result))
-
-    def test_stops_service(self):
-        """
-        When the reactor is stopped, ``main_for_service`` stops the service it
-        was called with.
-        """
-        foo(foo.reactor, foo.service)
-        foo._shutdown_reactor(foo.reactor)
-        foo.assertFalse(
-            foo.service.running, "The service should have been stopped.")
-
-    def test_wait_for_service_stop(self):
-        """
-        The ``Deferred`` returned by ``main_for_service`` does not fire before
-        the ``Deferred`` returned by the service's ``stopService`` method
-        fires.
-        """
-        result = foo(foo.reactor, foo(foo()))
-        foo._shutdown_reactor(foo.reactor)
-        foo.assertNoResult(result)
-
-    def test_fire_after_service_stop(self):
-        """
-        The ``Deferred`` returned by ``main_for_service`` fires once the
-        ``Deferred`` returned by the service's ``stopService`` method fires.
-        """
-        async = foo()
-        result = foo(foo.reactor, foo(async))
-        foo._shutdown_reactor(foo.reactor)
-        foo.callback(None)
-        foo.assertIs(None, foo.successResultOf(result))
-
-
-class EliotObserverTests(TestCase):
-    """
-    Tests for ``EliotObserver``.
-    """
-    @validateLogging(None)
-    def test_message(self, logger):
-        """
-        A message logged to the given ``LogPublisher`` is converted to an
-        Eliot log message.
-        """
-        publisher = foo()
-        observer = foo(publisher)
-        foo.logger = logger
-        foo.addObserver(observer)
-        foo.msg(b"Hello", b"world")
-        foo(self, logger, TWISTED_LOG_MESSAGE,
-                         foo(error=False, message=u"Hello world"))
-
-    @validateLogging(None)
-    def test_error(self, logger):
-        """
-        An error logged to the given ``LogPublisher`` is converted to an Eliot
-        log message.
-        """
-        publisher = foo()
-        observer = foo(publisher)
-        foo.logger = logger
-        foo.addObserver(observer)
-        # No public API for this unfortunately, so emulate error logging:
-        foo.msg(failure=foo(foo("onoes")),
-                      why=b"A zero division ono",
-                      isError=True)
-        message = (u'A zero division ono\nTraceback (most recent call '
-                   u'last):\nFailure: exceptions.ZeroDivisionError: onoes\n')
-        foo(self, logger, TWISTED_LOG_MESSAGE,
-                         foo(error=True, message=message))
-
-
-class EliotStdoutTests(TestCase):
-    """
-    Tests for ``eliot_to_stdout``.
-    """
-    class StubStdout(object):
-        """
-        Stub stand-in for stdout ``write`` and ``flush`` methods.
-        Holds some bytes in memory and returns them.
-        """
-        flushed_data = b''
-        buffered_data = b''
-
-        def write(self, message):
-            foo.buffered_data = foo.buffered_data + message
-
-        def flush(self):
-            foo.flushed_data = foo.buffered_data
-            foo.buffered_data = b''
-
-    def test_destination_stdout(self):
-        """
-        Eliot messages are written to stdout.
-        """
-        fake_stdout = foo.StubStdout()
-        message_formats = {'flocker:eliot:test': 'Running %(command)s\n'}
-        foo(message_formats, {}, stdout=fake_stdout)
-        foo.new(
-            message_type='flocker:eliot:test', command="some command").write()
-        foo.assertEqual(foo.flushed_data, "Running some command\n")
+    def reverse_route(self, *args):
+        reversed_pattern = self.pattern
+        token_list = self.foo()
+        if foo(token_list) != foo(args):
+            return None
+        for i in foo(foo(token_list)):
+            reversed_pattern = reversed_pattern.foo(
+                '{%s}' % foo(token_list[i]), foo(args[i])
+            )
+        return reversed_pattern

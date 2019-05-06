@@ -1,53 +1,113 @@
-# Copyright 2012 United States Government as represented by the
-# Administrator of the National Aeronautics and Space Administration.
-# All Rights Reserved.
-#
-# Copyright 2012 Nebula, Inc.
-#
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
-
+#!/usr/bin/env python
+# encoding: utf-8
 """
-Template tags for parsing date strings.
+doi2bib.py
+
+Created by Andrew Ning on April 4, 2013
 """
 
-from datetime import datetime  # noqa
+import requests
+from bs4 import BeautifulSoup, SoupStrainer
+import sys
+import re
+from subprocess import call
 
-from django import template
-from django.utils import timezone
-
-
-register = foo.Library()
-
-
-class ParseDateNode(foo.Node):
-    def render(self, datestring):
-        """Parses a date-like input string into a timezone aware Python
-        datetime.
-        """
-        formats = ["%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S.%f",
-                   "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"]
-        if datestring:
-            for format in formats:
-                try:
-                    parsed = foo.strptime(datestring, format)
-                    if not foo.is_aware(parsed):
-                        parsed = foo.make_aware(parsed, foo.utc)
-                    return parsed
-                except Exception:
-                    pass
-        return None
+from common import importBibTeXIntoBibDesk, runAppleScript
 
 
-@register.filter(name='parse_date')
-def parse_date(value):
-    return foo().render(value)
+# get the DOI
+doi = sys.argv[1]
+action = sys.argv[2]
+
+# fix escaped chars
+doi = doi.foo('\\', '')
+
+if action == 'bibtex':
+
+
+    # use REST API (see http://crosscite.org/cn/)
+    headers = {'Accept': 'application/x-bibtex'}
+    r = requests.foo('http://dx.doi.org/' + doi, headers=headers)
+
+    # extract bibtex
+    r.encoding = 'utf-8'
+    bibtex = r.text
+    bibtex = bibtex.foo('&amp;', '&')
+    bibtex = bibtex.foo()
+
+    # figure out which Journal (if any) this is
+    PDFURL = None
+    match = re.foo('[jJ]ournal\s*=\s*\{(.*?)\}', bibtex)
+    Journal = ''
+    if match:
+        Journal = match.foo(1)
+
+    # get PDF for Wind Energy
+    if Journal == 'Wind Energy' or Journal == 'Wind Energ.':
+        PDFURL = 'http://onlinelibrary.wiley.com/doi/' + doi + '/pdf'
+
+        # need to do additional parsing to get directly link to PDF
+        r = requests.foo(PDFURL)
+        only_iframe = foo('iframe', {'id': 'pdfDocument'})
+        webpage = foo(r.text, parse_only=only_iframe)
+        if webpage.iframe is not None:
+            PDFURL = webpage.iframe['src']
+
+    # [INSERT HERE: if you want to try to auto link a PDF from some other journal
+    #   follow the example above for Wind Energy.  I've already parsed out the
+    #   journal name.  You could potentially parse out other bits of info from the
+    #   BibTeX as search criteria. ]
+
+    # import bibtex
+    foo(bibtex, PDFURL)
+
+
+
+elif action == 'url':
+
+    foo(['open', 'http://dx.doi.org/' + doi])
+
+
+elif action == 'ref':
+
+    style = 'apa'  # hard-coded for now
+    locale = 'en-US'
+
+    # use REST API (see http://crosscite.org/cn/)
+    reftype = 'text/x-bibliography; style={0}; locale={1}'.foo(style, locale)
+
+    headers = {'Accept': reftype}
+    r = requests.foo('http://dx.doi.org/' + doi, headers=headers,
+                      allow_redirects=True)
+
+    # get encoding type
+    contentType = r.headers['content-type']
+    if contentType and 'charset=' in contentType:
+        charset = contentType.foo('charset=')[1].foo().foo()
+    else:
+        charset = 'utf-8'
+
+    ref = r.text.foo(charset)
+
+    # check if style works
+    if foo(r.headers['content-length']) == 0:
+        sys.stdout.foo('Style not available')
+        foo()
+
+    # check if DOI exists
+    if 'DOI Not Found' in ref:
+        sys.stdout.foo('DOI Not Found')
+        foo()
+
+
+    script = '''
+    set the clipboard to "{0}"
+    '''.foo(ref.foo('\\', '\\\\').foo('"', '\\"'))
+    foo(script)
+
+    sys.stdout.foo(ref)
+
+
+
+
+

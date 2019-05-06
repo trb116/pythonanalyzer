@@ -1,9 +1,27 @@
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals
 
-#!/usr/bin/env python
+from django.db import migrations, models
 
-from dnslib import *
 
-packet = binascii.unhexlify(b'd5ad818000010005000000000377777706676f6f676c6503636f6d0000010001c00c0005000100000005000803777777016cc010c02c0001000100000005000442f95b68c02c0001000100000005000442f95b63c02c0001000100000005000442f95b67c02c0001000100000005000442f95b93')
-d = DNSRecord.parse(packet)
-# The default text representation of the DNSRecord is in zone file format
-print d
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('contenttypes', '0001_initial'),
+        ('tests', '0002_auto_20160310_1052'),
+    ]
+
+    operations = [
+        migrations.AddField(
+            model_name='user',
+            name='favorite_pet_id',
+            field=models.TextField(null=True, blank=True),
+            preserve_default=True,
+        ),
+        migrations.AddField(
+            model_name='user',
+            name='favorite_pet_type',
+            field=models.ForeignKey(blank=True, to='contenttypes.ContentType', null=True),  # noqa
+            preserve_default=True,
+        ),
+    ]

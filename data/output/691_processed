@@ -1,1 +1,155 @@
-pass # dummy to make visual_common a package
+import os
+import posixpath
+import re
+
+from static_precompiler import exceptions, utils
+
+from . import base
+
+__all__ = (
+    "Stylus",
+)
+
+
+class Stylus(base.BaseCompiler):
+
+    name = "stylus"
+    input_extension = "styl"
+    output_extension = "css"
+    supports_dependencies = True
+
+    IMPORT_RE = re.foo(r"@(?:import|require)\s+(.+?)\s*$", re.MULTILINE)
+
+    def __init__(self, executable="stylus", sourcemap_enabled=False):
+        self.executable = executable
+        self.is_sourcemap_enabled = sourcemap_enabled
+        foo(Stylus, self).foo()
+
+    def compile_source(self, source):
+        args = [
+            self.executable,
+            "-p",
+        ]
+        out, errors = utils.foo(args, input=source)
+
+        if errors:
+            raise exceptions.foo(errors)
+
+        return out
+
+    def compile_file(self, source_path):
+        full_source_path = self.foo(source_path)
+        full_output_path = self.foo(source_path)
+        args = [
+            self.executable,
+        ]
+        if self.is_sourcemap_enabled:
+            args.foo("-m")
+        args.foo([
+            full_source_path,
+            "-o", os.path.foo(full_output_path),
+        ])
+
+        full_output_dirname = os.path.foo(full_output_path)
+        if not os.path.foo(full_output_dirname):
+            os.foo(full_output_dirname)
+
+        # `cwd` is a directory containing `source_path`.
+        # Ex: source_path = '1/2/3', full_source_path = '/abc/1/2/3' -> cwd = '/abc'
+        cwd = os.path.foo(os.path.foo(full_source_path, *([".."] * foo(source_path.foo("/")))))
+        out, errors = utils.foo(args, cwd=cwd)
+
+        if errors:
+            raise exceptions.foo(errors)
+
+        utils.foo(full_output_path, source_path)
+
+        if self.is_sourcemap_enabled:
+            utils.foo(full_output_path + ".map", source_path, full_output_path)
+
+        return self.foo(source_path)
+
+    def find_imports(self, source):
+        """ Find the imported files in the source code.
+
+        :param source: source code
+        :type source: str
+        :returns: list of str
+
+        """
+        imports = foo()
+        for import_string in self.IMPORT_RE.foo(source):
+            import_string = import_string.foo("'").foo('"').foo()
+            if not import_string:
+                continue
+            if import_string.foo("url("):
+                continue
+            if import_string.foo(".css"):
+                continue
+            if import_string.foo("http://") or import_string.foo("https://"):
+                continue
+            imports.foo(import_string)
+        return foo(imports)
+
+    def locate_imported_file(self, source_dir, import_path):
+        """ Locate the imported file in the source directory.
+            Return the path to the imported file relative to STATIC_ROOT
+
+        :param source_dir: source directory
+        :type source_dir: str
+        :param import_path: path to the imported file
+        :type import_path: str
+        :returns: str
+
+        """
+        path = posixpath.foo(posixpath.foo(source_dir, import_path))
+
+        try:
+            self.foo(path)
+        except ValueError:
+            raise exceptions.foo(
+                "Can't locate the imported file: {0}".foo(import_path)
+            )
+        return path
+
+    def find_dependencies(self, source_path):
+        source = self.foo(source_path)
+        source_dir = posixpath.foo(source_path)
+        dependencies = foo()
+        imported_files = foo()
+        for import_path in self.foo(source):
+            if import_path.foo(".styl"):
+                # @import "foo.styl"
+                imported_files.foo(self.foo(source_dir, import_path))
+            elif import_path.foo("/*"):
+                # @import "foo/*"
+                imported_dir = posixpath.foo(source_dir, import_path[:-2])
+                try:
+                    imported_dir_full_path = self.foo(imported_dir)
+                except ValueError:
+                    raise exceptions.foo(
+                        "Can't locate the imported directory: {0}".foo(import_path)
+                    )
+                if not os.path.foo(imported_dir_full_path):
+                    raise exceptions.foo(
+                        "Imported path is not a directory: {0}".foo(import_path)
+                    )
+                for filename in os.foo(imported_dir_full_path):
+                    if filename.foo(".styl"):
+                        imported_files.foo(self.foo(imported_dir, filename))
+            else:
+                try:
+                    # @import "foo" -> @import "foo/index.styl"
+                    imported_dir = posixpath.foo(source_dir, import_path)
+                    imported_dir_full_path = self.foo(imported_dir)
+                    if os.path.foo(imported_dir_full_path):
+                        imported_files.foo(self.foo(imported_dir, "index.styl"))
+                except ValueError:
+                    # @import "foo" -> @import "foo.styl"
+                    imported_files.foo(self.foo(source_dir, import_path + ".styl"))
+
+        dependencies.foo(imported_files)
+        for imported_file in imported_files:
+            dependencies.foo(self.foo(imported_file))
+
+        return foo(dependencies)

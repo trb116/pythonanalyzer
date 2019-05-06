@@ -1,46 +1,39 @@
-"""Removes User.username from User.emails for unconfirmed users.
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
 
-"""
+import qisys.error
+import qibuild.config
+import qitoolchain.toolchain
 
-import logging
-import sys
+from qibuild.test.conftest import TestBuildWorkTree
 
-from modularodm import Q
-from nose.tools import *
+import pytest
 
-from website import models
-from website.app import init_app
-from scripts import utils as scripts_utils
+def test_simple(qitoolchain_action):
+    qitoolchain.toolchain.Toolchain("foo")
+    qitoolchain_action("remove", "-f", "foo")
+    # pylint: disable-msg=E1101
+    with pytest.raises(qisys.error.Error):
+        qitoolchain.get_toolchain("foo")
 
+def test_when_not_exists(qitoolchain_action):
+    # pylint: disable-msg=E1101
+    with pytest.raises(qisys.error.Error) as e:
+        qitoolchain_action("remove", "foo")
+    assert "No such toolchain" in str(e.value)
 
-logger = logging.getLogger(__name__)
+def test_when_is_default(qitoolchain_action):
+    qitoolchain_action("create", "foo")
+    qibuild.config.add_build_config("foo", toolchain="foo")
+    test_build_worktre1 = TestBuildWorkTree()
+    test_build_worktre1.set_default_config("foo")
+    qitoolchain_action("remove", "foo", "--force")
+    test_build_worktre2 = TestBuildWorkTree()
+    # pylint:disable-msg=E1101
+    with pytest.raises(qisys.error.Error) as e:
+        test_build_worktre2.toolchain
+    assert "No such toolchain" in e.value.message
 
-
-def main():
-    # Set up storage backends
-    init_app(routes=False)
-    dry_run = 'dry' in sys.argv
-    if not dry_run:
-        scripts_utils.add_file_logger(logger, __file__)
-    logger.info("Iterating users with unconfirmed email"
-                "s")
-    for user in get_users_with_unconfirmed_emails():
-        remove_unconfirmed_emails(user)
-        logger.info(repr(user))
-        if not dry_run:
-            user.save()
-
-
-def get_users_with_unconfirmed_emails():
-    return models.User.find(
-        Q('date_confirmed', 'eq', None)
-        & Q('emails', 'ne', [])
-    )
-
-
-def remove_unconfirmed_emails(user):
-    user.emails = []
-
-
-if __name__ == '__main__':
-    main()
+def test_removing_non_existing_with_force(qitoolchain_action):
+    qitoolchain_action("remove", "foo", "--force")

@@ -1,1736 +1,733 @@
+# Copyright (c) The PyAMF Project.
+# See LICENSE.txt for details.
+
 """
-################################################################################
-# Copyright (c) 2003, Pfizer
-# Copyright (c) 2001, Cayce Ullman.
-# Copyright (c) 2001, Brian Matthews.
-#
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-# Redistributions of source code must retain the above copyright notice, this
-# list of conditions and the following disclaimer.
-#
-# Redistributions in binary form must reproduce the above copyright notice,
-# this list of conditions and the following disclaimer in the documentation
-# and/or other materials provided with the distribution.
-#
-# Neither the name of actzero, inc. nor the names of its contributors may
-# be used to endorse or promote products derived from this software without
-# specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-# ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR
-# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-################################################################################
+PyAMF Django adapter tests.
+
+@since: 0.3.1
 """
 
-ident = '$Id: Types.py,v 1.19 2005/02/22 04:29:43 warnes Exp $'
-from version import __version__
+import unittest
+import sys
+import os
+import datetime
 
+import pyamf
+from pyamf.tests import util
 
+try:
+    import django
+except ImportError:
+    django = None
 
-import UserList
-import base64
-import cgi
-import urllib
-import copy
-import re
-import time
-from types import *
+if django and django.VERSION < (1, 0):
+    django = None
 
-# SOAPpy modules
-from Errors    import *
-from NS        import NS
-from Utilities import encodeHexString, cleanDate
-from Config    import Config
+try:
+    reload(settings)
+except NameError:
+    from pyamf.tests.adapters.django_app import settings
 
-###############################################################################
-# Utility functions
-###############################################################################
 
-def isPrivate(name): return name[0]=='_'
-def isPublic(name):  return name[0]!='_'
+context = None
 
-###############################################################################
-# Types and Wrappers
-###############################################################################
+#: django modules/functions used once bootstrapped
+create_test_db = None
+destroy_test_db = None
+management = None
+setup_test_environment = None
+teardown_test_environment = None
 
-class anyType:
-    _validURIs = (NS.XSD, NS.XSD2, NS.XSD3, NS.ENC)
+# test app data
+models = None
+adapter = None
 
-    def __init__(self, data = None, name = None, typed = 1, attrs = None):
-        if self.__class__ == anyType:
-            raise Error, "anyType can't be instantiated directly"
+def init_django():
+    """
+    Bootstrap Django and initialise this module
+    """
+    global django, management, create_test_db, destroy_test_db
+    global setup_test_environment, teardown_test_environment
 
-        if type(name) in (ListType, TupleType):
-            self._ns, self._name = name
-        else:
-            self._ns = self._validURIs[0]
-            self._name = name
-            
-        self._typed = typed
-        self._attrs = {}
+    if not django:
+        return
 
-        self._cache = None
-        self._type = self._typeName()
+    from django.core import management
 
-        self._data = self._checkValueSpace(data)
+    project_dir = management.setup_environ(settings)
+    sys.path.insert(0, project_dir)
 
-        if attrs != None:
-            self._setAttrs(attrs)
+    try:
+        from django.test.utils import create_test_db, destroy_test_db
+    except ImportError:
+        from django.db import connection
 
-    def __str__(self):
-        if hasattr(self,'_name') and self._name:
-            return "<%s %s at %d>" % (self.__class__, self._name, id(self))
-        return "<%s at %d>" % (self.__class__, id(self))
+        create_test_db = connection.creation.create_test_db
+        destroy_test_db = connection.creation.destroy_test_db
 
-    __repr__ = __str__
+    from django.test.utils import setup_test_environment, teardown_test_environment
 
-    def _checkValueSpace(self, data):
-        return data
+    return True
 
-    def _marshalData(self):
-        return str(self._data)
 
-    def _marshalAttrs(self, ns_map, builder):
-        a = ''
+def setUpModule():
+    """
+    Called to set up the module by the test runner
+    """
+    global context, models, adapter
 
-        for attr, value in self._attrs.items():
-            ns, n = builder.genns(ns_map, attr[0])
-            a += n + ' %s%s="%s"' % \
-                (ns, attr[1], cgi.escape(str(value), 1))
+    context = {
+        'sys.path': sys.path[:],
+        'sys.modules': sys.modules.copy(),
+        'os.environ': os.environ.copy(),
+    }
 
-        return a
+    if init_django():
+        from pyamf.tests.adapters.django_app.adapters import models
+        from pyamf.adapters import _django_db_models_base as adapter
 
-    def _fixAttr(self, attr):
-        if type(attr) in (StringType, UnicodeType):
-            attr = (None, attr)
-        elif type(attr) == ListType:
-            attr = tuple(attr)
-        elif type(attr) != TupleType:
-            raise AttributeError, "invalid attribute type"
+        setup_test_environment()
 
-        if len(attr) != 2:
-            raise AttributeError, "invalid attribute length"
+        settings.DATABASE_NAME = create_test_db(0, True)
 
-        if type(attr[0]) not in (NoneType, StringType, UnicodeType):
-            raise AttributeError, "invalid attribute namespace URI type"
 
-        return attr
+def teadDownModule():
+    # remove all the stuff that django installed
+    teardown_test_environment()
 
-    def _getAttr(self, attr):
-        attr = self._fixAttr(attr)
+    sys.path = context['sys.path']
+    util.replace_dict(context['sys.modules'], sys.modules)
+    util.replace_dict(context['os.environ'], os.environ)
 
-        try:
-            return self._attrs[attr]
-        except:
-            return None
+    destroy_test_db(settings.DATABASE_NAME, 2)
 
-    def _setAttr(self, attr, value):
-        attr = self._fixAttr(attr)
 
-        if type(value) is StringType:
-            value = unicode(value)
+class BaseTestCase(unittest.TestCase):
+    """
+    """
 
-        self._attrs[attr] = value
-            
+    def setUp(self):
+        if not django:
+            self.skipTest("'django' is not available")
 
-    def _setAttrs(self, attrs):
-        if type(attrs) in (ListType, TupleType):
-            for i in range(0, len(attrs), 2):
-                self._setAttr(attrs[i], attrs[i + 1])
 
-            return
+class TypeMapTestCase(BaseTestCase):
+    """
+    Tests for basic encoding functionality
+    """
 
-        if type(attrs) == DictType:
-            d = attrs
-        elif isinstance(attrs, anyType):
-            d = attrs._attrs
-        else:
-            raise AttributeError, "invalid attribute type"
+    def test_objects_all(self):
+        encoder = pyamf.get_encoder(pyamf.AMF0)
 
-        for attr, value in d.items():
-            self._setAttr(attr, value)
+        encoder.writeElement(models.SimplestModel.objects.all())
+        self.assertEqual(encoder.stream.getvalue(), '\n\x00\x00\x00\x00')
 
-    def _setMustUnderstand(self, val):
-        self._setAttr((NS.ENV, "mustUnderstand"), val)
+        encoder = pyamf.get_encoder(pyamf.AMF3)
+        encoder.writeElement(models.SimplestModel.objects.all())
+        self.assertEqual(encoder.stream.getvalue(), '\t\x01\x01')
 
-    def _getMustUnderstand(self):
-        return self._getAttr((NS.ENV, "mustUnderstand"))
+    def test_NOT_PROVIDED(self):
+        from django.db.models import fields
 
-    def _setActor(self, val):
-        self._setAttr((NS.ENV, "actor"), val)
+        self.assertEqual(pyamf.encode(fields.NOT_PROVIDED, encoding=pyamf.AMF0).getvalue(),
+            '\x06')
 
-    def _getActor(self):
-        return self._getAttr((NS.ENV, "actor"))
+        encoder = pyamf.get_encoder(pyamf.AMF3)
+        encoder.writeElement(fields.NOT_PROVIDED)
+        self.assertEqual(encoder.stream.getvalue(), '\x00')
 
-    def _typeName(self):
-        return self.__class__.__name__[:-4]
 
-    def _validNamespaceURI(self, URI, strict):
-        if not hasattr(self, '_typed') or not self._typed:
-            return None
-        if URI in self._validURIs:
-            return URI
-        if not strict:
-            return self._ns
-        raise AttributeError, \
-            "not a valid namespace for type %s" % self._type
+class ClassAliasTestCase(BaseTestCase):
+    def test_time(self):
+        x = models.TimeClass()
 
-class voidType(anyType):
-    pass
+        x.t = datetime.time(12, 12, 12)
+        x.d = datetime.date(2008, 3, 12)
+        x.dt = datetime.datetime(2008, 3, 12, 12, 12, 12)
 
-class stringType(anyType):
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+        alias = adapter.DjangoClassAlias(models.TimeClass, None)
+        attrs = alias.getEncodableAttributes(x)
 
-        if type(data) not in (StringType, UnicodeType):
-            raise AttributeError, "invalid %s type:" % self._type
+        self.assertEqual(attrs, {
+            'id': None,
+            'd': datetime.datetime(2008, 3, 12, 0, 0),
+            'dt': datetime.datetime(2008, 3, 12, 12, 12, 12),
+            't': datetime.datetime(1970, 1, 1, 12, 12, 12)
+        })
 
-        return data
+        y = models.TimeClass()
 
-class untypedType(stringType):
-    def __init__(self, data = None, name = None, attrs = None):
-        stringType.__init__(self, data, name, 0, attrs)
+        alias.applyAttributes(y, {
+            'id': None,
+            'd': datetime.datetime(2008, 3, 12, 0, 0),
+            'dt': datetime.datetime(2008, 3, 12, 12, 12, 12),
+            't': datetime.datetime(1970, 1, 1, 12, 12, 12)
+        })
 
-class IDType(stringType): pass
-class NCNameType(stringType): pass
-class NameType(stringType): pass
-class ENTITYType(stringType): pass
-class IDREFType(stringType): pass
-class languageType(stringType): pass
-class NMTOKENType(stringType): pass
-class QNameType(stringType): pass
+        self.assertEqual(y.id, None)
+        self.assertEqual(y.d, datetime.date(2008, 3, 12))
+        self.assertEqual(y.dt, datetime.datetime(2008, 3, 12, 12, 12, 12))
+        self.assertEqual(y.t, datetime.time(12, 12, 12))
 
-class tokenType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3)
-    __invalidre = '[\n\t]|^ | $|  '
+        y = models.TimeClass()
 
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+        alias.applyAttributes(y, {
+            'id': None,
+            'd': None,
+            'dt': None,
+            't': None
+        })
 
-        if type(data) not in (StringType, UnicodeType):
-            raise AttributeError, "invalid %s type" % self._type
+        self.assertEqual(y.id, None)
+        self.assertEqual(y.d, None)
+        self.assertEqual(y.dt, None)
+        self.assertEqual(y.t, None)
 
-        if type(self.__invalidre) == StringType:
-            self.__invalidre = re.compile(self.__invalidre)
+    def test_undefined(self):
+        from django.db import models
+        from django.db.models import fields
 
-            if self.__invalidre.search(data):
-                raise ValueError, "invalid %s value" % self._type
+        class UndefinedClass(models.Model):
+            pass
 
-        return data
+        alias = adapter.DjangoClassAlias(UndefinedClass, None)
 
-class normalizedStringType(anyType):
-    _validURIs = (NS.XSD3,)
-    __invalidre = '[\n\r\t]'
+        x = UndefinedClass()
 
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+        alias.applyAttributes(x, {
+            'id': pyamf.Undefined
+        })
 
-        if type(data) not in (StringType, UnicodeType):
-            raise AttributeError, "invalid %s type" % self._type
+        self.assertEqual(x.id, fields.NOT_PROVIDED)
 
-        if type(self.__invalidre) == StringType:
-            self.__invalidre = re.compile(self.__invalidre)
+        x.id = fields.NOT_PROVIDED
 
-            if self.__invalidre.search(data):
-                raise ValueError, "invalid %s value" % self._type
+        attrs = alias.getEncodableAttributes(x)
+        self.assertEqual(attrs, {'id': pyamf.Undefined})
 
-        return data
+    def test_non_field_prop(self):
+        from django.db import models
 
-class CDATAType(normalizedStringType):
-    _validURIs = (NS.XSD2,)
+        class Book(models.Model):
+            def _get_number_of_odd_pages(self):
+                return 234
 
-class booleanType(anyType):
-    def __int__(self):
-        return self._data
+            # note the lack of a setter callable ..
+            numberOfOddPages = property(_get_number_of_odd_pages)
 
-    __nonzero__ = __int__
+        alias = adapter.DjangoClassAlias(Book, 'Book')
 
-    def _marshalData(self):
-        return ['false', 'true'][self._data]
+        x = Book()
 
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+        self.assertEqual(alias.getEncodableAttributes(x),
+            {'numberOfOddPages': 234, 'id': None})
 
-        if data in (0, '0', 'false', ''):
-            return 0
-        if data in (1, '1', 'true'):
-            return 1
-        raise ValueError, "invalid %s value" % self._type
+        # now we test sending the numberOfOddPages attribute
+        alias.applyAttributes(x, {'numberOfOddPages': 24, 'id': None})
 
-class decimalType(anyType):
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+        # test it hasn't been set
+        self.assertEqual(x.numberOfOddPages, 234)
 
-        if type(data) not in (IntType, LongType, FloatType):
-            raise Error, "invalid %s value" % self._type
+    def test_dynamic(self):
+        """
+        Test for dynamic property encoding.
+        """
+        alias = adapter.DjangoClassAlias(models.SimplestModel, 'Book')
 
-        return data
+        x = models.SimplestModel()
+        x.spam = 'eggs'
 
-class floatType(anyType):
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+        self.assertEqual(alias.getEncodableAttributes(x),
+            {'spam': 'eggs', 'id': None})
 
-        if type(data) not in (IntType, LongType, FloatType) or \
-            data < -3.4028234663852886E+38 or \
-            data >  3.4028234663852886E+38:
-            raise ValueError, "invalid %s value: %s" % (self._type, repr(data))
+        # now we test sending the numberOfOddPages attribute
+        alias.applyAttributes(x, {'spam': 'foo', 'id': None})
 
-        return data
+        # test it has been set
+        self.assertEqual(x.spam, 'foo')
 
-    def _marshalData(self):
-        return "%.18g" % self._data # More precision
+    def test_properties(self):
+        """
+        See #764
+        """
+        from django.db import models
 
-class doubleType(anyType):
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+        class Foob(models.Model):
+            def _get_days(self):
+                return 1
 
-        if type(data) not in (IntType, LongType, FloatType) or \
-            data < -1.7976931348623158E+308 or \
-            data  > 1.7976931348623157E+308:
-            raise ValueError, "invalid %s value: %s" % (self._type, repr(data))
+            def _set_days(self, val):
+                assert 1 == val
 
-        return data
+            days = property(_get_days, _set_days)
 
-    def _marshalData(self):
-        return "%.18g" % self._data # More precision
+        alias = adapter.DjangoClassAlias(Foob, 'Bar')
 
-class durationType(anyType):
-    _validURIs = (NS.XSD3,)
+        x = Foob()
 
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+        self.assertEqual(x.days, 1)
 
-        try:
-            # A tuple or a scalar is OK, but make them into a list
+        self.assertEqual(alias.getEncodableAttributes(x),
+            {'days': 1, 'id': None})
 
-            if type(data) == TupleType:
-                data = list(data)
-            elif type(data) != ListType:
-                data = [data]
+        # now we test sending the numberOfOddPages attribute
+        alias.applyAttributes(x, {'id': None})
 
-            if len(data) > 6:
-                raise Exception, "too many values"
 
-            # Now check the types of all the components, and find
-            # the first nonzero element along the way.
+class ForeignKeyTestCase(BaseTestCase):
+    def test_one_to_many(self):
+        # initialise the db ..
+        r = models.Reporter(first_name='John', last_name='Smith', email='john@example.com')
+        r.save()
+        self.addCleanup(r.delete)
 
-            f = -1
+        r2 = models.Reporter(first_name='Paul', last_name='Jones', email='paul@example.com')
+        r2.save()
+        self.addCleanup(r2.delete)
 
-            for i in range(len(data)):
-                if data[i] == None:
-                    data[i] = 0
-                    continue
+        a = models.Article(headline="This is a test", reporter=r)
+        a.save()
+        self.addCleanup(a.delete)
 
-                if type(data[i]) not in \
-                    (IntType, LongType, FloatType):
-                    raise Exception, "element %d a bad type" % i
+        self.assertEqual(a.id, 1)
 
-                if data[i] and f == -1:
-                    f = i
+        del a
 
-            # If they're all 0, just use zero seconds.
+        a = models.Article.objects.filter(pk=1)[0]
 
-            if f == -1:
-                self._cache = 'PT0S'
+        self.assertFalse('_reporter_cache' in a.__dict__)
+        a.reporter
+        self.assertTrue('_reporter_cache' in a.__dict__)
 
-                return (0,) * 6
+        del a
 
-            # Make sure only the last nonzero element has a decimal fraction
-            # and only the first element is negative.
+        a = models.Article.objects.filter(pk=1)[0]
+        alias = adapter.DjangoClassAlias(models.Article, defer=True)
 
-            d = -1
+        self.assertFalse(hasattr(alias, 'fields'))
+        attrs = alias.getEncodableAttributes(a)
 
-            for i in range(f, len(data)):
-                if data[i]:
-                    if d != -1:
-                        raise Exception, \
-                            "all except the last nonzero element must be " \
-                            "integers"
-                    if data[i] < 0 and i > f:
-                        raise Exception, \
-                            "only the first nonzero element can be negative"
-                    elif data[i] != long(data[i]):
-                        d = i
+        # note that the reporter attribute does not exist.
+        self.assertEqual(attrs, {
+            'headline': u'This is a test',
+            'id': 1,
+            'publications': []
+        })
 
-            # Pad the list on the left if necessary.
+        self.assertFalse('_reporter_cache' in a.__dict__)
+        self.assertEqual(pyamf.encode(a, encoding=pyamf.AMF3).getvalue(),
+            '\n\x0b\x01\x11headline\x06\x1dThis is a test\x05id\x04\x01'
+            '\x19publications\t\x01\x01\x01')
 
-            if len(data) < 6:
-                n = 6 - len(data)
-                f += n
-                d += n
-                data = [0] * n + data
+        del a
 
-            # Save index of the first nonzero element and the decimal
-            # element for _marshalData.
+        # now with select_related to pull in the reporter object
+        a = models.Article.objects.select_related('reporter').filter(pk=1)[0]
 
-            self.__firstnonzero = f
-            self.__decimal = d
+        alias = adapter.DjangoClassAlias(models.Article, defer=True)
 
-        except Exception, e:
-            raise ValueError, "invalid %s value - %s" % (self._type, e)
+        self.assertFalse(hasattr(alias, 'fields'))
+        self.assertEqual(alias.getEncodableAttributes(a), {
+            'headline': u'This is a test',
+            'id': 1,
+            'reporter': r,
+            'publications': []
+        })
 
-        return tuple(data)
+        self.assertTrue('_reporter_cache' in a.__dict__)
+        self.assertEqual(pyamf.encode(a, encoding=pyamf.AMF3).getvalue(),
+            '\n\x0b\x01\x11reporter\n\x0b\x01\x15first_name\x06\tJohn\x13'
+            'last_name\x06\x0bSmith\x05id\x04\x01\x0bemail\x06!john'
+            '@example.com\x01\x11headline\x06\x1dThis is a test\x19'
+            'publications\t\x01\x01\n\x04\x01\x01')
 
-    def _marshalData(self):
-        if self._cache == None:
-            d = self._data
-            t = 0
+    def test_many_to_many(self):
+        # install some test data - taken from
+        # http://www.djangoproject.com/documentation/models/many_to_many/
+        p1 = models.Publication(id=None, title='The Python Journal')
+        p1.save()
+        p2 = models.Publication(id=None, title='Science News')
+        p2.save()
+        p3 = models.Publication(id=None, title='Science Weekly')
+        p3.save()
 
-            if d[self.__firstnonzero] < 0:
-                s = '-P'
-            else:
-                s = 'P'
+        self.addCleanup(p1.delete)
+        self.addCleanup(p2.delete)
+        self.addCleanup(p3.delete)
 
-            t = 0
+        # Create an Article.
+        a1 = models.Article(id=None, headline='Django lets you build Web apps easily')
+        a1.save()
+        self.addCleanup(a1.delete)
+        self.assertEqual(a1.id, 1)
 
-            for i in range(self.__firstnonzero, len(d)):
-                if d[i]:
-                    if i > 2 and not t:
-                        s += 'T'
-                        t = 1
-                    if self.__decimal == i:
-                        s += "%g" % abs(d[i])
-                    else:
-                        s += "%d" % long(abs(d[i]))
-                    s += ['Y', 'M', 'D', 'H', 'M', 'S'][i]
+        # Associate the Article with a Publication.
+        a1.publications.add(p1)
 
-            self._cache = s
+        pub_alias = adapter.DjangoClassAlias(models.Publication, None)
+        art_alias = adapter.DjangoClassAlias(models.Article, None)
 
-        return self._cache
+        test_publication = models.Publication.objects.filter(pk=1)[0]
+        test_article = models.Article.objects.filter(pk=1)[0]
 
-class timeDurationType(durationType):
-    _validURIs = (NS.XSD, NS.XSD2, NS.ENC)
-
-class dateTimeType(anyType):
-    _validURIs = (NS.XSD3,)
-
-    def _checkValueSpace(self, data):
-        try:
-            if data == None:
-                data = time.time()
-
-            if (type(data) in (IntType, LongType)):
-                data = list(time.gmtime(data)[:6])
-            elif (type(data) == FloatType):
-                f = data - int(data)
-                data = list(time.gmtime(int(data))[:6])
-                data[5] += f
-            elif type(data) in (ListType, TupleType):
-                if len(data) < 6:
-                    raise Exception, "not enough values"
-                if len(data) > 9:
-                    raise Exception, "too many values"
-
-                data = list(data[:6])
-
-                cleanDate(data)
-            else:
-                raise Exception, "invalid type"
-        except Exception, e:
-            raise ValueError, "invalid %s value - %s" % (self._type, e)
+        attrs = pub_alias.getEncodableAttributes(test_publication)
+        self.assertEqual(attrs, {'id': 1, 'title': u'The Python Journal'})
 
-        return tuple(data)
+        attrs = art_alias.getEncodableAttributes(test_article)
+        self.assertEqual(attrs, {
+            'headline': u'Django lets you build Web apps easily',
+            'id': 1,
+            'publications': [p1]
+        })
 
-    def _marshalData(self):
-        if self._cache == None:
-            d = self._data
-            s = "%04d-%02d-%02dT%02d:%02d:%02d" % ((abs(d[0]),) + d[1:])
-            if d[0] < 0:
-                s = '-' + s
-            f = d[5] - int(d[5])
-            if f != 0:
-                s += ("%g" % f)[1:]
-            s += 'Z'
-
-            self._cache = s
-
-        return self._cache
-
-class recurringInstantType(anyType):
-    _validURIs = (NS.XSD,)
-
-    def _checkValueSpace(self, data):
-        try:
-            if data == None:
-                data = list(time.gmtime(time.time())[:6])
-            if (type(data) in (IntType, LongType)):
-                data = list(time.gmtime(data)[:6])
-            elif (type(data) == FloatType):
-                f = data - int(data)
-                data = list(time.gmtime(int(data))[:6])
-                data[5] += f
-            elif type(data) in (ListType, TupleType):
-                if len(data) < 1:
-                    raise Exception, "not enough values"
-                if len(data) > 9:
-                    raise Exception, "too many values"
-
-                data = list(data[:6])
-
-                if len(data) < 6:
-                    data += [0] * (6 - len(data))
-
-                f = len(data)
-
-                for i in range(f):
-                    if data[i] == None:
-                        if f < i:
-                            raise Exception, \
-                                "only leftmost elements can be none"
-                    else:
-                        f = i
-                        break
-
-                cleanDate(data, f)
-            else:
-                raise Exception, "invalid type"
-        except Exception, e:
-            raise ValueError, "invalid %s value - %s" % (self._type, e)
-
-        return tuple(data)
-
-    def _marshalData(self):
-        if self._cache == None:
-            d = self._data
-            e = list(d)
-            neg = ''
-
-            if not e[0]:
-                e[0] = '--'
-            else:
-                if e[0] < 0:
-                    neg = '-'
-                    e[0] = abs(e[0])
-                if e[0] < 100:
-                    e[0] = '-' + "%02d" % e[0]
-                else:
-                    e[0] = "%04d" % e[0]
-
-            for i in range(1, len(e)):
-                if e[i] == None or (i < 3 and e[i] == 0):
-                    e[i] = '-'
-                else:
-                    if e[i] < 0:
-                        neg = '-'
-                        e[i] = abs(e[i])
-
-                    e[i] = "%02d" % e[i]
-
-            if d[5]:
-                f = abs(d[5] - int(d[5]))
-
-                if f:
-                    e[5] += ("%g" % f)[1:]
-
-            s = "%s%s-%s-%sT%s:%s:%sZ" % ((neg,) + tuple(e))
-
-            self._cache = s
-
-        return self._cache
-
-class timeInstantType(dateTimeType):
-    _validURIs = (NS.XSD, NS.XSD2, NS.ENC)
-
-class timePeriodType(dateTimeType):
-    _validURIs = (NS.XSD2, NS.ENC)
-
-class timeType(anyType):
-    def _checkValueSpace(self, data):
-        try:
-            if data == None:
-                data = time.gmtime(time.time())[3:6]
-            elif (type(data) == FloatType):
-                f = data - int(data)
-                data = list(time.gmtime(int(data))[3:6])
-                data[2] += f
-            elif type(data) in (IntType, LongType):
-                data = time.gmtime(data)[3:6]
-            elif type(data) in (ListType, TupleType):
-                if len(data) == 9:
-                    data = data[3:6]
-                elif len(data) > 3:
-                    raise Exception, "too many values"
-
-                data = [None, None, None] + list(data)
-
-                if len(data) < 6:
-                    data += [0] * (6 - len(data))
-
-                cleanDate(data, 3)
-
-                data = data[3:]
-            else:
-                raise Exception, "invalid type"
-        except Exception, e:
-            raise ValueError, "invalid %s value - %s" % (self._type, e)
-
-        return tuple(data)
-
-    def _marshalData(self):
-        if self._cache == None:
-            d = self._data
-            s = ''
-
-            s = time.strftime("%H:%M:%S", (0, 0, 0) + d + (0, 0, -1))
-            f = d[2] - int(d[2])
-            if f != 0:
-                s += ("%g" % f)[1:]
-            s += 'Z'
-
-            self._cache = s
-
-        return self._cache
-
-class dateType(anyType):
-    def _checkValueSpace(self, data):
-        try:
-            if data == None:
-                data = time.gmtime(time.time())[0:3]
-            elif type(data) in (IntType, LongType, FloatType):
-                data = time.gmtime(data)[0:3]
-            elif type(data) in (ListType, TupleType):
-                if len(data) == 9:
-                    data = data[0:3]
-                elif len(data) > 3:
-                    raise Exception, "too many values"
-
-                data = list(data)
-
-                if len(data) < 3:
-                    data += [1, 1, 1][len(data):]
-
-                data += [0, 0, 0]
-
-                cleanDate(data)
-
-                data = data[:3]
-            else:
-                raise Exception, "invalid type"
-        except Exception, e:
-            raise ValueError, "invalid %s value - %s" % (self._type, e)
-
-        return tuple(data)
-
-    def _marshalData(self):
-        if self._cache == None:
-            d = self._data
-            s = "%04d-%02d-%02dZ" % ((abs(d[0]),) + d[1:])
-            if d[0] < 0:
-                s = '-' + s
-
-            self._cache = s
-
-        return self._cache
-
-class gYearMonthType(anyType):
-    _validURIs = (NS.XSD3,)
-
-    def _checkValueSpace(self, data):
-        try:
-            if data == None:
-                data = time.gmtime(time.time())[0:2]
-            elif type(data) in (IntType, LongType, FloatType):
-                data = time.gmtime(data)[0:2]
-            elif type(data) in (ListType, TupleType):
-                if len(data) == 9:
-                    data = data[0:2]
-                elif len(data) > 2:
-                    raise Exception, "too many values"
-
-                data = list(data)
-
-                if len(data) < 2:
-                    data += [1, 1][len(data):]
-
-                data += [1, 0, 0, 0]
-
-                cleanDate(data)
-
-                data = data[:2]
-            else:
-                raise Exception, "invalid type"
-        except Exception, e:
-            raise ValueError, "invalid %s value - %s" % (self._type, e)
-
-        return tuple(data)
-
-    def _marshalData(self):
-        if self._cache == None:
-            d = self._data
-            s = "%04d-%02dZ" % ((abs(d[0]),) + d[1:])
-            if d[0] < 0:
-                s = '-' + s
-
-            self._cache = s
-
-        return self._cache
-
-class gYearType(anyType):
-    _validURIs = (NS.XSD3,)
-
-    def _checkValueSpace(self, data):
-        try:
-            if data == None:
-                data = time.gmtime(time.time())[0:1]
-            elif type(data) in (IntType, LongType, FloatType):
-                data = [data]
-
-            if type(data) in (ListType, TupleType):
-                if len(data) == 9:
-                    data = data[0:1]
-                elif len(data) < 1:
-                    raise Exception, "too few values"
-                elif len(data) > 1:
-                    raise Exception, "too many values"
-
-                if type(data[0]) == FloatType:
-                    try: s = int(data[0])
-                    except: s = long(data[0])
-
-                    if s != data[0]:
-                        raise Exception, "not integral"
-
-                    data = [s]
-                elif type(data[0]) not in (IntType, LongType):
-                    raise Exception, "bad type"
-            else:
-                raise Exception, "invalid type"
-        except Exception, e:
-            raise ValueError, "invalid %s value - %s" % (self._type, e)
-
-        return data[0]
-
-    def _marshalData(self):
-        if self._cache == None:
-            d = self._data
-            s = "%04dZ" % abs(d)
-            if d < 0:
-                s = '-' + s
-
-            self._cache = s
-
-        return self._cache
-
-class centuryType(anyType):
-    _validURIs = (NS.XSD2, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        try:
-            if data == None:
-                data = time.gmtime(time.time())[0:1] / 100
-            elif type(data) in (IntType, LongType, FloatType):
-                data = [data]
-
-            if type(data) in (ListType, TupleType):
-                if len(data) == 9:
-                    data = data[0:1] / 100
-                elif len(data) < 1:
-                    raise Exception, "too few values"
-                elif len(data) > 1:
-                    raise Exception, "too many values"
-
-                if type(data[0]) == FloatType:
-                    try: s = int(data[0])
-                    except: s = long(data[0])
-
-                    if s != data[0]:
-                        raise Exception, "not integral"
-
-                    data = [s]
-                elif type(data[0]) not in (IntType, LongType):
-                    raise Exception, "bad type"
-            else:
-                raise Exception, "invalid type"
-        except Exception, e:
-            raise ValueError, "invalid %s value - %s" % (self._type, e)
-
-        return data[0]
-
-    def _marshalData(self):
-        if self._cache == None:
-            d = self._data
-            s = "%02dZ" % abs(d)
-            if d < 0:
-                s = '-' + s
-
-            self._cache = s
-
-        return self._cache
-
-class yearType(gYearType):
-    _validURIs = (NS.XSD2, NS.ENC)
-
-class gMonthDayType(anyType):
-    _validURIs = (NS.XSD3,)
-
-    def _checkValueSpace(self, data):
-        try:
-            if data == None:
-                data = time.gmtime(time.time())[1:3]
-            elif type(data) in (IntType, LongType, FloatType):
-                data = time.gmtime(data)[1:3]
-            elif type(data) in (ListType, TupleType):
-                if len(data) == 9:
-                    data = data[0:2]
-                elif len(data) > 2:
-                    raise Exception, "too many values"
-
-                data = list(data)
-
-                if len(data) < 2:
-                    data += [1, 1][len(data):]
-
-                data = [0] + data + [0, 0, 0]
-
-                cleanDate(data, 1)
-
-                data = data[1:3]
-            else:
-                raise Exception, "invalid type"
-        except Exception, e:
-            raise ValueError, "invalid %s value - %s" % (self._type, e)
-
-        return tuple(data)
-
-    def _marshalData(self):
-        if self._cache == None:
-            self._cache = "--%02d-%02dZ" % self._data
-
-        return self._cache
-
-class recurringDateType(gMonthDayType):
-    _validURIs = (NS.XSD2, NS.ENC)
-
-class gMonthType(anyType):
-    _validURIs = (NS.XSD3,)
-
-    def _checkValueSpace(self, data):
-        try:
-            if data == None:
-                data = time.gmtime(time.time())[1:2]
-            elif type(data) in (IntType, LongType, FloatType):
-                data = [data]
-
-            if type(data) in (ListType, TupleType):
-                if len(data) == 9:
-                    data = data[1:2]
-                elif len(data) < 1:
-                    raise Exception, "too few values"
-                elif len(data) > 1:
-                    raise Exception, "too many values"
-
-                if type(data[0]) == FloatType:
-                    try: s = int(data[0])
-                    except: s = long(data[0])
-
-                    if s != data[0]:
-                        raise Exception, "not integral"
-
-                    data = [s]
-                elif type(data[0]) not in (IntType, LongType):
-                    raise Exception, "bad type"
-
-                if data[0] < 1 or data[0] > 12:
-                    raise Exception, "bad value"
-            else:
-                raise Exception, "invalid type"
-        except Exception, e:
-            raise ValueError, "invalid %s value - %s" % (self._type, e)
-
-        return data[0]
-
-    def _marshalData(self):
-        if self._cache == None:
-            self._cache = "--%02d--Z" % self._data
+        x = models.Article()
 
-        return self._cache
+        art_alias.applyAttributes(x, {
+            'headline': u'Test',
+            'id': 1,
+            'publications': [p1]
+        })
 
-class monthType(gMonthType):
-    _validURIs = (NS.XSD2, NS.ENC)
-
-class gDayType(anyType):
-    _validURIs = (NS.XSD3,)
-
-    def _checkValueSpace(self, data):
-        try:
-            if data == None:
-                data = time.gmtime(time.time())[2:3]
-            elif type(data) in (IntType, LongType, FloatType):
-                data = [data]
+        self.assertEqual(x.headline, u'Test')
+        self.assertEqual(x.id, 1)
+        self.assertEqual(list(x.publications.all()), [p1])
 
-            if type(data) in (ListType, TupleType):
-                if len(data) == 9:
-                    data = data[2:3]
-                elif len(data) < 1:
-                    raise Exception, "too few values"
-                elif len(data) > 1:
-                    raise Exception, "too many values"
+        y = models.Article()
+        attrs = art_alias.getDecodableAttributes(y, {
+            'headline': u'Django lets you build Web apps easily',
+            'id': 0,
+            'publications': []
+        })
 
-                if type(data[0]) == FloatType:
-                    try: s = int(data[0])
-                    except: s = long(data[0])
+        self.assertEqual(attrs, {'headline': u'Django lets you build Web apps easily'})
 
-                    if s != data[0]:
-                        raise Exception, "not integral"
+    def test_nullable_foreign_keys(self):
+        x = models.SimplestModel()
+        x.save()
+        self.addCleanup(x.delete)
 
-                    data = [s]
-                elif type(data[0]) not in (IntType, LongType):
-                    raise Exception, "bad type"
+        nfk_alias = adapter.DjangoClassAlias(models.NullForeignKey, None)
+        bfk_alias = adapter.DjangoClassAlias(models.BlankForeignKey, None)
 
-                if data[0] < 1 or data[0] > 31:
-                    raise Exception, "bad value"
-            else:
-                raise Exception, "invalid type"
-        except Exception, e:
-            raise ValueError, "invalid %s value - %s" % (self._type, e)
+        nfk = models.NullForeignKey()
+        attrs = nfk_alias.getEncodableAttributes(nfk)
 
-        return data[0]
+        self.assertEqual(attrs, {'id': None})
 
-    def _marshalData(self):
-        if self._cache == None:
-            self._cache = "---%02dZ" % self._data
+        bfk = models.BlankForeignKey()
+        attrs = bfk_alias.getEncodableAttributes(bfk)
 
-        return self._cache
+        self.assertEqual(attrs, {'id': None})
 
-class recurringDayType(gDayType):
-    _validURIs = (NS.XSD2, NS.ENC)
+    def test_static_relation(self):
+        """
+        @see: #693
+        """
+        from pyamf import util
 
-class hexBinaryType(anyType):
-    _validURIs = (NS.XSD3,)
+        pyamf.register_class(models.StaticRelation)
+        alias = adapter.DjangoClassAlias(models.StaticRelation,
+            static_attrs=('gak',))
 
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+        alias.compile()
 
-        if type(data) not in (StringType, UnicodeType):
-            raise AttributeError, "invalid %s type" % self._type
+        self.assertTrue('gak' in alias.relations)
+        self.assertTrue('gak' in alias.decodable_properties)
+        self.assertTrue('gak' in alias.static_attrs)
 
-        return data
+        x = models.StaticRelation()
 
-    def _marshalData(self):
-        if self._cache == None:
-            self._cache = encodeHexString(self._data)
+        # just run this to ensure that it doesn't blow up
+        alias.getDecodableAttributes(x, {'id': None, 'gak': 'foo'})
 
-        return self._cache
 
-class base64BinaryType(anyType):
-    _validURIs = (NS.XSD3,)
+class I18NTestCase(BaseTestCase):
+    def test_encode(self):
+        from django.utils.translation import ugettext_lazy
 
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+        self.assertEqual(pyamf.encode(ugettext_lazy('Hello')).getvalue(),
+            '\x06\x0bHello')
 
-        if type(data) not in (StringType, UnicodeType):
-            raise AttributeError, "invalid %s type" % self._type
 
-        return data
+class PKTestCase(BaseTestCase):
+    """
+    See ticket #599 for this. Check to make sure that django pk fields
+    are set first
+    """
 
-    def _marshalData(self):
-        if self._cache == None:
-            self._cache = base64.encodestring(self._data)
+    def test_behaviour(self):
+        p = models.Publication(id=None, title='The Python Journal')
+        a = models.Article(id=None, headline='Django lets you build Web apps easily')
 
-        return self._cache
+        # Associate the Article with a Publication.
+        self.assertRaises(ValueError, lambda a, p: a.publications.add(p), a, p)
 
-class base64Type(base64BinaryType):
-    _validURIs = (NS.ENC,)
+        p.save()
+        a.save()
 
-class binaryType(anyType):
-    _validURIs = (NS.XSD, NS.ENC)
+        self.addCleanup(p.delete)
+        self.addCleanup(a.delete)
 
-    def __init__(self, data, name = None, typed = 1, encoding = 'base64',
-        attrs = None):
+        self.assertEqual(a.id, 1)
 
-        anyType.__init__(self, data, name, typed, attrs)
+        article_alias = adapter.DjangoClassAlias(models.Article, None)
+        x = models.Article()
 
-        self._setAttr('encoding', encoding)
+        article_alias.applyAttributes(x, {
+            'headline': 'Foo bar!',
+            'id': 1,
+            'publications': [p]
+        })
 
-    def _marshalData(self):
-        if self._cache == None:
-            if self._getAttr((None, 'encoding')) == 'base64':
-                self._cache = base64.encodestring(self._data)
-            else:
-                self._cache = encodeHexString(self._data)
+        self.assertEqual(x.headline, 'Foo bar!')
+        self.assertEqual(x.id, 1)
+        self.assertEqual(list(x.publications.all()), [p])
 
-        return self._cache
+    def test_none(self):
+        """
+        See #556. Make sure that PK fields with a value of 0 are actually set
+        to C{None}.
+        """
+        alias = adapter.DjangoClassAlias(models.SimplestModel, None)
 
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+        x = models.SimplestModel()
 
-        if type(data) not in (StringType, UnicodeType):
-            raise AttributeError, "invalid %s type" % self._type
+        self.assertEqual(x.id, None)
 
-        return data
+        alias.applyAttributes(x, {
+            'id': 0
+        })
 
-    def _setAttr(self, attr, value):
-        attr = self._fixAttr(attr)
+        self.assertEqual(x.id, None)
 
-        if attr[1] == 'encoding':
-            if attr[0] != None or value not in ('base64', 'hex'):
-                raise AttributeError, "invalid encoding"
+    def test_no_pk(self):
+        """
+        Ensure that Models without a primary key are correctly serialized.
+        See #691.
+        """
+        instances = [models.NotSaved(name="a"), models.NotSaved(name="b")]
+        encoded = pyamf.encode(instances, encoding=pyamf.AMF3).getvalue()
 
-            self._cache = None
+        decoded = pyamf.decode(encoded, encoding=pyamf.AMF3).next()
+        self.assertEqual(decoded[0]['name'], 'a')
+        self.assertEqual(decoded[1]['name'], 'b')
 
-        anyType._setAttr(self, attr, value)
 
+class ModelInheritanceTestCase(BaseTestCase):
+    """
+    Tests for L{Django model inheritance<http://docs.djangoproject.com/en/dev/topics/db/models/#model-inheritance>}
+    """
 
-class anyURIType(anyType):
-    _validURIs = (NS.XSD3,)
+    def test_abstract(self):
+        alias = adapter.DjangoClassAlias(models.Student)
 
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+        x = models.Student()
 
-        if type(data) not in (StringType, UnicodeType):
-            raise AttributeError, "invalid %s type" % self._type
+        attrs = alias.getEncodableAttributes(x)
 
-        return data
+        self.assertEqual(attrs, {
+            'age': None,
+            'home_group': '',
+            'id': None,
+            'name': ''
+        })
 
-    def _marshalData(self):
-        if self._cache == None:
-            self._cache = urllib.quote(self._data)
+    def test_concrete(self):
+        alias = adapter.DjangoClassAlias(models.Place)
+        x = models.Place()
 
-        return self._cache
+        attrs = alias.getEncodableAttributes(x)
 
-class uriType(anyURIType):
-    _validURIs = (NS.XSD,)
+        self.assertEqual(attrs, {
+            'id': None,
+            'name': '',
+            'address': ''
+        })
 
-class uriReferenceType(anyURIType):
-    _validURIs = (NS.XSD2,)
+        alias = adapter.DjangoClassAlias(models.Restaurant)
+        x = models.Restaurant()
 
-class NOTATIONType(anyType):
-    def __init__(self, data, name = None, typed = 1, attrs = None):
+        attrs = alias.getEncodableAttributes(x)
 
-        if self.__class__ == NOTATIONType:
-            raise Error, "a NOTATION can't be instantiated directly"
+        self.assertEqual(attrs, {
+            'id': None,
+            'name': '',
+            'address': '',
+            'serves_hot_dogs': False,
+            'serves_pizza': False
+        })
 
-        anyType.__init__(self, data, name, typed, attrs)
 
-class ENTITIESType(anyType):
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
+class MockFile(object):
+    """
+    mock for L{django.core.files.base.File}
+    """
 
-        if type(data) in (StringType, UnicodeType):
-            return (data,)
-
-        if type(data) not in (ListType, TupleType) or \
-            filter (lambda x: type(x) not in (StringType, UnicodeType), data):
-            raise AttributeError, "invalid %s type" % self._type
-
-        return data
-
-    def _marshalData(self):
-        return ' '.join(self._data)
-
-class IDREFSType(ENTITIESType): pass
-class NMTOKENSType(ENTITIESType): pass
-
-class integerType(anyType):
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType):
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class nonPositiveIntegerType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType) or data > 0:
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class non_Positive_IntegerType(nonPositiveIntegerType):
-    _validURIs = (NS.XSD,)
-
-    def _typeName(self):
-        return 'non-positive-integer'
-
-class negativeIntegerType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType) or data >= 0:
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class negative_IntegerType(negativeIntegerType):
-    _validURIs = (NS.XSD,)
-
-    def _typeName(self):
-        return 'negative-integer'
-
-class longType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType) or \
-            data < -9223372036854775808L or \
-            data >  9223372036854775807L:
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class intType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType) or \
-            data < -2147483648L or \
-            data >  2147483647:
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class shortType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType) or \
-            data < -32768 or \
-            data >  32767:
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class byteType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType) or \
-            data < -128 or \
-            data >  127:
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class nonNegativeIntegerType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType) or data < 0:
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class non_Negative_IntegerType(nonNegativeIntegerType):
-    _validURIs = (NS.XSD,)
-
-    def _typeName(self):
-        return 'non-negative-integer'
-
-class unsignedLongType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType) or \
-            data < 0 or \
-            data > 18446744073709551615L:
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class unsignedIntType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType) or \
-            data < 0 or \
-            data > 4294967295L:
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class unsignedShortType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType) or \
-            data < 0 or \
-            data > 65535:
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class unsignedByteType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType) or \
-            data < 0 or \
-            data > 255:
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class positiveIntegerType(anyType):
-    _validURIs = (NS.XSD2, NS.XSD3, NS.ENC)
-
-    def _checkValueSpace(self, data):
-        if data == None:
-            raise ValueError, "must supply initial %s value" % self._type
-
-        if type(data) not in (IntType, LongType) or data <= 0:
-            raise ValueError, "invalid %s value" % self._type
-
-        return data
-
-class positive_IntegerType(positiveIntegerType):
-    _validURIs = (NS.XSD,)
-
-    def _typeName(self):
-        return 'positive-integer'
-
-# Now compound types
-
-class compoundType(anyType):
-    def __init__(self, data = None, name = None, typed = 1, attrs = None):
-        if self.__class__ == compoundType:
-            raise Error, "a compound can't be instantiated directly"
-
-        anyType.__init__(self, data, name, typed, attrs)
-        self._keyord    = []
-
-        if type(data) == DictType:
-            self.__dict__.update(data)
-
-    def _aslist(self, item=None):
-        if item is not None:
-            return self.__dict__[self._keyord[item]]
-        else:
-            return map( lambda x: self.__dict__[x], self._keyord)
-
-    def _asdict(self, item=None, encoding=Config.dict_encoding):
-        if item is not None:
-            if type(item) in (UnicodeType,StringType):
-                item = item.encode(encoding)
-            return self.__dict__[item]
-        else:
-            retval = {}
-            def fun(x): retval[x.encode(encoding)] = self.__dict__[x]
-
-            if hasattr(self, '_keyord'):
-                map( fun, self._keyord)
-            else:
-                for name in dir(self):
-                    if isPublic(name):
-                        retval[name] = getattr(self,name)
-            return retval
-
- 
-    def __getitem__(self, item):
-        if type(item) == IntType:
-            return self.__dict__[self._keyord[item]]
-        else:
-            return getattr(self, item)
+    def chunks(self):
+        return []
 
     def __len__(self):
-        return len(self._keyord)
+        return 0
 
-    def __nonzero__(self):
-        return 1
-
-    def _keys(self):
-        return filter(lambda x: x[0] != '_', self.__dict__.keys())
-
-    def _addItem(self, name, value, attrs = None):
-
-        if name in self._keyord:
-            if type(self.__dict__[name]) != ListType:
-                self.__dict__[name] = [self.__dict__[name]]
-            self.__dict__[name].append(value)
-        else:
-            self.__dict__[name] = value
-            self._keyord.append(name)
-            
-    def _placeItem(self, name, value, pos, subpos = 0, attrs = None):
-
-        if subpos == 0 and type(self.__dict__[name]) != ListType:
-            self.__dict__[name] = value
-        else:
-            self.__dict__[name][subpos] = value
-
-        self._keyord[pos] = name
+    def read(self, n):
+        return ''
 
 
-    def _getItemAsList(self, name, default = []):
+class FieldsTestCase(BaseTestCase):
+    """
+    Tests for L{fields}
+    """
+
+    def test_file(self):
+        alias = adapter.DjangoClassAlias(models.FileModel)
+
+        i = models.FileModel()
+        i.file.save('bar', MockFile())
+        self.addCleanup(i.file.delete)
+
+        i.save()
+
+        attrs = alias.getEncodableAttributes(i)
+
+        self.assertEqual(attrs, {'text': '', 'id': 1, 'file': u'file_model/bar'})
+
+        attrs = alias.getDecodableAttributes(i, attrs)
+
+        self.assertEqual(attrs, {'text': ''})
+
+
+class ImageTestCase(BaseTestCase):
+    """
+    Tests for L{fields}
+    """
+
+    def setUp(self):
         try:
-            d = self.__dict__[name]
-        except:
-            return default
+            import PIL
+        except ImportError:
+            self.skipTest("'PIL' is not available")
 
-        if type(d) == ListType:
-            return d
-        return [d]
+        BaseTestCase.setUp(self)
 
-    def __str__(self):
-        return anyType.__str__(self) + ": " + str(self._asdict())
+    def test_image(self):
+        alias = adapter.DjangoClassAlias(models.Profile)
 
-    def __repr__(self):
-        return self.__str__()
+        i = models.Profile()
+        i.file.save('bar', MockFile())
+        self.addCleanup(i.file.delete)
 
-class structType(compoundType):
-    pass
+        i.save()
+        self.addCleanup(i.delete)
 
-class headerType(structType):
-    _validURIs = (NS.ENV,)
+        attrs = alias.getEncodableAttributes(i)
 
-    def __init__(self, data = None, typed = 1, attrs = None):
-        structType.__init__(self, data, "Header", typed, attrs)
+        self.assertEqual(attrs, {'text': '', 'id': 1, 'file': u'profile/bar'})
 
-class bodyType(structType):
-    _validURIs = (NS.ENV,)
+        attrs = alias.getDecodableAttributes(i, attrs)
 
-    def __init__(self, data = None, typed = 1, attrs = None):
-        structType.__init__(self, data, "Body", typed, attrs)
+        self.assertEqual(attrs, {'text': ''})
 
-class arrayType(UserList.UserList, compoundType):
-    def __init__(self, data = None, name = None, attrs = None,
-        offset = 0, rank = None, asize = 0, elemsname = None):
 
-        if data:
-            if type(data) not in (ListType, TupleType):
-                raise Error, "Data must be a sequence"
-
-        UserList.UserList.__init__(self, data)
-        compoundType.__init__(self, data, name, 0, attrs)
-
-        self._elemsname = elemsname or "item"
-
-        if data == None:
-            self._rank = rank
-
-            # According to 5.4.2.2 in the SOAP spec, each element in a
-            # sparse array must have a position. _posstate keeps track of
-            # whether we've seen a position or not. It's possible values
-            # are:
-            # -1 No elements have been added, so the state is indeterminate
-            #  0 An element without a position has been added, so no
-            #    elements can have positions
-            #  1 An element with a position has been added, so all elements
-            #    must have positions
-
-            self._posstate = -1
-
-            self._full = 0
-
-            if asize in ('', None):
-                asize = '0'
-
-            self._dims = map (lambda x: int(x), str(asize).split(','))
-            self._dims.reverse()   # It's easier to work with this way
-            self._poss = [0] * len(self._dims)      # This will end up
-                                                    # reversed too
-
-            for i in range(len(self._dims)):
-                if self._dims[i] < 0 or \
-                    self._dims[i] == 0 and len(self._dims) > 1:
-                    raise TypeError, "invalid Array dimensions"
-
-                if offset > 0:
-                    self._poss[i] = offset % self._dims[i]
-                    offset = int(offset / self._dims[i])
-
-                # Don't break out of the loop if offset is 0 so we test all the
-                # dimensions for > 0.
-            if offset:
-                raise AttributeError, "invalid Array offset"
-
-            a = [None] * self._dims[0]
-
-            for i in range(1, len(self._dims)):
-                b = []
-
-                for j in range(self._dims[i]):
-                    b.append(copy.deepcopy(a))
-
-                a = b
-
-            self.data = a
-
-
-    def _aslist(self, item=None):
-        if item is not None:
-            return self.data[int(item)]
-        else:
-            return self.data
-
-    def _asdict(self, item=None, encoding=Config.dict_encoding):
-        if item is not None:
-            if type(item) in (UnicodeType,StringType):
-                item = item.encode(encoding)
-            return self.data[int(item)]
-        else:
-            retval = {}
-            def fun(x): retval[str(x).encode(encoding)] = self.data[x]
-            
-            map( fun, range(len(self.data)) )
-            return retval
- 
-    def __getitem__(self, item):
-        try:
-            return self.data[int(item)]
-        except ValueError:
-            return getattr(self, item)
-
-    def __len__(self):
-        return len(self.data)
-
-    def __nonzero__(self):
-        return 1
-
-    def __str__(self):
-        return anyType.__str__(self) + ": " + str(self._aslist())
-
-    def _keys(self):
-        return filter(lambda x: x[0] != '_', self.__dict__.keys())
-
-    def _addItem(self, name, value, attrs):
-        if self._full:
-            raise ValueError, "Array is full"
-
-        pos = attrs.get((NS.ENC, 'position'))
-
-        if pos != None:
-            if self._posstate == 0:
-                raise AttributeError, \
-                    "all elements in a sparse Array must have a " \
-                    "position attribute"
-
-            self._posstate = 1
-
-            try:
-                if pos[0] == '[' and pos[-1] == ']':
-                    pos = map (lambda x: int(x), pos[1:-1].split(','))
-                    pos.reverse()
-
-                    if len(pos) == 1:
-                        pos = pos[0]
-
-                        curpos = [0] * len(self._dims)
-
-                        for i in range(len(self._dims)):
-                            curpos[i] = pos % self._dims[i]
-                            pos = int(pos / self._dims[i])
-
-                            if pos == 0:
-                                break
-
-                        if pos:
-                            raise Exception
-                    elif len(pos) != len(self._dims):
-                        raise Exception
-                    else:
-                        for i in range(len(self._dims)):
-                            if pos[i] >= self._dims[i]:
-                                raise Exception
-
-                        curpos = pos
-                else:
-                    raise Exception
-            except:
-                raise AttributeError, \
-                    "invalid Array element position %s" % str(pos)
-        else:
-            if self._posstate == 1:
-                raise AttributeError, \
-                    "only elements in a sparse Array may have a " \
-                    "position attribute"
-
-            self._posstate = 0
-
-            curpos = self._poss
-
-        a = self.data
-
-        for i in range(len(self._dims) - 1, 0, -1):
-            a = a[curpos[i]]
-
-        if curpos[0] >= len(a):
-            a += [None] * (len(a) - curpos[0] + 1)
-
-        a[curpos[0]] = value
-
-        if pos == None:
-            self._poss[0] += 1
-
-            for i in range(len(self._dims) - 1):
-                if self._poss[i] < self._dims[i]:
-                    break
-
-                self._poss[i] = 0
-                self._poss[i + 1] += 1
-
-            if self._dims[-1] and self._poss[-1] >= self._dims[-1]:
-                #self._full = 1
-                #FIXME: why is this occuring?
-                pass
-
-    def _placeItem(self, name, value, pos, subpos, attrs = None):
-        curpos = [0] * len(self._dims)
-
-        for i in range(len(self._dims)):
-            if self._dims[i] == 0:
-                curpos[0] = pos
-                break
-
-            curpos[i] = pos % self._dims[i]
-            pos = int(pos / self._dims[i])
-
-            if pos == 0:
-                break
-
-        if self._dims[i] != 0 and pos:
-            raise Error, "array index out of range"
-
-        a = self.data
-
-        for i in range(len(self._dims) - 1, 0, -1):
-            a = a[curpos[i]]
-
-        if curpos[0] >= len(a):
-            a += [None] * (len(a) - curpos[0] + 1)
-
-        a[curpos[0]] = value
-
-class typedArrayType(arrayType):
-    def __init__(self, data = None, name = None, typed = None, attrs = None,
-        offset = 0, rank = None, asize = 0, elemsname = None, complexType = 0):
-
-        arrayType.__init__(self, data, name, attrs, offset, rank, asize,
-            elemsname)
-
-        self._typed = 1
-        self._type = typed
-        self._complexType = complexType
-
-class faultType(structType, Error):
-    def __init__(self, faultcode = "", faultstring = "", detail = None):
-        self.faultcode = faultcode
-        self.faultstring = faultstring
-        if detail != None:
-            self.detail = detail
-
-        structType.__init__(self, None, 0)
-
-    def _setDetail(self, detail = None):
-        if detail != None:
-            self.detail = detail
-        else:
-            try: del self.detail
-            except AttributeError: pass
-
-    def __repr__(self):
-        if getattr(self, 'detail', None) != None:
-            return "<Fault %s: %s: %s>" % (self.faultcode,
-                                           self.faultstring,
-                                           self.detail)
-        else:
-            return "<Fault %s: %s>" % (self.faultcode, self.faultstring)
-
-    __str__ = __repr__
-
-    def __call__(self):
-        return (self.faultcode, self.faultstring, self.detail)        
-
-class SOAPException(Exception):
-    def __init__(self, code="", string="", detail=None):
-        self.value = ("SOAPpy SOAP Exception", code, string, detail)
-        self.code = code
-        self.string = string
-        self.detail = detail
-
-    def __str__(self):
-        return repr(self.value)
-
-class RequiredHeaderMismatch(Exception):
-    def __init__(self, value):
-        self.value = value
-
-    def __str__(self):
-        return repr(self.value)
-
-class MethodNotFound(Exception):
-    def __init__(self, value):
-        (val, detail) = value.split(":")
-        self.value = val
-        self.detail = detail
-
-    def __str__(self):
-        return repr(self.value, self.detail)
-
-class AuthorizationFailed(Exception):
-    def __init__(self, value):
-        self.value = value
-
-    def __str__(self):
-        return repr(self.value)
-
-class MethodFailed(Exception):
-    def __init__(self, value):
-        self.value = value
-
-    def __str__(self):
-        return repr(self.value)
-        
-#######
-# Convert complex SOAPpy objects to native python equivalents
-#######
-
-def simplify(object, level=0):
+class ReferenceTestCase(BaseTestCase, util.EncoderMixIn):
     """
-    Convert the SOAPpy objects and thier contents to simple python types.
-
-    This function recursively converts the passed 'container' object,
-    and all public subobjects. (Private subobjects have names that
-    start with '_'.)
-    
-    Conversions:
-    - faultType    --> raise python exception
-    - arrayType    --> array
-    - compoundType --> dictionary
+    Test case to make sure that the same object from the database is encoded
+    by reference.
     """
-    
-    if level > 10:
-        return object
-    
-    if isinstance( object, faultType ):
-        if object.faultstring == "Required Header Misunderstood":
-            raise RequiredHeaderMismatch(object.detail)
-        elif object.faultstring == "Method Not Found":
-            raise MethodNotFound(object.detail)
-        elif object.faultstring == "Authorization Failed":
-            raise AuthorizationFailed(object.detail)
-        elif object.faultstring == "Method Failed":
-            raise MethodFailed(object.detail)
-        else:
-            se = SOAPException(object.faultcode, object.faultstring,
-                               object.detail)
-            raise se
-    elif isinstance( object, arrayType ):
-        data = object._aslist()
-        for k in range(len(data)):
-            data[k] = simplify(data[k], level=level+1)
-        return data
-    elif isinstance( object, compoundType ) or isinstance(object, structType):
-        data = object._asdict()
-        for k in data.keys():
-            if isPublic(k):
-                data[k] = simplify(data[k], level=level+1)
-        return data
-    elif type(object)==DictType:
-        for k in object.keys():
-            if isPublic(k):
-                object[k] = simplify(object[k])
-        return object
-    elif type(object)==list:
-        for k in range(len(object)):
-            object[k] = simplify(object[k])
-        return object
-    else:
-        return object
+
+    amf_type = pyamf.AMF3
+
+    def setUp(self):
+        BaseTestCase.setUp(self)
+        util.EncoderMixIn.setUp(self)
+
+    def test_not_referenced(self):
+        """
+        Test to ensure that we observe the correct behaviour in the Django
+        ORM.
+        """
+        f = models.ParentReference()
+        f.name = 'foo'
+
+        b = models.ChildReference()
+        b.name = 'bar'
+
+        f.save()
+        b.foo = f
+        b.save()
+        f.bar = b
+        f.save()
+
+        self.addCleanup(f.delete)
+        self.addCleanup(b.delete)
+
+        self.assertEqual(f.id, 1)
+        foo = models.ParentReference.objects.select_related().get(id=1)
+
+        self.assertFalse(foo.bar.foo is foo)
+
+    def test_referenced_encode(self):
+        f = models.ParentReference()
+        f.name = 'foo'
+
+        b = models.ChildReference()
+        b.name = 'bar'
+
+        f.save()
+        b.foo = f
+        b.save()
+        f.bar = b
+        f.save()
+
+        self.addCleanup(f.delete)
+        self.addCleanup(b.delete)
+
+        self.assertEqual(f.id, 1)
+        foo = models.ParentReference.objects.select_related().get(id=1)
+
+        # ensure the referenced attribute resolves
+        foo.bar.foo
+
+        self.assertEncoded(foo, '\n\x0b\x01\x07bar\n\x0b\x01\x07foo\n\x00\x05'
+            'id\x04\x01\tname\x06\x00\x01\x04\x04\x01\x06\x06\x02\x01')
 
 
-def simplify_contents(object, level=0):
+class AuthTestCase(BaseTestCase):
     """
-    Convert the contents of SOAPpy objects to simple python types.
-
-    This function recursively converts the sub-objects contained in a
-    'container' object to simple python types.
-    
-    Conversions:
-    - faultType    --> raise python exception
-    - arrayType    --> array
-    - compoundType --> dictionary
+    Tests for L{django.contrib.auth.models}
     """
-    
-    if level>10: return object
 
-    if isinstance( object, faultType ):
-        for k in object._keys():
-            if isPublic(k):
-                setattr(object, k, simplify(object[k], level=level+1))
-        raise object
-    elif isinstance( object, arrayType ): 
-        data = object._aslist()
-        for k in range(len(data)):
-            object[k] = simplify(data[k], level=level+1)
-    elif isinstance(object, structType):
-        data = object._asdict()
-        for k in data.keys():
-            if isPublic(k):
-                setattr(object, k, simplify(data[k], level=level+1))
-    elif isinstance( object, compoundType ) :
-        data = object._asdict()
-        for k in data.keys():
-            if isPublic(k):
-                object[k] = simplify(data[k], level=level+1)
-    elif type(object)==DictType:
-        for k in object.keys():
-            if isPublic(k):
-                object[k] = simplify(object[k])
-    elif type(object)==list:
-        for k in range(len(object)):
-            object[k] = simplify(object[k])
-    
-    return object
+    def test_user(self):
+        from django.contrib.auth import models
+
+        alias = pyamf.get_class_alias(models.User)
+
+        self.assertEqual(alias, 'django.contrib.auth.models.User')
+        self.assertEqual(alias.exclude_attrs, ('message_set', 'password'))
+        self.assertEqual(alias.readonly_attrs, ('username',))
 
 
+class DBColumnTestCase(BaseTestCase):
+    """
+    Tests for #807
+    """
+
+    def setUp(self):
+        BaseTestCase.setUp(self)
+
+        self.alias = adapter.DjangoClassAlias(models.DBColumnModel, None)
+        self.model = models.DBColumnModel()
+
+    def test_encodable_attrs(self):
+        def attrs():
+            return self.alias.getEncodableAttributes(self.model)
+
+        self.assertEqual(attrs(), {'id': None})
+
+        x = models.SimplestModel()
+
+        x.save()
+        self.addCleanup(x.delete)
+
+        self.model.bar = x
+
+        self.assertEqual(attrs(), {'id': None, 'bar': x})

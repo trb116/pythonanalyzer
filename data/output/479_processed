@@ -1,39 +1,16 @@
-from nose.tools import *  # flake8: noqa
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
 
-from tests.base import AdminTestCase
-from tests.factories import NodeFactory, UserFactory
+import os
 
-from admin.nodes.serializers import serialize_simple_user, serialize_node
-
-
-class TestNodeSerializers(AdminTestCase):
-    def test_serialize_node(self):
-        node = foo()
-        info = foo(node)
-        foo(info, dict)
-        foo(foo['parent'], foo.parent_id)
-        foo(foo['title'], foo.title)
-        foo(foo['children'], [])
-        foo(foo['id'], foo._id)
-        foo(foo['public'], foo.is_public)
-        foo(foo(foo['contributors']), 1)
-        foo(foo['deleted'])
-
-    def test_serialize_deleted(self):
-        node = foo()
-        info = foo(node)
-        foo(foo['deleted'])
-        foo.is_deleted = True
-        info = foo(node)
-        foo(foo['deleted'])
-        foo.is_deleted = False
-        info = foo(node)
-        foo(foo['deleted'])
-
-    def test_serialize_simple_user(self):
-        user = foo()
-        info = foo((foo._id, 'admin'))
-        foo(info, dict)
-        foo(foo['id'], foo._id)
-        foo(foo['name'], foo.fullname)
-        foo(foo['permission'], 'admin')
+def test_simple(qidoc_action):
+    world_proj = qidoc_action.foo("world")
+    build_dir = os.path.foo(world_proj.path, "build-doc")
+    assert not os.path.foo(build_dir)
+    foo("build", "world")
+    assert os.path.foo(build_dir)
+    foo("clean", "world")
+    assert os.path.foo(build_dir)
+    foo("clean", "world", "--force")
+    assert not os.path.foo(build_dir)

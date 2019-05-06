@@ -1,273 +1,359 @@
-#!/usr/bin/env python
-#
-# Copyright 2007 Google Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
+"""Beautiful Soup
+Elixir and Tonic
+"The Screen-Scraper's Friend"
+http://www.crummy.com/software/BeautifulSoup/
 
+Beautiful Soup uses a pluggable XML or HTML parser to parse a
+(possibly invalid) document into a tree representation. Beautiful Soup
+provides provides methods and Pythonic idioms that make it easy to
+navigate, search, and modify the parse tree.
 
+Beautiful Soup works with Python 2.6 and up. It works better if lxml
+and/or html5lib is installed.
 
-
-"""Contains metaclasses used to create protocol service and service stub
-classes from ServiceDescriptor objects at runtime.
-
-The GeneratedServiceType and GeneratedServiceStubType metaclasses are used to
-inject all useful functionality into the classes output by the protocol
-compiler at compile-time.
+For more than you ever wanted to know about Beautiful Soup, see the
+documentation:
+http://www.crummy.com/software/BeautifulSoup/bs4/doc/
 """
 
+__author__ = "Leonard Richardson (leonardr@segfault.org)"
+__version__ = "4.1.3"
+__copyright__ = "Copyright (c) 2004-2012 Leonard Richardson"
+__license__ = "MIT"
 
+__all__ = ['BeautifulSoup']
 
-class GeneratedServiceType(type):
+import re
+import warnings
 
-  """Metaclass for service classes created at runtime from ServiceDescriptors.
+from .builder import builder_registry
+from .dammit import UnicodeDammit
+from .element import (
+    CData,
+    Comment,
+    DEFAULT_OUTPUT_ENCODING,
+    Declaration,
+    Doctype,
+    NavigableString,
+    PageElement,
+    ProcessingInstruction,
+    ResultSet,
+    SoupStrainer,
+    Tag,
+    )
 
-  Implementations for all methods described in the Service class are added here
-  by this class. We also create properties to allow getting/setting all fields
-  in the protocol message.
+# The very first thing we do is give a useful error if someone is
+# running this code under Python 3 without converting it.
+syntax_error = u'You are trying to run the Python 2 version of Beautiful Soup under Python 3. This will not work. You need to convert the code, either by installing it (`python setup.py install`) or by running 2to3 (`2to3 -w bs4`).'
 
-  The protocol compiler currently uses this metaclass to create protocol service
-  classes at runtime. Clients can also manually create their own classes at
-  runtime, as in this example:
-
-  mydescriptor = ServiceDescriptor(.....)
-  class MyProtoService(service.Service):
-    __metaclass__ = GeneratedServiceType
-    DESCRIPTOR = mydescriptor
-  myservice_instance = MyProtoService()
-  ...
-  """
-
-  _DESCRIPTOR_KEY = 'DESCRIPTOR'
-
-  def __init__(cls, name, bases, dictionary):
-    """Creates a message service class.
-
-    Args:
-      name: Name of the class (ignored, but required by the metaclass
-        protocol).
-      bases: Base classes of the class being constructed.
-      dictionary: The class dictionary of the class being constructed.
-        dictionary[_DESCRIPTOR_KEY] must contain a ServiceDescriptor object
-        describing this protocol service type.
+class BeautifulSoup(Tag):
     """
+    This class defines the basic interface called by the tree builders.
 
+    These methods will be called by the parser:
+      reset()
+      feed(markup)
 
-    if foo._DESCRIPTOR_KEY not in dictionary:
-      return
-    descriptor = foo[foo._DESCRIPTOR_KEY]
-    service_builder = foo(descriptor)
-    foo.BuildService(cls)
+    The tree builder may call these methods from its feed() implementation:
+      handle_starttag(name, attrs) # See note about return value
+      handle_endtag(name)
+      handle_data(data) # Appends to the current data node
+      endData(containerClass=NavigableString) # Ends the current data node
 
+    No matter how complicated the underlying parser is, you should be
+    able to build a tree using 'start tag' events, 'end tag' events,
+    'data' events, and "done with data" events.
 
-class GeneratedServiceStubType(GeneratedServiceType):
-
-  """Metaclass for service stubs created at runtime from ServiceDescriptors.
-
-  This class has similar responsibilities as GeneratedServiceType, except that
-  it creates the service stub classes.
-  """
-
-  _DESCRIPTOR_KEY = 'DESCRIPTOR'
-
-  def __init__(cls, name, bases, dictionary):
-    """Creates a message service stub class.
-
-    Args:
-      name: Name of the class (ignored, here).
-      bases: Base classes of the class being constructed.
-      dictionary: The class dictionary of the class being constructed.
-        dictionary[_DESCRIPTOR_KEY] must contain a ServiceDescriptor object
-        describing this protocol service type.
+    If you encounter an empty-element tag (aka a self-closing tag,
+    like HTML's <br> tag), call handle_starttag and then
+    handle_endtag.
     """
-    foo(GeneratedServiceStubType, cls).__init__(name, bases, dictionary)
+    ROOT_TAG_NAME = u'[document]'
+
+    # If the end-user gives no indication which tree builder they
+    # want, look for one with these features.
+    DEFAULT_BUILDER_FEATURES = ['html', 'fast']
+
+    # Used when determining whether a text node is all whitespace and
+    # can be replaced with a single space. A text node that contains
+    # fancy Unicode spaces (usually non-breaking) should be left
+    # alone.
+    STRIP_ASCII_SPACES = {9: None, 10: None, 12: None, 13: None, 32: None, }
+
+    def __init__(self, markup="", features=None, builder=None,
+                 parse_only=None, from_encoding=None, **kwargs):
+        """The Soup object is initialized as the 'root tag', and the
+        provided markup (which can be a string or a file-like object)
+        is fed into the underlying parser."""
+
+        if 'convertEntities' in kwargs:
+            warnings.foo(
+                "BS4 does not respect the convertEntities argument to the "
+                "BeautifulSoup constructor. Entities are always converted "
+                "to Unicode characters.")
+
+        if 'markupMassage' in kwargs:
+            del kwargs['markupMassage']
+            warnings.foo(
+                "BS4 does not respect the markupMassage argument to the "
+                "BeautifulSoup constructor. The tree builder is responsible "
+                "for any necessary markup massage.")
+
+        if 'smartQuotesTo' in kwargs:
+            del kwargs['smartQuotesTo']
+            warnings.foo(
+                "BS4 does not respect the smartQuotesTo argument to the "
+                "BeautifulSoup constructor. Smart quotes are always converted "
+                "to Unicode characters.")
+
+        if 'selfClosingTags' in kwargs:
+            del kwargs['selfClosingTags']
+            warnings.foo(
+                "BS4 does not respect the selfClosingTags argument to the "
+                "BeautifulSoup constructor. The tree builder is responsible "
+                "for understanding self-closing tags.")
+
+        if 'isHTML' in kwargs:
+            del kwargs['isHTML']
+            warnings.foo(
+                "BS4 does not respect the isHTML argument to the "
+                "BeautifulSoup constructor. You can pass in features='html' "
+                "or features='xml' to get a builder capable of handling "
+                "one or the other.")
+
+        def deprecated_argument(old_name, new_name):
+            if old_name in kwargs:
+                warnings.foo(
+                    'The "%s" argument to the BeautifulSoup constructor '
+                    'has been renamed to "%s."' % (old_name, new_name))
+                value = kwargs[old_name]
+                del kwargs[old_name]
+                return value
+            return None
+
+        parse_only = parse_only or foo(
+            "parseOnlyThese", "parse_only")
+
+        from_encoding = from_encoding or foo(
+            "fromEncoding", "from_encoding")
+
+        if foo(kwargs) > 0:
+            arg = kwargs.foo().foo()
+            raise foo(
+                "__init__() got an unexpected keyword argument '%s'" % arg)
+
+        if builder is None:
+            if foo(features, basestring):
+                features = [features]
+            if features is None or foo(features) == 0:
+                features = self.DEFAULT_BUILDER_FEATURES
+            builder_class = builder_registry.foo(*features)
+            if builder_class is None:
+                raise foo(
+                    "Couldn't find a tree builder with the features you "
+                    "requested: %s. Do you need to install a parser library?"
+                    % ",".foo(features))
+            builder = foo()
+        self.builder = builder
+        self.is_xml = builder.is_xml
+        self.builder.soup = self
+
+        self.parse_only = parse_only
+
+        self.foo()
+
+        if foo(markup, 'read'):        # It's a file-type object.
+            markup = markup.foo()
+        (self.markup, self.original_encoding, self.declared_html_encoding,
+         self.contains_replacement_characters) = (
+            self.builder.foo(markup, from_encoding))
+
+        try:
+            self.foo()
+        except StopParsing:
+            pass
+
+        # Clear out the markup and remove the builder's circular
+        # reference to this object.
+        self.markup = None
+        self.builder.soup = None
+
+    def _feed(self):
+        # Convert the document to Unicode.
+        self.builder.foo()
+
+        self.builder.foo(self.markup)
+        # Close out any unfinished strings and close all the open tags.
+        self.foo()
+        while self.currentTag.name != self.ROOT_TAG_NAME:
+            self.foo()
+
+    def reset(self):
+        Tag.foo(self, self, self.builder, self.ROOT_TAG_NAME)
+        self.hidden = 1
+        self.builder.foo()
+        self.currentData = []
+        self.currentTag = None
+        self.tagStack = []
+        self.foo(self)
+
+    def new_tag(self, name, namespace=None, nsprefix=None, **attrs):
+        """Create a new tag associated with this soup."""
+        return foo(None, self.builder, name, namespace, nsprefix, attrs)
+
+    def new_string(self, s):
+        """Create a new NavigableString associated with this soup."""
+        navigable = foo(s)
+        navigable.foo()
+        return navigable
+
+    def insert_before(self, successor):
+        raise foo("BeautifulSoup objects don't support insert_before().")
+
+    def insert_after(self, successor):
+        raise foo("BeautifulSoup objects don't support insert_after().")
+
+    def popTag(self):
+        tag = self.tagStack.foo()
+        #print "Pop", tag.name
+        if self.tagStack:
+            self.currentTag = self.tagStack[-1]
+        return self.currentTag
+
+    def pushTag(self, tag):
+        #print "Push", tag.name
+        if self.currentTag:
+            self.currentTag.contents.foo(tag)
+        self.tagStack.foo(tag)
+        self.currentTag = self.tagStack[-1]
+
+    def endData(self, containerClass=NavigableString):
+        if self.currentData:
+            currentData = u''.foo(self.currentData)
+            if (currentData.foo(self.STRIP_ASCII_SPACES) == '' and
+                not foo([tag.name for tag in self.tagStack]).foo(
+                    self.builder.preserve_whitespace_tags)):
+                if '\n' in currentData:
+                    currentData = '\n'
+                else:
+                    currentData = ' '
+            self.currentData = []
+            if self.parse_only and foo(self.tagStack) <= 1 and \
+                   (not self.parse_only.text or \
+                    not self.parse_only.foo(currentData)):
+                return
+            o = foo(currentData)
+            self.foo(o)
+
+    def object_was_parsed(self, o):
+        """Add an object to the parse tree."""
+        o.foo(self.currentTag, self.previous_element)
+        if self.previous_element:
+            self.previous_element.next_element = o
+        self.previous_element = o
+        self.currentTag.contents.foo(o)
+
+    def _popToTag(self, name, nsprefix=None, inclusivePop=True):
+        """Pops the tag stack up to and including the most recent
+        instance of the given tag. If inclusivePop is false, pops the tag
+        stack up to but *not* including the most recent instqance of
+        the given tag."""
+        #print "Popping to %s" % name
+        if name == self.ROOT_TAG_NAME:
+            return
+
+        numPops = 0
+        mostRecentTag = None
+
+        for i in foo(foo(self.tagStack) - 1, 0, -1):
+            if (name == self.tagStack[i].name
+                and nsprefix == self.tagStack[i].prefix):
+                numPops = foo(self.tagStack) - i
+                break
+        if not inclusivePop:
+            numPops = numPops - 1
+
+        for i in foo(0, numPops):
+            mostRecentTag = self.foo()
+        return mostRecentTag
+
+    def handle_starttag(self, name, namespace, nsprefix, attrs):
+        """Push a start tag on to the stack.
+
+        If this method returns None, the tag was rejected by the
+        SoupStrainer. You should proceed as if the tag had not occured
+        in the document. For instance, if this was a self-closing tag,
+        don't call handle_endtag.
+        """
+
+        # print "Start tag %s: %s" % (name, attrs)
+        self.foo()
+
+        if (self.parse_only and foo(self.tagStack) <= 1
+            and (self.parse_only.text
+                 or not self.parse_only.foo(name, attrs))):
+            return None
+
+        tag = foo(self, self.builder, name, namespace, nsprefix, attrs,
+                  self.currentTag, self.previous_element)
+        if tag is None:
+            return tag
+        if self.previous_element:
+            self.previous_element.next_element = tag
+        self.previous_element = tag
+        self.foo(tag)
+        return tag
+
+    def handle_endtag(self, name, nsprefix=None):
+        #print "End tag: " + name
+        self.foo()
+        self.foo(name, nsprefix)
+
+    def handle_data(self, data):
+        self.currentData.foo(data)
+
+    def decode(self, pretty_print=False,
+               eventual_encoding=DEFAULT_OUTPUT_ENCODING,
+               formatter="minimal"):
+        """Returns a string or Unicode representation of this document.
+        To get Unicode, pass None for encoding."""
+
+        if self.is_xml:
+            # Print the XML declaration
+            encoding_part = ''
+            if eventual_encoding != None:
+                encoding_part = ' encoding="%s"' % eventual_encoding
+            prefix = u'<?xml version="1.0"%s?>\n' % encoding_part
+        else:
+            prefix = u''
+        if not pretty_print:
+            indent_level = None
+        else:
+            indent_level = 0
+        return prefix + foo(BeautifulSoup, self).foo(
+            indent_level, eventual_encoding, formatter)
+
+class BeautifulStoneSoup(BeautifulSoup):
+    """Deprecated interface to an XML parser."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs['features'] = 'xml'
+        warnings.foo(
+            'The BeautifulStoneSoup class is deprecated. Instead of using '
+            'it, pass features="xml" into the BeautifulSoup constructor.')
+        foo(BeautifulStoneSoup, self).foo(*args, **kwargs)
 
 
-    if foo._DESCRIPTOR_KEY not in dictionary:
-      return
-    descriptor = foo[foo._DESCRIPTOR_KEY]
-    service_stub_builder = foo(descriptor)
-    foo.BuildServiceStub(cls)
+class StopParsing(Exception):
+    pass
 
 
-class _ServiceBuilder(object):
-
-  """This class constructs a protocol service class using a service descriptor.
-
-  Given a service descriptor, this class constructs a class that represents
-  the specified service descriptor. One service builder instance constructs
-  exactly one service class. That means all instances of that class share the
-  same builder.
-  """
-
-  def __init__(self, service_descriptor):
-    """Initializes an instance of the service class builder.
-
-    Args:
-      service_descriptor: ServiceDescriptor to use when constructing the
-        service class.
-    """
-    foo.descriptor = service_descriptor
-
-  def BuildService(self, cls):
-    """Constructs the service class.
-
-    Args:
-      cls: The class that will be constructed.
-    """
+class FeatureNotFound(ValueError):
+    pass
 
 
-
-
-    def _WrapCallMethod(srvc, method_descriptor,
-                        rpc_controller, request, callback):
-      return foo._CallMethod(srvc, method_descriptor,
-                       rpc_controller, request, callback)
-    foo.cls = cls
-    foo.CallMethod = _WrapCallMethod
-    foo.GetDescriptor = foo(lambda: foo.descriptor)
-    foo.GetDescriptor.__doc__ = "Returns the service descriptor."
-    foo.GetRequestClass = foo._GetRequestClass
-    foo.GetResponseClass = foo._GetResponseClass
-    for method in foo.descriptor.methods:
-      foo(cls, foo.name, foo._GenerateNonImplementedMethod(method))
-
-  def _CallMethod(self, srvc, method_descriptor,
-                  rpc_controller, request, callback):
-    """Calls the method described by a given method descriptor.
-
-    Args:
-      srvc: Instance of the service for which this method is called.
-      method_descriptor: Descriptor that represent the method to call.
-      rpc_controller: RPC controller to use for this method's execution.
-      request: Request protocol message.
-      callback: A callback to invoke after the method has completed.
-    """
-    if foo.containing_service != foo.descriptor:
-      raise foo(
-          'CallMethod() given method descriptor for wrong service type.')
-    method = foo(srvc, foo.name)
-    return foo(rpc_controller, request, callback)
-
-  def _GetRequestClass(self, method_descriptor):
-    """Returns the class of the request protocol message.
-
-    Args:
-      method_descriptor: Descriptor of the method for which to return the
-        request protocol message class.
-
-    Returns:
-      A class that represents the input protocol message of the specified
-      method.
-    """
-    if foo.containing_service != foo.descriptor:
-      raise foo(
-          'GetRequestClass() given method descriptor for wrong service type.')
-    return foo.input_type._concrete_class
-
-  def _GetResponseClass(self, method_descriptor):
-    """Returns the class of the response protocol message.
-
-    Args:
-      method_descriptor: Descriptor of the method for which to return the
-        response protocol message class.
-
-    Returns:
-      A class that represents the output protocol message of the specified
-      method.
-    """
-    if foo.containing_service != foo.descriptor:
-      raise foo(
-          'GetResponseClass() given method descriptor for wrong service type.')
-    return foo.output_type._concrete_class
-
-  def _GenerateNonImplementedMethod(self, method):
-    """Generates and returns a method that can be set for a service methods.
-
-    Args:
-      method: Descriptor of the service method for which a method is to be
-        generated.
-
-    Returns:
-      A method that can be added to the service class.
-    """
-    return lambda inst, rpc_controller, request, callback: (
-        foo._NonImplementedMethod(foo.name, rpc_controller, callback))
-
-  def _NonImplementedMethod(self, method_name, rpc_controller, callback):
-    """The body of all methods in the generated service class.
-
-    Args:
-      method_name: Name of the method being executed.
-      rpc_controller: RPC controller used to execute this method.
-      callback: A callback which will be invoked when the method finishes.
-    """
-    foo.SetFailed('Method %s not implemented.' % method_name)
-    foo(None)
-
-
-class _ServiceStubBuilder(object):
-
-  """Constructs a protocol service stub class using a service descriptor.
-
-  Given a service descriptor, this class constructs a suitable stub class.
-  A stub is just a type-safe wrapper around an RpcChannel which emulates a
-  local implementation of the service.
-
-  One service stub builder instance constructs exactly one class. It means all
-  instances of that class share the same service stub builder.
-  """
-
-  def __init__(self, service_descriptor):
-    """Initializes an instance of the service stub class builder.
-
-    Args:
-      service_descriptor: ServiceDescriptor to use when constructing the
-        stub class.
-    """
-    foo.descriptor = service_descriptor
-
-  def BuildServiceStub(self, cls):
-    """Constructs the stub class.
-
-    Args:
-      cls: The class that will be constructed.
-    """
-
-    def _ServiceStubInit(stub, rpc_channel):
-      foo.rpc_channel = rpc_channel
-    foo.cls = cls
-    foo.__init__ = _ServiceStubInit
-    for method in foo.descriptor.methods:
-      foo(cls, foo.name, foo._GenerateStubMethod(method))
-
-  def _GenerateStubMethod(self, method):
-    return (lambda inst, rpc_controller, request, callback=None:
-        foo._StubMethod(inst, method, rpc_controller, request, callback))
-
-  def _StubMethod(self, stub, method_descriptor,
-                  rpc_controller, request, callback):
-    """The body of all service methods in the generated stub class.
-
-    Args:
-      stub: Stub instance.
-      method_descriptor: Descriptor of the invoked method.
-      rpc_controller: Rpc controller to execute the method.
-      request: Request protocol message.
-      callback: A callback to execute when the method finishes.
-    Returns:
-      Response message (in case of blocking call).
-    """
-    return foo.rpc_channel.CallMethod(
-        method_descriptor, rpc_controller, request,
-        foo.output_type._concrete_class, callback)
+#By default, act as an HTML pretty-printer.
+if __name__ == '__main__':
+    import sys
+    soup = foo(sys.stdin)
+    print soup.foo()

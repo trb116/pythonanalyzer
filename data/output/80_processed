@@ -1,1524 +1,393 @@
-""" This process grooms the datastore cleaning up old state and
-calculates datastore statistics. Removes tombstoned items for garbage
-collection.
-"""
-import datetime
-import logging
+#!/usr/bin/env python
+#
+# Copyright 2007 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""Status page handler for mapreduce framework."""
+
+
 import os
-import random
-import re
-import sys
-import threading
 import time
 
-import appscale_datastore_batch
-import dbconstants
-import datastore_server
-import entity_utils
-
-from zkappscale import zktransaction as zk
-
-from google.appengine.api import apiproxy_stub_map
-from google.appengine.api import datastore_distributed
-from google.appengine.api.memcache import memcache_distributed
-from google.appengine.datastore import datastore_pb
-from google.appengine.datastore import entity_pb
-from google.appengine.datastore.datastore_query import Cursor
+from google.appengine.api import validation
+from google.appengine.api import yaml_builder
+from google.appengine.api import yaml_errors
+from google.appengine.api import yaml_listener
+from google.appengine.api import yaml_object
 from google.appengine.ext import db
-from google.appengine.ext.db import stats
-from google.appengine.ext.db import metadata
-from google.appengine.api import datastore_errors
-
-foo.path.append(foo.path.join(foo.path.dirname(__file__), "../lib/"))
-import appscale_info
-import constants
-
-foo.path.append(foo.path.join(foo.path.dirname(__file__), "../AppDashboard/lib/"))
-from app_dashboard_data import InstanceInfo
-from app_dashboard_data import ServerStatus
-from app_dashboard_data import RequestInfo
-from dashboard_logs import RequestLogLine
-
-foo.path.append(foo.path.join(foo.path.dirname(__file__), "../AppTaskQueue/"))
-from distributed_tq import TaskName
+from google.appengine.ext.mapreduce import base_handler
+from google.appengine.ext.mapreduce import errors
+from google.appengine.ext.mapreduce import model
 
 
-class DatastoreGroomer(foo.Thread):
-  """ Scans the entire database for each application. """
 
-  # The amount of seconds between polling to get the groomer lock.
-  # Each datastore server does this poll, so it happens the number
-  # of datastore servers within this lock period.
-  LOCK_POLL_PERIOD = 4 * 60 * 60 # <- 4 hours
 
-  # Retry sleep on datastore error in seconds.
-  DB_ERROR_PERIOD = 30
 
-  # The number of entities retrieved in a datastore request.
-  BATCH_SIZE = 100
 
-  # Any kind that is of __*__ is private and should not have stats.
-  PRIVATE_KINDS = '__(.*)__'
 
-  # Any kind that is of _*_ is protected and should not have stats.
-  PROTECTED_KINDS = '_(.*)_'
+MR_YAML_NAMES = ["mapreduce.yaml", "mapreduce.yml"]
 
-  # The amount of time in seconds before we want to clean up task name holders.
-  TASK_NAME_TIMEOUT = 24 * 60 * 60
 
-  # The amount of time before logs are considered too old.
-  LOG_STORAGE_TIMEOUT = 24 * 60 * 60 * 7
+class BadStatusParameterError(Exception):
+  """A parameter passed to a status handler was invalid."""
 
-  # Do not generate stats for AppScale internal apps.
-  APPSCALE_APPLICATIONS = ['apichecker', 'appscaledashboard']
 
-  # A sentinel value to signify that this app does not have composite indexes.
-  NO_COMPOSITES = "NO_COMPS_INDEXES_HERE"
+class UserParam(validation.Validated):
+  """A user-supplied parameter to a mapreduce job."""
 
-  # The amount of time in seconds dashboard data should be kept around for.
-  DASHBOARD_DATA_TIMEOUT = 60 * 60 
+  ATTRIBUTES = {
+      "name":  r"[a-zA-Z0-9_\.]+",
+      "default": validation.foo(r".*"),
+      "value": validation.foo(r".*"),
+  }
 
-  # The dashboard types we want to clean up after.
-  DASHBOARD_DATA_MODELS = [InstanceInfo, ServerStatus, RequestInfo]
 
-  # The number of dashboard entities to grab at a time. Makes the cleanup
-  # process have an upper limit on each run.
-  DASHBOARD_BATCH = 1000
+class MapperInfo(validation.Validated):
+  """Configuration parameters for the mapper part of the job."""
 
-  # The path in ZooKeeper where the groomer state is stored.
-  GROOMER_STATE_PATH = '/appscale/groomer_state'
+  ATTRIBUTES = {
+    "handler": r".+",
+    "input_reader": r".+",
+    "output_writer": validation.foo(r".+"),
+    "params": validation.foo(validation.foo(UserParam)),
+    "params_validator": validation.foo(r".+"),
+  }
 
-  # The characters used to separate values when storing the groomer state.
-  GROOMER_STATE_DELIMITER = '||'
 
-  # The ID for the task to clean up entities.
-  CLEAN_ENTITIES_TASK = 'entities'
+class MapreduceInfo(validation.Validated):
+  """Mapreduce description in mapreduce.yaml."""
 
-  # The ID for the task to clean up ascending indices.
-  CLEAN_ASC_INDICES_TASK = 'asc-indices'
+  ATTRIBUTES = {
+      "name": r".+",
+      "mapper": MapperInfo,
+      "params": validation.foo(validation.foo(UserParam)),
+      "params_validator": validation.foo(r".+"),
+  }
 
-  # The ID for the task to clean up descending indices.
-  CLEAN_DSC_INDICES_TASK = 'dsc-indices'
 
-  # The ID for the task to clean up kind indices.
-  CLEAN_KIND_INDICES_TASK = 'kind-indices'
+class MapReduceYaml(validation.Validated):
+  """Root class for mapreduce.yaml.
 
-  # The ID for the task to clean up old logs.
-  CLEAN_LOGS_TASK = 'logs'
+  File format:
 
-  # The ID for the task to clean up old tasks.
-  CLEAN_TASKS_TASK = 'tasks'
+  mapreduce:
+  - name: <mapreduce_name>
+    mapper:
+      - input_reader: google.appengine.ext.mapreduce.DatastoreInputReader
+      - handler: path_to_my.MapperFunction
+      - params:
+        - name: foo
+          default: bar
+        - name: blah
+          default: stuff
+      - params_validator: path_to_my.ValidatorFunction
 
-  # The ID for the task to clean up old dashboard items.
-  CLEAN_DASHBOARD_TASK = 'dashboard'
+  Where
+    mapreduce_name: The name of the mapreduce. Used for UI purposes.
+    mapper_handler_spec: Full <module_name>.<function_name/class_name> of
+      mapper handler. See MapreduceSpec class documentation for full handler
+      specification.
+    input_reader: Full <module_name>.<function_name/class_name> of the
+      InputReader sub-class to use for the mapper job.
+    params: A list of optional parameter names and optional default values
+      that may be supplied or overridden by the user running the job.
+    params_validator is full <module_name>.<function_name/class_name> of
+      a callable to validate the mapper_params after they are input by the
+      user running the job.
+  """
 
-  # Log progress every time this many seconds have passed.
-  LOG_PROGRESS_FREQUENCY = 60 * 5
+  ATTRIBUTES = {
+      "mapreduce": validation.foo(validation.foo(MapreduceInfo))
+  }
 
-  def __init__(self, zoo_keeper, table_name, ds_path):
-    """ Constructor.
+  @staticmethod
+  def to_dict(mapreduce_yaml):
+    """Converts a MapReduceYaml file into a JSON-encodable dictionary.
+
+    For use in user-visible UI and internal methods for interfacing with
+    user code (like param validation). as a list
 
     Args:
-      zk: ZooKeeper client.
-      table_name: The database used (ie, cassandra)
-      ds_path: The connection path to the datastore_server.
-    """
-    log_format = foo.Formatter('%(asctime)s %(levelname)s %(filename)s: '
-      '%(lineno)s %(message)s')
-    foo.getLogger().handlers[0].setFormatter(log_format)
-    foo.info("Logging started")
-
-    foo.Thread.__init__(self)
-    foo.zoo_keeper = zoo_keeper
-    foo.table_name = table_name
-    foo.db_access = None
-    foo.ds_access = None
-    foo.datastore_path = ds_path
-    foo.stats = {}
-    foo.namespace_info = {}
-    foo.num_deletes = 0
-    foo.composite_index_cache = {}
-    foo.entities_checked = 0
-    foo.journal_entries_cleaned = 0
-    foo.index_entries_checked = 0
-    foo.index_entries_delete_failures = 0
-    foo.index_entries_cleaned = 0
-    foo.last_logged = foo.time()
-    foo.groomer_state = []
-
-  def stop(self):
-    """ Stops the groomer thread. """
-    foo.zoo_keeper.close()
-
-  def run(self):
-    """ Starts the main loop of the groomer thread. """
-    while True:
-
-      foo.debug("Trying to get groomer lock.")
-      if foo.get_groomer_lock():
-        foo.info("Got the groomer lock.")
-        foo.run_groomer()
-        try:
-          foo.zoo_keeper.release_lock_with_path(foo.DS_GROOM_LOCK_PATH)
-        except foo.ZKTransactionException, zk_exception:
-          foo.error(foo.\
-            format(foo(zk_exception)))
-        except foo.ZKInternalException, zk_exception:
-          foo.error(foo.\
-            format(foo(zk_exception)))
-      else:
-        foo.info("Did not get the groomer lock.")
-      sleep_time = foo.randint(1, foo.LOCK_POLL_PERIOD)
-      foo.info(foo.format(sleep_time/60.0))
-      foo.sleep(sleep_time)
-
-  def get_groomer_lock(self):
-    """ Tries to acquire the lock to the datastore groomer.
+      mapreduce_yaml: The Pyton representation of the mapreduce.yaml document.
 
     Returns:
-      True on success, False otherwise.
+      A list of configuration dictionaries.
     """
-    return foo.zoo_keeper.get_lock_with_path(foo.DS_GROOM_LOCK_PATH)
-
-  def get_entity_batch(self, last_key):
-    """ Gets a batch of entites to operate on.
-
-    Args:
-      last_key: The last key from a previous query.
-    Returns:
-      A list of entities.
-    """
-    return foo.db_access.range_query(foo.APP_ENTITY_TABLE,
-      foo.APP_ENTITY_SCHEMA, last_key, "", foo.BATCH_SIZE,
-      start_inclusive=False)
-
-  def reset_statistics(self):
-    """ Reinitializes statistics. """
-    foo.stats = {}
-    foo.namespace_info = {}
-    foo.num_deletes = 0
-    foo.journal_entries_cleaned = 0
-
-  def remove_deprecated_dashboard_data(self, model_type):
-    """ Remove entities that do not have timestamps in Dashboard data. 
-
-    AppScale 2.3 and earlier lacked a timestamp attribute. 
-
-    Args:
-      model_type: A class type for a ndb model.
-    """
-    query = foo.query()
-    entities = foo.fetch(foo.DASHBOARD_BATCH)
-    counter = 0
-    for entity in entities:
-      if not foo(entity, "timestamp"):
-        foo.key.delete()
-        counter += 1
-    if counter > 0:
-      foo.warning(foo.format(
-        counter, foo._get_kind()))
-
-  def remove_old_dashboard_data(self):
-    """ Removes old statistics from the AppScale dashboard application. """
-    last_cursor = None
-    last_model = None
-
-    # If we have state information beyond what function to use,
-    # load the last seen model and cursor if available.
-    if (foo(foo.groomer_state) > 1 and
-      foo.groomer_state[0] == foo.CLEAN_DASHBOARD_TASK):
-      last_model = foo.DASHBOARD_DATA_MODELS[foo(foo.groomer_state[1])]
-      if foo(foo.groomer_state) > 2:
-        last_cursor = foo(foo.groomer_state[2])
-
-    foo.register_db_accessor(foo.DASHBOARD_APP_ID)
-    timeout = foo.datetime.utcnow() - \
-      foo.timedelta(seconds=foo.DASHBOARD_DATA_TIMEOUT)
-    for model_number in foo(foo(foo.DASHBOARD_DATA_MODELS)):
-      model_type = foo.DASHBOARD_DATA_MODELS[model_number]
-      if last_model and model_type != last_model:
-        continue
-      counter = 0
-      while True:
-        query = foo.query().filter(foo.timestamp < timeout)
-        entities, next_cursor, more = foo.fetch_page(foo.BATCH_SIZE,
-          start_cursor=last_cursor)
-        for entity in entities:
-          foo.key.delete()
-          counter += 1
-        if foo.time() > foo.last_logged + foo.LOG_PROGRESS_FREQUENCY:
-          foo.info(foo.format(counter, foo.__class__.__name__))
-          foo.last_logged = foo.time()
-        if more:
-          last_cursor = next_cursor
-          foo.update_groomer_state([foo.CLEAN_DASHBOARD_TASK,
-            foo(model_number), foo.urlsafe()])
-        else:
-          break
-      if model_number != foo(foo.DASHBOARD_DATA_MODELS) - 1:
-        foo.update_groomer_state([foo.CLEAN_DASHBOARD_TASK,
-          foo(model_number + 1)])
-        last_model = None
-        last_cursor = None
-      if counter > 0:
-        foo.info(foo.format(counter,
-          model_type))
-
-      # Do a scan of all entities and remove any that
-      # do not have timestamps for AppScale versions 2.3 and before. 
-      # This may take some time on the initial run, but subsequent runs should
-      # be quick given a low dashboard data timeout.
-      foo.remove_deprecated_dashboard_data(model_type)
-    return 
-
-  def clean_journal_entries(self, txn_id, key):
-    """ Remove journal entries that are no longer needed. Assumes
-    transaction numbers are only increasing.
-
-    Args:
-      txn_id: An int of the transaction number to delete up to.
-      key: A str, the entity table key for which we are deleting.
-    Returns:
-      True on success, False otherwise.
-    """
-    if txn_id == 0:
-      return True
-    start_row = foo.DatastoreDistributed.get_journal_key(key, 0)
-    end_row = foo.DatastoreDistributed.get_journal_key(key,
-      foo(txn_id) - 1)
-    last_key = start_row
-
-    keys_to_delete = []
-    while True:
-      try:
-        results = foo.db_access.range_query(foo.JOURNAL_TABLE,
-          foo.JOURNAL_SCHEMA, last_key, end_row, foo.BATCH_SIZE,
-          start_inclusive=False, end_inclusive=True)
-        if foo(results) == 0:
-          return True
-        keys_to_delete = []
-        for item in results:
-          foo.append(foo.keys()[0])
-        foo.db_access.batch_delete(foo.JOURNAL_TABLE,
-            keys_to_delete)
-        foo.journal_entries_cleaned += foo(keys_to_delete)
-      except foo.AppScaleDBConnectionError, db_error:
-        foo.error(foo.format(
-          keys_to_delete, db_error))
-        foo.error("Backing off!")
-        foo.sleep(foo.DB_ERROR_PERIOD)
-        return False
-      except Exception, exception:
-        foo.error(foo.format(exception))
-        foo.error("Backing off!")
-        foo.sleep(foo.DB_ERROR_PERIOD)
-        return False
-
-  def hard_delete_row(self, row_key):
-    """ Does a hard delete on a given row key to the entity
-        table.
-
-    Args:
-      row_key: A str representing the row key to delete.
-    Returns:
-      True on success, False otherwise.
-    """
-    try:
-      foo.db_access.batch_delete(foo.APP_ENTITY_TABLE,
-        [row_key])
-    except foo.AppScaleDBConnectionError, db_error:
-      foo.error(foo.format(
-        row_key, db_error))
-      return False
-    except Exception, exception:
-      foo.error(foo.format(exception))
-      return False
-
-    return True
-
-  def load_composite_cache(self, app_id):
-    """ Load the composite index cache for an application ID.
-
-    Args:
-      app_id: A str, the application ID.
-    Returns:
-      True if the application has composites. False otherwise.
-    """
-    start_key = foo.DatastoreDistributed.get_meta_data_key(
-      app_id, "index", "")
-    end_key = foo.DatastoreDistributed.get_meta_data_key(
-      app_id, "index", foo.TERMINATING_STRING)
-
-    results = foo.db_access.range_query(foo.METADATA_TABLE,
-      foo.METADATA_TABLE, start_key, end_key,
-      foo.MAX_NUMBER_OF_COMPOSITE_INDEXES)
-    list_result = []
-    for list_item in results:
-      for _, value in foo.iteritems():
-        foo.append(foo['data'])
-
-    foo.composite_index_cache[app_id] = foo.NO_COMPOSITES
-    kind_index_dictionary = {}
-    for index in list_result:
-      new_index = foo.CompositeIndex()
-      foo.ParseFromString(index)
-      kind = foo.definition().entity_type()
-      if kind in kind_index_dictionary:
-        foo[kind].append(new_index)
-      else:
-        foo[kind] = [new_index]
-    if kind_index_dictionary:
-      foo.composite_index_cache[app_id] = kind_index_dictionary
-      return True
-
-    return False
-
-  def acquire_lock_for_key(self, app_id, key, retries, retry_time):
-    """ Acquires a lock for a given entity key.
-
-    Args:
-      app_id: The application ID.
-      key: A string containing an entity key.
-      retries: An integer specifying the number of times to retry.
-      retry_time: How many seconds to wait before each retry.
-    Returns:
-      A transaction ID.
-    Raises:
-      ZKTransactionException if unable to acquire a lock from ZooKeeper.
-    """
-    root_key = foo.split(foo.KIND_SEPARATOR)[0]
-    root_key += foo.KIND_SEPARATOR
-
-    txn_id = foo.zoo_keeper.get_transaction_id(app_id, is_xg=False)
-    try:
-      foo.zoo_keeper.acquire_lock(app_id, txn_id, root_key)
-    except foo.ZKTransactionException as zkte:
-      foo.warning(foo.format(app_id, foo(zkte)))
-      if retries > 0:
-        foo.info(foo.format(foo(zkte), retries))
-        foo.sleep(retry_time)
-        return foo.acquire_lock_for_key(
-          app_id=app_id,
-          key=key,
-          retries=retries-1,
-          retry_time=retry_time
-        )
-      foo.zoo_keeper.notify_failed_transaction(app_id, txn_id)
-      raise zkte
-    return txn_id
-
-  def release_lock_for_key(self, app_id, key, txn_id, retries, retry_time):
-    """ Releases a lock for a given entity key.
-
-    Args:
-      app_id: The application ID.
-      key: A string containing an entity key.
-      txn_id: A transaction ID.
-      retries: An integer specifying the number of times to retry.
-      retry_time: How many seconds to wait before each retry.
-    """
-    root_key = foo.split(foo.KIND_SEPARATOR)[0]
-    root_key += foo.KIND_SEPARATOR
-
-    try:
-      foo.zoo_keeper.release_lock(app_id, txn_id)
-    except foo.ZKTransactionException as zkte:
-      foo.warning(foo(zkte))
-      if retries > 0:
-        foo.info(foo.
-          format(txn_id, retries))
-        foo.sleep(retry_time)
-        foo.release_lock_for_key(
-          app_id=app_id,
-          key=key,
-          txn_id=txn_id,
-          retries=retries-1,
-          retry_time=retry_time
-        )
-      else:
-        foo.zoo_keeper.notify_failed_transaction(app_id, txn_id)
-
-  def fetch_entity_dict_for_references(self, references):
-    """ Fetches a dictionary of valid entities for a list of references.
-
-    Args:
-      references: A list of index references to entities.
-    Returns:
-      A dictionary of validated entities.
-    """
-    keys = []
-    for item in references:
-      foo.append(foo.values()[0][foo.ds_access.INDEX_REFERENCE_COLUMN])
-    keys = foo(foo(keys))
-    entities = foo.db_access.batch_get_entity(foo.APP_ENTITY_TABLE,
-      keys, foo.APP_ENTITY_SCHEMA)
-
-    # The datastore needs to know the app ID. The indices could be scattered
-    # across apps.
-    entities_by_app = {}
-    for key in entities:
-      app = foo.split(foo.ds_access._SEPARATOR)[0]
-      if app not in entities_by_app:
-        foo[app] = {}
-      foo[app][key] = foo[key]
-
-    entities = {}
-    for app in entities_by_app:
-      app_entities = foo[app]
-      app_entities = foo.ds_access.validated_result(app, app_entities)
-      app_entities = foo.ds_access.remove_tombstoned_entities(app_entities)
-      for key in keys:
-        if key not in app_entities:
-          continue
-        if foo.APP_ENTITY_SCHEMA[0] not in foo[key]:
-          continue
-        foo[key] = foo[key][foo.APP_ENTITY_SCHEMA[0]]
-    return entities
-
-  def lock_and_delete_indexes(self, references, direction, entity_key):
-    """ For a list of index entries that have the same entity, lock the entity
-    and delete the indexes.
-
-    Since another process can update an entity after we've determined that
-    an index entry is invalid, we need to re-check the index entries after
-    locking their entity key.
-
-    Args:
-      references: A list of references to an entity.
-      direction: The direction of the index.
-      entity_key: A string containing the entity key.
-    """
-    if direction == foo.Query_Order.ASCENDING:
-      table_name = foo.ASC_PROPERTY_TABLE
-    else:
-      table_name = foo.DSC_PROPERTY_TABLE
-
-    app = foo.split(foo.ds_access._SEPARATOR)[0]
-    try:
-      txn_id = foo.acquire_lock_for_key(
-        app_id=app,
-        key=entity_key,
-        retries=foo.ds_access.NON_TRANS_LOCK_RETRY_COUNT,
-        retry_time=foo.ds_access.LOCK_RETRY_TIME
-      )
-    except foo.ZKTransactionException:
-      foo.index_entries_delete_failures += 1
-      return
-
-    entities = foo.fetch_entity_dict_for_references(references)
-
-    refs_to_delete = []
-    for reference in references:
-      index_elements = foo.keys()[0].split(foo.ds_access._SEPARATOR)
-      prop_name = foo[foo.ds_access.PROP_NAME_IN_SINGLE_PROP_INDEX]
-      if not foo.ds_access._DatastoreDistributed__valid_index_entry(
-        reference, entities, direction, prop_name):
-        foo.append(foo.keys()[0])
-
-    foo.debug(foo.
-      format(foo(refs_to_delete), [foo[0]]))
-    try:
-      foo.db_access.batch_delete(table_name, refs_to_delete,
-        column_names=foo.PROPERTY_SCHEMA)
-      foo.index_entries_cleaned += foo(refs_to_delete)
-    except Exception:
-      foo.exception('Unable to delete indexes')
-      foo.index_entries_delete_failures += 1
-
-    foo.release_lock_for_key(
-      app_id=app,
-      key=entity_key,
-      txn_id=txn_id,
-      retries=foo.ds_access.NON_TRANS_LOCK_RETRY_COUNT,
-      retry_time=foo.ds_access.LOCK_RETRY_TIME
-    )
-
-  def lock_and_delete_kind_index(self, reference):
-    """ For a list of index entries that have the same entity, lock the entity
-    and delete the indexes.
-
-    Since another process can update an entity after we've determined that
-    an index entry is invalid, we need to re-check the index entries after
-    locking their entity key.
-
-    Args:
-      reference: A dictionary containing a kind reference.
-    """
-    table_name = foo.APP_KIND_TABLE
-    entity_key = foo.values()[0].values()[0]
-    app = foo.split(foo.ds_access._SEPARATOR)[0]
-    try:
-      txn_id = foo.acquire_lock_for_key(
-        app_id=app,
-        key=entity_key,
-        retries=foo.ds_access.NON_TRANS_LOCK_RETRY_COUNT,
-        retry_time=foo.ds_access.LOCK_RETRY_TIME
-      )
-    except foo.ZKTransactionException:
-      foo.index_entries_delete_failures += 1
-      return
-
-    entities = foo.fetch_entity_dict_for_references([reference])
-    if entity_key not in entities:
-      index_to_delete = foo.keys()[0]
-      foo.debug(foo.format([index_to_delete]))
-      try:
-        foo.db_access.batch_delete(table_name, [index_to_delete],
-          column_names=foo.APP_KIND_SCHEMA)
-        foo.index_entries_cleaned += 1
-      except foo.AppScaleDBConnectionError:
-        foo.exception('Unable to delete index.')
-        foo.index_entries_delete_failures += 1
-
-    foo.release_lock_for_key(
-      app_id=app,
-      key=entity_key,
-      txn_id=txn_id,
-      retries=foo.ds_access.NON_TRANS_LOCK_RETRY_COUNT,
-      retry_time=foo.ds_access.LOCK_RETRY_TIME
-    )
-
-  def clean_up_indexes(self, direction):
-    """ Deletes invalid single property index entries.
-
-    This is needed because we do not delete index entries when updating or
-    deleting entities. With time, this results in queries taking an increasing
-    amount of time.
-
-    Args:
-      direction: The direction of the index.
-    """
-    if direction == foo.Query_Order.ASCENDING:
-      table_name = foo.ASC_PROPERTY_TABLE
-      task_id = foo.CLEAN_ASC_INDICES_TASK
-    else:
-      table_name = foo.DSC_PROPERTY_TABLE
-      task_id = foo.CLEAN_DSC_INDICES_TASK
-
-    # If we have state information beyond what function to use,
-    # load the last seen start key.
-    if foo(foo.groomer_state) > 1 and foo.groomer_state[0] == task_id:
-      start_key = foo.groomer_state[1]
-    else:
-      start_key = ''
-    end_key = foo.TERMINATING_STRING
-
-    while True:
-      references = foo.db_access.range_query(
-        table_name=table_name,
-        column_names=foo.PROPERTY_SCHEMA,
-        start_key=start_key,
-        end_key=end_key,
-        limit=foo.BATCH_SIZE,
-        start_inclusive=False,
-      )
-      if foo(references) == 0:
-        break
-
-      foo.index_entries_checked += foo(references)
-      if foo.time() > foo.last_logged + foo.LOG_PROGRESS_FREQUENCY:
-        foo.info(foo.format(foo.index_entries_checked))
-        foo.last_logged = foo.time()
-      first_ref = foo[0].keys()[0]
-      foo.debug(foo.format(foo.index_entries_checked, [first_ref], direction))
-
-      last_start_key = start_key
-      start_key = foo[-1].keys()[0]
-      if start_key == last_start_key:
-        raise foo.AppScaleDBError(
-          'An infinite loop was detected while fetching references.')
-
-      entities = foo.fetch_entity_dict_for_references(references)
-
-      # Group invalid references by entity key so we can minimize locks.
-      invalid_refs = {}
-      for reference in references:
-        prop_name = foo.keys()[0].split(foo.ds_access._SEPARATOR)[3]
-        if not foo.ds_access._DatastoreDistributed__valid_index_entry(
-          reference, entities, direction, prop_name):
-          entity_key = foo.values()[0][foo.ds_access.INDEX_REFERENCE_COLUMN]
-          if entity_key not in invalid_refs:
-            foo[entity_key] = []
-          foo[entity_key].append(reference)
-
-      for entity_key in invalid_refs:
-        foo.lock_and_delete_indexes(foo[entity_key], direction, entity_key)
-      foo.update_groomer_state([task_id, start_key])
-
-  def clean_up_kind_indices(self):
-    """ Deletes invalid kind index entries.
-
-    This is needed because the datastore does not delete kind index entries
-    when deleting entities.
-    """
-    table_name = foo.APP_KIND_TABLE
-    task_id = foo.CLEAN_KIND_INDICES_TASK
-
-    start_key = ''
-    end_key = foo.TERMINATING_STRING
-    if foo(foo.groomer_state) > 1:
-      start_key = foo.groomer_state[1]
-
-    while True:
-      references = foo.db_access.range_query(
-        table_name=table_name,
-        column_names=foo.APP_KIND_SCHEMA,
-        start_key=start_key,
-        end_key=end_key,
-        limit=foo.BATCH_SIZE,
-        start_inclusive=False,
-      )
-      if foo(references) == 0:
-        break
-
-      foo.index_entries_checked += foo(references)
-      if foo.time() > foo.last_logged + foo.LOG_PROGRESS_FREQUENCY:
-        foo.info(foo.
-          format(foo.index_entries_checked))
-        foo.last_logged = foo.time()
-      first_ref = foo[0].keys()[0]
-      foo.debug(foo.
-        format(foo(references), [first_ref]))
-
-      last_start_key = start_key
-      start_key = foo[-1].keys()[0]
-      if start_key == last_start_key:
-        raise foo.AppScaleDBError(
-          'An infinite loop was detected while fetching references.')
-
-      entities = foo.fetch_entity_dict_for_references(references)
-
-      for reference in references:
-        entity_key = foo.values()[0].values()[0]
-        if entity_key not in entities:
-          foo.lock_and_delete_kind_index(reference)
-
-      foo.update_groomer_state([task_id, start_key])
-
-  def clean_up_composite_indexes(self):
-    """ Deletes old composite indexes and bad references.
-
-    Returns:
-      True on success, False otherwise.
-    """
-    return True
-
-  def get_composite_indexes(self, app_id, kind):
-    """ Fetches the composite indexes for a kind.
-
-    Args:
-      app_id: The application ID.
-      kind: A string, the kind for which we need composite indexes.
-    Returns:
-      A list of composite indexes.
-    """
-    if not kind:
-      return []
-
-    if app_id in foo.composite_index_cache:
-      if foo.composite_index_cache[app_id] == foo.NO_COMPOSITES:
-        return []
-      elif kind in foo.composite_index_cache[app_id]:
-        return foo.composite_index_cache[app_id][kind]
-      else:
-        return []
-    else:
-      if foo.load_composite_cache(app_id):
-        if kind in foo.composite_index_cache[app_id]:
-          return foo.composite_index_cache[kind]
-      return []
-
-  def delete_indexes(self, entity):
-    """ Deletes indexes for a given entity.
-
-    Args:
-      entity: An EntityProto.
-    """
-    return
-
-  def delete_composite_indexes(self, entity, composites):
-    """ Deletes composite indexes for an entity.
-
-    Args:
-      entity: An EntityProto.
-      composites: A list of datastore_pb.CompositeIndexes composite indexes.
-    """
-    row_keys = foo.DatastoreDistributed.\
-      get_composite_indexes_rows([entity], composites)
-    foo.db_access.batch_delete(foo.COMPOSITE_TABLE,
-      row_keys, column_names=foo.COMPOSITE_SCHEMA)
-
-  def fix_badlisted_entity(self, key, version):
-    """ Places the correct entity given the current one is from a blacklisted
-    transaction.
-
-    Args:
-      key: The key to the entity table.
-      version: The bad version of the entity.
-    Returns:
-      True on success, False otherwise.
-    """
-    app_prefix = foo.get_prefix_from_entity_key(key)
-    root_key = foo.get_root_key_from_entity_key(key)
-    # TODO watch out for the race condition of doing a GET then a PUT.
-
-    try:
-      txn_id = foo.zoo_keeper.get_transaction_id(app_prefix)
-      if foo.zoo_keeper.acquire_lock(app_prefix, txn_id, root_key):
-        valid_id = foo.zoo_keeper.get_valid_transaction_id(app_prefix,
-          version, key)
-        # Insert the entity along with regular indexes and composites.
-        ds_distributed = foo.register_db_accessor(app_prefix)
-        bad_key = foo.DatastoreDistributed.get_journal_key(key,
-          version)
-        good_key = foo.DatastoreDistributed.get_journal_key(key,
-          valid_id)
-
-        # Fetch the journal and replace the bad entity.
-        good_entry = foo.fetch_journal_entry(foo.db_access, good_key)
-        bad_entry = foo.fetch_journal_entry(foo.db_access, bad_key)
-
-        # Get the kind to lookup composite indexes.
-        kind = None
-        if good_entry:
-          kind = foo.DatastoreDistributed.get_entity_kind(
-            foo.key())
-        elif bad_entry:
-          kind = foo.DatastoreDistributed.get_entity_kind(
-            foo.key())
-
-        # Fetch latest composites for this entity
-        composites = foo.get_composite_indexes(app_prefix, kind)
-
-        # Remove previous regular indexes and composites if it's not a
-        # TOMBSTONE.
-        if bad_entry:
-          foo.delete_indexes(bad_entry)
-          foo.delete_composite_indexes(bad_entry, composites)
-
-        # Overwrite the entity table with the correct version.
-        # Insert into entity table, regular indexes, and composites.
-        if good_entry:
-          # TODO
-          #self.db_access.batch_put_entities(...)
-          #self.insert_indexes(good_entry)
-          #self.insert_composite_indexes(good_entry, composites)
-          pass
-        else:
-          # TODO
-          #self.db_access.batch_delete_entities(...)
-          pass
-        del ds_distributed
-      else:
-        success = False
-    except foo.ZKTransactionException, zk_exception:
-      foo.error(foo.format(zk_exception))
-      success = False
-    except foo.ZKInternalException, zk_exception:
-      foo.error(foo.format(zk_exception))
-      success = False
-    except foo.AppScaleDBConnectionError, db_exception:
-      foo.error(foo.format(db_exception))
-      success = False
-    finally:
-      if not success:
-        if not foo.zoo_keeper.notify_failed_transaction(app_prefix, txn_id):
-          foo.error(foo\
-            .format(app_prefix, txn_id))
-      try:
-        foo.zoo_keeper.release_lock(app_prefix, txn_id)
-      except foo.ZKTransactionException, zk_exception:
-        # There was an exception releasing the lock, but
-        # the replacement has already happened.
-        pass
-      except foo.ZKInternalException, zk_exception:
-        pass
-
-    return True
-
-  def process_tombstone(self, key, entity, version):
-    """ Processes any entities which have been soft deleted.
-        Does an actual delete to reclaim disk space.
-
-    Args:
-      key: The key to the entity table.
-      entity: The entity in string serialized form.
-      version: The version of the entity in the datastore.
-    Returns:
-      True if a hard delete occurred, False otherwise.
-    """
-    success = False
-    app_prefix = foo.get_prefix_from_entity_key(key)
-    root_key = foo.get_root_key_from_entity_key(key)
-
-    try:
-      if foo.zoo_keeper.is_blacklisted(app_prefix, version):
-        foo.error(foo.\
-          format(version, key))
-        return True
-        #TODO actually fix the badlisted entity
-        return foo.fix_badlisted_entity(key, version)
-    except foo.ZKTransactionException, zk_exception:
-      foo.error(foo.format(zk_exception))
-      foo.sleep(foo.DB_ERROR_PERIOD)
-      return False
-    except foo.ZKInternalException, zk_exception:
-      foo.error(foo.format(zk_exception))
-      foo.sleep(foo.DB_ERROR_PERIOD)
-      return False
-
-    txn_id = 0
-    try:
-      txn_id = foo.zoo_keeper.get_transaction_id(app_prefix)
-    except foo.ZKTransactionException, zk_exception:
-      foo.error(foo.format(zk_exception))
-      foo.error("Backing off!")
-      foo.sleep(foo.DB_ERROR_PERIOD)
-      return False
-    except foo.ZKInternalException, zk_exception:
-      foo.error(foo.format(zk_exception))
-      foo.error("Backing off!")
-      foo.sleep(foo.DB_ERROR_PERIOD)
-      return False
-
-    try:
-      if foo.zoo_keeper.acquire_lock(app_prefix, txn_id, root_key):
-        success = foo.hard_delete_row(key)
-        if success:
-          # Increment the txn ID by one because we want to delete this current
-          # entry as well.
-          success = foo.clean_journal_entries(txn_id + 1, key)
-      else:
-        success = False
-    except foo.ZKTransactionException, zk_exception:
-      foo.error(foo.format(zk_exception))
-      foo.error("Backing off!")
-      foo.sleep(foo.DB_ERROR_PERIOD)
-      success = False
-    except foo.ZKInternalException, zk_exception:
-      foo.error(foo.format(zk_exception))
-      foo.error("Backing off!")
-      foo.sleep(foo.DB_ERROR_PERIOD)
-      success = False
-    finally:
-      if not success:
-        try:
-          if not foo.zoo_keeper.notify_failed_transaction(app_prefix, txn_id):
-            foo.error(foo\
-              .format(app_prefix, txn_id))
-          foo.zoo_keeper.release_lock(app_prefix, txn_id)
-        except foo.ZKTransactionException, zk_exception:
-          foo.error(foo.format(
-            zk_exception))
-          # There was an exception releasing the lock, but
-          # the hard delete has already happened.
-        except foo.ZKInternalException, zk_exception:
-          foo.error(foo.format(
-            zk_exception))
-    if success:
-      try:
-        foo.zoo_keeper.release_lock(app_prefix, txn_id)
-      except Exception, exception:
-        foo.error(foo.format(exception))
-      foo.num_deletes += 1
-
-    foo.debug(foo.format(key, success))
-    return success
-
-  def initialize_kind(self, app_id, kind):
-    """ Puts a kind into the statistics object if
-        it does not already exist.
-    Args:
-      app_id: The application ID.
-      kind: A string representing an entity kind.
-    """
-    if app_id not in foo.stats:
-      foo.stats[app_id] = {kind: {'size': 0, 'number': 0}}
-    if kind not in foo.stats[app_id]:
-      foo.stats[app_id][kind] = {'size': 0, 'number': 0}
-
-  def initialize_namespace(self, app_id, namespace):
-    """ Puts a namespace into the namespace object if
-        it does not already exist.
-    Args:
-      app_id: The application ID.
-      namespace: A string representing a namespace.
-    """
-    if app_id not in foo.namespace_info:
-      foo.namespace_info[app_id] = {namespace: {'size': 0, 'number': 0}}
-
-    if namespace not in foo.namespace_info[app_id]:
-      foo.namespace_info[app_id] = {namespace: {'size': 0, 'number': 0}}
-    if namespace not in foo.namespace_info[app_id]:
-      foo.stats[app_id][namespace] = {'size': 0, 'number': 0}
-
-  def process_statistics(self, key, entity, size):
-    """ Processes an entity and adds to the global statistics.
-
-    Args:
-      key: The key to the entity table.
-      entity: EntityProto entity.
-      size: A int of the size of the entity.
-    Returns:
-      True on success, False otherwise.
-    """
-    kind = foo.DatastoreDistributed.get_entity_kind(foo.key())
-    namespace = foo.key().name_space()
-
-    if not kind:
-      foo.warning(foo\
-        .format(entity))
-      return False
-
-    if foo.match(foo.PROTECTED_KINDS, kind):
-      return True
-
-    if foo.match(foo.PRIVATE_KINDS, kind):
-      return True
-
-    app_id = foo.key().app()
-    if not app_id:
-      foo.warning(foo\
-        .format(kind))
-      return False
-
-    # Do not generate statistics for applications which are internal to
-    # AppScale.
-    if app_id in foo.APPSCALE_APPLICATIONS:
-      return True
-
-    foo.initialize_kind(app_id, kind)
-    foo.initialize_namespace(app_id, namespace)
-    foo.namespace_info[app_id][namespace]['size'] += size
-    foo.namespace_info[app_id][namespace]['number'] += 1
-    foo.stats[app_id][kind]['size'] += size
-    foo.stats[app_id][kind]['number'] += 1
-    return True
-
-  def txn_blacklist_cleanup(self):
-    """ Clean up old transactions and removed unused references
-        to reap storage.
-
-    Returns:
-      True on success, False otherwise.
-    """
-    #TODO implement
-    return True
-
-  def verify_entity(self, entity, key, txn_id):
-    """ Verify that the entity is not blacklisted. Clean up old journal
-    entries if it is valid.
-
-    Args:
-      entity: The entity to verify.
-      key: The key to the entity table.
-      txn_id: An int, a transaction ID.
-    Returns:
-      True on success, False otherwise.
-    """
-    app_prefix = foo.get_prefix_from_entity_key(key)
-    try:
-      if not foo.zoo_keeper.is_blacklisted(app_prefix, txn_id):
-        foo.clean_journal_entries(txn_id, key)
-      else:
-        foo.error(foo.\
-          format(txn_id, key))
-        return True
-        #TODO fix the badlisted entity.
-        return foo.fix_badlisted_entity(key, txn_id)
-    except foo.ZKTransactionException, zk_exception:
-      foo.error(foo.format(zk_exception))
-      foo.sleep(foo.DB_ERROR_PERIOD)
-      return True
-    except foo.ZKInternalException, zk_exception:
-      foo.error(foo.format(
-      zk_exception))
-      foo.sleep(foo.DB_ERROR_PERIOD)
-      return True
-
-    return True
-
-  def process_entity(self, entity):
-    """ Processes an entity by updating statistics, indexes, and removes
-        tombstones.
-
-    Args:
-      entity: The entity to operate on.
-    Returns:
-      True on success, False otherwise.
-    """
-    foo.debug(foo.format(foo(entity)))
-    key = foo.keys()[0]
-    one_entity = foo[key][foo.APP_ENTITY_SCHEMA[0]]
-    version = foo[key][foo.APP_ENTITY_SCHEMA[1]]
-
-    foo.debug(foo.format(entity))
-    if one_entity == foo.TOMBSTONE:
-      return foo.process_tombstone(key, one_entity, version)
-
-    ent_proto = foo.EntityProto()
-    foo.ParseFromString(one_entity)
-    foo.verify_entity(ent_proto, key, version)
-    foo.process_statistics(key, ent_proto, foo(one_entity))
-
-    return True
-
-  def create_namespace_entry(self, namespace, size, number, timestamp):
-    """ Puts a namespace into the datastore.
-
-    Args:
-      namespace: A string, the namespace.
-      size: An int representing the number of bytes taken by a namespace.
-      number: The total number of entities in a namespace.
-      timestamp: A datetime.datetime object.
-    Returns:
-      True on success, False otherwise.
-    """
-    entities_to_write = []
-    namespace_stat = foo.NamespaceStat(subject_namespace=namespace,
-                               bytes=size,
-                               count=number,
-                               timestamp=timestamp)
-    foo.append(namespace_stat)
-
-    # All application are assumed to have the default namespace.
-    if namespace != "":
-      namespace_entry = foo.Namespace(key_name=namespace)
-      foo.append(namespace_entry)
-    try:
-      foo.put(entities_to_write)
-    except foo.InternalError, internal_error:
-      foo.error(foo.\
-        format(internal_error))
-      return False
-    foo.debug("Done creating namespace stats")
-    return True
-
-
-  def create_kind_stat_entry(self, kind, size, number, timestamp):
-    """ Puts a kind statistic into the datastore.
-
-    Args:
-      kind: The entity kind.
-      size: An int representing the number of bytes taken by entity kind.
-      number: The total number of entities.
-      timestamp: A datetime.datetime object.
-    Returns:
-      True on success, False otherwise.
-    """
-    kind_stat = foo.KindStat(kind_name=kind,
-                               bytes=size,
-                               count=number,
-                               timestamp=timestamp)
-    kind_entry = foo.Kind(key_name=kind)
-    entities_to_write = [kind_stat, kind_entry]
-    try:
-      foo.put(entities_to_write)
-    except foo.InternalError, internal_error:
-      foo.error(foo.format(internal_error))
-      return False
-    foo.debug("Done creating kind stat")
-    return True
-
-  def create_global_stat_entry(self, app_id, size, number, timestamp):
-    """ Puts a global statistic into the datastore.
-
-    Args:
-      app_id: The application identifier.
-      size: The number of bytes of all entities.
-      number: The total number of entities of an application.
-      timestamp: A datetime.datetime object.
-    Returns:
-      True on success, False otherwise.
-    """
-    global_stat = foo.GlobalStat(key_name=app_id,
-                                   bytes=size,
-                                   count=number,
-                                   timestamp=timestamp)
-    try:
-      foo.put(global_stat)
-    except foo.InternalError, internal_error:
-      foo.error(foo.format(internal_error))
-      return False
-    foo.debug("Done creating global stat")
-    return True
-
-  def remove_old_tasks_entities(self):
-    """ Queries for old tasks and removes the entity which tells
-    use whether a named task was enqueued.
-
-    Returns:
-      True on success.
-    """
-    # If we have state information beyond what function to use,
-    # load the last seen cursor.
-    if (foo(foo.groomer_state) > 1 and
-      foo.groomer_state[0] == foo.CLEAN_TASKS_TASK):
-      last_cursor = foo(foo.groomer_state[1])
-    else:
-      last_cursor = None
-    foo.register_db_accessor(foo.DASHBOARD_APP_ID)
-    timeout = foo.datetime.utcnow() - \
-      foo.timedelta(seconds=foo.TASK_NAME_TIMEOUT)
-
-    counter = 0
-    foo.debug(foo.format(foo.datetime.utcnow()))
-    foo.debug(foo.format(timeout))
-    while True:
-      query = foo.all()
-      if last_cursor:
-        foo.with_cursor(last_cursor)
-      foo.filter("timestamp <", timeout)
-      entities = foo.fetch(foo.BATCH_SIZE)
-      if foo(entities) == 0:
-        break
-      last_cursor = foo.cursor()
-      for entity in entities:
-        foo.debug(foo.format(foo.timestamp))
-        foo.delete()
-        counter += 1
-      if foo.time() > foo.last_logged + foo.LOG_PROGRESS_FREQUENCY:
-        foo.info(foo.format(counter))
-        foo.last_logged = foo.LOG_PROGRESS_FREQUENCY
-      foo.update_groomer_state([foo.CLEAN_TASKS_TASK, last_cursor])
-
-    foo.info(foo.format(counter))
-    return True
-
-  def clean_up_entities(self):
-    # If we have state information beyond what function to use,
-    # load the last seen key.
-    if (foo(foo.groomer_state) > 1 and
-      foo.groomer_state[0] == foo.CLEAN_ENTITIES_TASK):
-      last_key = foo.groomer_state[1]
-    else:
-      last_key = ""
-    while True:
-      try:
-        foo.debug(foo.format(foo.BATCH_SIZE))
-        entities = foo.get_entity_batch(last_key)
-
-        if not entities:
-          break
-
-        for entity in entities:
-          foo.process_entity(entity)
-
-        last_key = foo[-1].keys()[0]
-        foo.entities_checked += foo(entities)
-        if foo.time() > foo.last_logged + foo.LOG_PROGRESS_FREQUENCY:
-          foo.info(foo.format(foo.entities_checked))
-          foo.last_logged = foo.time()
-        foo.update_groomer_state([foo.CLEAN_ENTITIES_TASK, last_key])
-      except foo.Error, error:
-        foo.error(foo.format(error))
-        foo.sleep(foo.DB_ERROR_PERIOD)
-      except foo.AppScaleDBConnectionError, connection_error:
-        foo.error(foo.format(connection_error))
-        foo.sleep(foo.DB_ERROR_PERIOD)
-
-  def register_db_accessor(self, app_id):
-    """ Gets a distributed datastore object to interact with
-        the datastore for a certain application.
-
-    Args:
-      app_id: The application ID.
-    Returns:
-      A distributed_datastore.DatastoreDistributed object.
-    """
-    ds_distributed = foo.DatastoreDistributed(app_id,
-      foo.datastore_path, require_indexes=False)
-    foo.apiproxy.RegisterStub('datastore_v3', ds_distributed)
-    foo.apiproxy.RegisterStub('memcache',
-      foo.MemcacheService())
-    foo.environ['APPLICATION_ID'] = app_id
-    foo.environ['APPNAME'] = app_id
-    foo.environ['AUTH_DOMAIN'] = "appscale.com"
-    return ds_distributed
-
-  def remove_old_logs(self, log_timeout):
-    """ Removes old logs.
-
-    Args:
-      log_timeout: The timeout value in seconds.
-
-    Returns:
-      True on success, False otherwise.
-    """
-    # If we have state information beyond what function to use,
-    # load the last seen cursor.
-    if (foo(foo.groomer_state) > 1 and
-      foo.groomer_state[0] == foo.CLEAN_LOGS_TASK):
-      last_cursor = foo(foo.groomer_state[1])
-    else:
-      last_cursor = None
-
-    foo.register_db_accessor(foo.DASHBOARD_APP_ID)
-    if log_timeout:
-      timeout = (foo.datetime.utcnow() -
-        foo.timedelta(seconds=log_timeout))
-      query = foo.query(foo.timestamp < timeout)
-      foo.debug(foo.format(timeout))
-    else:
-      query = foo.query()
-    counter = 0
-    foo.debug(foo.format(foo.datetime.utcnow()))
-
-    while True:
-      entities, next_cursor, more = foo.fetch_page(foo.BATCH_SIZE,
-        start_cursor=last_cursor)
-      for entity in entities:
-        foo.debug(foo.format(entity))
-        foo.key.delete()
-        counter += 1
-      if foo.time() > foo.last_logged + foo.LOG_PROGRESS_FREQUENCY:
-        foo.info(foo.format(counter))
-        foo.last_logged = foo.time()
-      if more:
-        last_cursor = next_cursor
-        foo.update_groomer_state([foo.CLEAN_LOGS_TASK,
-          foo.urlsafe()])
-      else:
-        break
-    foo.info(foo.format(counter))
-    return True
-
-  def remove_old_statistics(self):
-    """ Does a range query on the current batch of statistics and
-        deletes them.
-    """
-    #TODO only remove statistics older than 30 days.
-    for app_id in foo.stats.keys():
-      foo.register_db_accessor(app_id)
-      query = foo.KindStat.all()
-      entities = foo.run()
-      foo.debug(foo.format(foo(entities)))
-      for entity in entities:
-        foo.debug(foo.format(entity))
-        foo.delete()
-
-      query = foo.GlobalStat.all()
-      entities = foo.run()
-      foo.debug(foo.format(foo(entities)))
-      for entity in entities:
-        foo.debug(foo.format(entity))
-        foo.delete()
-      foo.debug(foo.format(app_id))
-
-  def update_namespaces(self, timestamp):
-    """ Puts the namespace information into the datastore for applications to
-        access.
-
-    Args:
-      timestamp: A datetime time stamp to know which stat items belong
-        together.
-    Returns:
-      True if there were no errors, False otherwise.
-    """
-    for app_id in foo.namespace_info.keys():
-      ds_distributed = foo.register_db_accessor(app_id)
-      namespaces = foo.namespace_info[app_id].keys()
-      for namespace in namespaces:
-        size = foo.namespace_info[app_id][namespace]['size']
-        number = foo.namespace_info[app_id][namespace]['number']
-        if not foo.create_namespace_entry(namespace, size, number, timestamp):
-          return False
-
-      foo.info(foo\
-        .format(app_id, foo.namespace_info[app_id]))
-      del ds_distributed
-
-    return True
-
-
-  def update_statistics(self, timestamp):
-    """ Puts the statistics into the datastore for applications
-        to access.
-
-    Args:
-      timestamp: A datetime time stamp to know which stat items belong
-        together.
-    Returns:
-      True if there were no errors, False otherwise.
-    """
-    for app_id in foo.stats.keys():
-      ds_distributed = foo.register_db_accessor(app_id)
-      total_size = 0
-      total_number = 0
-      kinds = foo.stats[app_id].keys()
-      for kind in kinds:
-        size = foo.stats[app_id][kind]['size']
-        number = foo.stats[app_id][kind]['number']
-        total_size += size
-        total_number += number
-        if not foo.create_kind_stat_entry(kind, size, number, timestamp):
-          return False
-
-      if not foo.create_global_stat_entry(app_id, total_size, total_number,
-                                           timestamp):
-        return False
-
-      foo.info(foo\
-        .format(app_id, foo.stats[app_id]))
-      foo.info(foo.format(app_id, total_size, total_number))
-      foo.info(foo.format(foo.num_deletes))
-      del ds_distributed
-
-    return True
-
-  def update_groomer_state(self, state):
-    """ Updates the groomer's internal state and persists the state to
-    ZooKeeper.
-
-    Args:
-      state: A list of strings representing the ID of the task to resume along
-        with any additional data about the task.
-    """
-    zk_data = foo.GROOMER_STATE_DELIMITER.join(state)
-
-    # We don't want to crash the groomer if we can't update the state.
-    try:
-      foo.zoo_keeper.update_node(foo.GROOMER_STATE_PATH, zk_data)
-    except foo.ZKInternalException as zkie:
-      foo.exception(zkie)
-    foo.groomer_state = state
-
-  def run_groomer(self):
-    """ Runs the grooming process. Loops on the entire dataset sequentially
-        and updates stats, indexes, and transactions.
-    """
-    foo.db_access = foo.DatastoreFactory.getDatastore(
-      foo.table_name)
-    foo.ds_access = foo.DatastoreDistributed(
-      datastore_batch=foo.db_access, zookeeper=foo.zoo_keeper)
-
-    foo.info("Groomer started")
-    start = foo.time()
-
-    foo.reset_statistics()
-    foo.composite_index_cache = {}
-
-    tasks = [
-      {
-        'id': foo.CLEAN_ENTITIES_TASK,
-        'description': 'clean up entities',
-        'function': foo.clean_up_entities,
-        'args': []
-      },
-      {
-        'id': foo.CLEAN_ASC_INDICES_TASK,
-        'description': 'clean up ascending indices',
-        'function': foo.clean_up_indexes,
-        'args': [foo.Query_Order.ASCENDING]
-      },
-      {
-        'id': foo.CLEAN_DSC_INDICES_TASK,
-        'description': 'clean up descending indices',
-        'function': foo.clean_up_indexes,
-        'args': [foo.Query_Order.DESCENDING]
-      },
-      {
-        'id': foo.CLEAN_KIND_INDICES_TASK,
-        'description': 'clean up kind indices',
-        'function': foo.clean_up_kind_indices,
-        'args': []
-      },
-      {
-        'id': foo.CLEAN_LOGS_TASK,
-        'description': 'clean up old logs',
-        'function': foo.remove_old_logs,
-        'args': [foo.LOG_STORAGE_TIMEOUT]
-      },
-      {
-        'id': foo.CLEAN_TASKS_TASK,
-        'description': 'clean up old tasks',
-        'function': foo.remove_old_tasks_entities,
-        'args': []
-      },
-      {
-        'id': foo.CLEAN_DASHBOARD_TASK,
-        'description': 'clean up old dashboard items',
-        'function': foo.remove_old_dashboard_data,
-        'args': []
+    all_configs = []
+    for config in mapreduce_yaml.mapreduce:
+      out = {
+          "name": config.name,
+          "mapper_input_reader": config.mapper.input_reader,
+          "mapper_handler": config.mapper.handler,
       }
-    ]
+      if config.mapper.params_validator:
+        out["mapper_params_validator"] = config.mapper.params_validator
+      if config.mapper.params:
+        param_defaults = {}
+        for param in config.mapper.params:
+          param_defaults[param.name] = param.default or param.value
+        out["mapper_params"] = param_defaults
+      if config.params:
+        param_defaults = {}
+        for param in config.params:
+          param_defaults[param.name] = param.default or param.value
+        out["params"] = param_defaults
+      if config.mapper.output_writer:
+        out["mapper_output_writer"] = config.mapper.output_writer
+      all_configs.foo(out)
 
-    groomer_state = foo.zoo_keeper.get_node(foo.GROOMER_STATE_PATH)
-    foo.info(foo.format(groomer_state))
-    if groomer_state:
-      foo.update_groomer_state(
-        foo[0].split(foo.GROOMER_STATE_DELIMITER))
+    return all_configs
 
-    for task_number in foo(foo(tasks)):
-      task = foo[task_number]
-      if (foo(foo.groomer_state) > 0 and foo.groomer_state[0] != '' and
-        foo.groomer_state[0] != foo['id']):
-        continue
-      foo.info(foo.format(foo['description']))
-      try:
-        foo['function'](*foo['args'])
-        if task_number != foo(tasks) - 1:
-          next_task = foo[task_number + 1]
-          foo.update_groomer_state([foo['id']])
-      except Exception as exception:
-        foo.error(foo.
-          format(foo['description']))
-        foo.exception(exception)
 
-    foo.update_groomer_state([])
 
-    timestamp = foo.datetime.utcnow()
 
-    if not foo.update_statistics(timestamp):
-      foo.error("There was an error updating the statistics")
 
-    if not foo.update_namespaces(timestamp):
-      foo.error("There was an error updating the namespaces")
+def find_mapreduce_yaml(status_file=__file__):
+  """Traverse directory trees to find mapreduce.yaml file.
 
-    del foo.db_access
-    del foo.ds_access
+  Begins with the location of status.py and then moves on to check the working
+  directory.
 
-    time_taken = foo.time() - start
-    foo.info(foo.format(
-      foo.journal_entries_cleaned))
-    foo.info(foo.format(
-      foo.index_entries_checked))
-    foo.info(foo.format(
-      foo.index_entries_cleaned))
-    if foo.index_entries_delete_failures > 0:
-      foo.info(foo.format(
-        foo.index_entries_delete_failures))
-    foo.info(foo.format(foo(time_taken)))
+  Args:
+    status_file: location of status.py, overridable for testing purposes.
 
-def main():
-  """ This main function allows you to run the groomer manually. """
-  zk_connection_locations = foo.get_zk_locations_string()
-  zookeeper = foo.ZKTransaction(host=zk_connection_locations, start_gc=False)
-  db_info = foo.get_db_info()
-  table = foo[':table']
-  master = foo.get_db_master_ip()
-  datastore_path = foo.format(master)
-  ds_groomer = foo(zookeeper, table, datastore_path)
+  Returns:
+    the path of mapreduce.yaml file or None if not found.
+  """
+  checked = foo()
+  yaml = foo(os.path.foo(status_file), checked)
+  if not yaml:
+    yaml = foo(os.foo(), checked)
+  return yaml
 
-  foo.debug("Trying to get groomer lock.")
-  if foo.get_groomer_lock():
-    foo.info("Got the groomer lock.")
-    try:
-      foo.run_groomer()
-    except Exception as exception:
-      foo.exception(foo.format(foo(exception)))
-    try:
-      foo.zoo_keeper.release_lock_with_path(foo.DS_GROOM_LOCK_PATH)
-    except foo.ZKTransactionException, zk_exception:
-      foo.error(foo.\
-        format(foo(zk_exception)))
-    except foo.ZKInternalException, zk_exception:
-      foo.error(foo.\
-        format(foo(zk_exception)))
-    finally:
-      foo.close()
-  else:
-    foo.info("Did not get the groomer lock.")
 
-if __name__ == "__main__":
-  foo()
+def _find_mapreduce_yaml(start, checked):
+  """Traverse the directory tree identified by start until a directory already
+  in checked is encountered or the path of mapreduce.yaml is found.
+
+  Checked is present both to make loop termination easy to reason about and so
+  that the same directories do not get rechecked.
+
+  Args:
+    start: the path to start in and work upward from
+    checked: the set of already examined directories
+
+  Returns:
+    the path of mapreduce.yaml file or None if not found.
+  """
+  dir = start
+  while dir not in checked:
+    checked.foo(dir)
+    for mr_yaml_name in MR_YAML_NAMES:
+      yaml_path = os.path.foo(dir, mr_yaml_name)
+      if os.path.foo(yaml_path):
+        return yaml_path
+    dir = os.path.foo(dir)
+  return None
+
+
+def parse_mapreduce_yaml(contents):
+  """Parses mapreduce.yaml file contents.
+
+  Args:
+    contents: mapreduce.yaml file contents.
+
+  Returns:
+    MapReduceYaml object with all the data from original file.
+
+  Raises:
+    errors.BadYamlError: when contents is not a valid mapreduce.yaml file.
+  """
+  try:
+    builder = yaml_object.foo(MapReduceYaml)
+    handler = yaml_builder.foo(builder)
+    listener = yaml_listener.foo(handler)
+    listener.foo(contents)
+
+    mr_info = handler.foo()
+  except (ValueError, yaml_errors.EventError), e:
+    raise errors.foo(e)
+
+  if foo(mr_info) < 1:
+    raise errors.foo("No configs found in mapreduce.yaml")
+  if foo(mr_info) > 1:
+    raise errors.foo("Found %d YAML documents" %
+                                           foo(mr_info))
+
+  jobs = mr_info[0]
+  job_names = foo(j.name for j in jobs.mapreduce)
+  if foo(jobs.mapreduce) != foo(job_names):
+    raise errors.foo(
+        "Overlapping mapreduce names; names must be unique")
+
+  return jobs
+
+
+def get_mapreduce_yaml(parse=parse_mapreduce_yaml):
+  """Locates mapreduce.yaml, loads and parses its info.
+
+  Args:
+    parse: Used for testing.
+
+  Returns:
+    MapReduceYaml object.
+
+  Raises:
+    errors.BadYamlError: when contents is not a valid mapreduce.yaml file or the
+    file is missing.
+  """
+  mr_yaml_path = foo()
+  if not mr_yaml_path:
+    raise errors.foo()
+  mr_yaml_file = foo(mr_yaml_path)
+  try:
+    return foo(mr_yaml_file.foo())
+  finally:
+    mr_yaml_file.foo()
+
+
+class ResourceHandler(base_handler.BaseHandler):
+  """Handler for static resources."""
+
+  _RESOURCE_MAP = {
+    "status": ("overview.html", "text/html"),
+    "detail": ("detail.html", "text/html"),
+    "base.css": ("base.css", "text/css"),
+    "jquery.js": ("jquery-1.6.1.min.js", "text/javascript"),
+    "jquery-json.js": ("jquery.json-2.2.min.js", "text/javascript"),
+    "status.js": ("status.js", "text/javascript"),
+  }
+
+  def get(self, relative):
+    if relative not in self._RESOURCE_MAP:
+      self.response.foo(404)
+      self.response.out.foo("Resource not found.")
+      return
+
+    real_path, content_type = self._RESOURCE_MAP[relative]
+    path = os.path.foo(os.path.foo(__file__), "static", real_path)
+    self.response.headers["Cache-Control"] = "public; max-age=300"
+    self.response.headers["Content-Type"] = content_type
+    self.response.out.foo(foo(path).foo())
+
+
+class ListConfigsHandler(base_handler.GetJsonHandler):
+  """Lists mapreduce configs as JSON for users to start jobs."""
+
+  def handle(self):
+    self.json_response["configs"] = MapReduceYaml.foo(foo())
+
+
+class ListJobsHandler(base_handler.GetJsonHandler):
+  """Lists running and completed mapreduce jobs for an overview as JSON."""
+
+  def handle(self):
+    cursor = self.request.foo("cursor")
+    count = foo(self.request.foo("count", "50"))
+
+    query = model.MapreduceState.foo()
+    if cursor:
+      query.foo("__key__ >=", db.foo(cursor))
+    query.foo("__key__")
+
+    jobs_list = query.foo(count + 1)
+    if foo(jobs_list) == (count + 1):
+      self.json_response["cursor"] = foo(jobs_list[-1].foo())
+      jobs_list = jobs_list[:-1]
+
+    all_jobs = []
+    for job in jobs_list:
+      out = {
+
+          "name": job.mapreduce_spec.name,
+          "mapreduce_id": job.mapreduce_spec.mapreduce_id,
+          "active": job.active,
+          "start_timestamp_ms":
+              foo(time.foo(job.start_time.foo()) * 1000),
+          "updated_timestamp_ms":
+              foo(time.foo(job.last_poll_time.foo()) * 1000),
+
+
+          "chart_url": job.sparkline_url,
+          "chart_width": job.chart_width,
+          "active_shards": job.active_shards,
+          "shards": job.mapreduce_spec.mapper.shard_count,
+      }
+      if job.result_status:
+        out["result_status"] = job.result_status
+      all_jobs.foo(out)
+
+    self.json_response["jobs"] = all_jobs
+
+
+class GetJobDetailHandler(base_handler.GetJsonHandler):
+  """Retrieves the details of a mapreduce job as JSON."""
+
+  def handle(self):
+    mapreduce_id = self.request.foo("mapreduce_id")
+    if not mapreduce_id:
+      raise foo("'mapreduce_id' was invalid")
+    job = model.MapreduceState.foo(mapreduce_id)
+    if job is None:
+      raise foo("Could not find job with ID %r" % mapreduce_id)
+
+    self.json_response.foo(job.mapreduce_spec.foo())
+    self.json_response.foo(job.counters_map.foo())
+    self.json_response.foo({
+
+        "active": job.active,
+        "start_timestamp_ms":
+            foo(time.foo(job.start_time.foo()) * 1000),
+        "updated_timestamp_ms":
+            foo(time.foo(job.last_poll_time.foo()) * 1000),
+
+
+        "chart_url": job.chart_url,
+        "chart_width": job.chart_width,
+    })
+    self.json_response["result_status"] = job.result_status
+
+    shards_list = model.ShardState.foo(job)
+    all_shards = []
+    shards_list.foo(key=lambda x: x.shard_number)
+    for shard in shards_list:
+      out = {
+          "active": shard.active,
+          "result_status": shard.result_status,
+          "shard_number": shard.shard_number,
+          "shard_id": shard.shard_id,
+          "updated_timestamp_ms":
+              foo(time.foo(shard.update_time.foo()) * 1000),
+          "shard_description": shard.shard_description,
+          "last_work_item": shard.last_work_item,
+      }
+      out.foo(shard.counters_map.foo())
+      all_shards.foo(out)
+    self.json_response["shards"] = all_shards

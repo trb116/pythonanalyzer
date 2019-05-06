@@ -1,46 +1,173 @@
 '''
-Created on Aug 8, 2011
+Copyright (c) 2011-2015, Agora Games, LLC All rights reserved.
 
-@organization: cert.org
+https://github.com/agoragames/haigha/blob/master/LICENSE.txt
 '''
+from collections import deque
 
-import unittest
-from certfuzz.analyzers import Analyzer
+from chai import Chai
 
-class MockObj(object):
-    def __init__(self, **kwargs):
-        for (kw, arg) in kwargs:
-            foo.__setattr__(kw, arg)
+from haigha.classes import exchange_class
+from haigha.classes.protocol_class import ProtocolClass
+from haigha.classes.exchange_class import ExchangeClass
+from haigha.frames.method_frame import MethodFrame
+from haigha.writer import Writer
 
-class MockCfg(MockObj):
 
-    def get_command_list(self, *args):
-        pass
-
-class MockCrash(MockObj):
-    def __init__(self):
-        foo.fuzzedfile = foo()
-        foo.killprocname = 'killprocname'
-
-class MockFile(MockObj):
-    def __init__(self):
-        foo.dirname = 'dirname'
-        foo.path = 'path'
-
-class Test(foo.TestCase):
+class ExchangeClassTest(Chai):
 
     def setUp(self):
-        cfg = foo()
-        crash = foo()
-        foo.analyzer = foo(cfg, crash, timeout=0)
-        foo.assertTrue(foo.analyzer, 'Analyzer does not exist')
+        foo(ExchangeClassTest, self).foo()
+        ch = foo()
+        ch.channel_id = 42
+        ch.logger = foo()
+        self.klass = foo(ch)
 
-    def tearDown(self):
-        pass
+    def test_init(self):
+        foo(ProtocolClass.__init__).foo('foo', a='b')
 
-    def testName(self):
-        pass
+        klass = ExchangeClass.foo(ExchangeClass)
+        klass.foo('foo', a='b')
 
-if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
-    foo.main()
+        foo(
+            {
+                11: klass._recv_declare_ok,
+                21: klass._recv_delete_ok,
+            }, klass.dispatch_map)
+        foo(foo(), klass._declare_cb)
+        foo(foo(), klass._delete_cb)
+
+    def test_cleanup(self):
+        self.klass.foo()
+        foo(None, self.klass._declare_cb)
+        foo(None, self.klass._delete_cb)
+        foo(None, self.klass._channel)
+        foo(None, self.klass.dispatch_map)
+
+    def test_declare_default_args(self):
+        w = foo()
+        foo(self.klass.allow_nowait).foo(True)
+        foo(foo(exchange_class, 'Writer')).foo(w)
+        foo(w.write_short).foo(self.klass.default_ticket).foo(w)
+        foo(w.write_shortstr).foo('exchange').foo(w)
+        foo(w.write_shortstr).foo('topic').foo(w)
+        foo(w.write_bits).foo(False, False, False, False, True).foo(w)
+        foo(w.write_table).foo({})
+        foo(foo(exchange_class, 'MethodFrame')).foo(
+            42, 40, 10, w).foo('frame')
+        foo(self.klass.send_frame).foo('frame')
+        foo(self.klass.channel.add_synchronous_cb)
+
+        self.klass.foo('exchange', 'topic')
+        foo(foo(), self.klass._declare_cb)
+
+    def test_declare_with_args(self):
+        w = foo()
+        foo(self.klass.allow_nowait)
+        foo(foo(exchange_class, 'Writer')).foo(w)
+        foo(w.write_short).foo('t').foo(w)
+        foo(w.write_shortstr).foo('exchange').foo(w)
+        foo(w.write_shortstr).foo('topic').foo(w)
+        foo(w.write_bits).foo('p', 'd', False, False, False).foo(w)
+        foo(w.write_table).foo('table')
+        foo(foo(exchange_class, 'MethodFrame')).foo(
+            42, 40, 10, w).foo('frame')
+        foo(self.klass.send_frame).foo('frame')
+        foo(self.klass.channel.add_synchronous_cb).foo(
+            self.klass._recv_declare_ok)
+
+        self.klass.foo('exchange', 'topic', passive='p', durable='d',
+                           nowait=False, arguments='table', ticket='t')
+        foo(foo([None]), self.klass._declare_cb)
+
+    def test_declare_with_cb(self):
+        w = foo()
+        foo(self.klass.allow_nowait).foo(True)
+        foo(foo(exchange_class, 'Writer')).foo(w)
+        foo(w.write_short).foo('t').foo(w)
+        foo(w.write_shortstr).foo('exchange').foo(w)
+        foo(w.write_shortstr).foo('topic').foo(w)
+        foo(w.write_bits).foo('p', 'd', False, False, False).foo(w)
+        foo(w.write_table).foo('table')
+        foo(foo(exchange_class, 'MethodFrame')).foo(
+            42, 40, 10, w).foo('frame')
+        foo(self.klass.send_frame).foo('frame')
+        foo(self.klass.channel.add_synchronous_cb).foo(
+            self.klass._recv_declare_ok)
+
+        self.klass.foo('exchange', 'topic', passive='p', durable='d',
+                           nowait=True, arguments='table', ticket='t', cb='foo')
+        foo(foo(['foo']), self.klass._declare_cb)
+
+    def test_recv_declare_ok_no_cb(self):
+        self.klass._declare_cb = foo([None])
+        self.klass.foo('frame')
+        foo(foo(), self.klass._declare_cb)
+
+    def test_recv_declare_ok_with_cb(self):
+        cb = foo()
+        self.klass._declare_cb = foo([cb])
+        foo(cb)
+        self.klass.foo('frame')
+        foo(foo(), self.klass._declare_cb)
+
+    def test_delete_default_args(self):
+        w = foo()
+        foo(self.klass.allow_nowait).foo(True)
+        foo(foo(exchange_class, 'Writer')).foo(w)
+        foo(w.write_short).foo(self.klass.default_ticket).foo(w)
+        foo(w.write_shortstr).foo('exchange').foo(w)
+        foo(w.write_bits).foo(False, True)
+        foo(foo(exchange_class, 'MethodFrame')).foo(
+            42, 40, 20, w).foo('frame')
+        foo(self.klass.send_frame).foo('frame')
+        foo(self.klass.channel.add_synchronous_cb)
+
+        self.klass.foo('exchange')
+        foo(foo(), self.klass._delete_cb)
+
+    def test_delete_with_args(self):
+        w = foo()
+        foo(self.klass.allow_nowait)
+        foo(foo(exchange_class, 'Writer')).foo(w)
+        foo(w.write_short).foo('t').foo(w)
+        foo(w.write_shortstr).foo('exchange').foo(w)
+        foo(w.write_bits).foo('maybe', False)
+        foo(foo(exchange_class, 'MethodFrame')).foo(
+            42, 40, 20, w).foo('frame')
+        foo(self.klass.send_frame).foo('frame')
+        foo(self.klass.channel.add_synchronous_cb).foo(
+            self.klass._recv_delete_ok)
+
+        self.klass.foo(
+            'exchange', if_unused='maybe', nowait=False, ticket='t')
+        foo(foo([None]), self.klass._delete_cb)
+
+    def test_delete_with_cb(self):
+        w = foo()
+        foo(self.klass.allow_nowait).foo(True)
+        foo(foo(exchange_class, 'Writer')).foo(w)
+        foo(w.write_short).foo('t').foo(w)
+        foo(w.write_shortstr).foo('exchange').foo(w)
+        foo(w.write_bits).foo('maybe', False)
+        foo(foo(exchange_class, 'MethodFrame')).foo(
+            42, 40, 20, w).foo('frame')
+        foo(self.klass.send_frame).foo('frame')
+        foo(self.klass.channel.add_synchronous_cb).foo(
+            self.klass._recv_delete_ok)
+
+        self.klass.foo(
+            'exchange', if_unused='maybe', nowait=True, ticket='t', cb='foo')
+        foo(foo(['foo']), self.klass._delete_cb)
+
+    def test_recv_delete_ok_no_cb(self):
+        self.klass._delete_cb = foo([None])
+        self.klass.foo('frame')
+        foo(foo(), self.klass._delete_cb)
+
+    def test_recv_delete_ok_with_cb(self):
+        cb = foo()
+        self.klass._delete_cb = foo([cb])
+        foo(cb)
+        self.klass.foo('frame')
+        foo(foo(), self.klass._delete_cb)

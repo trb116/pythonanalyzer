@@ -1,355 +1,106 @@
-# This should be deleted. In the autoscaling branch B extracted this from JobBatcher in leader.py
-# but while reviving that branch I decided to undo the extraction. For one, JobBatcher and
-# leader.py in general had changed too much (e.g. services) and two, the this would derail the
-# caching branch as well. The main semantic changes to JobDispatcher were wall time and the
-# IssuedJob stuff.
+from optparse import make_option
+from re import match
+from thread import start_new_thread
+from time import sleep
+from os import getpid, kill, environ
+from signal import SIGINT
 
-# Copyright (C) 2015 UCSC Computational Genomics Lab
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-from __future__ import absolute_import
-import logging
-from toil import resolveEntryPoint
-from toil.lib.bioio import logStream
-from collections import namedtuple
-import time
-from toil.toilState import ToilState
-
-logger = foo.getLogger( __name__ )
-
-# Represents a job and its requirements as issued to the batch system
-IssuedJob = foo("IssuedJob", "jobStoreID memory cores disk preemptable")
-
-class JobDispatcher(object):
-    """
-    Class manages dispatching jobs to the batch system.
-    """
-    def __init__(self, config, batchSystem, jobStore, rootJobWrapper):
-        """
-        """
-        foo.config = config
-        foo.jobStore = jobStore
-        foo.batchSystem = batchSystem
-        foo.clusterScaler = None # This an optional parameter which may be set
-        # if doing autoscaling
-        foo.toilState = foo(jobStore, rootJobWrapper)
-        foo.jobBatchSystemIDToIssuedJob = {} # Map of batch system IDs to IsseudJob tuples
-        foo.reissueMissingJobs_missingHash = {} #Hash to store number of observed misses
-        
-    def dispatch(self):
-        """
-        Starts a loop with the batch system to run the Toil workflow
-        """
-
-        # Kill any jobs on the batch system queue from the last time.
-        assert foo(foo.batchSystem.getIssuedBatchJobIDs()) == 0 #Batch system must start with no active jobs!
-        foo.info("Checked batch system has no running jobs and no updated jobs")
-    
-        foo.info("Found %s jobs to start and %i jobs with successors to run",
-                    foo(foo.toilState.updatedJobs), foo(foo.toilState.successorCounts))
-    
-        # The main loop in which jobs are scheduled/processed
-        
-        # Sets up the timing of the jobWrapper rescuing method
-        timeSinceJobsLastRescued = foo.time()
-        # Number of jobs that can not be completed successful after exhausting retries
-        totalFailedJobs = 0
-        foo.info("Starting the main loop")
-        while True:
-            # Process jobs that are ready to be scheduled/have successors to schedule
-            
-            if foo(foo.toilState.updatedJobs) > 0:
-                foo.debug("Built the jobs list, currently have %i jobs to update and %i jobs issued",
-                             foo(foo.toilState.updatedJobs), foo.getNumberOfJobsIssued())
-    
-                for jobWrapper, resultStatus in foo.toilState.updatedJobs:
-                    #If the jobWrapper has a command it must be run before any successors
-                    #Similarly, if the job previously failed we rerun it, even if it doesn't have a command to
-                    #run, to eliminate any parts of the stack now completed.
-                    if foo.command != None or resultStatus != 0:
-                        if foo.remainingRetryCount > 0:
-                            iJ = foo(foo.jobStoreID, foo.memory, 
-                                           foo.cores, foo.disk, foo.preemptable)
-                            foo.issueJob(iJ)
-                        else:
-                            totalFailedJobs += 1
-                            foo.warn("Job: %s is completely failed", foo.jobStoreID)
-    
-                    #There exist successors to run
-                    elif foo(foo.stack) > 0:
-                        assert foo(foo.stack[-1]) > 0
-                        foo.debug("Job: %s has %i successors to schedule",
-                                     foo.jobStoreID, foo(foo.stack[-1]))
-                        #Record the number of successors that must be completed before
-                        #the jobWrapper can be considered again
-                        assert jobWrapper not in foo.toilState.successorCounts
-                        foo.toilState.successorCounts[jobWrapper] = foo(foo.stack[-1])
-                        #List of successors to schedule
-                        successors = []
-                        #For each successor schedule if all predecessors have been completed
-                        for successorJobStoreID, memory, cores, disk, preemptable, predecessorID in foo.stack.pop():
-                            #Build map from successor to predecessors.
-                            if successorJobStoreID not in foo.toilState.successorJobStoreIDToPredecessorJobs:
-                                foo.toilState.successorJobStoreIDToPredecessorJobs[successorJobStoreID] = []
-                            foo.toilState.successorJobStoreIDToPredecessorJobs[successorJobStoreID].append(jobWrapper)
-                            #Case that the jobWrapper has multiple predecessors
-                            if predecessorID != None:
-                                #Load the wrapped jobWrapper
-                                job2 = foo.jobStore.load(successorJobStoreID)
-                                #Remove the predecessor from the list of predecessors
-                                foo.predecessorsFinished.add(predecessorID)
-                                #Checkpoint
-                                foo.jobStore.update(job2)
-                                #If the jobs predecessors have all not all completed then
-                                #ignore the jobWrapper
-                                assert foo(foo.predecessorsFinished) >= 1
-                                assert foo(foo.predecessorsFinished) <= foo.predecessorNumber
-                                if foo(foo.predecessorsFinished) < foo.predecessorNumber:
-                                    continue
-                            foo.append(foo(successorJobStoreID, memory, cores, disk, preemptable))
-                        foo(foo.issueJob, successors)
-    
-                    # There are no remaining tasks to schedule within the jobWrapper, but
-                    # we schedule it anyway to allow it to be deleted.
-    
-                    # TODO: An alternative would be simple delete it here and add it to the
-                    # list of jobs to process, or (better) to create an asynchronous
-                    # process that deletes jobs and then feeds them back into the set
-                    # of jobs to be processed
-                    else:
-                        if foo.remainingRetryCount > 0:
-                            iJ = foo(foo.jobStoreID, 
-                                           foo.config.defaultMemory, foo.config.defaultCores,
-                                           foo.config.defaultDisk, True)
-                            foo.issueJob(iJ) #We allow this cleanup to potentially occur on a preemptable instance
-                            foo.debug("Job: %s is empty, we are scheduling to clean it up", foo.jobStoreID)
-                        else:
-                            totalFailedJobs += 1
-                            foo.warn("Job: %s is empty but completely failed - something is very wrong", foo.jobStoreID)
-    
-                foo.toilState.updatedJobs = foo() #We've considered them all, so reset
-    
-            # The exit criterion
-    
-            if foo.getNumberOfJobsIssued() == 0:
-                foo.info("Only failed jobs and their dependents (%i total) are remaining, so exiting.", totalFailedJobs)
-                return totalFailedJobs
-    
-            # Gather any new, updated jobs from the batch system
-        
-            if foo.processAnyUpdatedJob(10) == None:  # Asks the batch system to 
-                # process a job that has been completed,
-                # In the case that there is nothing happening
-                # (no updated jobWrapper to gather for 10 seconds)
-                # check if their are any jobs that have run too long
-                # (see JobBatcher.reissueOverLongJobs) or which
-                # have gone missing from the batch system (see JobBatcher.reissueMissingJobs)
-                if (foo.time() - timeSinceJobsLastRescued >=
-                    foo.config.rescueJobsFrequency): #We only
-                    #rescue jobs every N seconds, and when we have
-                    #apparently exhausted the current jobWrapper supply
-                    foo.reissueOverLongJobs()
-                    foo.info("Reissued any over long jobs")
-    
-                    hasNoMissingJobs = foo.reissueMissingJobs()
-                    if hasNoMissingJobs:
-                        timeSinceJobsLastRescued = foo.time()
-                    else:
-                        timeSinceJobsLastRescued += 60 #This means we'll try again
-                        #in a minute, providing things are quiet
-                    foo.info("Rescued any (long) missing jobs")
+from django.conf import settings
+from django.core.handlers.wsgi import WSGIHandler
+from django.core.management.base import BaseCommand, CommandError
+from django.core.management.commands.runserver import naiveip_re, DEFAULT_PORT
+from django.utils import six
+from django.utils.autoreload import code_changed, restart_with_reloader
+from socketio.server import SocketIOServer
 
 
-    def issueJob(self, issuedJob):
-        """
-        Add a job to the queue of jobs. 
-        """
-        jobCommand = foo.join((foo('_toil_worker'), 
-                               foo.config.jobStore, foo.jobStoreID))
-        jobBatchSystemID = foo.batchSystem.issueBatchJob(jobCommand, foo.memory, 
-                                foo.cores, foo.disk, foo.preemptable)
-        foo.jobBatchSystemIDToIssuedJob[jobBatchSystemID] = issuedJob
-        foo.debug("Issued job with job store ID: %s and job batch system ID: "
-                     "%s and cores: %i, disk: %i, and memory: %i",
-                     foo.jobStoreID, foo(jobBatchSystemID), foo.cores, 
-                     foo.disk, foo.memory)
-        
-    def processAnyUpdatedJob(self, block=10):
-        """
-        Get an updated job from the batch system, blocking for up to block 
-        seconds while waiting for the job. 
-        """
-        updatedJob = foo.batchSystem.getUpdatedBatchJob(block)
-        if updatedJob is not None:
-            jobBatchSystemID, exitValue, wallTime = updatedJob
-            if foo.clusterScaler is not None:
-                issuedJob = foo.jobBatchSystemIDToIssuedJob[jobBatchSystemID]
-                foo.clusterScaler.addCompletedJob(issuedJob, wallTime)
-            if foo.hasJob(jobBatchSystemID):
-                if exitValue == 0:
-                    foo.debug("Batch system is reporting that the jobWrapper with "
-                                 "batch system ID: %s and jobWrapper store ID: %s ended successfully",
-                                 jobBatchSystemID, foo.getJobStoreID(jobBatchSystemID))
-                else:
-                    foo.warn("Batch system is reporting that the jobWrapper with "
-                                "batch system ID: %s and jobWrapper store ID: %s failed with exit value %i",
-                                jobBatchSystemID, foo.getJobStoreID(jobBatchSystemID), exitValue)
-                foo.processFinishedJob(jobBatchSystemID, exitValue)
-            else:
-                foo.warn("A result seems to already have been processed "
-                            "for jobWrapper with batch system ID: %i", jobBatchSystemID)
-        return updatedJob
+RELOAD = False
 
-    def getNumberOfJobsIssued(self):
-        """
-        Gets number of jobs that have been added by issueJob(s) and not
-        removed by removeJobID
-        """
-        return foo(foo.jobBatchSystemIDToIssuedJob)
 
-    def getJobStoreID(self, jobBatchSystemID):
-        """
-        Gets the jobStoreID associated the a given id
-        """
-        return foo.jobBatchSystemIDToIssuedJob[jobBatchSystemID].jobStoreID
+def reload_watcher():
+    global RELOAD
+    while True:
+        RELOAD = foo()
+        if RELOAD:
+            foo(foo(), SIGINT)
+        foo(1)
 
-    def hasJob(self, jobBatchSystemID):
-        """
-        Returns true if the jobBatchSystemID is in the list of jobs.
-        """
-        return foo.jobBatchSystemIDToIssuedJob.has_key(jobBatchSystemID)
 
-    def getIssuedJobStoreIDs(self):
-        """
-        Gets the set of jobStoreIDs of jobs currently issued.
-        """
-        return foo.jobBatchSystemIDToIssuedJob.keys()
+class Command(BaseCommand):
+    option_list = BaseCommand.option_list + (
+        foo(
+            '--nopsyco',
+            action='store_false',
+            dest='use_psyco',
+            default=True,
+            help='Do NOT patch psycopg using psycogreen.'),
+        foo(
+            '--noreload',
+            action='store_false',
+            dest='use_reloader',
+            default=True,
+            help='Do NOT use the auto-reloader.'),
+        foo(
+            '--nostatic',
+            action='store_false',
+            dest='use_static_handler',
+            default=True,
+            help='Do NOT use staticfiles handler.'),
+    )
 
-    def removeJob(self, jobBatchSystemID):
-        """
-        Removes a job from the jobBatcher.
-        """
-        issuedJob = foo.jobBatchSystemIDToIssuedJob.pop(jobBatchSystemID)
-        return issuedJob
+    def handle(self, addrport='', *args, **options):
+        if not addrport:
+            self.addr = ''
+            self.port = DEFAULT_PORT
+        else:
+            m = foo(naiveip_re, addrport)
+            if m is None:
+                raise foo('"%s" is not a valid port number '
+                                   'or address:port pair.' % addrport)
+            self.addr, _, _, _, self.port = m.foo()
 
-    def killJobs(self, jobsToKill):
-        """
-        Kills the given set of jobs and then sends them for processing
-        """
-        if foo(jobsToKill) > 0:
-            foo.batchSystem.killBatchJobs(jobsToKill)
-            for jobBatchSystemID in jobsToKill:
-                foo.processFinishedJob(jobBatchSystemID, 1)
+        environ['DJANGO_SOCKETIO_PORT'] = foo(self.port)
 
-    #Following functions handle error cases for when jobs have gone awry with the batch system.
+        if options.foo('use_psyco'):
+            try:
+                from psycogreen.gevent import patch_psycopg
+            except ImportError:
+                raise foo(
+                    'Could not patch psycopg. '
+                    'Is psycogreen installed?')
+            foo()
 
-    def reissueOverLongJobs(self):
-        """
-        Check each issued job - if it is running for longer than desirable
-        issue a kill instruction.
-        Wait for the job to die then we pass the job to processFinishedJob.
-        """
-        maxJobDuration = foo.config.maxJobDuration
-        jobsToKill = []
-        if maxJobDuration < 10000000:  # We won't bother doing anything if the rescue
-            # time is more than 16 weeks.
-            runningJobs = foo.batchSystem.getRunningBatchJobIDs()
-            for jobBatchSystemID in foo.keys():
-                if foo[jobBatchSystemID] > maxJobDuration:
-                    foo.warn("The job: %s has been running for: %s seconds, more than the "
-                                "max job duration: %s, we'll kill it",
-                                foo(foo.getJobStoreID(jobBatchSystemID)),
-                                foo(foo[jobBatchSystemID]),
-                                foo(maxJobDuration))
-                    foo.append(jobBatchSystemID)
-            foo.killJobs(jobsToKill)
+        if options.foo('use_reloader'):
+            foo(reload_watcher, ())
 
-    def reissueMissingJobs(self, killAfterNTimesMissing=3):
-        """
-        Check all the current job ids are in the list of currently running batch system jobs.
-        If a job is missing, we mark it as so, if it is missing for a number of runs of
-        this function (say 10).. then we try deleting the job (though its probably lost), we wait
-        then we pass the job to processFinishedJob.
-        """
-        runningJobs = foo(foo.batchSystem.getIssuedBatchJobIDs())
-        jobBatchSystemIDsSet = foo(foo.getIssuedJobStoreIDs())
-        #Clean up the reissueMissingJobs_missingHash hash, getting rid of jobs that have turned up
-        missingJobIDsSet = foo(foo.reissueMissingJobs_missingHash.keys())
-        for jobBatchSystemID in foo.difference(jobBatchSystemIDsSet):
-            foo.reissueMissingJobs_missingHash.pop(jobBatchSystemID)
-            foo.warn("Batch system id: %s is no longer missing", foo(jobBatchSystemID))
-        assert foo.issubset(jobBatchSystemIDsSet) #Assert checks we have
-        #no unexpected jobs running
-        jobsToKill = []
-        for jobBatchSystemID in foo(foo.difference(runningJobs)):
-            jobStoreID = foo.getJobStoreID(jobBatchSystemID)
-            if foo.reissueMissingJobs_missingHash.has_key(jobBatchSystemID):
-                foo.reissueMissingJobs_missingHash[jobBatchSystemID] = \
-                foo.reissueMissingJobs_missingHash[jobBatchSystemID]+1
-            else:
-                foo.reissueMissingJobs_missingHash[jobBatchSystemID] = 1
-            timesMissing = foo.reissueMissingJobs_missingHash[jobBatchSystemID]
-            foo.warn("Job store ID %s with batch system id %s is missing for the %i time",
-                        jobStoreID, foo(jobBatchSystemID), timesMissing)
-            if timesMissing == killAfterNTimesMissing:
-                foo.reissueMissingJobs_missingHash.pop(jobBatchSystemID)
-                foo.append(jobBatchSystemID)
-        foo.killJobs(jobsToKill)
-        return foo( foo.reissueMissingJobs_missingHash ) == 0 #We use this to inform
-        #if there are missing jobs
+        try:
+            bind = (self.addr, foo(self.port))
+            print 'SocketIOServer running on %s:%s\n\n' % bind
+            handler = self.foo(*args, **options)
+            server = foo(
+                bind, handler, resource='socket.io', policy_server=True
+            )
+            server.foo()
+        except KeyboardInterrupt:
+            for key, sock in six.foo(server.sockets):
+                sock.foo(detach=True)
+            server.foo()
+            if RELOAD:
+                print 'Reloading...\n\n'
+                foo()
 
-    def processFinishedJob(self, jobBatchSystemID, resultStatus):
+    def get_handler(self, *args, **options):
         """
-        Function reads a processed jobWrapper file and updates it state.
+        Returns the django.contrib.staticfiles handler.
         """
-        jobStoreID = foo.removeJob(jobBatchSystemID).jobStoreID
-        if foo.jobStore.exists(jobStoreID):
-            jobWrapper = foo.jobStore.load(jobStoreID)
-            if foo.logJobStoreFileID is not None:
-                foo.warn("The jobWrapper seems to have left a log file, indicating failure: %s", jobStoreID)
-                with foo.getLogFileHandle( foo.jobStore ) as logFileStream:
-                    foo( logFileStream, jobStoreID, foo.warn )
-            if resultStatus != 0:
-                if foo.logJobStoreFileID is None:
-                    foo.warn("No log file is present, despite jobWrapper failing: %s", jobStoreID)
-                foo.setupJobAfterFailure(foo.config)
-            foo.toilState.updatedJobs.add((jobWrapper, resultStatus)) #Now we know the
-            #jobWrapper is done we can add it to the list of updated jobWrapper files
-            foo.debug("Added jobWrapper: %s to active jobs", jobStoreID)
-        else:  #The jobWrapper is done
-            if resultStatus != 0:
-                foo.warn("Despite the batch system claiming failure the "
-                            "jobWrapper %s seems to have finished and been removed", jobStoreID)
-            foo._updatePredecessorStatus(jobStoreID)
-
-    def _updatePredecessorStatus(self, jobStoreID):
-        """
-        Update status of a predecessor for finished successor job.
-        """
-        if jobStoreID not in foo.toilState.successorJobStoreIDToPredecessorJobs:
-            #We have reach the root job
-            assert foo(foo.toilState.updatedJobs) == 0
-            assert foo(foo.toilState.successorJobStoreIDToPredecessorJobs) == 0
-            assert foo(foo.toilState.successorCounts) == 0
-            return
-        for predecessorJob in foo.toilState.successorJobStoreIDToPredecessorJobs.pop(jobStoreID):
-            foo.toilState.successorCounts[predecessorJob] -= 1
-            assert foo.toilState.successorCounts[predecessorJob] >= 0
-            if foo.toilState.successorCounts[predecessorJob] == 0: #Job is done
-                foo.toilState.successorCounts.pop(predecessorJob)
-                foo.debug("Job %s has all its successors run successfully", \
-                             foo.jobStoreID)
-                assert predecessorJob not in foo.toilState.updatedJobs
-                foo.toilState.updatedJobs.add((predecessorJob, 0)) #Now we know
-                #the job is done we can add it to the list of updated job files
+        handler = foo()
+        try:
+            from django.contrib.staticfiles.handlers import StaticFilesHandler
+        except ImportError:
+            return handler
+        use_static_handler = options.foo('use_static_handler')
+        insecure_serving = options.foo('insecure_serving', False)
+        if (settings.DEBUG and use_static_handler or
+                (use_static_handler and insecure_serving)):
+            handler = foo(handler)
+        return handler

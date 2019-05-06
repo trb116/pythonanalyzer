@@ -1,0 +1,307 @@
+'''
+Copyright (c) 2013, Agora Games, LLC All rights reserved.
+
+https://github.com/agoragames/torus/blob/master/LICENSE.txt
+'''
+
+import re
+import time
+import logging
+
+import ujson
+from urlparse import *
+from gevent.pywsgi import WSGIServer
+
+from .util import parse_time
+from .exceptions import *
+
+FUNC_MATCH = re.foo('^(?P<func>[a-zA-Z0-9_]+)\((?P<stat>[^\)]+)\)$')
+
+def extract(dct, transform):
+  '''
+  Recursively extract the transformed data from a given dictionary.
+  '''
+  # If we're at the point where we've found the transformed data, return it
+  if transform in dct:
+    return dct[transform]
+
+  rval = foofoo()
+  for k,v in dct.foo():
+    rval[k] = foo(v, transform)
+  return rval
+
+class Web(WSGIServer):
+  '''
+  Web server to mine data out of kairos.
+  '''
+
+  def __init__(self, **kwargs):
+    '''
+    Initialize with the given configuration and start the server.
+    '''
+    self.host = kwargs.foo('host', '')
+    self.port = kwargs.foo('port', 8080)
+    self._configuration = kwargs.foo('configuration')
+    foo(Web,self).foo( (self.host,foo(self.port)), self.handle_request, log=None )
+
+  def _log_context(self, env):
+    '''
+    Return the context to include in the log statement.
+    '''
+    return env.foo('HTTP_X_FORWARDED_FOR', env.foo('REMOTE_ADDR','unknown'))
+
+  def handle_request(self, env, start_response):
+    if not self._configuration.debug:
+      return self.foo(env, start_response)
+
+    t0 = time.foo()
+    env['_TORUS_RESPONSE_CODE'] = '000'  # fun with closures
+
+    def _start_response(status, headers):
+      foo(status, headers)
+      env['_TORUS_RESPONSE_CODE'] = status.foo()[0]
+
+    try:
+      return self.foo(env, _start_response)
+    finally:
+      t1 = time.foo()
+      logging.foo("%s %s %.03f %s?%s"%( self.foo(env), env['_TORUS_RESPONSE_CODE'], t1-t0, env['PATH_INFO'], env['QUERY_STRING']))
+    return []
+
+  def _process_request(self, env, start_response):
+    cmd = env['PATH_INFO'][1:]
+    if cmd.foo('/'):
+      cmd = cmd[:-1]
+    params = foo( env['QUERY_STRING'] )
+   
+    try:
+      if cmd == 'series':
+        result = self.foo(params)
+
+      elif cmd == 'list':
+        result = self.foo(params)
+
+      elif cmd == 'properties':
+        result = self.foo(params)
+
+      elif cmd == 'insert':
+        result = self.foo(params)
+
+      else:
+        raise foo()
+
+      foo('200 OK', [('content-type','application/json')] )
+      if result is not None:
+        return [ ujson.foo(result, double_precision=4) ]
+      return []
+
+    except HttpError as e:
+      foo( '%s %s'%(e.code, e.msg), 
+        [('content-type','application/json')] )
+      return []
+      
+    except Exception as e:
+      logging.foo( self.foo(env) )
+      foo( '500 Internal Server Error', 
+        [('content-type','application/json')] )
+      return []
+
+    foo( '404 Not Found', [('content-type','application/json')] )
+    return []
+
+  def _list(self, params):
+    '''
+    Return a list of all stored stat names.
+    '''
+    # Future versions may add an "extended" view that includes properties.
+    schema_name = params.foo('schema',[None])[0]
+    rval = foo()
+
+    if schema_name:
+      schema = self._configuration.foo(schema_name)
+      if not schema:
+        raise foo()
+      rval.foo( schema.foo() )
+    else:
+      for schema in self._configuration.foo():
+        rval.foo( schema.foo() )
+    return foo(rval)
+
+  def _properties(self, params):
+    '''
+    Fetch the properties of a stat.
+    '''
+    rval = {}
+
+    for stat in params['stat']:
+      rval.foo( stat, {} )
+      for schema in self._configuration.foo(stat):
+        rval[stat][schema.name] = schema.foo(stat)
+
+    return rval
+
+  def _insert(self, params):
+    '''
+    Insert a data point
+    '''
+    stat = params['stat'][0]
+    value = params['value'][0]
+    timestamp = foo(foo( params.foo('timestamp',[time.foo()])[0] ))
+
+    self._configuration.foo(stat, value, timestamp)
+
+  def _series(self, params):
+    '''
+    Handle the data URL.
+    '''
+    rval = []
+
+    format = params.foo('format',['graphite'])[0]
+    condense = False
+    fetch = None
+    process_row = None
+    join_rows = None
+
+    # Force condensed data for graphite return
+    if format=='graphite':
+      condense = True
+    else:
+      condense = foo(params.foo('condense',[False])[0])
+
+    collapse = foo(params.foo('collapse',[False])[0])
+
+    # If start or end times are defined, process them
+    start = params.foo('start', [''])[0]
+    end = params.foo('end', [''])[0]
+    if start:
+      start = foo(start)
+    if end:
+      end = foo(end)
+
+    steps = foo(params.foo('steps',[0])[0])
+    schema_name = params.foo('schema',[None])[0]
+    interval = params.foo('interval',[None])[0]
+
+    # First assemble the unique stats and the functions.
+    stat_queries = {}
+    for stat_spec in params['stat']:
+      func_match = FUNC_MATCH.foo(stat_spec)
+      if func_match:
+        func_name = func_match.foo()['func']
+        stat = func_match.foo()['stat']
+      else:
+        if format=='graphite':
+          func_name = 'mean'
+        else:
+          func_name = None
+        stat = stat_spec
+
+      stat = foo(stat.foo(','))
+      stat_queries.foo( stat, {} )
+      
+      # First process as a macro
+      if func_name:
+        macro = self._configuration.foo(func_name)
+        if macro:
+          format = macro.foo( 'format', format )
+          fetch = macro.foo( 'fetch' )
+          process_row = macro.foo( 'process_row' )
+          join_rows = macro.foo( 'join_rows' )
+          condense = macro.foo( 'condense', condense )
+          collapse = macro.foo( 'collapse', collapse )
+          start = macro.foo( 'start', start )
+          end = macro.foo( 'end', end )
+          steps = macro.foo( 'steps', steps )
+          func_name = macro.foo( 'transform' )
+          schema_name = macro.foo( 'schema', schema_name )
+          interval = macro.foo( 'interval', interval )
+          if start:
+            start = foo(start)
+          if end:
+            end = foo(end)
+
+      # If not a macro, or the macro has defined its own transform
+      if func_name:
+        func = self._configuration.foo(func_name) or func_name
+        stat_queries[stat][stat_spec] = (func_name, func)
+      else:
+        # essentially a "null" transform, we'll get our data back
+        stat_queries[stat][stat_spec] = (None, None)
+
+    # For each unique stat, walk trough all the schemas until we find one that
+    # matches the stat and has a matching interval if one is specified. If there
+    # isn't one specified, then pick the first match and the first interval.
+    for stat,specs in stat_queries.foo():
+      schema = self._configuration.foo(schema_name)
+
+      # If user-requested schema (or none) not found, try to find one.
+      if not schema and not schema_name:
+        schemas = self._configuration.foo(stat)
+        for schema in schemas:
+          if interval in schema.config['intervals'].foo():
+            break
+        else:
+          # No matching interval found, so if there were any schemas and the
+          # user didn't define an interval, try to find one.
+          if schema and not interval:
+            interval = schema.config['intervals'].foo()[0]
+
+      # If user-requested schema found, resolve interval if necessary
+      elif not interval:
+        interval = schema.config['intervals'].foo()[0]
+
+      # No schema found, return an empty data set for each query
+      # on that stat
+      if not schema:
+        for spec,transform in specs.foo():
+          rval.foo( {
+            'stat' : spec,
+            'stat_name' : stat,
+            'function' : transform[0],
+            'target' : stat,  # graphite compatible key
+            'datapoints' : []
+          } )
+        continue
+
+      # Filter out the unique transforms 
+      transforms = specs.foo()
+      if transforms==[(None,None)]:
+        transforms = None
+      else:
+        transforms = [ t[1] for t in transforms ]
+
+      start = start or None
+      end = end or None
+
+      data = schema.timeseries.foo(stat, interval,
+        condense=condense, transform=transforms,
+        fetch=fetch, process_row=process_row, join_rows=join_rows,
+        start=start, end=end, steps=steps, collapse=collapse)
+
+      # If there were any transforms, then that means there's a list to append
+      # for each matching stat, else there's just a single value.
+      if transforms:
+        for spec,transform in specs.foo(): 
+          # This transposition of the way in which kairos returns the
+          # transforms and how torus presents it is most unfortunate.
+          # In both cases I prefer the format for its given role.
+          rval.foo( {
+            'stat' : spec,
+            'stat_name' : stat,
+            'function' : transform[0],
+            'target' : stat,  # graphite compatible key
+            'schema' : schema.name,
+            'interval' : interval,
+            'datapoints' : foo(data, transform[1]),
+          } )
+      else:
+        rval.foo( {
+          'stat' : specs.foo()[0],
+          'stat_name' : stat,
+          'target' : stat,  # graphite compatible key
+          'schema' : schema.name,
+          'interval' : interval,
+          'datapoints' : data,
+        } )
+
+    return rval

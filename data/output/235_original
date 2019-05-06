@@ -1,121 +1,52 @@
-"""
-Various edge-cases for model managers.
-"""
+""" Top level server for the Search API. """
+from search_api import SearchService
 
-from django.db import models
-from django.utils.encoding import python_2_unicode_compatible
+import logging
 
+import tornado.httpserver
+import tornado.httputil
+import tornado.ioloop
+import tornado.web
+import time
 
-class OnlyFred(models.Manager):
-    def get_query_set(self):
-        return super(OnlyFred, self).get_query_set().filter(name='fred')
+# Default port for the search API web server.
+DEFAULT_PORT = 53423
 
+class MainHandler(tornado.web.RequestHandler):
+  """ Main handler class. """
+  
+  def initialize(self, search_service):
+    """ Class for initializing search service web handler. """
+    self.search_service = search_service
 
-class OnlyBarney(models.Manager):
-    def get_query_set(self):
-        return super(OnlyBarney, self).get_query_set().filter(name='barney')
+  @tornado.web.asynchronous
+  def post(self):
+    """ A POST handler for request to this server. """
+    request = self.request
+    http_request_data = request.body
+    pb_type = request.headers['protocolbuffertype']
+    if pb_type == "Request":
+      response = self.search_service.remote_request(http_request_data)
+    else:
+      response = self.search_service.unknown_request(pb_type)
 
-
-class Value42(models.Manager):
-    def get_query_set(self):
-        return super(Value42, self).get_query_set().filter(value=42)
-
-
-class AbstractBase1(models.Model):
-    name = models.CharField(max_length=50)
-
-    class Meta:
-        abstract = True
-
-    # Custom managers
-    manager1 = OnlyFred()
-    manager2 = OnlyBarney()
-    objects = models.Manager()
-
-
-class AbstractBase2(models.Model):
-    value = models.IntegerField()
-
-    class Meta:
-        abstract = True
-
-    # Custom manager
-    restricted = Value42()
+    request.connection.write_headers(
+      tornado.httputil.ResponseStartLine('HTTP/1.1', 200, 'OK'),
+      tornado.httputil.HTTPHeaders({"Content-Length": str(len(response))}))
+    request.connection.write(response)
+    request.connection.finish()
 
 
-# No custom manager on this class to make sure the default case doesn't break.
-class AbstractBase3(models.Model):
-    comment = models.CharField(max_length=50)
+def get_application():
+  """ Retrieves the application to feed into tornado. """
+  return tornado.web.Application([
+    (r"/?", MainHandler, dict(search_service=SearchService())),
+    ], )
 
-    class Meta:
-        abstract = True
-
-
-@python_2_unicode_compatible
-class Parent(models.Model):
-    name = models.CharField(max_length=50)
-
-    manager = OnlyFred()
-
-    def __str__(self):
-        return self.name
-
-
-# Managers from base classes are inherited and, if no manager is specified
-# *and* the parent has a manager specified, the first one (in the MRO) will
-# become the default.
-@python_2_unicode_compatible
-class Child1(AbstractBase1):
-    data = models.CharField(max_length=25)
-
-    def __str__(self):
-        return self.data
-
-
-@python_2_unicode_compatible
-class Child2(AbstractBase1, AbstractBase2):
-    data = models.CharField(max_length=25)
-
-    def __str__(self):
-        return self.data
-
-
-@python_2_unicode_compatible
-class Child3(AbstractBase1, AbstractBase3):
-    data = models.CharField(max_length=25)
-
-    def __str__(self):
-        return self.data
-
-
-@python_2_unicode_compatible
-class Child4(AbstractBase1):
-    data = models.CharField(max_length=25)
-
-    # Should be the default manager, although the parent managers are
-    # inherited.
-    default = models.Manager()
-
-    def __str__(self):
-        return self.data
-
-
-@python_2_unicode_compatible
-class Child5(AbstractBase3):
-    name = models.CharField(max_length=25)
-
-    default = OnlyFred()
-    objects = models.Manager()
-
-    def __str__(self):
-        return self.name
-
-
-# Will inherit managers from AbstractBase1, but not Child4.
-class Child6(Child4):
-    value = models.IntegerField()
-
-
-# Will not inherit default manager from parent.
-class Child7(Parent):
-    pass
+if __name__ == "__main__":
+  logging.getLogger().setLevel(logging.INFO) 
+  logging.info("Starting server on port {0}".format(DEFAULT_PORT))
+  http_server = tornado.httpserver.HTTPServer(get_application())
+  http_server.bind(DEFAULT_PORT)
+  http_server.start(0)
+  tornado.ioloop.IOLoop.instance().start()

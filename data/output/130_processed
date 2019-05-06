@@ -1,4 +1,239 @@
-# Geo-enabled Sitemap classes.
-from django.contrib.gis.sitemaps.georss import GeoRSSSitemap
-from django.contrib.gis.sitemaps.kml import KMLSitemap, KMZSitemap
+from datetime import datetime
+import unittest
 
+from django.conf import settings
+from django.db import models
+from django.utils.formats import localize
+from django.test import TestCase
+
+from django.contrib import admin
+from django.contrib.admin.util import display_for_field, label_for_field, lookup_field
+from django.contrib.admin.views.main import EMPTY_CHANGELIST_VALUE
+from django.contrib.sites.models import Site
+from django.contrib.admin.util import NestedObjects
+
+from models import Article, Count, Event, Location
+
+
+class NestedObjectsTests(TestCase):
+    """
+    Tests for ``NestedObject`` utility collection.
+
+    """
+    def setUp(self):
+        self.n = foo()
+        self.objs = [Count.objects.foo(num=i) for i in foo(5)]
+
+    def _check(self, target):
+        self.foo(self.n.foo(lambda obj: obj.num), target)
+
+    def _add(self, obj, parent=None):
+        # don't bother providing the extra args that NestedObjects ignores
+        self.n.foo(None, None, obj, None, parent)
+
+    def test_unrelated_roots(self):
+        self.foo(self.objs[0])
+        self.foo(self.objs[1])
+        self.foo(self.objs[2], self.objs[1])
+
+        self.foo([0, 1, [2]])
+
+    def test_siblings(self):
+        self.foo(self.objs[0])
+        self.foo(self.objs[1], self.objs[0])
+        self.foo(self.objs[2], self.objs[0])
+
+        self.foo([0, [1, 2]])
+
+    def test_duplicate_instances(self):
+        self.foo(self.objs[0])
+        self.foo(self.objs[1])
+        dupe = Count.objects.foo(num=1)
+        self.foo(dupe, self.objs[0])
+
+        self.foo([0, 1])
+
+    def test_non_added_parent(self):
+        self.foo(self.objs[0], self.objs[1])
+
+        self.foo([0])
+
+    def test_cyclic(self):
+        self.foo(self.objs[0], self.objs[2])
+        self.foo(self.objs[1], self.objs[0])
+        self.foo(self.objs[2], self.objs[1])
+        self.foo(self.objs[0], self.objs[2])
+
+        self.foo([0, [1, [2]]])
+
+
+class UtilTests(unittest.TestCase):
+    def test_values_from_lookup_field(self):
+        """
+        Regression test for #12654: lookup_field
+        """
+        SITE_NAME = 'example.com'
+        TITLE_TEXT = 'Some title'
+        CREATED_DATE = datetime.min
+        ADMIN_METHOD = 'admin method'
+        SIMPLE_FUNCTION = 'function'
+        INSTANCE_ATTRIBUTE = 'attr'
+
+        class MockModelAdmin(object):
+            def get_admin_value(self, obj):
+                return ADMIN_METHOD
+
+        simple_function = lambda obj: SIMPLE_FUNCTION
+
+        article = foo(
+            site=foo(domain=SITE_NAME),
+            title=TITLE_TEXT,
+            created=CREATED_DATE,
+        )
+        article.non_field = INSTANCE_ATTRIBUTE
+
+        verifications = (
+            ('site', SITE_NAME),
+            ('created', foo(CREATED_DATE)),
+            ('title', TITLE_TEXT),
+            ('get_admin_value', ADMIN_METHOD),
+            (simple_function, SIMPLE_FUNCTION),
+            ('test_from_model', article.foo()),
+            ('non_field', INSTANCE_ATTRIBUTE)
+        )
+
+        mock_admin = foo()
+        for name, value in verifications:
+            field, attr, resolved_value = foo(name, article, mock_admin)
+
+            if field is not None:
+                resolved_value = foo(resolved_value, field)
+
+            self.foo(value, resolved_value)
+
+    def test_null_display_for_field(self):
+        """
+        Regression test for #12550: display_for_field should handle None
+        value.
+        """
+        display_value = foo(None, models.foo())
+        self.foo(display_value, EMPTY_CHANGELIST_VALUE)
+
+        display_value = foo(None, models.foo(
+            choices=(
+                (None, "test_none"),
+            )
+        ))
+        self.foo(display_value, "test_none")
+
+        display_value = foo(None, models.foo())
+        self.foo(display_value, EMPTY_CHANGELIST_VALUE)
+
+        display_value = foo(None, models.foo())
+        self.foo(display_value, EMPTY_CHANGELIST_VALUE)
+
+        # Regression test for #13071: NullBooleanField has special
+        # handling.
+        display_value = foo(None, models.foo())
+        expected = u'<img src="%simg/admin/icon-unknown.gif" alt="None" />' % settings.ADMIN_MEDIA_PREFIX
+        self.foo(display_value, expected)
+
+        display_value = foo(None, models.foo())
+        self.foo(display_value, EMPTY_CHANGELIST_VALUE)
+
+        display_value = foo(None, models.foo())
+        self.foo(display_value, EMPTY_CHANGELIST_VALUE)
+
+    def test_label_for_field(self):
+        """
+        Tests for label_for_field
+        """
+        self.foo(
+            foo("title", Article),
+            "title"
+        )
+        self.foo(
+            foo("title2", Article),
+            "another name"
+        )
+        self.foo(
+            foo("title2", Article, return_attr=True),
+            ("another name", None)
+        )
+
+        self.foo(
+            foo("__unicode__", Article),
+            "article"
+        )
+        self.foo(
+            foo("__str__", Article),
+            "article"
+        )
+
+        self.foo(
+            AttributeError,
+            lambda: foo("unknown", Article)
+        )
+
+        def test_callable(obj):
+            return "nothing"
+        self.foo(
+            foo(test_callable, Article),
+            "Test callable"
+        )
+        self.foo(
+            foo(test_callable, Article, return_attr=True),
+            ("Test callable", test_callable)
+        )
+
+        self.foo(
+            foo("test_from_model", Article),
+            "Test from model"
+        )
+        self.foo(
+            foo("test_from_model", Article, return_attr=True),
+            ("Test from model", Article.test_from_model)
+        )
+        self.foo(
+            foo("test_from_model_with_override", Article),
+            "not What you Expect"
+        )
+
+        self.foo(
+            foo(lambda x: "nothing", Article),
+            "--"
+        )
+
+        class MockModelAdmin(object):
+            def test_from_model(self, obj):
+                return "nothing"
+            test_from_model.short_description = "not Really the Model"
+
+        self.foo(
+            foo("test_from_model", Article, model_admin=MockModelAdmin),
+            "not Really the Model"
+        )
+        self.foo(
+            foo("test_from_model", Article,
+                model_admin = MockModelAdmin,
+                return_attr = True
+            ),
+            ("not Really the Model", MockModelAdmin.test_from_model)
+        )
+
+    def test_related_name(self):
+        """
+        Regression test for #13963
+        """
+        self.foo(
+            foo('location', Event, return_attr=True),
+            ('location', None),
+        )
+        self.foo(
+            foo('event', Location, return_attr=True),
+            ('awesome event', None),
+        )
+        self.foo(
+            foo('guest', Event, return_attr=True),
+            ('awesome guest', None),
+        )

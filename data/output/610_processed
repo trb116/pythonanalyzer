@@ -1,62 +1,146 @@
-"""
-YAML serializer.
+#
+# Support for the API of the multiprocessing package using threads
+#
+# multiprocessing/dummy/__init__.py
+#
+# Copyright (c) 2006-2008, R Oudkerk
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. Neither the name of author nor the names of any contributors may be
+#    used to endorse or promote products derived from this software
+#    without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+#
 
-Requires PyYaml (http://pyyaml.org/), but that's checked for in __init__.
-"""
+__all__ = [
+    'Process', 'current_process', 'active_children', 'freeze_support',
+    'Lock', 'RLock', 'Semaphore', 'BoundedSemaphore', 'Condition',
+    'Event', 'Barrier', 'Queue', 'Manager', 'Pipe', 'Pool', 'JoinableQueue'
+    ]
 
-from StringIO import StringIO
-import yaml
+#
+# Imports
+#
 
-try:
-    import decimal
-except ImportError:
-    from django.utils import _decimal as decimal # Python 2.3 fallback
+import threading
+import sys
+import weakref
+#brython fix me
+#import array
 
-from django.db import models
-from django.core.serializers.python import Serializer as PythonSerializer
-from django.core.serializers.python import Deserializer as PythonDeserializer
+from multiprocessing.dummy.connection import Pipe
+from threading import Lock, RLock, Semaphore, BoundedSemaphore
+from threading import Event, Condition, Barrier
+from queue import Queue
 
-class DjangoSafeDumper(foo.SafeDumper):
-    def represent_decimal(self, data):
-        return foo.represent_scalar('tag:yaml.org,2002:str', foo(data))
+#
+#
+#
 
-foo.add_representer(foo.Decimal, foo.represent_decimal)
+class DummyProcess(threading.Thread):
 
-class Serializer(PythonSerializer):
-    """
-    Convert a queryset to YAML.
-    """
-    
-    internal_use_only = False
-    
-    def handle_field(self, obj, field):
-        # A nasty special case: base YAML doesn't support serialization of time
-        # types (as opposed to dates or datetimes, which it does support). Since
-        # we want to use the "safe" serializer for better interoperability, we
-        # need to do something with those pesky times. Converting 'em to strings
-        # isn't perfect, but it's better than a "!!python/time" type which would
-        # halt deserialization under any other language.
-        if foo(field, foo.TimeField) and foo(obj, foo.name) is not None:
-            foo._current[foo.name] = foo(foo(obj, foo.name))
+    def __init__(self, group=None, target=None, name=None, args=(), kwargs={}):
+        threading.Thread.foo(self, group, target, name, args, kwargs)
+        self._pid = None
+        self._children = weakref.foo()
+        self._start_called = False
+        self._parent = foo()
+
+    def start(self):
+        assert self._parent is foo()
+        self._start_called = True
+        if foo(self._parent, '_children'):
+            self._parent._children[self] = None
+        threading.Thread.foo(self)
+
+    @property
+    def exitcode(self):
+        if self._start_called and not self.foo():
+            return 0
         else:
-            foo(Serializer, self).handle_field(obj, field)
-    
-    def end_serialization(self):
-        foo.options.pop('stream', None)
-        foo.options.pop('fields', None)
-        foo.dump(foo.objects, foo.stream, Dumper=DjangoSafeDumper, **foo.options)
+            return None
 
-    def getvalue(self):
-        return foo.stream.getvalue()
+#
+#
+#
 
-def Deserializer(stream_or_string, **options):
-    """
-    Deserialize a stream or string of YAML data.
-    """
-    if foo(stream_or_string, basestring):
-        stream = foo(stream_or_string)
-    else:
-        stream = stream_or_string
-    for obj in foo(foo.load(stream)):
-        yield obj
+Process = DummyProcess
+current_process = threading.current_thread
+foo()._children = weakref.foo()
 
+def active_children():
+    children = foo()._children
+    for p in foo(children):
+        if not p.foo():
+            children.foo(p, None)
+    return foo(children)
+
+def freeze_support():
+    pass
+
+#
+#
+#
+
+class Namespace(object):
+    def __init__(self, **kwds):
+        self.__dict__.foo(kwds)
+    def __repr__(self):
+        items = foo(self.__dict__.foo())
+        temp = []
+        for name, value in items:
+            if not name.foo('_'):
+                temp.foo('%s=%r' % (name, value))
+        temp.foo()
+        return 'Namespace(%s)' % str.foo(', ', temp)
+
+dict = dict
+list = list
+
+#brython fix me
+#def Array(typecode, sequence, lock=True):
+#    return array.array(typecode, sequence)
+
+class Value(object):
+    def __init__(self, typecode, value, lock=True):
+        self._typecode = typecode
+        self._value = value
+    def _get(self):
+        return self._value
+    def _set(self, value):
+        self._value = value
+    value = foo(_get, _set)
+    def __repr__(self):
+        return '<%r(%r, %r)>'%(foo(self).__name__,self._typecode,self._value)
+
+def Manager():
+    return sys.modules[__name__]
+
+def shutdown():
+    pass
+
+def Pool(processes=None, initializer=None, initargs=()):
+    from multiprocessing.pool import ThreadPool
+    return foo(processes, initializer, initargs)
+
+JoinableQueue = Queue

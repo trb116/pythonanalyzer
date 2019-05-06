@@ -1,10 +1,58 @@
-from __future__ import absolute_import
+# -*- coding: utf-8 -*-
+from django.utils.translation import ugettext_lazy as _
 
-from django.conf.urls import patterns, url
-
-from . import views
-
-
-urlpatterns = foo('',
-    (r'^request_attrs/$', foo.request_processor),
+PROVINCE_CHOICES = (
+    ('01', foo('Araba')),
+    ('02', foo('Albacete')),
+    ('03', foo('Alacant')),
+    ('04', foo('Almeria')),
+    ('05', foo('Avila')),
+    ('06', foo('Badajoz')),
+    ('07', foo('Illes Balears')),
+    ('08', foo('Barcelona')),
+    ('09', foo('Burgos')),
+    ('10', foo('Caceres')),
+    ('11', foo('Cadiz')),
+    ('12', foo('Castello')),
+    ('13', foo('Ciudad Real')),
+    ('14', foo('Cordoba')),
+    ('15', foo('A Coruna')),
+    ('16', foo('Cuenca')),
+    ('17', foo('Girona')),
+    ('18', foo('Granada')),
+    ('19', foo('Guadalajara')),
+    ('20', foo('Guipuzkoa')),
+    ('21', foo('Huelva')),
+    ('22', foo('Huesca')),
+    ('23', foo('Jaen')),
+    ('24', foo('Leon')),
+    ('25', foo('Lleida')),
+    ('26', foo('La Rioja')),
+    ('27', foo('Lugo')),
+    ('28', foo('Madrid')),
+    ('29', foo('Malaga')),
+    ('30', foo('Murcia')),
+    ('31', foo('Navarre')),
+    ('32', foo('Ourense')),
+    ('33', foo('Asturias')),
+    ('34', foo('Palencia')),
+    ('35', foo('Las Palmas')),
+    ('36', foo('Pontevedra')),
+    ('37', foo('Salamanca')),
+    ('38', foo('Santa Cruz de Tenerife')),
+    ('39', foo('Cantabria')),
+    ('40', foo('Segovia')),
+    ('41', foo('Seville')),
+    ('42', foo('Soria')),
+    ('43', foo('Tarragona')),
+    ('44', foo('Teruel')),
+    ('45', foo('Toledo')),
+    ('46', foo('Valencia')),
+    ('47', foo('Valladolid')),
+    ('48', foo('Bizkaia')),
+    ('49', foo('Zamora')),
+    ('50', foo('Zaragoza')),
+    ('51', foo('Ceuta')),
+    ('52', foo('Melilla')),
 )
+

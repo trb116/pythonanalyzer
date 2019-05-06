@@ -1,61 +1,40 @@
-import os
-from django.conf import settings
-from django.core.management import call_command
-from django.db import connection
+from amonone.web.apps.core.basemodel import BaseModel
 
-def spatialite_init_file():
-    # SPATIALITE_SQL may be placed in settings to tell
-    # GeoDjango to use a specific user-supplied file.
-    return getattr(settings, 'SPATIALITE_SQL', 'init_spatialite-2.3.sql')
+class ProcessModel(BaseModel):
 
-def create_test_spatial_db(verbosity=1, autoclobber=False, interactive=False):
-    "Creates a spatial database based on the settings."
+	def __init__(self):
+		super(ProcessModel, self).__init__()
 
-    # Making sure we're using PostgreSQL and psycopg2
-    if settings.DATABASE_ENGINE != 'sqlite3':
-        raise Exception('SpatiaLite database creation only supported on sqlite3 platform.')
+	def get_process_data(self, processes, date_from, date_to,):
 
-    # Getting the test database name using the SQLite backend's
-    # `_create_test_db`.  Unless `TEST_DATABASE_NAME` is defined,
-    # it returns ":memory:".
-    db_name = connection.creation._create_test_db(verbosity, autoclobber)
+		collection = self.mongo.get_collection('processes')
 
-    # Closing out the current connection to the database set in
-    # originally in the settings.  This makes it so `initialize_spatialite`
-    # function will be run on the connection for the _test_ database instead.
-    connection.close()
+		data = collection.find({"time": {"$gte": date_from,"$lte": date_to }}).sort('time', self.desc)
 
-    # Point to the new database
-    settings.DATABASE_NAME = db_name
-    connection.settings_dict["DATABASE_NAME"] = db_name
-    can_rollback = connection.creation._rollback_works()
-    settings.DATABASE_SUPPORTS_TRANSACTIONS = can_rollback
-    connection.settings_dict["DATABASE_SUPPORTS_TRANSACTIONS"] = can_rollback
+		filtered_data = {}
+		# Create the base structure
+		for process in processes:
+			filtered_data[process] = {"memory": {}, "cpu": {}}
 
-    # Finally, loading up the SpatiaLite SQL file.
-    load_spatialite_sql(db_name, verbosity=verbosity)
+		for line in data:
+			time = line['time']
 
-    if verbosity >= 1:
-        print 'Creation of spatial database %s successful.' % db_name
+			for process in processes:
+				try:
+					process_data = line.get(process, None)
+					memory = process_data.get("memory:mb", 0)
+					cpu = process_data.get("cpu:%", 0)
+				except:
+					memory = 0
+					cpu = 0
+				
+				try:
+					filtered_data[process]["memory"][time] = memory
+					filtered_data[process]["cpu"][time] = cpu
+				except:
+					pass
+				
+		return filtered_data
 
-    # Syncing the database
-    call_command('syncdb', verbosity=verbosity, interactive=interactive)
 
-def load_spatialite_sql(db_name, verbosity=1):
-    """
-    This routine loads up the SpatiaLite SQL file.
-    """
-    # Getting the location of the SpatiaLite SQL file, and confirming
-    # it exists.
-    spatialite_sql = spatialite_init_file()
-    if not os.path.isfile(spatialite_sql):
-        raise Exception('Could not find the SpatiaLite initialization SQL file: %s' % spatialite_sql)
-
-    # Opening up the SpatiaLite SQL initialization file and executing
-    # as a script.
-    sql_fh = open(spatialite_sql, 'r')
-    try:
-        cur = connection.cursor()
-        cur.executescript(sql_fh.read())
-    finally:
-        sql_fh.close()
+process_model = ProcessModel()

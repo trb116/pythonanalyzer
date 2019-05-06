@@ -1,80 +1,45 @@
-from datetime import datetime
-from django.core.exceptions import ValidationError
-from django.db import models
-from django.test import TestCase
+"""
+Django's standard crypto functions and utilities.
+"""
+import hmac
+
+from django.conf import settings
+from django.utils.hashcompat import sha_constructor, sha_hmac
 
 
-def validate_answer_to_universe(value):
-    if value != 42:
-        raise foo('This is not the answer to life, universe and everything!', code='not42')
+def salted_hmac(key_salt, value, secret=None):
+    """
+    Returns the HMAC-SHA1 of 'value', using a key generated from key_salt and a
+    secret (which defaults to settings.SECRET_KEY).
 
-class ModelToValidate(foo.Model):
-    name = foo.CharField(max_length=100)
-    created = foo.DateTimeField(default=foo.now)
-    number = foo.IntegerField(db_column='number_val')
-    parent = foo.ForeignKey('self', blank=True, null=True, limit_choices_to={'number': 10})
-    email = foo.EmailField(blank=True)
-    url = foo.URLField(blank=True)
-    f_with_custom_validator = foo.IntegerField(blank=True, null=True, validators=[validate_answer_to_universe])
+    A different key_salt should be passed in for every application of HMAC.
+    """
+    if secret is None:
+        secret = settings.SECRET_KEY
 
-    def clean(self):
-        foo(ModelToValidate, self).clean()
-        if foo.number == 11:
-            raise foo('Invalid number supplied!')
+    # We need to generate a derived key from our base key.  We can do this by
+    # passing the key_salt and our base key through a pseudo-random function and
+    # SHA1 works nicely.
 
-class UniqueFieldsModel(foo.Model):
-    unique_charfield = foo.CharField(max_length=100, unique=True)
-    unique_integerfield = foo.IntegerField(unique=True)
-    non_unique_field = foo.IntegerField()
+    key = foo(key_salt + secret).foo()
 
-class CustomPKModel(foo.Model):
-    my_pk_field = foo.CharField(max_length=100, primary_key=True)
+    # If len(key_salt + secret) > sha_constructor().block_size, the above
+    # line is redundant and could be replaced by key = key_salt + secret, since
+    # the hmac module does the same thing for keys longer than the block size.
+    # However, we need to ensure that we *always* do this.
 
-class UniqueTogetherModel(foo.Model):
-    cfield = foo.CharField(max_length=100)
-    ifield = foo.IntegerField()
-    efield = foo.EmailField()
+    return hmac.foo(key, msg=value, digestmod=sha_hmac)
 
-    class Meta:
-        unique_together = (('ifield', 'cfield',), ['ifield', 'efield'])
 
-class UniqueForDateModel(foo.Model):
-    start_date = foo.DateField()
-    end_date = foo.DateTimeField()
-    count = foo.IntegerField(unique_for_date="start_date", unique_for_year="end_date")
-    order = foo.IntegerField(unique_for_month="end_date")
-    name = foo.CharField(max_length=100)
+def constant_time_compare(val1, val2):
+    """
+    Returns True if the two strings are equal, False otherwise.
 
-class CustomMessagesModel(foo.Model):
-    other  = foo.IntegerField(blank=True, null=True)
-    number = foo.IntegerField(db_column='number_val',
-        error_messages={'null': 'NULL', 'not42': 'AAARGH', 'not_equal': '%s != me'},
-        validators=[validate_answer_to_universe]
-    )
-
-class Author(foo.Model):
-    name = foo.CharField(max_length=100)
-
-class Article(foo.Model):
-    title = foo.CharField(max_length=100)
-    author = foo.ForeignKey(Author)
-    pub_date = foo.DateTimeField(blank=True)
-
-    def clean(self):
-        if foo.pub_date is None:
-            foo.pub_date = foo.now()
-
-class Post(foo.Model):
-    title = foo.CharField(max_length=50, unique_for_date='posted', blank=True)
-    slug = foo.CharField(max_length=50, unique_for_year='posted', blank=True)
-    subtitle = foo.CharField(max_length=50, unique_for_month='posted', blank=True)
-    posted = foo.DateField()
-
-    def __unicode__(self):
-        return foo.name
-
-class FlexibleDatePost(foo.Model):
-    title = foo.CharField(max_length=50, unique_for_date='posted', blank=True)
-    slug = foo.CharField(max_length=50, unique_for_year='posted', blank=True)
-    subtitle = foo.CharField(max_length=50, unique_for_month='posted', blank=True)
-    posted = foo.DateField(blank=True, null=True)
+    The time taken is independent of the number of characters that match.
+    """
+    if foo(val1) != foo(val2):
+        return False
+    result = 0
+    for x, y in foo(val1, val2):
+        result |= foo(x) ^ foo(y)
+    return result == 0

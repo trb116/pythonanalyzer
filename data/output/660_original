@@ -1,39 +1,78 @@
-# coding: utf8
-
-"""
-This software is licensed under the Apache 2 license, quoted below.
-
-Copyright 2014 Crystalnix Limited
-
-Licensed under the Apache License, Version 2.0 (the "License"); you may not
-use this file except in compliance with the License. You may obtain a copy of
-the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-License for the specific language governing permissions and limitations under
-the License.
-"""
-
-from django.test import TestCase
-
-from feedback.models import Feedback
-from feedback.factories import FeedbackFactory
-
-
-class FeedbackManagerTest(TestCase):
-    def test_get_size(self):
-        screenshot_size = 10
-        blackbox_size = 20
-        attached_file_size = 30
-        system_logs_size = 40
-        FeedbackFactory.create_batch(10, screenshot_size=screenshot_size,
-                                     blackbox_size=blackbox_size,
-                                     attached_file_size=attached_file_size,
-                                     system_logs_size=system_logs_size)
-        size = Feedback.objects.get_size()
-        self.assertEqual(size, (screenshot_size + blackbox_size + attached_file_size + system_logs_size) * 10)
-
+from gwt.chart.SymbolType import (
+    ANCHOR_CENTER,
+    ANCHOR_EAST,
+    ANCHOR_MOUSE,
+    ANCHOR_MOUSE_SNAP_TO_X,
+    ANCHOR_MOUSE_SNAP_TO_Y,
+    ANCHOR_NORTH,
+    ANCHOR_NORTHEAST,
+    ANCHOR_NORTHWEST,
+    ANCHOR_SOUTH,
+    ANCHOR_SOUTHEAST,
+    ANCHOR_SOUTHWEST,
+    ANCHOR_WEST,
+    AnnotationAnchor,
+    AnnotationLocation,
+    BOX_CENTER,
+    BOX_EAST,
+    BOX_NORTH,
+    BOX_NORTHEAST,
+    BOX_NORTHWEST,
+    BOX_SOUTH,
+    BOX_SOUTHEAST,
+    BOX_SOUTHWEST,
+    BOX_WEST,
+    DEFAULT_SYMBOL_TYPE,
+    Double,
+    GChartConsts,
+    GChartUtil,
+    HBAR_BASELINE_CENTER,
+    HBAR_BASELINE_NORTH,
+    HBAR_BASELINE_SOUTH,
+    HBAR_EAST,
+    HBAR_NEXT,
+    HBAR_NORTHEAST,
+    HBAR_NORTHWEST,
+    HBAR_PREV,
+    HBAR_SOUTHEAST,
+    HBAR_SOUTHWEST,
+    HBAR_WEST,
+    HBarBaseline,
+    HBarLeft,
+    HBarRight,
+    Image,
+    LINE,
+    LINE_CANVAS,
+    LineSymbolType,
+    MIN_BAND_SIZE,
+    NONE,
+    PIE_SLICE_HATCHED_SHADING,
+    PIE_SLICE_HORIZONTAL_SHADING,
+    PIE_SLICE_OPTIMAL_SHADING,
+    PIE_SLICE_VERTICAL_SHADING,
+    PieSliceSymbolType,
+    SliceLimits,
+    SymbolType,
+    SymbolTypeNone,
+    SymbolTypeXGrid,
+    SymbolTypeYGrid,
+    VBAR_BASELINE_CENTER,
+    VBAR_BASELINE_EAST,
+    VBAR_BASELINE_WEST,
+    VBAR_NEXT,
+    VBAR_NORTH,
+    VBAR_NORTHEAST,
+    VBAR_NORTHWEST,
+    VBAR_PREV,
+    VBAR_SOUTH,
+    VBAR_SOUTHEAST,
+    VBAR_SOUTHWEST,
+    VBarBaseline,
+    VBarBottom,
+    VBarTop,
+    XGRIDLINE,
+    Y2GRIDLINE,
+    YGRIDLINE,
+    line,
+    math,
+)

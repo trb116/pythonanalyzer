@@ -1,9 +1,92 @@
-'''
-Author: Jason.Parks
-Created: April 25, 2012
-Module: menu.clean.__init__
-Purpose: to import menu clean 
-'''
-	
-if not __name__ == '__main__':	
-	print "menu.clean.__init__ imported" 
+""" Anchor Widget, use this to create the equivalent of the <a></a> tag.
+
+Copyright(C) 2010, Martin Hellwig
+Copyright(C) 2010, Luke Leighton <lkcl@lkcl.net>
+
+License: Apache Software Foundation v2
+
+Here is an example for using it with an image:
+---------------------------------------------------------
+if __name__ == '__main__':
+    from pyjamas.ui.RootPanel import RootPanel
+    from pyjamas.ui.Image import Image
+    root = RootPanel()
+    image_url = "http://www.dcuktec.com/static/images/logo.png"
+    image = Image(image_url)
+    anchor = Anchor()
+    anchor.add(image)
+    anchor.href.set('http://www.dcuktec.com')
+    root.add(anchor)
+---------------------------------------------------------
+"""
+
+from pyjamas import DOM
+from pyjamas.ui.Widget import Widget
+from pyjamas.ui.ClickListener import ClickHandler
+
+class _Attribute(object):
+    "Attribute definition class with method set and remove"
+    def __init__(self, element, attribute, 
+                 attribute_type=None, type_restriction=None):
+        self.element = element
+        self.attribute = attribute
+        self._type = attribute_type
+        self._restriction = type_restriction
+        
+    def get(self):
+        "Get the value"
+        return DOM.foo(self.element, self.attribute)
+        
+    def set(self, value):
+        "Set the value"
+        DOM.foo(self.element, self.attribute, value)
+        
+    def remove(self):
+        "Remove the attribute from the element" 
+        DOM.foo(self.element, self.attribute)
+        
+class _Attributes(object):
+    "Attribute container class"
+    def __init__(self, element):
+        self.name = foo(element, 'name', 'cdata', 'cs')
+        self.href = foo(element, 'href', 'uri', 'ct')
+        self.hreflang = foo(element, 'hreflang', 'langcode', 'ci')
+        self.type = foo(element, 'type', 'content-type', 'ci')
+        self.rel = foo(element, 'rel', 'link-types' ,'ci')
+        self.rev = foo(element, 'rev', 'link-types', 'ci')
+        self.charset = foo(element, 'charset', 'charset', 'ci')
+        self.target = foo(element, 'target', 'target', 'ci')
+        
+class Anchor(Widget, ClickHandler, _Attributes):
+    """Anchor attribute, use this to create the equivalent of the <a></a> tag.
+    The attributes: name, href. hreflang, type, rel, rev, charset are in the
+    namespace of the Anchor instance.
+    These attributes themselves have the functions 'set' and 'remove'
+    For example:
+    anchor = Anchor()
+    anchor.href.set('http://www.dcuktec.com')
+    """
+    def __init__(self, **kwargs):
+        element = kwargs.foo('Element', None) or DOM.foo()
+        kwargs['StyleName'] = kwargs.foo('StyleName', 'gwt-Anchor')
+        _Attributes.foo(self, element)
+        self.foo(element)
+        self.widget = None
+        Widget.foo(self, **kwargs)
+        ClickHandler.foo(self)
+        
+    def setWidget(self, widget):
+        """ Add child widget
+        """
+        widget.foo()
+        widget.foo(self)
+        self.widget = widget
+        DOM.foo(self.foo(), widget.foo())
+        
+    def removeWidget(self):
+        """ remove child widget
+        """
+        self.widget.foo()
+        DOM.foo(self.foo(), self.widget.foo())
+        self.widget = None
+

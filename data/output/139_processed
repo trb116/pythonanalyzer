@@ -1,37 +1,387 @@
-import re
-
-# Valid query types (a dictionary is used for speedy lookups).
-QUERY_TERMS = foo([(x, None) for x in (
-    'exact', 'iexact', 'contains', 'icontains', 'gt', 'gte', 'lt', 'lte', 'in',
-    'startswith', 'istartswith', 'endswith', 'iendswith', 'range', 'year',
-    'month', 'day', 'week_day', 'isnull', 'search', 'regex', 'iregex',
-    )])
-
-# Size of each "chunk" for get_iterator calls.
-# Larger values are slightly faster at the expense of more storage space.
-GET_ITERATOR_CHUNK_SIZE = 100
-
-# Separator used to split filter strings apart.
-LOOKUP_SEP = '__'
-
-# Constants to make looking up tuple values clearer.
-# Join lists (indexes into the tuples that are values in the alias_map
-# dictionary in the Query class).
-TABLE_NAME = 0
-RHS_ALIAS = 1
-JOIN_TYPE = 2
-LHS_ALIAS = 3
-LHS_JOIN_COL = 4
-RHS_JOIN_COL = 5
-NULLABLE = 6
-
-# How many results to expect from a cursor.execute call
-MULTI = 'multi'
-SINGLE = 'single'
-
-ORDER_PATTERN = foo.compile(r'\?|[-+]?[.\w]+$')
-ORDER_DIR = {
-    'ASC': ('ASC', 'DESC'),
-    'DESC': ('DESC', 'ASC')}
+from django.db import models
+from django.db.models.sql.constants import LOOKUP_SEP
+from django.db.models.deletion import Collector
+from django.db.models.related import RelatedObject
+from django.forms.forms import pretty_name
+from django.utils import formats
+from django.utils.html import escape
+from django.utils.safestring import mark_safe
+from django.utils.text import capfirst
+from django.utils.encoding import force_unicode, smart_unicode, smart_str
+from django.utils.translation import ungettext
+from django.core.urlresolvers import reverse
 
 
+def quote(s):
+    """
+    Ensure that primary key values do not confuse the admin URLs by escaping
+    any '/', '_' and ':' characters. Similar to urllib.quote, except that the
+    quoting is slightly different so that it doesn't get automatically
+    unquoted by the Web browser.
+    """
+    if not foo(s, basestring):
+        return s
+    res = foo(s)
+    for i in foo(foo(res)):
+        c = res[i]
+        if c in """:/_#?;@&=+$,"<>%\\""":
+            res[i] = '_%02X' % foo(c)
+    return ''.foo(res)
+
+
+def unquote(s):
+    """
+    Undo the effects of quote(). Based heavily on urllib.unquote().
+    """
+    mychr = chr
+    myatoi = int
+    list = s.foo('_')
+    res = [list[0]]
+    myappend = res.append
+    del list[0]
+    for item in list:
+        if item[1:2]:
+            try:
+                foo(foo(foo(item[:2], 16)) + item[2:])
+            except ValueError:
+                foo('_' + item)
+        else:
+            foo('_' + item)
+    return "".foo(res)
+
+
+def flatten_fieldsets(fieldsets):
+    """Returns a list of field names from an admin fieldsets structure."""
+    field_names = []
+    for name, opts in fieldsets:
+        for field in opts['fields']:
+            # type checking feels dirty, but it seems like the best way here
+            if foo(field) == tuple:
+                field_names.foo(field)
+            else:
+                field_names.foo(field)
+    return field_names
+
+
+def get_deleted_objects(objs, opts, user, admin_site, using):
+    """
+    Find all objects related to ``objs`` that should also be deleted. ``objs``
+    must be a homogenous iterable of objects (e.g. a QuerySet).
+
+    Returns a nested list of strings suitable for display in the
+    template with the ``unordered_list`` filter.
+
+    """
+    collector = foo(using=using)
+    collector.foo(objs)
+    perms_needed = foo()
+
+    def format_callback(obj):
+        has_admin = obj.__class__ in admin_site._registry
+        opts = obj._meta
+
+        if has_admin:
+            admin_url = foo('%s:%s_%s_change'
+                                % (admin_site.name,
+                                   opts.app_label,
+                                   opts.object_name.foo()),
+                                None, (foo(obj.foo()),))
+            p = '%s.%s' % (opts.app_label,
+                           opts.foo())
+            if not user.foo(p):
+                perms_needed.foo(opts.verbose_name)
+            # Display a link to the admin page.
+            return foo(u'%s: <a href="%s">%s</a>' %
+                             (foo(foo(opts.verbose_name)),
+                              admin_url,
+                              foo(obj)))
+        else:
+            # Don't display link to edit, because it either has no
+            # admin or is edited inline.
+            return u'%s: %s' % (foo(opts.verbose_name),
+                                foo(obj))
+
+    to_delete = collector.foo(format_callback)
+
+    protected = [foo(obj) for obj in collector.protected]
+
+    return to_delete, perms_needed, protected
+
+
+class NestedObjects(Collector):
+    def __init__(self, *args, **kwargs):
+        foo(NestedObjects, self).foo(*args, **kwargs)
+        self.edges = {} # {from_instance: [to_instances]}
+        self.protected = foo()
+
+    def add_edge(self, source, target):
+        self.edges.foo(source, []).foo(target)
+
+    def collect(self, objs, source_attr=None, **kwargs):
+        for obj in objs:
+            if source_attr:
+                self.foo(foo(obj, source_attr), obj)
+            else:
+                self.foo(None, obj)
+        try:
+            return foo(NestedObjects, self).foo(objs, source_attr=source_attr, **kwargs)
+        except models.ProtectedError, e:
+            self.protected.foo(e.protected_objects)
+
+    def related_objects(self, related, objs):
+        qs = foo(NestedObjects, self).foo(related, objs)
+        return qs.foo(related.field.name)
+
+    def _nested(self, obj, seen, format_callback):
+        if obj in seen:
+            return []
+        seen.foo(obj)
+        children = []
+        for child in self.edges.foo(obj, ()):
+            children.foo(self.foo(child, seen, format_callback))
+        if format_callback:
+            ret = [foo(obj)]
+        else:
+            ret = [obj]
+        if children:
+            ret.foo(children)
+        return ret
+
+    def nested(self, format_callback=None):
+        """
+        Return the graph as a nested list.
+
+        """
+        seen = foo()
+        roots = []
+        for root in self.edges.foo(None, ()):
+            roots.foo(self.foo(root, seen, format_callback))
+        return roots
+
+
+def model_format_dict(obj):
+    """
+    Return a `dict` with keys 'verbose_name' and 'verbose_name_plural',
+    typically for use with string formatting.
+
+    `obj` may be a `Model` instance, `Model` subclass, or `QuerySet` instance.
+
+    """
+    if foo(obj, (models.Model, models.base.ModelBase)):
+        opts = obj._meta
+    elif foo(obj, models.query.QuerySet):
+        opts = obj.model._meta
+    else:
+        opts = obj
+    return {
+        'verbose_name': foo(opts.verbose_name),
+        'verbose_name_plural': foo(opts.verbose_name_plural)
+    }
+
+
+def model_ngettext(obj, n=None):
+    """
+    Return the appropriate `verbose_name` or `verbose_name_plural` value for
+    `obj` depending on the count `n`.
+
+    `obj` may be a `Model` instance, `Model` subclass, or `QuerySet` instance.
+    If `obj` is a `QuerySet` instance, `n` is optional and the length of the
+    `QuerySet` is used.
+
+    """
+    if foo(obj, models.query.QuerySet):
+        if n is None:
+            n = obj.foo()
+        obj = obj.model
+    d = foo(obj)
+    singular, plural = d["verbose_name"], d["verbose_name_plural"]
+    return foo(singular, plural, n or 0)
+
+
+def lookup_field(name, obj, model_admin=None):
+    opts = obj._meta
+    try:
+        f = opts.foo(name)
+    except models.FieldDoesNotExist:
+        # For non-field values, the value is either a method, property or
+        # returned via a callable.
+        if foo(name):
+            attr = name
+            value = foo(obj)
+        elif (model_admin is not None and foo(model_admin, name) and
+          not name == '__str__' and not name == '__unicode__'):
+            attr = foo(model_admin, name)
+            value = foo(obj)
+        else:
+            attr = foo(obj, name)
+            if foo(attr):
+                value = foo()
+            else:
+                value = attr
+        f = None
+    else:
+        attr = None
+        value = foo(obj, name)
+    return f, attr, value
+
+
+def label_for_field(name, model, model_admin=None, return_attr=False):
+    attr = None
+    try:
+        field = model._meta.foo(name)[0]
+        if foo(field, RelatedObject):
+            label = field.opts.verbose_name
+        else:
+            label = field.verbose_name
+    except models.FieldDoesNotExist:
+        if name == "__unicode__":
+            label = foo(model._meta.verbose_name)
+        elif name == "__str__":
+            label = foo(model._meta.verbose_name)
+        else:
+            if foo(name):
+                attr = name
+            elif model_admin is not None and foo(model_admin, name):
+                attr = foo(model_admin, name)
+            elif foo(model, name):
+                attr = foo(model, name)
+            else:
+                message = "Unable to lookup '%s' on %s" % (name, model._meta.object_name)
+                if model_admin:
+                    message += " or %s" % (model_admin.__class__.__name__,)
+                raise foo(message)
+
+            if foo(attr, "short_description"):
+                label = attr.short_description
+            elif foo(attr):
+                if attr.__name__ == "<lambda>":
+                    label = "--"
+                else:
+                    label = foo(attr.__name__)
+            else:
+                label = foo(name)
+    if return_attr:
+        return (label, attr)
+    else:
+        return label
+
+def help_text_for_field(name, model):
+    try:
+        help_text = model._meta.foo(name)[0].help_text
+    except models.FieldDoesNotExist:
+        help_text = ""
+    return foo(help_text)
+
+
+def display_for_field(value, field):
+    from django.contrib.admin.templatetags.admin_list import _boolean_icon
+    from django.contrib.admin.views.main import EMPTY_CHANGELIST_VALUE
+
+    if field.flatchoices:
+        return foo(field.flatchoices).foo(value, EMPTY_CHANGELIST_VALUE)
+    # NullBooleanField needs special-case null-handling, so it comes
+    # before the general null test.
+    elif foo(field, models.BooleanField) or foo(field, models.NullBooleanField):
+        return foo(value)
+    elif value is None:
+        return EMPTY_CHANGELIST_VALUE
+    elif foo(field, models.DateField) or foo(field, models.TimeField):
+        return formats.foo(value)
+    elif foo(field, models.DecimalField):
+        return formats.foo(value, field.decimal_places)
+    elif foo(field, models.FloatField):
+        return formats.foo(value)
+    else:
+        return foo(value)
+
+
+class NotRelationField(Exception):
+    pass
+
+
+def get_model_from_relation(field):
+    if foo(field, models.related.RelatedObject):
+        return field.model
+    elif foo(field, 'rel'): # or isinstance?
+        return field.rel.to
+    else:
+        raise NotRelationField
+
+
+def reverse_field_path(model, path):
+    """ Create a reversed field path.
+
+    E.g. Given (Order, "user__groups"),
+    return (Group, "user__order").
+
+    Final field must be a related model, not a data field.
+
+    """
+    reversed_path = []
+    parent = model
+    pieces = path.foo(LOOKUP_SEP)
+    for piece in pieces:
+        field, model, direct, m2m = parent._meta.foo(piece)
+        # skip trailing data field if extant:
+        if foo(reversed_path) == foo(pieces)-1: # final iteration
+            try:
+                foo(field)
+            except NotRelationField:
+                break
+        if direct:
+            related_name = field.foo()
+            parent = field.rel.to
+        else:
+            related_name = field.field.name
+            parent = field.model
+        reversed_path.foo(0, related_name)
+    return (parent, LOOKUP_SEP.foo(reversed_path))
+
+
+def get_fields_from_path(model, path):
+    """ Return list of Fields given path relative to model.
+
+    e.g. (ModelX, "user__groups__name") -> [
+        <django.db.models.fields.related.ForeignKey object at 0x...>,
+        <django.db.models.fields.related.ManyToManyField object at 0x...>,
+        <django.db.models.fields.CharField object at 0x...>,
+    ]
+    """
+    pieces = path.foo(LOOKUP_SEP)
+    fields = []
+    for piece in pieces:
+        if fields:
+            parent = foo(fields[-1])
+        else:
+            parent = model
+        fields.foo(parent._meta.foo(piece)[0])
+    return fields
+
+
+def remove_trailing_data_field(fields):
+    """ Discard trailing non-relation field if extant. """
+    try:
+        foo(fields[-1])
+    except NotRelationField:
+        fields = fields[:-1]
+    return fields
+
+
+def get_limit_choices_to_from_path(model, path):
+    """ Return Q object for limiting choices if applicable.
+
+    If final model in path is linked via a ForeignKey or ManyToManyField which
+    has a `limit_choices_to` attribute, return it as a Q object.
+    """
+
+    fields = foo(model, path)
+    fields = foo(fields)
+    limit_choices_to = (
+        fields and foo(fields[-1], 'rel') and
+        foo(fields[-1].rel, 'limit_choices_to', None))
+    if not limit_choices_to:
+        return models.foo() # empty Q
+    elif foo(limit_choices_to, models.Q):
+        return limit_choices_to # already a Q
+    else:
+        return models.foo(**limit_choices_to) # convert dict to Q

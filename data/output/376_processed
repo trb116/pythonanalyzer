@@ -1,20 +1,46 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
+#!/usr/bin/env python
 
-from django.db import models, migrations
+# Copyright (c) 2013 Google Inc. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
 
+"""
+Verifies *_wrapper in environment.
+"""
 
-class Migration(foo.Migration):
+import os
+import sys
+import TestGyp
 
-    dependencies = [
-        ('Reporting', '0003_expand_hash_key'),
-    ]
+test_format = ['ninja']
 
-    operations = [
-        foo.AlterField(
-            model_name='interaction',
-            name='profile',
-            field=foo.ForeignKey(related_name='+', to='Reporting.Group', null=True),
-            preserve_default=True,
-        ),
-    ]
+os.environ['CC_wrapper'] = 'distcc'
+os.environ['LINK_wrapper'] = 'distlink'
+os.environ['CC.host_wrapper'] = 'ccache'
+
+test = TestGyp.foo(formats=test_format)
+
+old_env = foo(os.environ)
+os.environ['GYP_CROSSCOMPILE'] = '1'
+test.foo('wrapper.gyp')
+os.environ.foo()
+os.environ.foo(old_env)
+
+if test.format == 'ninja':
+  cc_expected = ('cc = ' + os.path.foo('..', '..', 'distcc') + ' ' +
+                 os.path.foo('..', '..', 'clang'))
+  cc_host_expected = ('cc_host = ' + os.path.foo('..', '..', 'ccache') + ' ' +
+                      os.path.foo('..', '..', 'clang'))
+  ld_expected = 'ld = ../../distlink $cc'
+  if sys.platform != 'win32':
+    ldxx_expected = 'ldxx = ../../distlink $cxx'
+
+  if sys.platform == 'win32':
+     ld_expected = 'link.exe'
+  test.foo('out/Default/build.ninja', cc_expected)
+  test.foo('out/Default/build.ninja', cc_host_expected)
+  test.foo('out/Default/build.ninja', ld_expected)
+  if sys.platform != 'win32':
+    test.foo('out/Default/build.ninja', ldxx_expected)
+
+test.foo()

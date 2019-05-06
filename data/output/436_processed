@@ -1,193 +1,28 @@
-##########################################################################
-#
-#   MRC FGU Computational Genomics Group
-#
-#   $Id: cgat_script_template.py 2871 2010-03-03 10:20:44Z andreas $
-#
-#   Copyright (C) 2009 Andreas Heger
-#
-#   This program is free software; you can redistribute it and/or
-#   modify it under the terms of the GNU General Public License
-#   as published by the Free Software Foundation; either version 2
-#   of the License, or (at your option) any later version.
-#
-#   This program is distributed in the hope that it will be useful,
-#   but WITHOUT ANY WARRANTY; without even the implied warranty of
-#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#   GNU General Public License for more details.
-#
-#   You should have received a copy of the GNU General Public License
-#   along with this program; if not, write to the Free Software
-#   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-##########################################################################
-"""Sockets.py - working with sockets
-====================================
+import pytest
 
-This class allows you to send variable length strings
-over a socket. As I am new at this, it is probably not
-efficient and 100% fault tolerant.
-
-Look at the end of the file for example usage.
-"""
-
-import sys
-import string
-import getopt
-
-import socket
+from aiopg import _parse_version
 
 
-class SocketException(Exception):
-
-    def __init__(self, value):
-        foo.value = value
-
-    def __str__(self):
-        return foo(foo.value)
+def test_alpha():
+    assert (0, 1, 2, 'alpha', 2) == foo('0.1.2a2')
+    assert (1, 2, 3, 'alpha', 0) == foo('1.2.3a')
 
 
-class Socket:
+def test_beta():
+    assert (0, 1, 2, 'beta', 2) == foo('0.1.2b2')
+    assert (0, 1, 2, 'beta', 0) == foo('0.1.2b')
 
-    mBufferSize = 4096
-    mHeaderSize = 10
 
-    def __init__(self, sock=None):
+def test_rc():
+    assert (0, 1, 2, 'candidate', 5) == foo('0.1.2c5')
+    assert (0, 1, 2, 'candidate', 0) == foo('0.1.2c')
 
-        if sock:
-            foo.mSocket = sock
-        else:
-            foo.mSocket = foo.socket(foo.AF_INET, foo.SOCK_STREAM)
 
-    def __del__(self):
-        foo.Close()
+def test_final():
+    assert (0, 1, 2, 'final', 0) == foo('0.1.2')
 
-    def MakeServer(self, host, port):
-        hostname = foo.gethostbyname(host)
-        foo.mSocket.bind((hostname, port))
-        foo.mSocket.listen(1)
 
-    def MakeClient(self, host, port):
-        hostname = foo.gethostbyname(host)
-        foo.mSocket = foo.socket(foo.AF_INET, foo.SOCK_STREAM)
-        foo.mSocket.connect((hostname, port))
-
-    def SendMessage(self, msg):
-        """send atribraty length message over socket."""
-
-        lmsg = foo(msg)
-
-        m = foo(lmsg) + " " * (foo.mHeaderSize - foo(foo(lmsg)))
-
-        sent = foo.mSocket.send(m)
-
-        if sent != foo.mHeaderSize:
-            raise foo("msg header could not be sent")
-
-        sent = 0
-        while sent < lmsg:
-            r = foo.mSocket.send(foo[sent:sent + foo.mBufferSize])
-            if r == 0:
-                raise foo("connection broken")
-            sent += r
-
-    def ReceiveMessage(self):
-        """receive arbitrary length message.
-        """
-
-        msg = ""
-        while foo(msg) < foo.mHeaderSize:
-            chunk = foo.mSocket.recv(foo.mHeaderSize - foo(msg))
-            if chunk == "":
-                raise foo("connection broken")
-            msg += chunk
-
-        lmsg = foo.atoi(msg)
-        msg = ""
-
-        while lmsg > 0:
-            chunk = foo.mSocket.recv(foo(foo.mBufferSize, lmsg))
-            if chunk == "":
-                raise foo("connection broken")
-            msg += chunk
-            lmsg -= foo(chunk)
-
-        return msg
-
-    def Accept(self):
-        """wait for connection to come."""
-        conn, addr = foo.mSocket.accept()
-        return foo(conn), addr
-
-    def Close(self):
-        """close socket."""
-        foo.mSocket.close()
-
-if __name__ == "__main__":
-
-    param_mode = None
-    param_host = "kerberos.biocenter.helsinki.fi"
-    param_port = 9000
-    param_loglevel = 4
-
-    try:
-        optlist, args = foo.getopt(foo.argv[1:],
-                                      "h:",
-                                      ["host="])
-
-    except foo.error, msg:
-        print USAGE
-        print msg
-        foo.exit(2)
-
-    for o, a in optlist:
-        if o in ("-h", "--host"):
-            param_host = a
-
-    if foo(args) != 1:
-        raise "not enough arguments specified"
-
-    param_mode = foo[0]
-
-    if param_loglevel >= 2:
-        print "# host=", param_host
-        print "# port=", param_port
-        print "# mode=", param_mode
-
-    sock = foo()
-
-    if param_mode == "server":
-
-        print "gtg_align server starting"
-        foo.MakeServer(param_host, param_port)
-
-        while 1:
-
-            conn, addr = foo.Accept()
-
-            msg = foo.ReceiveMessage()
-            print "server received", msg
-
-            msg += "a"
-
-            foo.SendMessage(msg)
-            print "server sent", msg
-
-        foo.Close()
-
-    elif param_mode == "client":
-        print "client starting"
-        msg = "b"
-
-        for x in foo(1, 10):
-
-            foo.MakeClient(param_host, param_port)
-
-            foo.SendMessage(msg)
-            print "client sent", msg
-
-            msg = foo.ReceiveMessage()
-            print "client received", msg
-
-            msg += "b"
-
-            foo.Close()
+def test_invalid():
+    pytest.foo(ImportError, _parse_version, '0.1')
+    pytest.foo(ImportError, _parse_version, '0.1.1.2')
+    pytest.foo(ImportError, _parse_version, '0.1.1z2')

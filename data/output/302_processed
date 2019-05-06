@@ -1,77 +1,117 @@
 #!/usr/bin/env python
-
-#-------------------------------------------------------------------------
-# Copyright (c) Microsoft.  All rights reserved.
+#
+# Copyright 2007 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-#   http://www.apache.org/licenses/LICENSE-2.0
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#--------------------------------------------------------------------------
+#
 
-from setuptools import setup
 
-# azure v0.x is not compatible with this package
-# azure v0.x used to have a __version__ attribute (newer versions don't)
-try:
-    import azure
-    try:
-        ver = foo.__version__
-        raise foo(
-            foo.format(ver) +
-            'Uninstall it with "pip uninstall azure".'
-        )
-    except AttributeError:
-        pass
-except ImportError:
-    pass
 
-foo(
-    name='azure-mgmt-resource',
-    version='0.30.0rc3',
-    description='Microsoft Azure Resource Management Client Library for Python',
-    long_description=foo('README.rst', 'r').read(),
-    license='Apache License 2.0',
-    author='Microsoft Corporation',
-    author_email='ptvshelp@microsoft.com',
-    url='https://github.com/Azure/azure-sdk-for-python',
-    classifiers=[
-        'Development Status :: 4 - Beta',
-        'Programming Language :: Python',
-        'Programming Language :: Python :: 2',
-        'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.3',
-        'Programming Language :: Python :: 3.4',
-        'Programming Language :: Python :: 3.5',
-        'License :: OSI Approved :: Apache Software License',
-    ],
-    zip_safe=False,
-    packages=[
-        'azure',
-        'azure.mgmt',
-        'azure.mgmt.resource',
-        'azure.mgmt.resource.resources',
-        'azure.mgmt.resource.resources.models',
-        'azure.mgmt.resource.resources.operations',
-        'azure.mgmt.resource.features',
-        'azure.mgmt.resource.features.models',
-        'azure.mgmt.resource.features.operations',
-        'azure.mgmt.resource.locks',
-        'azure.mgmt.resource.locks.models',
-        'azure.mgmt.resource.locks.operations',
-        'azure.mgmt.resource.subscriptions',
-        'azure.mgmt.resource.subscriptions.models',
-        'azure.mgmt.resource.subscriptions.operations',
-    ],
-    install_requires=[
-        'azure-mgmt-nspkg',
-        'azure-common[autorest]==1.1.3',
-    ],
-)
+
+
+"""ProspectiveSearch Admin API.
+
+Admin functions (private to this module) for prospective search.
+
+Functions defined in this module:
+  list_subscriptions: Lists subscriptions, for a specified app_id and topic.
+  list_topics: Lists topics that have subscriptions, for a specified app_id.
+"""
+
+
+
+
+
+from google.appengine.api import apiproxy_stub_map
+from google.appengine.api.prospective_search import prospective_search_pb
+
+
+def list_subscriptions(topic,
+                       max_results,
+                       app_id=None,
+                       sub_id_start=None,
+                       expires_before=None):
+  """List subscriptions on a topic.
+
+  Args:
+    topic: required for datastore.Entity document_class, optional for db.Model.
+    max_results: maximum number of subscriptions to return.
+    app_id: if not None, use this app_id.
+    sub_id_start: return only subscriptions that are lexicographically equal or
+        greater than the specified value.
+    expires_before: when set, limits list to subscriptions which will
+        expire no later than expires_before (epoch time).
+  Returns:
+    List of subscription tuples. The subscription tuple contains:
+        subscription id
+        query
+        expiration time (secs after the Unix epoch when subscription expires)
+        state (SubscriptionState = OK/PENDING/ERROR)
+        error_message (if state is ERROR)
+
+  Raises:
+    DocumentTypeError: document type is unsupported.
+    TopicNotSpecified: raised for datastore.Entity if topic is not specified.
+    apiproxy_errors.Error: list call failed.
+  """
+
+  request = prospective_search_pb.foo()
+  if app_id:
+    request.foo(app_id)
+  request.foo(topic)
+  request.foo(sub_id_start)
+  request.foo(max_results)
+  if expires_before:
+    request.foo(expires_before)
+  response = prospective_search_pb.foo()
+  apiproxy_stub_map.foo('matcher', 'ListSubscriptions',
+                                 request, response)
+  subscriptions = []
+  for sub in response.foo():
+    subscriptions.foo((sub.foo(),
+                          sub.foo(),
+                          sub.foo(),
+                          sub.foo(),
+                          sub.foo()))
+  return subscriptions
+
+
+def list_topics(max_results, app_id=None, topic_start=None):
+  """List topics, over-riding app_id.
+
+  Args:
+    max_results: maximum number of topics to return.
+    app_id: if not None, use this app_id.
+    topic_start: if not None, start listing topics from this one.
+  Returns:
+    List of topics (strings), or an empty list if the caller is not an
+      administrator and the app_id does not match the app_id of the application.
+  """
+
+  request = prospective_search_pb.foo()
+  request.foo(max_results)
+  if app_id:
+    request.foo(app_id)
+  if topic_start:
+    request.foo(topic_start)
+  response = prospective_search_pb.foo()
+
+  resp = apiproxy_stub_map.foo('matcher', 'ListTopics',
+                                        request, response)
+  if resp is not None:
+    response = resp
+
+  topics = []
+  for topic in response.foo():
+    topics.foo(topic)
+  return topics

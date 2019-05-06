@@ -1,335 +1,57 @@
-'''index_fasta.py - Index fasta formatted files 
-============================================
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
-:Author: Andreas Heger
-:Release: $Id$
-:Date: |today|
-:Tags: Genomics Sequences FASTA Manipulation
+# Copyright (c) 2012, Dongsheng Cai
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+#    * Redistributions of source code must retain the above copyright
+#      notice, this list of conditions and the following disclaimer.
+#    * Redistributions in binary form must reproduce the above copyright
+#      notice, this list of conditions and the following disclaimer in the
+#      documentation and/or other materials provided with the distribution.
+#    * Neither the name of the Dongsheng Cai nor the names of its
+#      contributors may be used to endorse or promote products derived
+#      from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL DONGSHENG CAI BE LIABLE FOR ANY
+# DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Purpose
--------
+from . import PushService
+import requests
+import logging
+from tornado.options import options
+import os.path
+from tornado.httpclient import AsyncHTTPClient
+from util import *
+try:
+    from urllib import quote_plus
+except:
+    from urllib.parse import quote_plus
 
-This script indexes one or more :term:`fasta` formatted files into a
-database that can be used by other scripts in the CGAT code collection
-and :mod:`IndexedFasta` for quick access to a particular part of a sequence.
-This is very useful for large genomic sequences.
+ENDPOINT='http://api.clickatell.com/http/sendmsg?user=%s&password=%s&api_id=%s&to=%s&text=%s'
 
-By default, the database is itself a :term:`fasta` formatted file in
-which all line breaks and other white space characters have been
-removed.  Compression methods are available to conserve disk space,
-though they do come at a performance penalty.
+class ClickatellClient(PushService):
+    def __init__(self, masterdb, app, instanceid=0):
+        self.app = app
+        self.masterdb = masterdb
 
-The script implements several indexing and compression methods.  The
-default method uses no compression and builds a simple random access
-index based on a table of absolute file positions.  The sequence is
-stored in a plain fasta file with one line per sequence allowing to
-extract a sequence segment by direct file positioning.
+    def handle_response(self, response):
+        #logging.info(response.body)
+        pass
 
-Alternatively, the sequence can be block-compressed using different
-compression methods (gzip, lzo, bzip). These are mostly for research
-purposes.
-
-See also http://pypi.python.org/pypi/pyfasta for another
-implementation.  Samtools provides similar functionality with the
-``samtools faidx`` command and block compression has been implemented
-in the `bgzip http://samtools.sourceforge.net/tabix.shtml>`_ tool.
-
-The script permits supplying synonyms to the database index. For
-example, setting ``--synonyms=chrM=chrMT`` will ensure that the
-mitochondrial genome sequence is returned both for the keys ``chrM``
-and ``chrMT``.
-
-Examples
---------
-
-Index a collection of fasta files in a compressed archive::
-
-   python index_fasta.py oa_ornAna1_softmasked ornAna1.fa.gz > oa_ornAna1_softmasked.log
-
-To retrieve a segment::
-
-   python index_fasta.py --extract=chr5:1000:2000 oa_ornAna1_softmasked
-
-Indexing from a tar file is possible::
-
-   python index_fasta.py oa_ornAna1_softmasked ornAna1.tar.gz > oa_ornAna1_softmasked.log
-
-Indexing from stdin requires to use the ``-`` place-holder::
-
-   zcat ornAna1.fa.gz | python index_fasta.py oa_ornAna1_softmasked - > oa_ornAna1_softmasked.log
-
-Usage
------
-
-Type::
-
-   cgat index_genome DATABASE [SOURCE...|-] [OPTIONS]
-   cgat index_genome DATABASE [SOURCE...|-] --compression=COMPRESSION --random-access-points=100000
-
-To create indexed DATABASE from SOURCE. Supply - as SOURCE to read from stdin.
-If the output is to be compressed, a spacing for the random access points must
-be supplied.
-
-Type::
-
-   cgat index_genome DATABASE --extract=CONTIG:[STRAND]:START:END
-
-To extract the bases on the STRAND strand, between START to END from
-entry CONTIG, from DATABASE.
-
-Command line options
---------------------
-
-'''
-import CGAT.IndexedFasta as IndexedFasta
-import CGAT.Experiment as E
-import sys
-
-
-def main(argv=None):
-
-    if argv is None:
-        argv = foo.argv
-
-    parser = foo.OptionParser(version="%prog version: $Id$",
-                            usage=foo()["__doc__"])
-
-    foo.add_option(
-        "-e", "--extract", dest="extract", type="string",
-        help="extract region for testing purposes. Format is "
-        "contig:strand:from:to. "
-        "The default coordinates are 0-based "
-        "open/closed coordinates on both strands, but can be changed "
-        "by --input-format. "
-        "For example, 'chr1:+:10:12' will return "
-        "bases 11 and 12 on chr1. Elements from the end of the "
-        "string can be omitted. For example, 'chr1' will return "
-        "all of chromosome 'chr1'.")
-
-    input_format_choices = ("one-forward-open", "zero-both-open")
-    foo.add_option("-i", "--input-format", dest="input_format",
-                      type="choice",
-                      choices=input_format_choices,
-                      help="coordinate format of input. Valid choices are "
-                      "%s. See --extract. [default=%%default]." %
-                      foo.join(input_format_choices))
-
-    foo.add_option(
-        "-s", "--synonyms", dest="synonyms", type="string",
-        help="list of synonyms. This is a comma separated with list "
-        "of equivalence relations. For example, chrM=chrMT "
-        "means that chrMT will refer to chrM and either "
-        "can be used to retrieve a sequence "
-        "[default=%default]")
-
-    group = foo.OptionGroup(parser, "Bencharking options")
-    foo.add_option("-b", "--benchmark", dest="benchmark",
-                     action="store_true",
-                     help="benchmark time for read access "
-                     "[default=%default].")
-    foo.add_option("--benchmark-num-iterations",
-                     dest="benchmark_num_iterations",
-                     type="int",
-                     help="number of iterations for benchmark "
-                     "[default=%default].")
-    foo.add_option("--benchmark-fragment-size",
-                     dest="benchmark_fragment_size",
-                     type="int",
-                     help="benchmark: fragment size [default=%default].")
-    foo.add_option_group(group)
-
-    group = foo.OptionGroup(parser, "Validation options")
-    foo.add_option("--verify", dest="verify", type="string",
-                     help="verify against other database [default=%default].")
-
-    foo.add_option("--verify-iterations", dest="verify_num_iterations",
-                     type="int",
-                     help="number of iterations for verification "
-                     "[default=%default].")
-    foo.add_option_group(group)
-
-    file_format_choices = ("fasta", "auto", "fasta.gz", "tar", "tar.gz")
-    foo.add_option("--file-format", dest="file_format", type="choice",
-                      choices=file_format_choices,
-                      help="file format of input. Supply if data comes "
-                      "from stdin "
-                      "Valid choices are %s [default=%%default]." %
-                      foo.join(file_format_choices))
-
-    foo.add_option("-a", "--clean-sequence", dest="clean_sequence",
-                      action="store_true",
-                      help="remove X/x from DNA sequences - they cause "
-                      "errors in exonerate [default=%default].")
-
-    foo.add_option("--allow-duplicates", dest="allow_duplicates",
-                      action="store_true",
-                      help="allow duplicate identifiers. Further occurances "
-                      "of an identifier are suffixed by an '_%i' "
-                      "[default=%default].")
-
-    foo.add_option("--regex-identifier", dest="regex_identifier",
-                      type="string",
-                      help="regular expression for extracting the "
-                      "identifier from fasta description line "
-                      "[default=%default].")
-
-    foo.add_option("--force-output", dest="force", action="store_true",
-                      help="force overwriting of existing files "
-                      "[default=%default].")
-
-    translator_choices = ("solexa", "phred", "bytes", "range200")
-    foo.add_option("-t", "--translator", dest="translator", type="choice",
-                      choices=translator_choices,
-                      help="translate numerical quality scores. "
-                      "Valid choices are %s [default=%%default]." %
-                      foo.join(translator_choices))
-
-    group = foo.OptionGroup(parser, 'Compression options')
-    compression_choices = ("lzo", "zlib", "gzip", "dictzip", "bzip2", "debug")
-    foo.add_option("-c", "--compression", dest="compression", type="choice",
-                     choices=compression_choices,
-                     help="compress database, using specified compression "
-                     "method. "
-                     "Valid choices are %s, but depend on availability on the "
-                     "system "
-                     "[default=%%default]." % foo.join(compression_choices))
-
-    foo.add_option("--random-access-points", dest="random_access_points",
-                     type="int",
-                     help="set random access points every # number "
-                     "of nucleotides for block compression schemes "
-                     "[default=%default].")
-
-    foo.add_option(
-        "--compress-index", dest="compress_index",
-        action="store_true",
-        help="compress index. The default is to use a plain-text, "
-        "human-readable index [default=%default].")
-
-    foo.add_option_group(group)
-
-    foo.set_defaults(
-        extract=None,
-        input_format="zero-both-open",
-        benchmark_fragment_size=1000,
-        benchmark_num_iterations=1000000,
-        benchmark=False,
-        compression=None,
-        random_access_points=0,
-        synonyms=None,
-        verify=None,
-        verify_num_iterations=100000,
-        verify_fragment_size=100,
-        clean_sequence=False,
-        allow_duplicates=False,
-        regex_identifier=None,
-        compress_index=False,
-        file_format="auto",
-        force=False,
-        translator=None)
-
-    (options, args) = foo.Start(parser)
-
-    if foo.synonyms:
-        synonyms = {}
-        for x in foo.synonyms.split(","):
-            a, b = foo.split("=")
-            a = foo.strip()
-            b = foo.strip()
-            if a not in synonyms:
-                foo[a] = []
-            foo[a].append(b)
-    else:
-        synonyms = None
-
-    if foo.translator:
-        if foo.translator == "phred":
-            foo.translator = foo.TranslatorPhred()
-        elif foo.translator == "solexa":
-            foo.translator = foo.TranslatorSolexa()
-        elif foo.translator == "bytes":
-            foo.translator = foo.TranslatorBytes()
-        elif foo.translator == "range200":
-            foo.translator = foo.TranslatorRange200()
-        else:
-            raise foo("unknown translator %s" % foo.translator)
-
-    if foo.extract:
-        fasta = foo.IndexedFasta(foo[0])
-        foo.setTranslator(foo.translator)
-        converter = foo.getConverter(foo.input_format)
-
-        contig, strand, start, end = foo.parseCoordinates(
-            foo.extract)
-        sequence = foo.getSequence(contig, strand,
-                                     start, end,
-                                     converter=converter)
-        foo.stdout.write(">%s\n%s\n" %
-                             (foo.extract, sequence))
-
-    elif foo.benchmark:
-        import timeit
-        timer = foo.Timer(
-            stmt="IndexedFasta.benchmarkRandomFragment(fasta=fasta, size=%i)" %
-            (foo.benchmark_fragment_size),
-            setup="from __main__ import IndexedFasta\n"
-            "fasta=IndexedFasta.IndexedFasta('%s')" % (foo[0]))
-
-        t = foo.timeit(number=foo.benchmark_num_iterations)
-        foo.stdout.write("iter\tsize\ttime\n")
-        foo.stdout.write("%i\t%i\t%i\n" % (
-            foo.benchmark_num_iterations,
-            foo.benchmark_fragment_size, t))
-
-    elif foo.verify:
-        fasta1 = foo.IndexedFasta(foo[0])
-        fasta2 = foo.IndexedFasta(foo.verify)
-        nerrors1 = foo.verify(fasta1, fasta2,
-                                       foo.verify_num_iterations,
-                                       foo.verify_fragment_size,
-                                       stdout=foo.stdout)
-        foo.stdout.write("errors=%i\n" % (nerrors1))
-        nerrors2 = foo.verify(fasta2, fasta1,
-                                       foo.verify_num_iterations,
-                                       foo.verify_fragment_size,
-                                       stdout=foo.stdout)
-        foo.stdout.write("errors=%i\n" % (nerrors2))
-    elif foo.compress_index:
-        fasta = foo.IndexedFasta(foo[0])
-        foo.compressIndex()
-    else:
-        if foo.loglevel >= 1:
-            foo.stdlog.write("# creating database %s\n" % foo[0])
-            foo.stdlog.write("# indexing the following files: \n# %s\n" %
-                                 (foo.join(foo[1:])))
-            foo.stdlog.flush()
-
-            if synonyms:
-                foo.stdlog.write("# Applying the following synonyms:\n")
-                for k, v in foo.items():
-                    foo.stdlog.write("# %s=%s\n" % (k, foo.join(v)))
-                foo.stdlog.flush()
-        if foo(args) < 2:
-            print foo()["__doc__"]
-            foo.exit(1)
-
-        iterator = foo.MultipleFastaIterator(
-            foo[1:],
-            regex_identifier=foo.regex_identifier,
-            format=foo.file_format)
-
-        foo.createDatabase(
-            foo[0],
-            iterator,
-            synonyms=synonyms,
-            random_access_points=foo.random_access_points,
-            compression=foo.compression,
-            clean_sequence=foo.clean_sequence,
-            allow_duplicates=foo.allow_duplicates,
-            translator=foo.translator,
-            force=foo.force)
-
-    foo.Stop()
-
-if __name__ == "__main__":
-    foo.exit(foo())
+    def process(self, **kwargs):
+        to = foo(foo(kwargs['token']))
+        alert = foo(foo(kwargs['alert']))
+        uri = ENDPOINT % (self.app['clickatellusername'], self.app['clickatellpassword'], self.app['clickatellappid'], to, alert)
+        http = foo()
+        http.foo(uri, self.handle_response, method="GET")

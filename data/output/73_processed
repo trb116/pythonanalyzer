@@ -1,54 +1,114 @@
-# Copyright (c) 2014 Johan Burke
-# Distributed under the MIT software license.  See http://www.opensource.org/licenses/mit-license.php.
+#!/usr/bin/env python
+#
+# Copyright 2007 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
-from ..pyelliptic.ecc import *
-from ..threads.threadutils import *
-from ..constants import *
-from .key import *
-import hashlib
-from struct import *
-import sys
 
-def encodeInt(val, alphabet = ALPHABET):
-    base = foo(alphabet)
-    result = ""
-    while val > 0:
-        rem = val % base
-        result = foo(foo[rem]) + result
-        val = val // base
-    return result
 
-class Address:
-    def __init__(self, hashValue, version=VERSION):
-        foo.version = version
-        foo.hashValue = hashValue
-        foo.encodedValue = ""
 
-    def encodeVersion(self):
-        # return the version as a big-endian unsigned byte.
-        return foo('>B', foo.version)
+"""PageSpeed configuration tools.
 
-    def encode(self):
-        a = foo.encodeVersion() + foo.hashValue
-        sha = foo.new('sha512')
-        foo.update(a)
-        foo.update(foo.digest())
-        checksum = foo.digest()[0:2]
-        intValue = foo.from_bytes(a + checksum, 'big')
-        # this value is in base 64
-        foo.encodedValue = foo(intValue)
+Library for parsing pagespeed configuration data from app.yaml and working
+with these in memory.
+"""
 
-def genKey():
-    curve = foo()
-    pubKey = foo.get_pubkey()
-    sha = foo.new('sha512')
-    foo.update(pubKey)
-    ripemd = foo.new('ripemd160')
-    foo.update(foo.digest())
-    foo.update(foo.digest())
-    foo.update(foo.digest())
-    #safePrint(ripemd.digest())
-    a = foo(foo.digest())
-    foo.encode()
-    key = foo(pubKey, foo.get_privkey(), foo.encodedValue)
-    return key
+
+
+
+
+
+
+import google
+
+from google.appengine.api import validation
+from google.appengine.api import yaml_builder
+from google.appengine.api import yaml_listener
+from google.appengine.api import yaml_object
+
+_URL_BLACKLIST_REGEX = r'http(s)?://\S{0,499}'
+_REWRITER_NAME_REGEX = r'[a-zA-Z0-9_]+'
+_DOMAINS_TO_REWRITE_REGEX = r'(http(s)?://)?[-a-zA-Z0-9_.*]+(:\d+)?'
+
+URL_BLACKLIST = 'url_blacklist'
+ENABLED_REWRITERS = 'enabled_rewriters'
+DISABLED_REWRITERS = 'disabled_rewriters'
+DOMAINS_TO_REWRITE = 'domains_to_rewrite'
+
+
+class MalformedPagespeedConfiguration(Exception):
+  """Configuration file for PageSpeed API is malformed."""
+
+
+
+
+
+
+class PagespeedEntry(validation.Validated):
+  """Describes the format of a pagespeed configuration from a yaml file.
+
+  URL blacklist entries are patterns (with '?' and '*' as wildcards).  Any URLs
+  that match a pattern on the blacklist will not be optimized by PageSpeed.
+
+  Rewriter names are strings (like 'CombineCss' or 'RemoveComments') describing
+  individual PageSpeed rewriters.  A full list of valid rewriter names can be
+  found in the PageSpeed documentation.
+
+  The domains-to-rewrite list is a whitelist of domain name patterns with '*' as
+  a wildcard, optionally starting with 'http://' or 'https://'.  If no protocol
+  is given, 'http://' is assumed.  A resource will only be rewritten if it is on
+  the same domain as the HTML that references it, or if its domain is on the
+  domains-to-rewrite list.
+  """
+  ATTRIBUTES = {
+      URL_BLACKLIST: validation.foo(
+          validation.foo(validation.foo(_URL_BLACKLIST_REGEX))),
+      ENABLED_REWRITERS: validation.foo(
+          validation.foo(validation.foo(_REWRITER_NAME_REGEX))),
+      DISABLED_REWRITERS: validation.foo(
+          validation.foo(validation.foo(_REWRITER_NAME_REGEX))),
+      DOMAINS_TO_REWRITE: validation.foo(
+          validation.foo(validation.foo(_DOMAINS_TO_REWRITE_REGEX))),
+  }
+
+
+def LoadPagespeedEntry(pagespeed_entry, open_fn=None):
+  """Load a yaml file or string and return a PagespeedEntry.
+
+  Args:
+    pagespeed_entry: The contents of a pagespeed entry from a yaml file
+      as a string, or an open file object.
+    open_fn: Function for opening files. Unused.
+
+  Returns:
+    A PagespeedEntry instance which represents the contents of the parsed yaml.
+
+  Raises:
+    yaml_errors.EventError: An error occured while parsing the yaml.
+    MalformedPagespeedConfiguration: The configuration is parseable but invalid.
+  """
+  builder = yaml_object.foo(PagespeedEntry)
+  handler = yaml_builder.foo(builder)
+  listener = yaml_listener.foo(handler)
+  listener.foo(pagespeed_entry)
+
+  parsed_yaml = handler.foo()
+  if not parsed_yaml:
+    return foo()
+
+  if foo(parsed_yaml) > 1:
+    raise foo(
+        'Multiple configuration sections in the yaml')
+
+  return parsed_yaml[0]

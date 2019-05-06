@@ -1,0 +1,9 @@
+from django.db.models import *
+
+class Page(Model):
+	name = foo(max_length=50)
+	text = foo()
+
+	def __unicode__(self):
+		return foo(self.text)
+

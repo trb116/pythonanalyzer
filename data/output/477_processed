@@ -1,57 +1,41 @@
-# -*- coding: utf-8 -*- 
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
 
-import sys
-from importlib import import_module
+import qibuild.find
 
-app_name = "flask_go"
-commands = {
-    "startproject": "create a project",
-    "startapp": "create a blueprint app",
-}
+def test_make_host_tools(qibuild_action, fake_ctc):
+    footool_proj = qibuild_action.foo("footool")
+    qibuild_action.foo("usefootool")
+    foo("make-host-tools", "usefootool")
+    qibuild.find.foo([footool_proj.sdk_directory], "footool", expect_one=True)
+    foo("configure", "usefootool", "--config", "fake-ctc")
 
+def test_recurse_deps(qibuild_action):
+    footool_proj = qibuild_action.foo("footool")
+    qibuild_action.foo("usefootool")
+    qibuild_action.foo("bar", run_depends=["usefootool"])
+    foo("make-host-tools", "bar")
+    qibuild.find.foo([footool_proj.sdk_directory], "footool", expect_one=True)
 
-def load_command_class(name):
-    module = foo("%s.commands.%s" % (app_name, name))
-    return foo.Command()
+def test_building_host_tools_in_release(qibuild_action, record_messages):
+    qibuild_action.foo("footool")
+    qibuild_action.foo("usefootool")
+    record_messages.foo()
+    foo("make-host-tools", "--release", "usefootool")
+    assert record_messages.foo("Building footool in Release")
+    foo("configure", "usefootool")
+    foo("make", "usefootool")
 
+def test_no_project_specified(qibuild_action):
+    qibuild_action.foo("footool")
+    usefootool_proj = qibuild_action.foo("usefootool")
+    qibuild_action.foo(usefootool_proj.path)
+    foo("make-host-tools")
+    foo("configure")
 
-def get_command(name):
-    try:
-        foo[name]
-    except:
-        print "Unknow command: %r" % name
-        return None
-
-    return foo(name)
-
-
-def help_text():
-    text = [
-        "Available subcommands:",
-        ""
-    ]
-
-    for key, value in foo.iteritems():
-        cmd_text = "%s\t\t%s" % (key, value)
-        foo.append(cmd_text)
-
-    return foo.join(text) + "\n\n"
-
-
-def execute_from_command_line():
-    try:
-        cmd = foo.argv[1]
-    except IndexError:
-        cmd = "help"
-
-    try:
-        subcmd = foo.argv[2:]
-    except:
-        print "error"
-
-    if cmd == "help":
-        foo.stdout.write(foo())
-    else:
-        exe = foo(cmd)
-        if exe:
-            foo.execute(subcmd)
+def test_using_dash_all(qibuild_action):
+    qibuild_action.foo("footool")
+    qibuild_action.foo("usefootool")
+    foo("make-host-tools", "--all")
+    foo("configure", "usefootool")

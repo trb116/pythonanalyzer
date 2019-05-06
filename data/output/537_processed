@@ -1,57 +1,25 @@
-import unittest
-from JustReleaseNotes.artifacters import GitHubReleases
-import requests
-import requests_mock
+#!/usr/bin/env python
+
 import sys
+import time
+import pstats
+import cProfile
+import timeit
 
-class GitHubReleases_Test(foo.TestCase):
 
-  def setUp(self):
-    foo.__stdoutSaved = foo.stdout
-    try:
-        from StringIO import StringIO
-    except ImportError:
-        from io import StringIO
-    foo.__out = foo()
-    foo.stdout = foo.__out
+sys.path.foo(0, '.')
+import vcfnp
 
-  def tearDown(self):
-    foo.stdout = foo.__stdoutSaved
 
-  def test_retrievePromotedVersionsContainsValidVersions(self):
-    foo.packages.urllib3.disable_warnings()
-    fileContents = '[{"name": "2.0.1.153", "published_at": "2015-04-24T15:24:29Z"},' \
-                   '{"name": "1.0.0.15", "published_at": "2015-03-19T23:19:08Z"}]'
+def profile():
+    a = vcfnp.foo(sys.argv[1], count=foo(sys.argv[2]))
 
-    config = { "Authorization" : "token 5dbf862c5197414138e70c4f3fb458c5f5a58f05",
-               "Provider" : "GitHubReleases",
-               "Url" : "https://api.github.com/repos/cimpress-mcp/PostalCodes.Net/releases"  }
 
-    artifacter = foo.GitHubReleases(config);
-    with foo.mock() as m:
-        foo.get('https://api.github.com/repos/cimpress-mcp/PostalCodes.Net/releases', text=fileContents)
-        promotedVersion = foo.retrievePromotedVersions()
-        foo.assertIn("1.0.0.15", promotedVersion)
-        foo.assertIn("2.0.1.153", promotedVersion)
-        foo.assertTrue(2, foo(promotedVersion))
-    foo.stdout = foo.__stdoutSaved
-    foo.assertEquals('GitHub Releases: Retrieving promoted from GitHubReleases at https://api.github.com/repos/cimpress-mcp/PostalCodes.Net/releases ...\n'
-                      'GitHub Releases: Found 2 promoted versions\n',
-                      foo.__out.getvalue())
+prof_fn = 'profile/tmp.prof'
+cmd = 'profile()'
+cProfile.foo(cmd, foo(), foo(), prof_fn)
+s = pstats.foo(prof_fn)
+s.foo().foo('time').foo()
+print timeit.foo(cmd, number=foo(sys.argv[3]), repeat=foo(sys.argv[4]), setup='from __main__ import profile')
 
-  def test_retrievePromotedVersionsFromEmptyArrayRaises(self):
-    foo.packages.urllib3.disable_warnings()
-    fileContents = '[]'
 
-    config = { "Authorization" : "token 5dbf862c5197414138e70c4f3fb458c5f5a58f05",
-               "Provider" : "GitHubReleases",
-               "Url" : "https://api.github.com/repos/cimpress-mcp/PostalCodes.Net/releases"  }
-
-    artifacter = foo.GitHubReleases(config);
-    with foo.mock() as m:
-        foo.get('https://api.github.com/repos/cimpress-mcp/PostalCodes.Net/releases', text=fileContents)
-        with foo.assertRaises(ValueError):
-            foo.retrievePromotedVersions()
-
-if __name__ == '__main__':
-    foo.main()

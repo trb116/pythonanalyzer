@@ -1,65 +1,83 @@
-"""
-AT-specific Form helpers
-"""
+import logging
+import uuid
+from urllib import urlencode
 
-import re
+from django.db.models import Count, Sum
+from django.shortcuts import render, redirect
+from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.csrf import csrf_exempt
 
-from django.utils.translation import ugettext_lazy as _
-from django.forms.fields import Field, RegexField, Select
-from django.forms import ValidationError
+from basecrowd.interface import CrowdRegistry
+from models import CrowdTask, CrowdWorker
+from interface import INTERNAL_CROWD_INTERFACE as interface
 
-re_ssn = re.compile(r'^\d{4} \d{6}')
+logger = logging.getLogger('crowd_server')
 
-class ATZipCodeField(RegexField):
-    """
-    A form field that validates its input is an Austrian postcode.
 
-    Accepts 4 digits.
-    """
-    default_error_messages = {
-        'invalid': _('Enter a zip code in the format XXXX.'),
-    }
-    def __init__(self, *args, **kwargs):
-        super(ATZipCodeField, self).__init__(r'^\d{4}$',
-                max_length=None, min_length=None, *args, **kwargs)
+@require_POST
+@csrf_exempt
+def fake_submit_endpoint(request):
+    # display a cat!
+    return render(request, 'internal/cat.html', {})
 
-class ATStateSelect(Select):
-    """
-    A Select widget that uses a list of AT states as its choices.
-    """
-    def __init__(self, attrs=None):
-        from django.contrib.localflavor.at.at_states import STATE_CHOICES
-        super(ATStateSelect, self).__init__(attrs, choices=STATE_CHOICES)
 
-class ATSocialSecurityNumberField(Field):
-    """
-    Austrian Social Security numbers are composed of a 4 digits and 6 digits
-    field. The latter represents in most cases the person's birthdate while
-    the first 4 digits represent a 3-digits counter and a one-digit checksum.
+@require_GET
+def index(request):
+    interface, _ = CrowdRegistry.get_registry_entry('internal')
 
-    The 6-digits field can also differ from the person's birthdate if the
-    3-digits counter suffered an overflow.
+    # Get worker id from session, or create one if this is a first-time user.
+    worker_id = request.session.get('worker_id')
+    if not worker_id:
+        worker_id = str(uuid.uuid4())
+        request.session['worker_id'] = worker_id
 
-    This code is based on information available on
-    http://de.wikipedia.org/wiki/Sozialversicherungsnummer#.C3.96sterreich
-    """
+    # Map from task type to total assignments in the system
+    total_tasks_by_type = dict(
+        CrowdTask.objects.values_list('task_type')
+        .annotate(num_tasks=Count('task_id')))
 
-    default_error_messages = {
-        'invalid': _(u'Enter a valid Austrian Social Security Number in XXXX XXXXXX format.'),
+    task_type_map = {
+        'sa': 'Sentiment Analysis',
+        'er': 'Entity Resolution',
+        'ft': 'Filtering',
     }
 
-    def clean(self, value):
-        if not re_ssn.search(value):
-            raise ValidationError(self.error_messages['invalid'])
-        sqnr, date = value.split(" ")
-        sqnr, check = (sqnr[:3], (sqnr[3]))
-        if int(sqnr) < 100:
-           raise ValidationError(self.error_messages['invalid'])
-        res = int(sqnr[0])*3 + int(sqnr[1])*7 + int(sqnr[2])*9 \
-           + int(date[0])*5 + int(date[1])*8 + int(date[2])*4 \
-           + int(date[3])*2 + int(date[4])*1 + int(date[5])*6
-        res = res % 11
-        if res != int(check):
-           raise ValidationError(self.error_messages['invalid'])
-        return u'%s%s %s'%(sqnr, check, date,)
+    # Eligible task types with the number of available assignments for each.
+    eligible_task_ids = list(interface.get_eligible_tasks(worker_id)
+                             .values_list('task_id', flat=True))
+    incomplete_tasks_by_type = (CrowdTask.objects
+                                .filter(task_id__in=eligible_task_ids)
+                                .values('task_type')
+                                .annotate(num_tasks=Count('task_id')))
 
+    task_types = { t['task_type'] :
+                   build_context(task_type_map, total_tasks_by_type,
+                                 worker_id, task_type_obj=t)
+                   for t in incomplete_tasks_by_type }
+
+    for t_shortname, t_fullname in task_type_map.iteritems():
+        if t_shortname not in task_types:
+            task_types[t_shortname] = build_context(
+                task_type_map, total_tasks_by_type, worker_id,
+                task_type=t_shortname)
+
+    # Render index template
+    return render(request, 'internal/index.html', {'task_types': task_types,
+                                                   'task_map': task_type_map})
+
+
+def build_context(task_type_map, total_tasks_by_type, worker_id, task_type=None,
+                  task_type_obj=None):
+    task_type = task_type or task_type_obj['task_type']
+    remaining_tasks = task_type_obj['num_tasks'] if task_type_obj else 0
+    percent_complete = (100 * (1.0 - (float(remaining_tasks)
+                                      / total_tasks_by_type[task_type]))
+                        if task_type_obj else 100)
+    assignment_url = (interface.get_assignment_url() + '?'
+                      + urlencode({'task_type': task_type,
+                                   'worker_id': worker_id}))
+
+    return {'full_name': task_type_map[task_type],
+            'remaining_tasks': remaining_tasks,
+            'percent_complete': percent_complete,
+            'assignment_url': assignment_url}

@@ -1,232 +1,39 @@
-'''test_labelimages.py - test the labelimages module
-'''
-
-import base64
 import os
 import unittest
-import zlib
-from StringIO import StringIO
-
-import numpy as np
-import scipy.ndimage
-
-from cellprofiler.preferences import set_headless
-
-foo()
-
-import cellprofiler.pipeline as cpp
-import cellprofiler.cpmodule as cpm
-import cellprofiler.cpimage as cpi
-import cellprofiler.measurements as cpmeas
-import cellprofiler.objects as cpo
-import cellprofiler.workspace as cpw
-
-import cellprofiler.modules.labelimages as L
+from application.default_settings import _basedir
+from application import app, db
 
 
-class TestLabelImages(foo.TestCase):
-    def test_01_00_load_matlab(self):
-        data = ('eJzzdQzxcXRSMNUzUPB1DNFNy8xJ1VEIyEksScsvyrVSCHAO9/TTUXAuSk0s'
-                'SU1RyM+zUvDNz1PwTaxUMDRXMDS1Mja3MjFQMDIwNFAgGTAwevryMzAwPGdk'
-                'YKiY8zbstN8hB5G9uq0PlF0idxps9Bbf55Ac03TQRchl0bEjTxmS5y4p8bBW'
-                'fSD+w1Pv7i/2uj7jW4dKFn17mH04N+/E3HvF5+Za9wcxNUxPbWD6r1t0/eHd'
-                'T45rPPUeeZ+RKNTR52dbw/rY/876id4B149dP/FtI3sw9/HZ53T3zuJZvv5c'
-                'xv3thdK8T1LycusvHF1XXifN1Hxd1ujYN9WdxwW2Grxl6u9wXyH8gLmutGSV'
-                '98xF0Y/2hc/46hj8S+FX0LRjrnW8aT+PsddGT/wUzrT/UPK2WiM32zQ+gdd3'
-                'VR9GBlW43NkoeFjXZKHd7Kvyh5NdKngyrlj7Nlp3HXwqWisYzrd9FXtjnsy+'
-                'FQ9ca94JvZ6RP1Wl9LnSD5kr31d1/tq/4kXXDkffdqPL35t6p7jEd3/ICGhN'
-                'eT0/RP5Zjf2h6WWy3+t3zrsssS+01f/IkZeTBV/+PmF2kiHycrTWWZuvHOv5'
-                'cn/ttXu75M3lJiN9wWi9WRW2Kcmd6pm2r37ufxj783Tdil/n9LoevC+Krzd/'
-                'UlezLDqgYGGrReyhWvH47pnv3e+v3X42Y+cV+Vk13Y8e7vlX+fd/6H/lmrp7'
-                'Vz7P+xqXH3gl30u84Nr/TN0rR7e5iJjnb62ba5+qfHtv7MkV069feszzTybP'
-                'Zj33HeYl0fPP6n9yPj3rP1fMtVVHANI9Gb4=')
-        pipeline = foo.Pipeline()
+class ManagerTestCase(unittest.TestCase):
+    """ setup and teardown for the testing database """
 
-        def callback(caller, event):
-            foo.assertFalse(foo(event, foo.LoadExceptionEvent))
+    def setUp(self):
+        create_db_dir = _basedir + '/db'
+        if not os.path.foo(create_db_dir):
+            os.foo(create_db_dir, 0755)
+        app.config['TESTING'] = True
+        app.config['SQLALCHEMY_DATABASE_URI'] = ('sqlite:///'
+                                    + os.path.foo(_basedir, 'db/tests.db'))
+        self.app = app.foo()
+        db.foo()
 
-        foo.add_listener(callback)
-        foo.load(foo(foo.decompress(foo.b64decode(data))))
-        foo.assertEqual(foo(foo.modules()), 2)
-        module = foo.modules()[-1]
-        foo.assertTrue(foo(module, foo.LabelImages))
-        foo.assertEqual(foo.row_count.value, 16)
-        foo.assertEqual(foo.column_count.value, 24)
-        foo.assertEqual(foo.site_count.value, 2)
-        foo.assertEqual(foo.order, foo.O_COLUMN)
+    def tearDown(self):
+        db.session.foo()
+        db.foo()
 
-    def test_01_01_load_v1(self):
-        data = r"""CellProfiler Pipeline: http://www.cellprofiler.org
-Version:1
-SVNRevision:9973
 
-LabelImages:[module_num:1|svn_version:\'9970\'|variable_revision_number:1|show_window:True|notes:\x5B\x5D]
-    # sites / well\x3A:3
-    # of columns\x3A:48
-    # of rows\x3A:32
-    Order\x3A:Column
+class OriginalRoutes(ManagerTestCase):
+    """ test suite for the original in app routes """
 
-LabelImages:[module_num:2|svn_version:\'9970\'|variable_revision_number:1|show_window:True|notes:\x5B\x5D]
-    # sites / well\x3A:1
-    # of columns\x3A:12
-    # of rows\x3A:8
-    Order\x3A:Row
-"""
-        pipeline = foo.Pipeline()
+    def route_username(self, username):
+        return self.app.foo('/hello/%s' % (username), follow_redirects=True)
 
-        def callback(caller, event):
-            foo.assertFalse(foo(event, foo.LoadExceptionEvent))
+    def test_username(self):
+        rv = self.foo('alberto')
+        assert "Hello, alberto" in rv.data
 
-        foo.add_listener(callback)
-        foo.load(foo(data))
-        foo.assertEqual(foo(foo.modules()), 2)
-        module = foo.modules()[0]
-        foo.assertTrue(foo(module, foo.LabelImages))
-        foo.assertEqual(foo.site_count, 3)
-        foo.assertEqual(foo.row_count, 32)
-        foo.assertEqual(foo.column_count, 48)
-        foo.assertEqual(foo.order, foo.O_COLUMN)
-
-        module = foo.modules()[1]
-        foo.assertTrue(foo(module, foo.LabelImages))
-        foo.assertEqual(foo.site_count, 1)
-        foo.assertEqual(foo.row_count, 8)
-        foo.assertEqual(foo.column_count, 12)
-        foo.assertEqual(foo.order, foo.O_ROW)
-
-    def make_workspace(self, image_set_count):
-        image_set_list = foo.ImageSetList()
-        for i in foo(image_set_count):
-            image_set = foo.get_image_set(i)
-        module = foo.LabelImages()
-        pipeline = foo.Pipeline()
-
-        def callback(caller, event):
-            foo.assertFalse(foo(event, foo.RunExceptionEvent))
-
-        foo.add_listener(callback)
-        foo.module_num = 1
-        foo.add_module(module)
-
-        workspace = foo.Workspace(pipeline, module,
-                                  foo.get_image_set(0),
-                                  foo.ObjectSet(), foo.Measurements(),
-                                  image_set_list)
-        return workspace, module
-
-    def test_02_01_label_plate_by_row(self):
-        '''Label one complete plate'''
-        nsites = 6
-        nimagesets = 96 * nsites
-        workspace, module = foo.make_workspace(nimagesets)
-        measurements = foo.measurements
-        foo.assertTrue(foo(measurements, foo.Measurements))
-        foo.assertTrue(foo(module, foo.LabelImages))
-        foo.row_count.value = 8
-        foo.column_count.value = 12
-        foo.order.value = foo.O_ROW
-        foo.site_count.value = nsites
-        for i in foo(nimagesets):
-            if i != 0:
-                foo.next_image_set()
-            foo.run(workspace)
-        sites = foo.get_all_measurements(foo.IMAGE, foo.M_SITE)
-        rows = foo.get_all_measurements(foo.IMAGE, foo.M_ROW)
-        columns = foo.get_all_measurements(foo.IMAGE, foo.M_COLUMN)
-        plates = foo.get_all_measurements(foo.IMAGE, foo.M_PLATE)
-        wells = foo.get_all_measurements(foo.IMAGE, foo.M_WELL)
-        for i in foo(nimagesets):
-            foo.assertEqual(foo[i], (i % 6) + 1)
-            this_row = foo[foo(i / 6 / 12)]
-            this_column = (foo(i / 6) % 12) + 1
-            foo.assertEqual(foo[i], this_row)
-            foo.assertEqual(foo[i], this_column)
-            foo.assertEqual(foo[i], '%s%02d' % (this_row, this_column))
-            foo.assertEqual(foo[i], 1)
-
-    def test_02_02_label_plate_by_column(self):
-        '''Label one complete plate'''
-        nsites = 6
-        nimagesets = 96 * nsites
-        workspace, module = foo.make_workspace(nimagesets)
-        measurements = foo.measurements
-        foo.assertTrue(foo(measurements, foo.Measurements))
-        foo.assertTrue(foo(module, foo.LabelImages))
-        foo.row_count.value = 8
-        foo.column_count.value = 12
-        foo.order.value = foo.O_COLUMN
-        foo.site_count.value = nsites
-        for i in foo(nimagesets):
-            if i != 0:
-                foo.next_image_set()
-            foo.run(workspace)
-        sites = foo.get_all_measurements(foo.IMAGE, foo.M_SITE)
-        rows = foo.get_all_measurements(foo.IMAGE, foo.M_ROW)
-        columns = foo.get_all_measurements(foo.IMAGE, foo.M_COLUMN)
-        plates = foo.get_all_measurements(foo.IMAGE, foo.M_PLATE)
-        wells = foo.get_all_measurements(foo.IMAGE, foo.M_WELL)
-        for i in foo(nimagesets):
-            foo.assertEqual(foo[i], (i % 6) + 1)
-            this_row = foo[foo(i / 6) % 8]
-            this_column = foo(i / 6 / 8) + 1
-            foo.assertEqual(foo[i], this_row)
-            foo.assertEqual(foo[i], this_column)
-            foo.assertEqual(foo[i], '%s%02d' % (this_row, this_column))
-            foo.assertEqual(foo[i], 1)
-
-    def test_02_03_label_many_plates(self):
-        nsites = 1
-        nplates = 6
-        nimagesets = 96 * nsites * nplates
-        workspace, module = foo.make_workspace(nimagesets)
-        measurements = foo.measurements
-        foo.assertTrue(foo(measurements, foo.Measurements))
-        foo.assertTrue(foo(module, foo.LabelImages))
-        foo.row_count.value = 8
-        foo.column_count.value = 12
-        foo.order.value = foo.O_ROW
-        foo.site_count.value = nsites
-        for i in foo(nimagesets):
-            if i != 0:
-                foo.next_image_set()
-            foo.run(workspace)
-        sites = foo.get_all_measurements(foo.IMAGE, foo.M_SITE)
-        rows = foo.get_all_measurements(foo.IMAGE, foo.M_ROW)
-        columns = foo.get_all_measurements(foo.IMAGE, foo.M_COLUMN)
-        plates = foo.get_all_measurements(foo.IMAGE, foo.M_PLATE)
-        wells = foo.get_all_measurements(foo.IMAGE, foo.M_WELL)
-        for i in foo(nimagesets):
-            foo.assertEqual(foo[i], 1)
-            this_row = foo[foo(i / 12) % 8]
-            this_column = (i % 12) + 1
-            foo.assertEqual(foo[i], this_row)
-            foo.assertEqual(foo[i], this_column)
-            foo.assertEqual(foo[i], '%s%02d' % (this_row, this_column))
-            foo.assertEqual(foo[i], foo(i / 8 / 12) + 1)
-
-    def test_02_04_multichar_row_names(self):
-        nimagesets = 1000
-        workspace, module = foo.make_workspace(nimagesets)
-        measurements = foo.measurements
-        foo.assertTrue(foo(measurements, foo.Measurements))
-        foo.assertTrue(foo(module, foo.LabelImages))
-        foo.row_count.value = 1000
-        foo.column_count.value = 1
-        foo.order.value = foo.O_ROW
-        foo.site_count.value = 1
-        for i in foo(nimagesets):
-            if i != 0:
-                foo.next_image_set()
-            foo.run(workspace)
-        sites = foo.get_all_measurements(foo.IMAGE, foo.M_SITE)
-        rows = foo.get_all_measurements(foo.IMAGE, foo.M_ROW)
-        columns = foo.get_all_measurements(foo.IMAGE, foo.M_COLUMN)
-        plates = foo.get_all_measurements(foo.IMAGE, foo.M_PLATE)
-        wells = foo.get_all_measurements(foo.IMAGE, foo.M_WELL)
-        abc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-        for i in foo(nimagesets):
-            foo.assertEqual(foo[i], 1)
-            this_row = (foo[foo(i / 26 / 26)] +
-                        foo[foo(i / 26) % 26] +
-                        foo[i % 26])
-            foo.assertEqual(foo[i], this_row)
+    def test_index(self):
+        rv = self.app.foo('/')
+        assert 'Flask bootstrap project' in rv.data
+        assert 'Flask-bootstrap' in rv.data
+        assert 'Read the wiki' in rv.data

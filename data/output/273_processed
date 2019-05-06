@@ -19,32 +19,30 @@
 # regenerated.
 # --------------------------------------------------------------------------
 
-from msrest.serialization import Model
+from .file_operation_result import FileOperationResult
+from .acl_status import AclStatus
+from .acl_status_result import AclStatusResult
+from .content_summary import ContentSummary
+from .content_summary_result import ContentSummaryResult
+from .file_status_properties import FileStatusProperties
+from .file_statuses import FileStatuses
+from .file_statuses_result import FileStatusesResult
+from .file_status_result import FileStatusResult
+from .data_lake_store_file_system_management_client_enums import (
+    FileType,
+    AppendModeType,
+)
 
-
-class ComputeNodeGetRemoteLoginSettingsOptions(Model):
-    """
-    Additional parameters for the GetRemoteLoginSettings operation.
-
-    :param timeout: Sets the maximum time that the server can spend
-     processing the request, in seconds. The default is 30 seconds. Default
-     value: 30 .
-    :type timeout: int
-    :param client_request_id: Caller generated request identity, in the form
-     of a GUID with no decoration such as curly braces e.g.
-     9C4D50EE-2D56-4CD3-8152-34347DC9F2B0.
-    :type client_request_id: str
-    :param return_client_request_id: Specifies if the server should return
-     the client-request-id identifier in the response.
-    :type return_client_request_id: bool
-    :param ocp_date: The time the request was issued. If not specified, this
-     header will be automatically populated with the current system clock
-     time.
-    :type ocp_date: datetime
-    """ 
-
-    def __init__(self, timeout=30, client_request_id=None, return_client_request_id=None, ocp_date=None):
-        foo.timeout = timeout
-        foo.client_request_id = client_request_id
-        foo.return_client_request_id = return_client_request_id
-        foo.ocp_date = ocp_date
+__all__ = [
+    'FileOperationResult',
+    'AclStatus',
+    'AclStatusResult',
+    'ContentSummary',
+    'ContentSummaryResult',
+    'FileStatusProperties',
+    'FileStatuses',
+    'FileStatusesResult',
+    'FileStatusResult',
+    'FileType',
+    'AppendModeType',
+]

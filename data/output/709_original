@@ -1,139 +1,136 @@
-# -*- coding: utf-8 -*-
-#
-# Pebl documentation build configuration file, created by
-# sphinx-quickstart on Wed Apr  2 08:36:21 2008.
-#
-# This file is execfile()d with the current directory set to its containing dir.
-#
-# The contents of this file are pickled, so don't put values in the namespace
-# that aren't pickleable (module imports are okay, they're removed automatically).
-#
-# All configuration values have a default value; values that are commented out
-# serve to show the default value.
+"""
+Table of Contents Extension for Python-Markdown
+* * *
 
-import sys, os
+(c) 2008 [Jack Miller](http://codezen.org)
 
-# If your extensions are in another directory, add it here.
-#sys.path.append('some/directory')
+Dependencies:
+* [Markdown 2.0+](http://www.freewisdom.org/projects/python-markdown/)
 
-# General configuration
-# ---------------------
+"""
+import markdown
+from markdown import etree
+import re
 
-# Add any Sphinx extension module names here, as strings. They can be extensions
-# coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ['sphinx.ext.autodoc']
-autoclass_content = 'both'
+class TocTreeprocessor(markdown.treeprocessors.Treeprocessor):
+    # Iterator wrapper to get parent and child all at once
+    def iterparent(self, root):
+        for parent in root.getiterator():
+            for child in parent:
+                yield parent, child
 
+    def run(self, doc):
+        div = etree.Element("div")
+        div.attrib["class"] = "toc"
+        last_li = None
 
-# Add any paths that contain templates here, relative to this directory.
-templates_path = ['.templates']
+        # Add title to the div
+        if self.config["title"][0]:
+            header = etree.SubElement(div, "span")
+            header.attrib["class"] = "toctitle"
+            header.text = self.config["title"][0]
 
-# The suffix of source filenames.
-source_suffix = '.rst'
+        level = 0
+        list_stack=[div]
+        header_rgx = re.compile("[Hh][123456]")
 
-# The master toctree document.
-master_doc = 'index'
+        # Get a list of id attributes
+        used_ids = []
+        for c in doc.getiterator():
+            if "id" in c.attrib:
+                used_ids.append(c.attrib["id"])
 
-# General substitutions.
-project = 'Pebl'
-copyright = '2008, Abhik Shah'
+        for (p, c) in self.iterparent(doc):
+            if not c.text:
+                continue
 
-# The default replacements for |version| and |release|, also used in various
-# other places throughout the built documents.
-#
-# The short X.Y version.
-version = '1.0.1'
-# The full version, including alpha/beta/rc tags.
-release = '1.0.1'
+            # To keep the output from screwing up the
+            # validation by putting a <div> inside of a <p>
+            # we actually replace the <p> in its entirety.
+            # We do not allow the marker inside a header as that
+            # would causes an enless loop of placing a new TOC 
+            # inside previously generated TOC.
 
-# There are two options for replacing |today|: either, you set today to some
-# non-false value, then it is used:
-#today = ''
-# Else, today_fmt is used as the format for a strftime call.
-today_fmt = '%B %d, %Y'
+            if c.text.find(self.config["marker"][0]) > -1 and not header_rgx.match(c.tag):
+                for i in range(len(p)):
+                    if p[i] == c:
+                        p[i] = div
+                        break
+                    
+            if header_rgx.match(c.tag):
+                tag_level = int(c.tag[-1])
+                
+                while tag_level < level:
+                    list_stack.pop()
+                    level -= 1
 
-# List of documents that shouldn't be included in the build.
-#unused_docs = []
+                if tag_level > level:
+                    newlist = etree.Element("ul")
+                    if last_li:
+                        last_li.append(newlist)
+                    else:
+                        list_stack[-1].append(newlist)
+                    list_stack.append(newlist)
+                    level += 1
 
-# If true, '()' will be appended to :func: etc. cross-reference text.
-#add_function_parentheses = True
+                # Do not override pre-existing ids 
+                if not "id" in c.attrib:
+                    id = self.config["slugify"][0](c.text)
+                    if id in used_ids:
+                        ctr = 1
+                        while "%s_%d" % (id, ctr) in used_ids:
+                            ctr += 1
+                        id = "%s_%d" % (id, ctr)
+                    used_ids.append(id)
+                    c.attrib["id"] = id
+                else:
+                    id = c.attrib["id"]
 
-# If true, the current module name will be prepended to all description
-# unit titles (such as .. function::).
-#add_module_names = True
+                # List item link, to be inserted into the toc div
+                last_li = etree.Element("li")
+                link = etree.SubElement(last_li, "a")
+                link.text = c.text
+                link.attrib["href"] = '#' + id
 
-# If true, sectionauthor and moduleauthor directives will be shown in the
-# output. They are ignored by default.
-#show_authors = False
+                if int(self.config["anchorlink"][0]):
+                    anchor = etree.SubElement(c, "a")
+                    anchor.text = c.text
+                    anchor.attrib["href"] = "#" + id
+                    anchor.attrib["class"] = "toclink"
+                    c.text = ""
 
-# The name of the Pygments (syntax highlighting) style to use.
-pygments_style = 'sphinx'
+                list_stack[-1].append(last_li)
 
+class TocExtension(markdown.Extension):
+    def __init__(self, configs):
+        self.config = { "marker" : ["[TOC]", 
+                            "Text to find and replace with Table of Contents -"
+                            "Defaults to \"[TOC]\""],
+                        "slugify" : [self.slugify,
+                            "Function to generate anchors based on header text-"
+                            "Defaults to a built in slugify function."],
+                        "title" : [None,
+                            "Title to insert into TOC <div> - "
+                            "Defaults to None"],
+                        "anchorlink" : [0,
+                            "1 if header should be a self link"
+                            "Defaults to 0"]}
 
-# Options for HTML output
-# -----------------------
+        for key, value in configs:
+            self.setConfig(key, value)
 
-# The style sheet to use for HTML and HTML Help pages. A file of that name
-# must exist either in Sphinx' static/ path, or in one of the custom paths
-# given in html_static_path.
-html_style = 'default.css'
+    # This is exactly the same as Django's slugify
+    def slugify(self, value):
+        """ Slugify a string, to make it URL friendly. """
+        import unicodedata
+        value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore')
+        value = unicode(re.sub('[^\w\s-]', '', value).strip().lower())
+        return re.sub('[-\s]+','-',value)
 
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['static']
-
-# If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
-# using the given strftime format.
-html_last_updated_fmt = '%b %d, %Y'
-
-# If true, SmartyPants will be used to convert quotes and dashes to
-# typographically correct entities.
-#html_use_smartypants = True
-
-# Content template for the index page.
-#html_index = ''
-
-# Custom sidebar templates, maps document names to template names.
-#html_sidebars = {}
-
-# Additional templates that should be rendered to pages, maps page names to
-# template names.
-#html_additional_pages = {}
-
-# If false, no module index is generated.
-#html_use_modindex = True
-
-# If true, the reST sources are included in the HTML build as _sources/<name>.
-#html_copy_source = True
-
-# Output file base name for HTML help builder.
-htmlhelp_basename = 'Pebldoc'
-
-
-# Options for LaTeX output
-# ------------------------
-
-# The paper size ('letter' or 'a4').
-#latex_paper_size = 'letter'
-
-# The font size ('10pt', '11pt' or '12pt').
-#latex_font_size = '10pt'
-
-# Grouping the document tree into LaTeX files. List of tuples
-# (source start file, target name, title, author, document class [howto/manual]).
-#latex_documents = []
-
-# Additional stuff for the LaTeX preamble.
-#latex_preamble = ''
-
-# Documents to append as an appendix to all manuals.
-#latex_appendices = []
-
-# If false, no module index is generated.
-#latex_use_modindex = True
-
-# Custom extension for configuration parameters
-# ---------------------------------------------
-def setup(app):
-    app.add_description_unit('confparam', 'confparam', '%s; configuration parameter')
+    def extendMarkdown(self, md, md_globals):
+        tocext = TocTreeprocessor(md)
+        tocext.config = self.config
+        md.treeprocessors.add("toc", tocext, "_begin")
+	
+def makeExtension(configs={}):
+    return TocExtension(configs=configs)

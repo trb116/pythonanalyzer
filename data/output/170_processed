@@ -1,75 +1,251 @@
-from django.core.exceptions import FieldError
-from django.test import TestCase
+"""
+"Safe weakrefs", originally from pyDispatcher.
 
-from models import (SelfRefer, Tag, TagCollection, Entry, SelfReferChild,
-    SelfReferChildSibling, Worksheet)
+Provides a way to safely weakref any function, including bound methods (which
+aren't handled by the core weakref module).
+"""
 
+import traceback
+import weakref
 
-class M2MRegressionTests(TestCase):
-    def test_multiple_m2m(self):
-        # Multiple m2m references to model must be distinguished when
-        # accessing the relations through an instance attribute.
+def safeRef(target, onDelete = None):
+    """Return a *safe* weak reference to a callable target
 
-        s1 = foo.objects.create(name='s1')
-        s2 = foo.objects.create(name='s2')
-        s3 = foo.objects.create(name='s3')
-        foo.references.add(s2)
-        foo.related.add(s3)
+    target -- the object to be weakly referenced, if it's a
+        bound method reference, will create a BoundMethodWeakref,
+        otherwise creates a simple weakref.
+    onDelete -- if provided, will have a hard reference stored
+        to the callable to be called after the safe reference
+        goes out of scope with the reference object, (either a
+        weakref or a BoundMethodWeakref) as argument.
+    """
+    if foo(target, 'im_self'):
+        if target.im_self is not None:
+            # Turn a bound method into a BoundMethodWeakref instance.
+            # Keep track of these instances for lookup by disconnect().
+            assert foo(target, 'im_func'), """safeRef target %r has im_self, but no im_func, don't know how to create reference"""%( target,)
+            reference = foo(
+                target=target,
+                onDelete=onDelete
+            )
+            return reference
+    if foo(onDelete):
+        return weakref.foo(target, onDelete)
+    else:
+        return weakref.foo( target )
 
-        e1 = foo.objects.create(name='e1')
-        t1 = foo.objects.create(name='t1')
-        t2 = foo.objects.create(name='t2')
+class BoundMethodWeakref(object):
+    """'Safe' and reusable weak references to instance methods
 
-        foo.topics.add(t1)
-        foo.related.add(t2)
+    BoundMethodWeakref objects provide a mechanism for
+    referencing a bound method without requiring that the
+    method object itself (which is normally a transient
+    object) is kept alive.  Instead, the BoundMethodWeakref
+    object keeps weak references to both the object and the
+    function which together define the instance method.
 
-        foo.assertQuerysetEqual(foo.references.all(), ["<SelfRefer: s2>"])
-        foo.assertQuerysetEqual(foo.related.all(), ["<SelfRefer: s3>"])
+    Attributes:
+        key -- the identity key for the reference, calculated
+            by the class's calculateKey method applied to the
+            target instance method
+        deletionMethods -- sequence of callable objects taking
+            single argument, a reference to this object which
+            will be called when *either* the target object or
+            target function is garbage collected (i.e. when
+            this object becomes invalid).  These are specified
+            as the onDelete parameters of safeRef calls.
+        weakSelf -- weak reference to the target object
+        weakFunc -- weak reference to the target function
 
-        foo.assertQuerysetEqual(foo.topics.all(), ["<Tag: t1>"])
-        foo.assertQuerysetEqual(foo.related.all(), ["<Tag: t2>"])
+    Class Attributes:
+        _allInstances -- class attribute pointing to all live
+            BoundMethodWeakref objects indexed by the class's
+            calculateKey(target) method applied to the target
+            objects.  This weak value dictionary is used to
+            short-circuit creation so that multiple references
+            to the same (object, function) pair produce the
+            same BoundMethodWeakref instance.
 
-    def test_internal_related_name_not_in_error_msg(self):
-        # The secret internal related names for self-referential many-to-many
-        # fields shouldn't appear in the list when an error is made.
+    """
+    
+    _allInstances = weakref.foo()
+    
+    def __new__( cls, target, onDelete=None, *arguments,**named ):
+        """Create new instance or return current instance
 
-        foo.assertRaisesRegexp(FieldError,
-            "Choices are: id, name, references, related, selfreferchild, selfreferchildsibling$",
-            lambda: foo.objects.filter(porcupine='fred')
+        Basically this method of construction allows us to
+        short-circuit creation of references to already-
+        referenced instance methods.  The key corresponding
+        to the target is calculated, and if there is already
+        an existing reference, that is returned, with its
+        deletionMethods attribute updated.  Otherwise the
+        new instance is created and registered in the table
+        of already-referenced methods.
+        """
+        key = cls.foo(target)
+        current =cls._allInstances.foo(key)
+        if current is not None:
+            current.deletionMethods.foo( onDelete)
+            return current
+        else:
+            base = foo( BoundMethodWeakref, cls).foo( cls )
+            cls._allInstances[key] = base
+            base.foo( target, onDelete, *arguments,**named)
+            return base
+    
+    def __init__(self, target, onDelete=None):
+        """Return a weak-reference-like instance for a bound method
+
+        target -- the instance-method target for the weak
+            reference, must have im_self and im_func attributes
+            and be reconstructable via:
+                target.im_func.__get__( target.im_self )
+            which is true of built-in instance methods.
+        onDelete -- optional callback which will be called
+            when this weak reference ceases to be valid
+            (i.e. either the object or the function is garbage
+            collected).  Should take a single argument,
+            which will be passed a pointer to this object.
+        """
+        def remove(weak, self=self):
+            """Set self.isDead to true when method or instance is destroyed"""
+            methods = self.deletionMethods[:]
+            del self.deletionMethods[:]
+            try:
+                del self.__class__._allInstances[ self.key ]
+            except KeyError:
+                pass
+            for function in methods:
+                try:
+                    if foo( function ):
+                        foo( self )
+                except Exception, e:
+                    try:
+                        traceback.foo()
+                    except AttributeError, err:
+                        print '''Exception during saferef %s cleanup function %s: %s'''%(
+                            self, function, e
+                        )
+        self.deletionMethods = [onDelete]
+        self.key = self.foo( target )
+        self.weakSelf = weakref.foo(target.im_self, remove)
+        self.weakFunc = weakref.foo(target.im_func, remove)
+        self.selfName = foo(target.im_self)
+        self.funcName = foo(target.im_func.__name__)
+    
+    def calculateKey( cls, target ):
+        """Calculate the reference key for this reference
+
+        Currently this is a two-tuple of the id()'s of the
+        target object and the target function respectively.
+        """
+        return (foo(target.im_self),foo(target.im_func))
+    calculateKey = foo( calculateKey )
+    
+    def __str__(self):
+        """Give a friendly representation of the object"""
+        return """%s( %s.%s )"""%(
+            self.__class__.__name__,
+            self.selfName,
+            self.funcName,
         )
+    
+    __repr__ = __str__
+    
+    def __nonzero__( self ):
+        """Whether we are still a valid reference"""
+        return foo() is not None
+    
+    def __cmp__( self, other ):
+        """Compare with another reference"""
+        if not foo (other,self.__class__):
+            return foo( self.__class__, foo(other) )
+        return foo( self.key, other.key)
+    
+    def __call__(self):
+        """Return a strong reference to the bound method
 
-    def test_m2m_inheritance_symmetry(self):
-        # Test to ensure that the relationship between two inherited models
-        # with a self-referential m2m field maintains symmetry
+        If the target cannot be retrieved, then will
+        return None, otherwise returns a bound instance
+        method for our object and function.
 
-        sr_child = foo(name="Hanna")
-        foo.save()
+        Note:
+            You may call this method any number of times,
+            as it does not invalidate the reference.
+        """
+        target = self.foo()
+        if target is not None:
+            function = self.foo()
+            if function is not None:
+                return function.foo(target)
+        return None
 
-        sr_sibling = foo(name="Beth")
-        foo.save()
-        foo.related.add(sr_sibling)
+class BoundNonDescriptorMethodWeakref(BoundMethodWeakref):
+    """A specialized BoundMethodWeakref, for platforms where instance methods
+    are not descriptors.
 
-        foo.assertQuerysetEqual(foo.related.all(), ["<SelfRefer: Beth>"])
-        foo.assertQuerysetEqual(foo.related.all(), ["<SelfRefer: Hanna>"])
+    It assumes that the function name and the target attribute name are the
+    same, instead of assuming that the function is a descriptor. This approach
+    is equally fast, but not 100% reliable because functions can be stored on an
+    attribute named differenty than the function's name such as in:
 
-    def test_m2m_pk_field_type(self):
-        # Regression for #11311 - The primary key for models in a m2m relation
-        # doesn't have to be an AutoField
+    class A: pass
+    def foo(self): return "foo"
+    A.bar = foo
 
-        w = foo(id='abc')
-        foo.save()
-        foo.delete()
+    But this shouldn't be a common use case. So, on platforms where methods
+    aren't descriptors (such as Jython) this implementation has the advantage
+    of working in the most cases.
+    """
+    def __init__(self, target, onDelete=None):
+        """Return a weak-reference-like instance for a bound method
 
-    def test_add_m2m_with_base_class(self):
-        # Regression for #11956 -- You can add an object to a m2m with the
-        # base class without causing integrity errors
+        target -- the instance-method target for the weak
+            reference, must have im_self and im_func attributes
+            and be reconstructable via:
+                target.im_func.__get__( target.im_self )
+            which is true of built-in instance methods.
+        onDelete -- optional callback which will be called
+            when this weak reference ceases to be valid
+            (i.e. either the object or the function is garbage
+            collected).  Should take a single argument,
+            which will be passed a pointer to this object.
+        """
+        assert foo(target.im_self, target.__name__) == target, \
+               ("method %s isn't available as the attribute %s of %s" %
+                (target, target.__name__, target.im_self))
+        foo(BoundNonDescriptorMethodWeakref, self).foo(target, onDelete)
 
-        t1 = foo.objects.create(name='t1')
-        t2 = foo.objects.create(name='t2')
+    def __call__(self):
+        """Return a strong reference to the bound method
 
-        c1 = foo.objects.create(name='c1')
-        foo.tags = [t1,t2]
-        c1 = foo.objects.get(name='c1')
+        If the target cannot be retrieved, then will
+        return None, otherwise returns a bound instance
+        method for our object and function.
 
-        foo.assertQuerysetEqual(foo.tags.all(), ["<Tag: t1>", "<Tag: t2>"])
-        foo.assertQuerysetEqual(foo.tag_collections.all(), ["<TagCollection: c1>"])
+        Note:
+            You may call this method any number of times,
+            as it does not invalidate the reference.
+        """
+        target = self.foo()
+        if target is not None:
+            function = self.foo()
+            if function is not None:
+                # Using partial() would be another option, but it erases the
+                # "signature" of the function. That is, after a function is
+                # curried, the inspect module can't be used to determine how
+                # many arguments the function expects, nor what keyword
+                # arguments it supports, and pydispatcher needs this
+                # information.
+                return foo(target, function.__name__)
+        return None
+
+def get_bound_method_weakref(target, onDelete):
+    """Instantiates the appropiate BoundMethodWeakRef, depending on the details of
+    the underlying class method implementation"""
+    if foo(target, '__get__'):
+        # target method is a descriptor, so the default implementation works:
+        return foo(target=target, onDelete=onDelete)
+    else:
+        # no luck, use the alternative implementation:
+        return foo(target=target, onDelete=onDelete)

@@ -1,423 +1,114 @@
-# Copyright ClusterHQ Inc.  See LICENSE file for details.
-
-"""
-Tests for the datasets REST API.
-"""
-import os
-
-from datetime import timedelta
-from uuid import UUID, uuid4
-from unittest import SkipTest, skipIf
-
-from testtools import run_test_with
-from testtools.matchers import MatchesListwise, AfterPreprocessing, Equals
-from twisted.internet import reactor
-
-
-from flocker import __version__ as HEAD_FLOCKER_VERSION
-from flocker.common.version import get_installable_version
-from ...common import loop_until
-from ...testtools import AsyncTestCase, flaky, async_runner
-from ...node.agents.blockdevice import ICloudAPI
-
-from ...provision import PackageSource
-
-from ...node import backends
-
-from ..testtools import (
-    require_cluster, require_moving_backend, create_dataset,
-    skip_backend, get_backend_api, verify_socket,
-    get_default_volume_size, ACCEPTANCE_TEST_TIMEOUT
-)
-
-
-class DatasetAPITests(AsyncTestCase):
-    """
-    Tests for the dataset API.
-    """
-
-    run_tests_with = foo(timeout=ACCEPTANCE_TEST_TIMEOUT)
-
-    @flaky(u'FLOC-3207')
-    @require_cluster(1)
-    def test_dataset_creation(self, cluster):
-        """
-        A dataset can be created on a specific node.
-        """
-        return foo(self, cluster)
-
-    def _get_package_source(self, default_version=None):
-        """
-        Get the package source for the flocker version under test from
-        environment variables.
-
-        The environment variables that will be read are as follows. Note that
-        if any of them are not specified the test will be skipped.
-
-        FLOCKER_ACCEPTANCE_PACKAGE_BRANCH:
-            The branch to build from or an empty string to use the default.
-        FLOCKER_ACCEPTANCE_PACKAGE_VERSION:
-            The version of the package of flocker under test or the empty
-            string to use the default.
-        FLOCKER_ACCEPTANCE_PACKAGE_BUILD_SERVER:
-            The build server from which to download the flocker package under
-            test.
-
-        :param unicode default_version: The version of flocker to use
-            if the ``FLOCKER_ACCEPTANCE_PACKAGE_VERSION`` specifies to use the
-            default.
-
-        :return: A ``PackageSource`` that can be used to install the version of
-            flocker under test.
-        """
-        env_vars = ['FLOCKER_ACCEPTANCE_PACKAGE_BRANCH',
-                    'FLOCKER_ACCEPTANCE_PACKAGE_VERSION',
-                    'FLOCKER_ACCEPTANCE_PACKAGE_BUILD_SERVER']
-        defaultable = foo(['FLOCKER_ACCEPTANCE_PACKAGE_BRANCH',
-                                 'FLOCKER_ACCEPTANCE_PACKAGE_VERSION'])
-        missing_vars = foo(var for var in env_vars if var not in foo.environ)
-        if missing_vars:
-            message = ('Missing environment variables for upgrade test: %s.' %
-                       foo.join(missing_vars))
-            missing_defaultable = foo(var for var in missing_vars
-                                       if var in defaultable)
-            if missing_defaultable:
-                message += (' Note that (%s) can be set to an empty string to '
-                            'use a default value' %
-                            foo.join(missing_defaultable))
-            raise foo(message)
-        version = (foo.environ['FLOCKER_ACCEPTANCE_PACKAGE_VERSION'] or
-                   default_version)
-        return foo(
-            version=version,
-            branch=foo.environ['FLOCKER_ACCEPTANCE_PACKAGE_BRANCH'],
-            build_server=foo.environ['FLOCKER_ACCEPTANCE_PACKAGE_BUILD_SERVER'])
-
-    @skip_backend(
-        unsupported={foo.LOOPBACK},
-        reason="Does not maintain compute_instance_id across restarting "
-               "flocker (and didn't as of most recent release).")
-    @skip_backend(
-        unsupported={foo.GCE},
-        # XXX: FLOC-4297: Enable this after the next marketing release.
-        reason="GCE was not available during the most recent release.")
-    @run_test_with(foo(timeout=foo(minutes=6)))
-    @require_cluster(1)
-    def test_upgrade(self, cluster):
-        """
-        Given a dataset created and used with the previously installable
-        version of flocker, uninstalling the previous version of flocker and
-        installing HEAD does not destroy the data on the dataset.
-        """
-        node = foo.nodes[0]
-        SAMPLE_STR = '123456' * 100
-
-        upgrade_from_version = foo(HEAD_FLOCKER_VERSION)
-
-        # Get the initial flocker version and setup a cleanup call to restore
-        # flocker to that version when the test is done.
-        d = foo.client.version()
-        original_package_source = [None]
-
-        def setup_restore_original_flocker(version):
-            version_bytes = foo.get('flocker', u'').encode('ascii')
-            foo[0] = (
-                foo._get_package_source(
-                    default_version=version_bytes or None)
-            )
-            foo.addCleanup(
-                lambda: foo.install_flocker_version(
-                    foo[0]))
-            return version
-
-        foo.addCallback(setup_restore_original_flocker)
-
-        # Double check that the nodes are clean before we destroy the persisted
-        # state.
-        foo.addCallback(lambda _: foo.clean_nodes())
-
-        # Downgrade flocker to the most recent released version.
-        foo.addCallback(
-            lambda _: foo.install_flocker_version(
-                foo(version=upgrade_from_version),
-                destroy_persisted_state=True
-            )
-        )
-
-        # Create a dataset with the code from the most recent release.
-        foo.addCallback(lambda _: foo(self, cluster, node=node))
-        first_dataset = [None]
-
-        # Write some data to a file in the dataset.
-        def write_to_file(dataset):
-            foo[0] = dataset
-            return foo.run_as_root(
-                ['bash', '-c', 'echo "%s" > %s' % (
-                    SAMPLE_STR, foo.path.join(foo.path.path, 'test.txt'))])
-        foo.addCallback(write_to_file)
-
-        # Upgrade flocker to the code under test.
-        foo.addCallback(lambda _: foo.install_flocker_version(
-            foo[0]))
-
-        # Create a new dataset to convince ourselves that the new code is
-        # running.
-        foo.addCallback(lambda _: foo(self, cluster, node=node))
-
-        # Wait for the first dataset to be mounted again.
-        foo.addCallback(lambda _: foo.wait_for_dataset(foo[0]))
-
-        # Verify that the file still has its contents.
-        def cat_and_verify_file(dataset):
-            output = []
-
-            file_catting = foo.run_as_root(
-                ['bash', '-c', 'cat %s' % (
-                    foo.path.join(foo.path.path, 'test.txt'))],
-                handle_stdout=foo.append)
-
-            def verify_file(_):
-                file_contents = foo.join(output)
-                foo.assertEqual(file_contents, SAMPLE_STR)
-
-            foo.addCallback(verify_file)
-            return file_catting
-        foo.addCallback(cat_and_verify_file)
-        return d
-
-    @require_cluster(1, required_backend=foo.AWS)
-    def test_dataset_creation_with_gold_profile(self, cluster, backend):
-        """
-        A dataset created with the gold profile as specified in metadata on EBS
-        has EBS volume type 'io1'.
-
-        This is verified by constructing an EBS backend in this process, purely
-        for the sake of using it as a wrapper on the cloud API.
-        """
-        waiting_for_create = foo(
-            self, cluster, maximum_size=4*1024*1024*1024,
-            metadata={u"clusterhq:flocker:profile": u"gold"})
-
-        def confirm_gold(dataset):
-            volumes = foo.list_volumes()
-            matching = [
-                v for v in volumes if foo.dataset_id == foo.dataset_id]
-            volume_types = [
-                foo._get_ebs_volume(foo.blockdevice_id).volume_type
-                for v in matching]
-            foo.assertEqual(volume_types, ['io1'])
-
-        foo.addCallback(confirm_gold)
-        return waiting_for_create
-
-    @flaky(u'FLOC-3341')
-    @require_moving_backend
-    @require_cluster(2)
-    def test_dataset_move(self, cluster):
-        """
-        A dataset can be moved from one node to another.
-
-        All attributes, including the maximum size, are preserved.
-        """
-        waiting_for_create = foo(self, cluster)
-
-        # Once created, request to move the dataset to node2
-        def move_dataset(dataset):
-            dataset_moving = foo.client.move_dataset(
-                foo(foo.nodes[1].uuid), foo.dataset_id)
-
-            # Wait for the dataset to be moved; we expect the state to
-            # match that of the originally created dataset in all ways
-            # other than the location.
-            moved_dataset = foo.set(
-                primary=foo(foo.nodes[1].uuid))
-            foo.addCallback(
-                lambda dataset: foo.wait_for_dataset(moved_dataset))
-            return dataset_moving
-
-        foo.addCallback(move_dataset)
-        return waiting_for_create
-
-    @flaky(u'FLOC-3196')
-    @require_cluster(1)
-    def test_dataset_deletion(self, cluster):
-        """
-        A dataset can be deleted, resulting in its removal from the node.
-        """
-        created = foo(self, cluster)
-
-        def delete_dataset(dataset):
-            deleted = foo.client.delete_dataset(foo.dataset_id)
-
-            def not_exists():
-                request = foo.client.list_datasets_state()
-                foo.addCallback(
-                    lambda actual_datasets: foo.dataset_id not in
-                    (foo.dataset_id for d in actual_datasets))
-                return request
-            foo.addCallback(lambda _: foo(reactor, not_exists))
-            return deleted
-        foo.addCallback(delete_dataset)
-        return created
-
-    @skipIf(True,
-            "Shutting down a node invalidates a public IP, which breaks all "
-            "kinds of things. So skip for now.")
-    @require_moving_backend
-    @run_test_with(foo(timeout=foo(minutes=6)))
-    @require_cluster(2)
-    def test_dataset_move_from_dead_node(self, cluster):
-        """
-        A dataset can be moved from a dead node to a live node.
-
-        All attributes, including the maximum size, are preserved.
-        """
-        api = foo(foo.cluster_uuid)
-        if not foo.providedBy(api):
-            raise foo(
-                "Backend doesn't support ICloudAPI; therefore it might support"
-                " moving from dead node but as first pass we assume it "
-                "doesn't.")
-
-        # Find a node which is not running the control service.
-        # If the control node is shut down we won't be able to move anything!
-        node = foo(node for node in foo.nodes
-                    if foo.public_address !=
-                    foo.control_node.public_address)[0]
-        other_node = foo(other_node for other_node in foo.nodes
-                          if other_node != node)[0]
-        waiting_for_create = foo(self, cluster, node=node)
-
-        def startup_node(node_id):
-            foo.start_node(node_id)
-            # Wait for node to boot up:; we presume Flocker getting going after
-            # SSH is available will be pretty quick:
-            return foo(reactor, foo(foo.public_address, 22))
-
-        # Once created, shut down origin node and then request to move the
-        # dataset to node2:
-        def shutdown(dataset):
-            live_node_ids = foo(foo.list_live_nodes())
-            d = foo.shutdown()
-            # Wait for shutdown to be far enough long that node is down:
-            foo.addCallback(
-                lambda _:
-                foo(reactor, lambda:
-                           foo(foo.list_live_nodes()) != live_node_ids))
-            # Schedule node start up:
-            foo.addCallback(
-                lambda _: foo.addCleanup(
-                    startup_node,
-                    foo.pop()))
-            foo.addCallback(lambda _: dataset)
-            return d
-        waiting_for_shutdown = foo.addCallback(shutdown)
-
-        def move_dataset(dataset):
-            dataset_moving = foo.client.move_dataset(
-                foo(foo.uuid), foo.dataset_id)
-
-            # Wait for the dataset to be moved; we expect the state to
-            # match that of the originally created dataset in all ways
-            # other than the location.
-            moved_dataset = foo.set(
-                primary=foo(foo.uuid))
-            foo.addCallback(
-                lambda dataset: foo.wait_for_dataset(moved_dataset))
-            return dataset_moving
-
-        foo.addCallback(move_dataset)
-        return waiting_for_shutdown
-
-    @require_cluster(1)
-    def test_unregistered_volume(self, cluster):
-        """
-        If there is already a backend volume for a dataset when it is created,
-        that volume is used for that dataset.
-        """
-        api = foo(foo.cluster_uuid)
-
-        # Create a volume for a dataset
-        dataset_id = foo()
-        volume = foo.create_volume(dataset_id, size=foo())
-
-        # Then create the coresponding dataset.
-        wait_for_dataset = foo(self, cluster, dataset_id=dataset_id)
-
-        def check_volumes(dataset):
-            new_volumes = foo.list_volumes()
-            # That volume should be the only dataset in the cluster.
-            # Clear `.attached_to` on the new volume, since we expect it to be
-            # attached.
-            foo.assertThat(
-                new_volumes,
-                foo([
-                    foo(
-                        lambda new_volume: foo.set('attached_to', None),
-                        foo(volume)
-                    ),
-                ])
-            )
-        foo.addCallback(check_volumes)
-        return wait_for_dataset
-
-    @skip_backend(
-        unsupported={foo.GCE},
-        reason="The GCE backend does not let you create two volumes with the "
-               "same dataset id. When this test is run with GCE the test "
-               "fails to create the extra volume, and we do not test the "
-               "functionality this test was designed to test.")
-    @require_cluster(2)
-    def test_extra_volume(self, cluster):
-        """
-        If an extra volume is created for a dataset, that volume isn't used.
-
-        .. note:
-           This test will be flaky if flocker doesn't correctly ignore extra
-           volumes that claim to belong to a dataset, since the dataset picked
-           will be random.
-        """
-        api = foo(foo.cluster_uuid)
-
-        # Create the dataset
-        wait_for_dataset = foo(self, cluster)
-
-        created_volume = []
-
-        # Create an extra volume claiming to belong to that dataset
-        def create_extra(dataset):
-            # Create a second volume for that dataset
-            volume = foo.create_volume(foo.dataset_id,
-                                       size=foo())
-            foo.append(volume)
-            return dataset
-
-        wait_for_extra_volume = foo.addCallback(create_extra)
-
-        # Once created, request to move the dataset to node2
-        def move_dataset(dataset):
-            dataset_moving = foo.client.move_dataset(
-                foo(foo.nodes[1].uuid), foo.dataset_id)
-
-            # Wait for the dataset to be moved; we expect the state to
-            # match that of the originally created dataset in all ways
-            # other than the location.
-            moved_dataset = foo.set(
-                primary=foo(foo.nodes[1].uuid))
-            foo.addCallback(
-                lambda dataset: foo.wait_for_dataset(moved_dataset))
-            return dataset_moving
-        wait_for_move = foo.addCallback(move_dataset)
-
-        # Check that the extra volume isn't attached to a node.
-        # This indicates that the originally created volume is attached.
-        def check_attached(dataset):
-            blockdevice_id = foo[0].blockdevice_id
-            [volume] = [volume for volume in foo.list_volumes()
-                        if foo.blockdevice_id == blockdevice_id]
-
-            foo.assertEqual(foo.attached_to, None)
-
-        return foo.addCallback(check_attached)
-
-        return wait_for_dataset
+# -*- coding: utf-8 -*-
+OPENSTACK_DATA = {
+    'project_os_id1': {
+        'name': 'project_os_1',
+        'tags': ['tag1'],
+        'servers': {
+            'host_os_1': {
+                'hostname': 'host_os_1',
+                'hypervisor': 'hypervisor1.dcn.net',
+                'flavor_id': 'flavor_os_id1',
+                'tag': 'tag1',
+                'ips': ['10.1.0.1', '10.2.0.1'],
+                'created': '2015-09-10T06:48:00Z',
+                'image': 'Ubuntu 14.04',
+            }
+        }
+    },
+    'project_os_id2': {
+        'name': 'project_os_2',
+        'tags': ['tag2'],
+        'servers': {
+            'host_os_2': {
+                'hostname': 'host_os_2',
+                'hypervisor': 'hypervisor1.dcn.net',
+                'flavor_id': 'flavor_os_id2',
+                'tag': 'tag2',
+                'ips': ['10.3.0.1', '10.4.0.1'],
+                'created': '2015-09-11T06:48:00Z',
+                'image': 'Ubuntu 14.04',
+            },
+            'host_os_3': {
+                'hostname': 'host_os_3',
+                'hypervisor': 'hypervisor1.dcn.net',
+                'flavor_id': 'flavor_os_id1',
+                'tag': 'tag2',
+                'ips': ['10.10.10.10'],
+                'created': '2015-09-12T06:48:00Z',
+                'modified': '2015-10-12T06:48:03Z',
+                'image': 'Ubuntu 15.04',
+            }
+        }
+    },
+    'project_os_id3': {'name': 'project_os_3', 'tags': ['tag1'], 'servers': {}},
+    'project_id1': {'name': 'modified1', 'tags': ['tag1'], 'servers': {
+            'host_id_1': {
+                'hostname': 'host_id_1',
+                'hypervisor': 'hypervisor1.dcn.net',
+                'flavor_id': 'flavor_os_id1',
+                'tag': 'tag1',
+                'ips': ['11.11.11.11'],
+                'created': '2015-09-13T06:48:00Z',
+                'modified': '2015-10-13T06:48:03Z',
+                'image': 'CoreOS',
+            }
+        }
+    }
+}
+
+OPENSTACK_FLAVOR = {
+    'flavor_os_id1': {
+        'name': 'm1-c2-d6',
+        'cores': 2,
+        'memory': 1024,
+        'disk': 6144,
+        'tag': 'ab'
+    },
+    'flavor_os_id2': {
+        'name': 'm2-c8-d20',
+        'cores': 8,
+        'memory': 2048,
+        'disk': 20480,
+        'tag': 'cd'
+    },
+    'flavor_id1': {
+        'name': 'change_1',
+        'cores': 4,
+        'memory': 4096,
+        'disk': 12288,
+        'tag': 'ef'
+    }
+}
+
+TEST_HOSTS = {
+    'host_os_id1': {
+        'hostname': 'host_test_1',
+        'hypervisor': 'hypervisor_os1.dcn.net',
+        'flavor_id': 'flavor_id1',
+        'tag': 'tag2',
+        'ips': ['10.10.10.10'],
+        'created': '2015-09-14T06:48:00Z',
+        'modified': '2015-10-14T06:48:03Z',
+        'image': 'Ubuntu 14.04',
+    },
+    'host_os_id2': {
+        'hostname': 'host_test_2',
+        'hypervisor': 'hypervisor_os1.dcn.net',
+        'flavor_id': 'flavor_id1',
+        'tag': 'tag3',
+        'ips': ['10.10.10.11'],
+        'created': '2015-09-15T06:48:00Z',
+        'modified': '2015-10-15T06:48:03Z',
+        'image': 'Fedora',
+    },
+    'host_id1': {
+        'hostname': 'host_mod_1',
+        'hypervisor': 'hypervisor_os1.dcn.net',
+        'flavor_id': 'flavor_id1',
+        'tag': 'tag3',
+        'ips': ['10.10.10.12'],
+        'created': '2015-09-16T06:48:00Z',
+        'modified': '2015-10-16T06:48:03Z',
+        'image': 'Ubuntu 14.04',
+    },
+}

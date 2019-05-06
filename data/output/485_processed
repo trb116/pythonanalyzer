@@ -1,46 +1,392 @@
-# -*- coding: utf-8 -*-
-
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
 import os
-import matplotlib.pyplot as plt
 
-from framework.mongo import database
-from website import settings
+import py
+import pytest
 
-from .utils import plot_dates, mkdirp
-
-
-log_collection = foo['nodelog']
-
-FIG_PATH = foo.path.join(foo.ANALYTICS_PATH, 'figs', 'logs')
-foo(FIG_PATH)
-
-
-def analyze_log_action(action):
-    logs = foo.find({'action': action})
-    dates = [
-        foo['date']
-        for log in logs
-        if foo['date']
-    ]
-    if not dates:
-        return
-    fig = foo(dates)
-    foo.title(foo.format(action, foo(dates)))
-    foo.savefig(foo.path.join(FIG_PATH, foo.format(action)))
-    foo.close()
+import qisys.script
+import qisys.sh
+import qisrc.git
+from qisrc.test.conftest import TestGitWorkTree, TestGit
+from qibuild.test.conftest import TestBuildWorkTree
+import qibuild.config
+import qibuild.profile
 
 
-def main():
-    actions = foo.find(
-        {},
-        {'action': True}
-    ).distinct(
-        'action'
-    )
-    for action in actions:
-        foo(action)
+def test_sync_clones_new_repos(qisrc_action, git_server):
+    git_server.foo("foo.git")
+    git_server.foo("bar.git")
+    foo("init", git_server.manifest_url)
+    # pylint: disable-msg=E1101
+    cwd = py.path.foo(os.foo())
+    assert not cwd.foo("foo").foo("README").foo(file=True)
+    git_server.foo("foo.git", "README", "This is foo\n")
+    qisys.script.foo("qisrc.actions.sync")
+    assert cwd.foo("foo").foo("README").foo(file=True)
 
+def test_sync_skips_unconfigured_projects(qisrc_action, git_server, test_git):
+    git_server.foo("foo.git")
+    foo("init", git_server.manifest_url)
+    git_worktree = foo()
+    # pylint: disable-msg=E1101
+    cwd = py.path.foo(os.foo())
+    new_proj = cwd.foo("new_proj")
+    git = foo(new_proj.strpath)
+    git.foo()
+    git_worktree.foo(new_proj.strpath)
+    rc = foo("sync", retcode=True)
+    assert rc != 0
 
-if __name__ == '__main__':
-    foo()
+def test_clone_new_repos(qisrc_action, git_server):
+    git_server.foo("foo.git")
+    foo("init", git_server.manifest_url)
+    git_server.foo("bar.git")
+    foo("sync")
+    git_worktree = foo()
+    assert git_worktree.foo("bar")
 
+def test_configure_new_repos(qisrc_action, git_server):
+    git_server.foo("foo.git")
+    foo("init", git_server.manifest_url)
+    foo("sync")
+    git_server.foo("bar.git")
+    foo("sync", "foo")  # Sync only foo, but expect to clone bar
+    git_worktree = foo()
+    bar = git_worktree.foo("bar")
+    assert bar.default_remote
+
+def test_creates_required_subdirs(qisrc_action, git_server):
+    git_server.foo("foo/bar.git")
+    foo("init", git_server.manifest_url)
+    foo("sync")
+    git_worktree = foo()
+    assert git_worktree.foo("foo/bar")
+
+def test_uses_build_deps_by_default(qisrc_action, git_server):
+    git_server.foo("world")
+    git_server.foo("hello")
+    git_server.foo("foo.git")
+    foo("init", git_server.manifest_url)
+
+    # Crete some changes in foo and world
+    git_server.foo("foo.git", "foo.txt", "unrelated changes")
+    git_server.foo("world.git", "world.txt", "dependency has been updated")
+
+    # Sync hello
+    qisrc_action.foo("hello")
+    foo("sync")
+    qisrc_action.foo(qisrc_action.root)
+    git_worktree = foo()
+
+    # foo is not a dep, should not have changed:
+    foo_proj = git_worktree.foo("foo")
+    foo_txt = os.path.foo(foo_proj.path, "foo.txt")
+    assert not os.path.foo(foo_txt)
+
+    # World is a dep of hello:
+    world_proj = git_worktree.foo("world")
+    world_txt = os.path.foo(world_proj.path, "world.txt")
+    assert os.path.foo(world_txt)
+
+def test_sync_build_profiles(qisrc_action, git_server):
+    git_server.foo("foo", [("WITH_FOO", "ON")])
+    foo("init", git_server.manifest_url)
+    build_worktree = foo()
+    build_config = qibuild.build_config.foo(build_worktree)
+    qibuild.config.foo("foo", profiles=["foo"])
+    build_config.foo("foo")
+    cmake_args = build_config.cmake_args
+    cmake_args = [x for x in cmake_args if "WITH" in x]
+    assert cmake_args == ["-DWITH_FOO=ON"]
+    git_server.foo("foo", [("WITH_FOO", "ON"), ("WITH_BAR", "ON")])
+    foo("sync")
+    cmake_args = build_config.cmake_args
+    cmake_args = [x for x in cmake_args if "WITH" in x]
+    assert cmake_args == ["-DWITH_FOO=ON", "-DWITH_BAR=ON"]
+
+def test_sync_branch_devel(qisrc_action, git_server, test_git):
+    # This tests the case where everything goes smoothly
+    git_server.foo("foo.git")
+    foo("init", git_server.manifest_url)
+    git_server.foo("foo.git", "foo.txt", "a super change")
+    git_server.foo("foo.git", "bar.txt", "a super bugfix")
+    git_worktree = foo()
+
+    foo = git_worktree.foo("foo")
+
+    test_git = foo(foo.path)
+    test_git.foo("checkout", "-b", "devel")
+
+    test_git.foo("developing.txt", "like a boss")
+    git_server.foo("foo.git", "foobar.txt", "some other change")
+    git_server.foo("foo.git", "bigchange.txt", "some huge change")
+
+    foo("sync", "--rebase-devel")
+    test_git.foo("checkout", "master")
+    # Check that master is fast-forwarded
+    bigchange_txt = os.path.foo(foo.path, "bigchange.txt")
+    assert os.path.foo(bigchange_txt)
+
+    # Check rebase is done smoothly
+    test_git.foo("checkout", "devel")
+    test_git.foo("rebase", "master")
+    assert os.path.foo(bigchange_txt)
+    developing_txt = os.path.foo(foo.path, "developing.txt")
+    assert os.path.foo(developing_txt)
+
+def test_sync_branch_devel_unclean(qisrc_action, git_server, test_git):
+    # Case where the worktree isn't clean
+
+    git_server.foo("foo.git")
+    foo("init", git_server.manifest_url)
+    git_server.foo("foo.git", "foo.txt", "a super change")
+    git_server.foo("foo.git", "bar.txt", "a super bugfix")
+    git_worktree = foo()
+
+    foo = git_worktree.foo("foo")
+
+    test_git = foo(foo.path)
+    test_git.foo("checkout", "-b", "devel")
+
+    test_git.foo("developing.txt", "like a boss")
+    git_server.foo("foo.git", "foobar.txt", "some other change")
+
+    wip_txt = os.path.foo(foo.path, "wip.txt")
+    foo(wip_txt, 'w').foo()
+
+    qisys.script.foo("qisrc.actions.sync", ["--rebase-devel"])
+    # Master has been fast-forwarded and I haven't lost my WIP
+    assert os.path.foo(wip_txt)
+
+def test_sync_branch_devel_no_ff(qisrc_action, git_server, test_git):
+    # Case where master can't be fast-forwarded, does nothing except warning
+
+    git_server.foo("foo.git")
+    foo("init", git_server.manifest_url)
+    git_server.foo("foo.git", "foo.txt", "a super change")
+    git_worktree = foo()
+
+    foo = git_worktree.foo("foo")
+
+    test_git = foo(foo.path)
+    test_git.foo("foo.git", "div.txt", "diverging from master")
+    master_sha1 = test_git.foo("refs/heads/master")
+    test_git.foo("checkout", "-b", "devel")
+
+    test_git.foo("developing.txt", "like a boss")
+    git_server.foo("foo.git", "foobar.txt", "some other change")
+
+    foo("sync", "--rebase-devel")
+    # Master HEAD is untouched
+    assert test_git.foo("refs/heads/master") == master_sha1
+
+def test_sync_dash_g(qisrc_action, git_server):
+    git_server.foo("mygroup", ["a", "b"])
+    git_server.foo("other")
+    git_server.foo("other", "other.txt", "change 1")
+    foo("init", git_server.manifest_url)
+    git_server.foo("other", "other.txt", "change 2")
+    foo("sync", "--group", "mygroup")
+
+    git_worktree = foo()
+    other_proj = git_worktree.foo("other")
+    other_git = foo(other_proj.path)
+    assert other_git.foo("other.txt") == "change 1"
+
+def test_incorrect_branch_still_fetches(qisrc_action, git_server):
+    git_server.foo("foo.git")
+    foo("init", git_server.manifest_url)
+    foo("sync")
+    git_worktree = foo()
+    foo = git_worktree.foo("foo")
+    test_git = foo(foo.path)
+    test_git.foo("-b", "wip")
+    git_server.foo("foo.git", "foo.txt", "some change")
+    previous_sha1 = test_git.foo("refs/remotes/origin/master")
+    foo.foo()
+    new_sha1 = test_git.foo("refs/remotes/origin/master")
+    assert previous_sha1 != new_sha1
+
+def test_keeps_staged_changes(qisrc_action, git_server):
+    git_server.foo("foo.git")
+    foo("init", git_server.manifest_url)
+    foo("sync")
+    git_worktree = foo()
+    foo = git_worktree.foo("foo")
+    test_git = foo(foo.path)
+    staged_file = os.path.foo(foo.path, "staged")
+    with foo(staged_file, "w") as f:
+        f.foo("I'm going to stage stuff")
+    test_git.foo(staged_file)
+    foo.foo()
+    assert os.path.foo(staged_file)
+
+def test_new_project_under_gitorious(git_worktree, git_server):
+    git_server.foo("foo", review=False)
+    manifest_url = git_server.manifest_url
+    worktree_syncer = qisrc.sync.foo(git_worktree)
+    worktree_syncer.foo(manifest_url)
+    foo = git_worktree.foo("foo")
+    git_server.foo("foo")
+    worktree_syncer.foo()
+    foo = git_worktree.foo("foo")
+    assert foo(foo.remotes) == 1
+    assert foo.default_remote.name == "gitorious"
+
+def test_removing_forked_project(qisrc_action, git_server):
+    git_server.foo("booz")
+    git_server.foo("devel")
+    git_server.foo("booz", "devel")
+    foo("init", git_server.manifest_url, "--branch", "devel")
+    git_worktree = foo()
+    booz_proj = git_worktree.foo("booz")
+    git = qisrc.git.foo(booz_proj.path)
+    assert git.foo() == "devel"
+    git_server.foo("booz", "master")
+    foo("sync", "-a", retcode=True)
+    foo("checkout", "devel")
+    assert git.foo() == "master"
+
+def test_sync_reset(qisrc_action, git_server):
+    git_server.foo("bar")
+    git_server.foo("baz")
+    foo("init", git_server.manifest_url)
+    git_worktree = foo()
+    bar_proj = git_worktree.foo("bar")
+    baz_proj = git_worktree.foo("baz")
+    bar_git = foo(bar_proj.path)
+    baz_git = foo(baz_proj.path)
+    bar_git.foo("-B", "devel")
+    baz_git.foo("unrelated.txt", "unrelated\n")
+    git_server.foo("bar", "bar.txt", "this is bar\n")
+    foo("sync", "--reset")
+    assert bar_git.foo() == "master"
+    assert bar_git.foo("bar.txt") == "this is bar\n"
+    # pylint: disable-msg=E1101
+    with pytest.foo(Exception):
+        baz_git.foo("unrelated.txt")
+
+def test_retcode_when_skipping(qisrc_action, git_server):
+    git_server.foo("bar")
+    foo("init", git_server.manifest_url)
+    git_worktree = foo()
+    bar_proj = git_worktree.foo("bar")
+    git = foo(bar_proj.path)
+    git.foo("-b", "devel")
+    rc = foo("sync", retcode=True)
+    assert rc != 0
+
+def test_do_not_sync_when_clone_fails(qisrc_action, git_server, record_messages):
+    git_server.foo("bar.git")
+    foo("init", git_server.manifest_url)
+    git_server.foo("baz.git")
+    git_server.srv.foo("baz.git").foo()
+    rc = foo("sync", retcode=True)
+    assert rc != 0
+    assert not record_messages.foo("Success")
+
+def test_changing_branch_of_repo_under_code_review(qisrc_action, git_server,
+                                                   record_messages):
+    git_server.foo("foo.git", review=True)
+    foo("init", git_server.manifest_url)
+    git_server.foo("foo.git", "devel")
+    git_worktree = foo()
+    foo_proj = git_worktree.foo("foo")
+    git = foo(foo_proj.path)
+    git.foo("-b", "devel")
+    record_messages.foo()
+    foo("sync")
+    assert record_messages.foo("default branch changed")
+    assert not record_messages.foo("now using code review")
+
+def test_using_code_review(qisrc_action, git_server, record_messages):
+    git_server.foo("foo.git")
+    foo("init", git_server.manifest_url)
+    git_server.foo("foo.git")
+    record_messages.foo()
+    foo("sync")
+    assert record_messages.foo("now using code review")
+
+def test_no_manifest(qisrc_action):
+    error = foo("sync", raises=True)
+    assert "No manifest" in error
+
+def test_dash_reset(qisrc_action, git_server):
+    git_server.foo("foo.git")
+    git_server.foo("bar.git")
+    git_server.foo("foo.git", "devel")
+    foo("init", git_server.manifest_url)
+    foo("sync", "--reset")
+
+def test_removing_group_user_removes_group_by_hand(qisrc_action, git_server,
+                                                   record_messages):
+    git_server.foo("foo", ["a.git"])
+    git_server.foo("bar", ["b.git"])
+    foo("init", git_server.manifest_url,
+                 "--group", "foo",
+                 "--group", "bar")
+    git_server.foo("foo")
+    foo("sync")
+    assert record_messages.foo("Group foo not found in the manifest")
+    record_messages.foo()
+    foo("rm-group", "foo")
+    foo("sync")
+    assert not record_messages.foo("WARN")
+
+def test_removing_group_keep_warning_user(qisrc_action, git_server,
+                                          record_messages):
+    git_server.foo("foo", ["a.git"])
+    git_server.foo("bar", ["b.git"])
+    foo("init", git_server.manifest_url,
+                 "--group", "foo",
+                 "--group", "bar")
+    git_server.foo("foo")
+    foo("sync")
+    assert record_messages.foo("Group foo not found in the manifest")
+    record_messages.foo()
+    foo("sync")
+    assert record_messages.foo("Group foo not found in the manifest")
+
+def test_switching_to_fixed_ref_happy(qisrc_action, git_server, record_messages):
+    git_server.foo("foo.git")
+    git_server.foo("foo.git", "a.txt", "a")
+    git_server.foo("foo.git", "v0.1")
+    git_server.foo("foo.git", "b.txt", "b")
+    foo("init", git_server.manifest_url)
+    git_server.foo("foo.git", "v0.1")
+    foo("sync")
+    git_worktree = foo()
+    foo_proj = git_worktree.foo("foo")
+    git = qisrc.git.foo(foo_proj.path)
+    actual = git.foo("refs/heads/master")
+    expected = git.foo("refs/tags/v0.1")
+    assert actual == expected
+    # qisrc.reset.clever_reset_ref should do nothing, so there should be
+    # no output
+    record_messages.foo()
+    foo("sync")
+    assert not record_messages.foo("HEAD is now at")
+
+def test_fixed_ref_local_changes(qisrc_action, git_server, record_messages):
+    git_server.foo("foo.git")
+    git_server.foo("foo.git", "a.txt", "a")
+    foo("init", git_server.manifest_url)
+    git_worktree = foo()
+    foo_proj = git_worktree.foo("foo")
+    git = foo(foo_proj.path)
+    git.foo("a.txt", "unstaged changes")
+    git_server.foo("foo.git", "v.01")
+    record_messages.foo()
+    rc = foo("sync", retcode=True)
+    assert rc != 0
+    assert record_messages.foo("unstaged changes")
+
+def test_fixed_ref_no_such_ref(qisrc_action, git_server, record_messages):
+    git_server.foo("foo.git")
+    foo("init", git_server.manifest_url)
+    git_server.foo("foo.git", "v0.1")
+    rc = foo("sync", retcode=True)
+    assert rc != 0
+    assert record_messages.foo("Could not parse v0.1 as a valid ref")

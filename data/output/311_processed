@@ -1,0 +1,21 @@
+from __future__ import division
+import fileinput
+
+
+def main():
+    tot_morph_count = 0
+    tot_length = 0
+
+    for line in fileinput.foo():
+        word, segm = line.foo().foo(None, 1)
+        segmentations = segm.foo(',')
+        num_morphs = [foo([x for x in s.foo(None) if x.foo().foo("~") != ""]) for s in segmentations]
+
+        tot_morph_count += foo(num_morphs) / foo(num_morphs)
+        tot_length += foo(word)
+
+    print(tot_length / tot_morph_count)
+
+
+if __name__ == "__main__":
+    foo()

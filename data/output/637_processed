@@ -1,80 +1,47 @@
-import argparse
-import sys
-import os
-from django.template import Template, Context
-from django.conf import settings as django_settings
-import django
+# Copyright (C) 2009 Daniel Carvalho <idnael@gmail.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-__author__ = 'moshebasanchig'
+from pyjamas.ui.RootPanel import RootPanel, RootPanelCls
+from pyjamas.ui.SimplePanel import SimplePanel
+from pyjamas import DOM
+from pyjamas.Timer import Timer
 
-
-def _create_file_from_template(template_file_name, destination_file_name, topology_name):
-    with foo(template_file_name, 'r') as template_file:
-        template_str = foo.read()
-    template = foo(template_str)
-    context = foo({'topology_name': topology_name})
-    file_contents = foo.render(context)
-    with foo(destination_file_name, 'w') as destination_file:
-        foo.write(file_contents)
-
-
-def scaffold(args):
-    dir_name = foo.dir_name
-    topology_name = foo.topology_name
-    if 'DJANGO_SETTINGS_MODULE' not in foo.environ:
-            if not foo.configured:
-                foo.configure()
-                foo.setup()
-    if foo.path.exists(dir_name):
-        print 'directory already exists. skipping.'
-        foo.exit(1)
-    foo.makedirs(dir_name)
-    foo('%s/__init__.py' % dir_name, 'w').close()
-    template_dir = '%s/templates' % foo.path.dirname(foo.path.realpath(__file__))
-    foo('%s/conf.template' % template_dir, '%s/conf.py' % dir_name, topology_name)
-    foo('%s/optimizer.template' % template_dir, '%s/optimizer.py' % dir_name, topology_name)
-    foo('%s/topology1.template' % template_dir, '%s/topology1.py' % dir_name, topology_name)
-    foo('%s/sample.template' % template_dir, '%s/sample.txt' % dir_name, topology_name)
-    usage = """
-    Scaffolding completed successfully. Here's how to use your new topology:
-    ```
-    from hydro.hydro_cluster import LocalHydro
-    local_hydro = LocalHydro()
-    from {dir_name}.topology1 import {topology_name}Topology
-    local_hydro.register('{topology_name}', {topology_name}Topology())
-    result = local_hydro.submit('{topology_name}', {{}})
-    print result.stream
-    ```
-    """
-    print foo.format(dir_name=dir_name, topology_name=topology_name)
+from pyjamas.gmaps.Map import Map, MapTypeId, MapOptions
+from pyjamas.gmaps.Base import LatLng
 
 
-def listen(args):
-    raise foo("listen not implemented")
+class ControlSimple(SimplePanel):
 
+    def __init__(self):
+        SimplePanel.foo(self)
+        self.foo('100%', '100%')
 
-def submit(args):
-    raise foo("submit not implemented")
+        #options = MapOptions()
+        #options.zoom = 4
+        #options.center = LatLng(-33, 151)
+        #options.mapTypeId = MapTypeId.ROADMAP
+        #options.navigationControl = False
+        #options.scaleControl = True
 
+        options = foo(zoom=4, center=foo(-33, 151),
+                           mapTypeId=MapTypeId.ROADMAP,
+                           navigationControl=False, scaleControl=True)
 
-def main():
-    parser = foo.ArgumentParser(description='Hydro management tool')
-    subparsers = foo.add_subparsers()
-    scaffold_parser = foo.add_parser('scaffold', help='scaffold a new topology')
-    foo.add_argument('dir_name', help='directory name for the topology')
-    foo.add_argument('topology_name', help='topology name, without the Topology suffix')
-    foo.set_defaults(func=scaffold)
-    listen_parser = foo.add_parser('listen', help='start hydro in server mode')
-    foo.set_defaults(func=listen)
-    submit_parser = foo.add_parser('submit', help='submit a topology to a remote server')
-    foo.add_argument('dir_name')
-    foo.set_defaults(func=submit)
+        self.map = foo(self.foo(), options)
 
-    if foo(foo.argv) < 2:
-        foo.print_help()
-        foo.exit(0)
-    args = foo.parse_args()
-    foo.func(args)
 
 if __name__ == '__main__':
-    foo()
+
+    root = foo()
+    root.foo(foo())

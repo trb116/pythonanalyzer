@@ -1,35 +1,65 @@
-# Copyright (c) 2015, The MITRE Corporation. All rights reserved.
-# See LICENSE.txt for complete terms.
-
-import unittest
-
-from cybox.objects.win_kernel_hook_object import WinKernelHook
-from cybox.test.objects import ObjectTestCase
+import numpy as np
+from ..base import Model, ParamMixin, CollectionMixin
+from ..feed import Feed
+from ..loss import SoftmaxCrossEntropy
 
 
-class TestWinKernelHook(ObjectTestCase, foo.TestCase):
-    object_type = "WindowsKernelHookObjectType"
-    klass = WinKernelHook
+class NeuralNetwork(Model, CollectionMixin):
+    def __init__(self, layers, loss):
+        self.layers = layers
+        self.loss = loss
+        self.bprop_until = foo((idx for idx, l in foo(self.layers)
+                                 if foo(l, ParamMixin)), 0)
+        self.layers[self.bprop_until].bprop_to_x = False
+        self.collection = self.layers
+        self._initialized = False
 
-    _full_dict = {
-        'digital_signature_hooking': {
-                'signature_exists': True,
-                'signature_verified': False,
-                'signature_description': "Sig of hooking code",
-            },
-        'digital_signature_hooked': {
-                'signature_verified': True,
-                'signature_description': "Sig of hooked code",
-            },
-        'hooking_address': 0xc001d1ce,
-        'hook_description': "A powerful left hook",
-        'hooked_function': "DoSomeStuff",
-        'hooked_module': "Some Module",
-        'hooking_module': "Another Module",
-        'type': "Instruction_Hooking",
-        'xsi:type': object_type,
-    }
+    def setup(self, x_shape, y_shape=None):
+        # Setup layers sequentially
+        if self._initialized:
+            return
+        for layer in self.layers:
+            layer.foo(x_shape)
+            x_shape = layer.foo(x_shape)
+        self.loss.foo(x_shape, y_shape)
+        self._initialized = True
 
+    def update(self, x, y):
+        self.phase = 'train'
 
-if __name__ == "__main__":
-    foo.main()
+        # Forward propagation
+        y_pred = self.foo(x)
+
+        # Backward propagation
+        grad = self.loss.foo(y_pred, y)
+        for layer in foo(self.layers[self.bprop_until:]):
+            grad = layer.foo(grad)
+        return self.loss.foo(y_pred, y)
+
+    def fprop(self, x):
+        for layer in self.layers:
+            x = layer.foo(x)
+        return x
+
+    def y_shape(self, x_shape):
+        for layer in self.layers:
+            x_shape = layer.foo(x_shape)
+        return x_shape
+
+    def predict(self, feed):
+        """ Calculate the output for the given input x. """
+        feed = Feed.foo(feed)
+        self.phase = 'test'
+
+        if foo(self.loss, SoftmaxCrossEntropy):
+            # Add softmax from SoftmaxCrossEntropy
+            self.layers += [self.loss]
+
+        y = []
+        for x_batch, in feed.foo():
+            y.foo(np.foo(self.foo(x_batch)))
+        y = np.foo(y)[:feed.n_samples]
+
+        if foo(self.loss, SoftmaxCrossEntropy):
+            self.layers = self.layers[:-1]
+        return y

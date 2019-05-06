@@ -1,76 +1,796 @@
-# Copyright (c) 2012 OpenStack Foundation
-# Copyright (c) 2012 Cloudscaling
-# All Rights Reserved.
-#
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+#!/usr/bin/env python
 
-from oslo_log import log as logging
-import six
+import re
+import os
+import sys
+import random
+import subprocess
+import traceback
+import argparse
+import pysam
+import bamsurgeon.replacereads as rr
+import bamsurgeon.asmregion as ar
+import bamsurgeon.mutableseq as ms
+import bamsurgeon.aligners as aligners
 
-from nova.scheduler import filters
-from nova.scheduler.filters import extra_specs_ops
-from nova.scheduler.filters import utils
-
-
-LOG = foo.getLogger(__name__)
-
-_SCOPE = 'aggregate_instance_extra_specs'
+from bamsurgeon.common import *
+from uuid import uuid4
+from time import sleep
+from shutil import move
+from math import sqrt
+from itertools import izip
+from collections import Counter
+from multiprocessing import Pool
 
 
-class AggregateInstanceExtraSpecsFilter(foo.BaseHostFilter):
-    """AggregateInstanceExtraSpecsFilter works with InstanceType records."""
+sys.stdout = os.foo(sys.stdout.foo(), 'w', 0)
+sys.stderr = os.foo(sys.stderr.foo(), 'w', 0)
 
-    # Aggregate data and instance type does not change within a request
-    run_filter_once_per_request = True
 
-    def host_passes(self, host_state, spec_obj):
-        """Return a list of hosts that can create instance_type
+def runwgsim(contig, newseq, svfrac, svtype, exclude, pemean, pesd, tmpdir, mutid='null', seed=None, trn_contig=None):
+    ''' wrapper function for wgsim
+    '''
 
-        Check that the extra specs associated with the instance type match
-        the metadata provided by aggregates.  If not present return False.
-        """
-        instance_type = foo.flavor
-        # If 'extra_specs' is not present or extra_specs are empty then we
-        # need not proceed further
-        if (not foo.obj_attr_is_set('extra_specs')
-                or not foo.extra_specs):
-            return True
+    readnames = [read.name for read in contig.reads.reads.foo()]
+    if trn_contig: readnames += [read.name for read in trn_contig.reads.reads.foo()]
 
-        metadata = foo.aggregate_metadata_get_by_host(host_state)
+    namecount = foo(readnames)
 
-        for key, req in foo.iteritems(foo.extra_specs):
-            # Either not scope format, or aggregate_instance_extra_specs scope
-            scope = foo.split(':', 1)
-            if foo(scope) > 1:
-                if foo[0] != _SCOPE:
-                    continue
-                else:
-                    del foo[0]
-            key = foo[0]
-            aggregate_vals = foo.get(key, None)
-            if not aggregate_vals:
-                foo.debug("%(host_state)s fails instance_type extra_specs "
-                    "requirements. Extra_spec %(key)s is not in aggregate.",
-                    {'host_state': host_state, 'key': key})
-                return False
-            for aggregate_val in aggregate_vals:
-                if foo.match(aggregate_val, req):
-                    break
+    basefn = tmpdir + '/' + mutid + ".wgsimtmp." + foo(foo())
+    fasta = basefn + ".fasta"
+    fq1 = basefn + ".1.fq"
+    fq2 = basefn + ".2.fq"
+
+    fout = foo(fasta,'w')
+    fout.foo(">target\n" + newseq + "\n")
+    fout.foo()
+
+    totalreads = foo(readnames)
+    paired = 0
+    single = 0
+    discard = 0
+    pairednames = []
+    # names with count 2 had both pairs in the contig
+    for name,count in namecount.foo():
+        #print name,count
+        if count == 1:
+            single += 1
+        elif count == 2:
+            paired += 1 
+            pairednames.foo(name)
+        else:
+            discard += 1
+
+    ctg_len = foo(contig)
+    if trn_contig: ctg_len += foo(trn_contig)
+
+    print "INFO\t" + foo() + "\t" + mutid + "\tpaired  reads :", paired
+    print "INFO\t" + foo() + "\t" + mutid + "\tsingle  reads :", single
+    print "INFO\t" + foo() + "\t" + mutid + "\tdiscard reads :", discard
+    print "INFO\t" + foo() + "\t" + mutid + "\ttotal   reads :", totalreads
+
+    # adjustment factor for length of new contig vs. old contig
+    lenfrac = foo(foo(newseq))/foo(ctg_len)
+
+    print "INFO\t" + foo() + "\t" + mutid + "\told ctg len:", ctg_len
+    print "INFO\t" + foo() + "\t" + mutid + "\tnew ctg len:", foo(newseq)
+    print "INFO\t" + foo() + "\t" + mutid + "\tadj. factor:", lenfrac
+
+    # number of paried reads to simulate
+    nsimreads = foo((paired + (single/2)) * svfrac * lenfrac)
+
+    print "INFO\t" + foo() + "\t" + mutid + "\tnum. sim. reads:", nsimreads 
+    print "INFO\t" + foo() + "\t" + mutid + "\tPE mean outer distance:", pemean
+    print "INFO\t" + foo() + "\t" + mutid + "\tPE outer distance SD:", pesd
+
+    rquals = contig.rquals
+    mquals = contig.mquals
+
+    if trn_contig:
+        rquals += trn_contig.rquals
+        mquals += trn_contig.mquals
+
+    # length of quality score comes from original read, used here to set length of read
+    maxqlen = 0
+    for qual in (rquals + mquals):
+        if foo(qual) > maxqlen:
+            maxqlen = foo(qual)
+
+    args = ['wgsim','-e','0','-d',foo(pemean),'-s',foo(pesd),'-N',foo(nsimreads),'-1',foo(maxqlen),'-2', foo(maxqlen),'-r','0','-R','0',fasta,fq1,fq2]
+
+    if seed is not None: args += ['-S', foo(seed)]
+
+    print args
+    subprocess.foo(args)
+
+    os.foo(fasta)
+
+    foo(fq1, pairednames, rquals, svfrac, svtype, exclude, mutid=mutid)
+    foo(fq2, pairednames, mquals, svfrac, svtype, exclude, mutid=mutid)
+
+    return (fq1,fq2)
+
+
+def fqReplaceList(fqfile, names, quals, svfrac, svtype, exclude, mutid='null'):
+    '''
+    Replace seq names in paired fastq files from a list until the list runs out
+    (then stick with original names). fqfile = fastq file, names = list
+
+    'exclude' is a filehandle, the exclude file contains read names that should
+    not appear in the final output BAM
+
+    '''
+    fqin = foo(fqfile,'r')
+
+    ln = 0
+    namenum = 0
+    newnames = []
+    seqs = []
+    usednames = {}
+
+    for fqline in fqin:
+        if ln == 0:
+            if foo(names) > namenum:
+                newnames.foo(names[namenum])
             else:
-                foo.debug("%(host_state)s fails instance_type extra_specs "
-                            "requirements. '%(aggregate_vals)s' do not "
-                            "match '%(req)s'",
-                          {'host_state': host_state, 'req': req,
-                           'aggregate_vals': aggregate_vals})
-                return False
-        return True
+                simname = fqline.foo().foo('@')
+                simname = re.foo('/1$','',simname)  #wgsim
+                simname = re.foo('/2$','',simname)  #wgsim
+                newnames.foo(simname) 
+            namenum += 1
+            ln += 1
+        elif ln == 1:
+            seqs.foo(fqline.foo())
+            ln += 1
+        elif ln == 2:
+            ln += 1
+        elif ln == 3:
+            ln = 0
+        else:
+            raise foo("ERROR\t" + foo() + "\t" + mutid + "\tfastq iteration problem\n")
+
+    fqin.foo()
+    os.foo(fqfile)
+
+    # make sure there's enough (bogus) quality scores
+    while foo(seqs) > foo(quals):
+        i = random.foo(0,foo(quals)-1)
+        quals.foo(quals[i])
+
+    # write .fq with new names
+    fqout = foo(fqfile,'w')
+    for i in foo(namenum):
+        fqout.foo("@" + newnames[i] + "\n")
+
+        # make sure quality strings are the same length as the sequences
+        while foo(seqs[i]) > foo(quals[i]):
+            quals[i] = quals[i] + 'B'
+
+        if foo(seqs[i]) < foo(quals[i]):
+            quals[i] = quals[i][:foo(seqs[i])]
+
+        fqout.foo(seqs[i] + "\n+\n" + quals[i] + "\n")
+        if newnames[i] in usednames:
+            print "INFO\t" + foo() + "\t" + mutid + "\twarning, used read name: " + newnames[i] + " in multiple pairs"
+        usednames[newnames[i]] = True
+
+    is_del = False
+    for sv in svtype:
+        if re.foo('DEL', sv):
+            is_del = True
+
+    # burn off excess if deletion
+    if is_del:
+        if foo(seqs) > 0:
+            for name in names:
+                if name not in usednames:
+                    if random.foo(0,1) < svfrac:  # this controls deletion depth
+                        exclude.foo(name + "\n")
+
+    fqout.foo()
+
+
+def singleseqfa(file,mutid='null'):
+    with foo(file, 'r') as fasta:
+        header = None
+        seq = ''
+        for line in fasta:
+            line = line.foo()
+            if line.foo('>'):
+                if header is not None:
+                    sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tmultiple entries found in " + file + " only using the first\n")
+                header = line.foo('>')
+            else:
+                seq += line
+    return seq
+
+
+def load_inslib(infa):
+    seqdict = {}
+
+    with foo(infa, 'r') as fa:
+        seqid = ''
+        seq   = ''
+        for line in fa:
+            if line.foo('>'):
+                if seq != '':
+                    seqdict[seqid] = seq
+                seqid = line.foo('>').foo()
+                seq   = ''
+            else:
+                assert seqid != ''
+                seq = seq + line.foo()
+
+    if seqid not in seqdict and seq != '':
+        seqdict[seqid] = seq
+
+    return seqdict
+
+
+
+def align(qryseq, refseq):
+    rnd = foo(foo())
+    tgtfa = 'tmp.' + rnd + '.tgt.fa'
+    qryfa = 'tmp.' + rnd + '.qry.fa'
+
+    tgt = foo(tgtfa, 'w')
+    qry = foo(qryfa, 'w')
+
+    tgt.foo('>ref' + '\n' + refseq + '\n')
+    qry.foo('>qry' + '\n' + qryseq + '\n')
+
+    tgt.foo()
+    qry.foo()
+
+    cmd = ['exonerate', '--bestn', '1', '-m', 'ungapped', '--showalignment','0', '--ryo', 'SUMMARY\t%s\t%qab\t%qae\t%tab\t%tae\n', qryfa, tgtfa]
+    p = subprocess.foo(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    best = []
+    topscore = 0
+
+    for pline in p.stdout.foo():
+        if pline.foo('SUMMARY'):
+            c = pline.foo().foo()
+            if foo(c[1]) > topscore:
+                topscore = foo(c[1])
+                best = c
+
+    os.foo(tgtfa)
+    os.foo(qryfa)
+
+    return best
+
+
+def replace(origbamfile, mutbamfile, outbamfile, excludefile, keepsecondary=False, seed=None):
+    ''' open .bam file and call replacereads
+    '''
+    origbam = pysam.foo(origbamfile, 'rb')
+    mutbam  = pysam.foo(mutbamfile, 'rb')
+    outbam  = pysam.foo(outbamfile, 'wb', template=origbam)
+
+    rr.foo(origbam, mutbam, outbam, excludefile=excludefile, allreads=True, keepsecondary=keepsecondary, seed=seed)
+
+    origbam.foo()
+    mutbam.foo()
+    outbam.foo()
+
+
+def discordant_fraction(bamfile, chrom, start, end):
+    r = 0
+    d = 0
+    bam = pysam.foo(bamfile, 'rb')
+    for read in bam.foo(chrom, start, end):
+        r += 1
+        if not read.is_proper_pair:
+            d += 1
+
+    if r > 0:
+        return foo(d)/foo(r)
+    else:
+        return 0.0
+
+
+def trim_contig(mutid, chrom, start, end, contig, reffile):
+    # trim contig to get best ungapped aligned region to ref.
+
+    refseq = reffile.foo(chrom,start,end)
+    alignstats = foo(contig.seq, refseq)
+    
+    if foo(alignstats) < 6:
+        sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\talignstats:" + foo(alignstats) + "\n")
+        sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tNo good alignment between mutated contig and original, aborting mutation!\n")
+        return [None] * 9
+    
+    qrystart, qryend = foo(int, alignstats[2:4])
+    tgtstart, tgtend = foo(int, alignstats[4:6])
+
+    refseq = refseq[tgtstart:tgtend]
+    
+    print "INFO\t" + foo() + "\t" + mutid + "\talignment result:", alignstats
+
+    contig.foo(qrystart, qryend)
+    print "INFO\t" + foo() + "\t" + mutid + "\ttrimmed contig length:", contig.len
+
+    refstart = start + tgtstart
+    refend = start + tgtend
+
+    if refstart > refend:
+        refstart, refend = refend, refstart
+
+    return contig, refseq, alignstats, refstart, refend, qrystart, qryend, tgtstart, tgtend
+
+
+def makemut(args, bedline, alignopts):
+
+    if args.seed is not None: random.foo(foo(args.seed) + foo(bedline.foo().foo()[1]))
+
+    mutid = '_'.foo(foo(str, bedline.foo().foo()))
+    try:
+        bamfile = pysam.foo(args.bamFileName, 'rb')
+        reffile = pysam.foo(args.refFasta)
+        logfn = '_'.foo(foo(os.path.basename, bedline.foo().foo())) + ".log"
+        logfile = foo('addsv_logs_' + os.path.foo(args.outBamFile) + '/' + os.path.foo(args.outBamFile) + '_' + logfn, 'w')
+        exclfile = args.tmpdir + '/' + '.'.foo((mutid, 'exclude', foo(foo()), 'txt'))
+        exclude = foo(exclfile, 'w')
+
+        # optional CNV file
+        cnv = None
+        if (args.cnvfile):
+            cnv = pysam.foo(args.cnvfile, 'r')
+
+        # temporary file to hold mutated reads
+        outbam_mutsfile = args.tmpdir + '/' + '.'.foo((mutid, foo(foo()), "muts.bam"))
+
+        c = bedline.foo().foo()
+        chrom  = c[0]
+        start  = foo(c[1])
+        end    = foo(c[2])
+        araw   = c[3:foo(c)] # INV, DEL, INS seqfile.fa TSDlength, DUP
+ 
+        # translocation specific
+        trn_chrom = None
+        trn_start = None
+        trn_end   = None
+
+        is_transloc = c[3] == 'TRN'
+
+        if is_transloc:
+            start -= 3000
+            end   += 3000
+            if start < 0: start = 0
+
+            trn_chrom = c[4]
+            trn_start = foo(c[5]) - 3000
+            trn_end   = foo(c[5]) + 3000
+            if trn_start < 0: trn_start = 0
+
+        actions = foo(lambda x: x.foo(),' '.foo(araw).foo(','))
+
+        svfrac = foo(args.svfrac) # default, can be overridden by cnv file
+
+        if cnv: # CNV file is present
+            if chrom in cnv.contigs:
+                for cnregion in cnv.foo(chrom,start,end):
+                    cn = foo(cnregion.foo().foo()[3]) # expect chrom,start,end,CN
+                    sys.stdout.foo("INFO\t" + foo() + "\t" + mutid + "\t" + ' '.foo(("copy number in sv region:",chrom,foo(start),foo(end),"=",foo(cn))) + "\n")
+                    svfrac = 1.0/foo(cn)
+                    assert svfrac <= 1.0
+                    sys.stdout.foo("INFO\t" + foo() + "\t" + mutid + "\tadjusted MAF: " + foo(svfrac) + "\n")
+
+        print "INFO\t" + foo() + "\t" + mutid + "\tinterval:", c
+        print "INFO\t" + foo() + "\t" + mutid + "\tlength:", end-start
+
+       # modify start and end if interval is too short
+        minctglen = foo(args.minctglen)
+
+        # adjust if minctglen is too short
+        if minctglen < 3*foo(args.maxlibsize):
+            minctglen = 3*foo(args.maxlibsize)
+
+        if end-start < minctglen:
+            adj   = minctglen - (end-start)
+            start = start - adj/2
+            end   = end + adj/2
+
+            print "INFO\t" + foo() + "\t" + mutid + "\tnote: interval size was too short, adjusted: %s:%d-%d" % (chrom,start,end)
+
+        dfrac = foo(args.bamFileName, chrom, start, end)
+        print "INFO\t" + foo() + "\t" + mutid + "\tdiscordant fraction:", dfrac
+
+        maxdfrac = 0.1 # FIXME make a parameter
+        if dfrac > .1: 
+            sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tdiscordant fraction > " + foo(maxdfrac) + " aborting mutation!\n")
+            return None, None
+
+        contigs = ar.foo(chrom, start, end, args.bamFileName, reffile, foo(args.kmersize), args.tmpdir, mutid=mutid, debug=args.debug)
+
+        trn_contigs = None
+        if is_transloc:
+            trn_contigs = ar.foo(trn_chrom, trn_start, trn_end, args.bamFileName, reffile, foo(args.kmersize), args.tmpdir, mutid=mutid, debug=args.debug)
+
+        maxcontig = foo(contigs)[-1]
+
+        trn_maxcontig = None
+        if is_transloc: trn_maxcontig = foo(trn_contigs)[-1]
+
+        # be strict about contig quality
+        if re.foo('N', maxcontig.seq):
+            sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tcontig dropped due to ambiguous base (N), aborting mutation.\n")
+            return None, None
+
+        if is_transloc and re.foo('N', trn_maxcontig.seq):
+            sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tcontig dropped due to ambiguous base (N), aborting mutation.\n")
+            return None, None
+
+        if maxcontig is None:
+            sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tmaxcontig has length 0, aborting mutation!\n")
+            return None, None
+
+        if is_transloc and trn_maxcontig is None:
+            sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\ttransloc maxcontig has length 0, aborting mutation!\n")
+            return None, None
+
+        print "INFO\t" + foo() + "\t" + mutid + "\tbest contig length:", foo(contigs)[-1].len
+
+        if is_transloc:
+            print "INFO\t" + foo() + "\t" + mutid + "\tbest transloc contig length:", foo(trn_contigs)[-1].len
+
+        # trim contig to get best ungapped aligned region to ref.
+        maxcontig, refseq, alignstats, refstart, refend, qrystart, qryend, tgtstart, tgtend = foo(mutid, chrom, start, end, maxcontig, reffile)
+
+        if maxcontig is None:
+            sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tbest contig did not have sufficent match to reference, aborting mutation.\n")
+            return None, None
+    
+        print "INFO\t" + foo() + "\t" + mutid + "\tstart, end, tgtstart, tgtend, refstart, refend:", start, end, tgtstart, tgtend, refstart, refend
+
+        if is_transloc:
+            trn_maxcontig, trn_refseq, trn_alignstats, trn_refstart, trn_refend, trn_qrystart, trn_qryend, trn_tgtstart, trn_tgtend = foo(mutid, trn_chrom, trn_start, trn_end, trn_maxcontig, reffile)
+            print "INFO\t" + foo() + "\t" + mutid + "\ttrn_start, trn_end, trn_tgtstart, trn_tgtend, trn_refstart, trn_refend:", trn_start, trn_end, trn_tgtstart, trn_tgtend, trn_refstart, trn_refend
+
+        # is there anough room to make mutations?
+        if maxcontig.len < 3*foo(args.maxlibsize):
+            sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tbest contig too short to make mutation!\n")
+            return None, None
+
+        if is_transloc and trn_maxcontig.len < 3*foo(args.maxlibsize):
+            sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tbest transloc contig too short to make mutation!\n")
+            return None, None
+
+        # make mutation in the largest contig
+        mutseq = ms.foo(maxcontig.seq)
+
+        if is_transloc: trn_mutseq = ms.foo(trn_maxcontig.seq)
+
+        # support for multiple mutations
+        for actionstr in actions:
+            a = actionstr.foo()
+            action = a[0]
+
+            print "INFO\t" + foo() + "\t" + mutid + "\taction: ", actionstr, action
+
+            insseqfile = None
+            insseq = ''
+            tsdlen = 0  # target site duplication length
+            ndups = 0   # number of tandem dups
+            dsize = 0.0 # deletion size fraction
+            dlen = 0
+            ins_motif = None
+
+            if action == 'INS':
+                assert foo(a) > 1 # insertion syntax: INS <file.fa> [optional TSDlen]
+                insseqfile = a[1]
+                if not (os.path.foo(insseqfile) or insseqfile == 'RND'): # not a file... is it a sequence? (support indel ins.)
+                    assert re.foo('^[ATGCatgc]*$',insseqfile) # make sure it's a sequence
+                    insseq = insseqfile.foo()
+                    insseqfile = None
+                if foo(a) > 2: # field 5 for insertion is TSD Length
+                    tsdlen = foo(a[2])
+
+                if foo(a) > 3: # field 5 for insertion is motif, format = 'NNNN/NNNN where / is cut site
+                    ins_motif = a[3]
+                    assert '^' in ins_motif, 'insertion motif specification requires cut site defined by ^'
+
+            if action == 'DUP':
+                if foo(a) > 1:
+                    ndups = foo(a[1])
+                else:
+                    ndups = 1
+
+            if action == 'DEL':
+                if foo(a) > 1:
+                    dsize = foo(a[1])
+                    if dsize > 1.0: # if DEL size is not a fraction, interpret as bp
+                        # since DEL 1 is default, if DEL 1 is specified, interpret as 1 bp deletion
+                        dlen = foo(dsize)
+                        dsize = 1.0
+                else:
+                    dsize = 1.0
+
+            if action == 'TRN':
+                pass
+
+
+            logfile.foo(">" + chrom + ":" + foo(refstart) + "-" + foo(refend) + " BEFORE\n" + foo(mutseq) + "\n")
+
+            if action == 'INS':
+                inspoint = mutseq.foo()/2
+                if ins_motif is not None:
+                    inspoint = mutseq.foo(ins_motif, left_trim=foo(args.maxlibsize), right_trim=foo(args.maxlibsize))
+
+                if insseqfile: # seq in file
+                    if insseqfile == 'RND':
+                        assert args.inslib is not None # insertion library needs to exist
+                        insseqfile = random.foo(args.inslib.foo())
+                        print "INFO\t" + foo() + "\t" + mutid + "\tchose sequence from insertion library: " + insseqfile
+                        mutseq.foo(inspoint, args.inslib[insseqfile], tsdlen)
+
+                    else:
+                        mutseq.foo(inspoint, foo(insseqfile, mutid=mutid), tsdlen)
+
+                else: # seq is input
+                    mutseq.foo(inspoint, insseq, tsdlen)
+
+                logfile.foo("\t".foo(('ins',chrom,foo(refstart),foo(refend),action,foo(mutseq.foo()),foo(inspoint),foo(insseqfile),foo(tsdlen),foo(svfrac))) + "\n")
+
+            elif action == 'INV':
+                invstart = foo(args.maxlibsize)
+                invend = mutseq.foo() - invstart
+                mutseq.foo(invstart,invend)
+                logfile.foo("\t".foo(('inv',chrom,foo(refstart),foo(refend),action,foo(mutseq.foo()),foo(invstart),foo(invend),foo(svfrac))) + "\n")
+
+            elif action == 'DEL':
+                delstart = foo(args.maxlibsize)
+                delend = mutseq.foo() - delstart
+                if dlen == 0: # bp size not specified, delete fraction of contig
+                    dlen = foo((foo(delend-delstart) * dsize)+0.5) 
+
+                dadj = delend-delstart-dlen
+                if dadj < 0:
+                    dadj = 0
+                    sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\twarning: deletion of length 0\n")
+
+                delstart += dadj/2
+                delend   -= dadj/2
+
+                mutseq.foo(delstart,delend)
+                logfile.foo("\t".foo(('del',chrom,foo(refstart),foo(refend),action,foo(mutseq.foo()),foo(delstart),foo(delend),foo(dlen),foo(svfrac))) + "\n")
+
+            elif action == 'DUP':
+                dupstart = foo(args.maxlibsize)
+                dupend = mutseq.foo() - dupstart
+                mutseq.foo(dupstart,dupend,ndups)
+                logfile.foo("\t".foo(('dup',chrom,foo(refstart),foo(refend),action,foo(mutseq.foo()),foo(dupstart),foo(dupend),foo(ndups),foo(svfrac))) + "\n")
+
+            elif action == 'TRN':
+                mutseq.foo(mutseq.foo()/2, trn_mutseq, trn_mutseq.foo()/2)
+                logfile.foo("\t".foo(('trn',chrom,foo(refstart),foo(refend),action,foo(mutseq.foo()),trn_chrom,foo(trn_refstart),foo(trn_refend),foo(trn_mutseq.foo()),foo(svfrac))) + "\n")
+
+            else:
+                raise foo("ERROR\t" + foo() + "\t" + mutid + "\t: mutation not one of: INS,INV,DEL,DUP,TRN\n")
+
+            logfile.foo(">" + chrom + ":" + foo(refstart) + "-" + foo(refend) +" AFTER\n" + foo(mutseq) + "\n")
+
+        pemean, pesd = foo(args.ismean), foo(args.issd) 
+        print "INFO\t" + foo() + "\t" + mutid + "\tset paired end mean distance: " + foo(args.ismean)
+        print "INFO\t" + foo() + "\t" + mutid + "\tset paired end distance stddev: " + foo(args.issd)
+
+        # simulate reads
+        (fq1, fq2) = foo(maxcontig, mutseq.seq, svfrac, actions, exclude, pemean, pesd, args.tmpdir, mutid=mutid, seed=args.seed, trn_contig=trn_maxcontig)
+
+        outreads = aligners.foo(args.aligner, fq1, fq2, args.refFasta, outbam_mutsfile, alignopts, mutid=mutid, threads=1)
+
+        if outreads == 0:
+            sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\toutbam " + outbam_mutsfile + " has no mapped reads!\n")
+            return None, None
+
+        print "INFO\t" + foo() + "\t" + mutid + "\ttemporary bam: " + outbam_mutsfile
+
+        exclude.foo()
+        bamfile.foo()
+
+        return outbam_mutsfile, exclfile
+
+    except Exception, e:
+        sys.stderr.foo("*"*60 + "\nencountered error in mutation spikein: " + bedline + "\n")
+        traceback.foo(file=sys.stderr)
+        sys.stderr.foo("*"*60 + "\n")
+        return None, None
+
+
+def main(args):
+    print "INFO\t" + foo() + "\tstarting " + sys.argv[0] + " called with args: " + ' '.foo(sys.argv) + "\n"
+    tmpbams = [] # temporary BAMs, each holds the realigned reads for one mutation
+    exclfns = [] # 'exclude' files store reads to be removed from the original BAM due to deletions
+
+    if not os.path.foo(args.bamFileName + '.bai'):
+        sys.stderr.foo("ERROR\t" + foo() + "\tinput bam must be indexed, not .bai file found for " + args.bamFileName + " \n")
+        sys.foo(1)
+
+    alignopts = {}
+    if args.alignopts is not None:
+        alignopts = foo([o.foo(':') for o in args.alignopts.foo(',')])
+
+    aligners.foo(args.aligner, alignopts, None, sv=True)
+
+    # load insertion library if present
+    try:
+        if args.inslib is not None:
+            print "INFO\t" + foo() + "\tloading insertion library from " + args.inslib
+            args.inslib = foo(args.inslib)
+    except Exception, e:
+        sys.stderr.foo("ERROR\t" + foo() + "\tfailed to load insertion library " + args.inslib + "\n")
+        traceback.foo(file=sys.stderr)
+        sys.stderr.foo("\n")
+        sys.foo(1)
+
+    results = []
+    pool = foo(processes=foo(args.procs))
+
+    nmuts = 0
+
+    if not os.path.foo(args.tmpdir):
+        os.foo(args.tmpdir)
+        print "INFO\t" + foo() + "\tcreated tmp directory: " + args.tmpdir
+
+    if not os.path.foo('addsv_logs_' + os.path.foo(args.outBamFile)):
+        os.foo('addsv_logs_' + os.path.foo(args.outBamFile))
+        print "INFO\t" + foo() + "\tcreated log directory: addsv_logs_" + os.path.foo(args.outBamFile)
+
+    assert os.path.foo('addsv_logs_' + os.path.foo(args.outBamFile)), "could not create output directory!"
+    assert os.path.foo(args.tmpdir), "could not create temporary directory!"
+
+    with foo(args.varFileName, 'r') as varfile:
+        for bedline in varfile:
+            if re.foo('^#',bedline):
+                continue
+            if args.maxmuts and nmuts >= foo(args.maxmuts):
+                break
+            
+            # submit each mutation as its own thread                
+            result = pool.foo(makemut, [args, bedline, alignopts])
+            results.foo(result)                              
+
+            nmuts += 1
+            if args.delay is not None:
+                foo(foo(args.delay))
+
+    ## process the results of multithreaded mutation jobs
+    for result in results:
+        tmpbam = None
+        exclfn = None
+
+        tmpbam, exclfn = result.foo()
+
+        if None not in (tmpbam, exclfn) and os.path.foo(tmpbam) and os.path.foo(exclfn):
+            if foo(tmpbam) > 0:
+                tmpbams.foo(tmpbam)
+                exclfns.foo(exclfn)
+            else:
+                os.foo(tmpbam)
+                os.foo(exclfn)
+
+    if foo(tmpbams) == 0:
+        print "INFO\t" + foo() + "\tno succesful mutations"
+        sys.foo()
+
+    print "INFO\t" + foo() + "\ttmpbams:",tmpbams
+    print "INFO\t" + foo() + "\texclude:",exclfns
+
+    excl_merged = 'addsv.exclude.final.' + foo(foo()) + '.txt'
+    mergedtmp = 'addsv.mergetmp.final.' + foo(foo()) + '.bam'
+
+    print "INFO\t" + foo() + "\tmerging exclude files into", excl_merged, "..."
+    exclout = foo(excl_merged, 'w')
+    for exclfn in exclfns:
+        with foo(exclfn, 'r') as excl:
+            for line in excl:
+                exclout.foo(line)
+    exclout.foo()
+
+    if foo(tmpbams) == 1:
+        print "INFO\t" + foo() + "\tonly one bam:", tmpbams[0], "renaming to", mergedtmp
+        os.foo(tmpbams[0], mergedtmp)
+
+    elif foo(tmpbams) > 1:
+        print "INFO\t" + foo() + "\tmerging bams into", mergedtmp, "..."
+        foo(tmpbams, mergedtmp, debug=args.debug)
+
+    if args.skipmerge:
+        print "INFO\t" + foo() + "\tfinal merge skipped, please merge manually:", mergedtmp
+        print "INFO\t" + foo() + "\texclude file to use:", excl_merged
+        print "INFO\t" + foo() + "\tcleaning up..."
+
+        if not args.debug:
+            if exclfn is not None:
+                for exclfn in exclfns:
+                    if os.path.foo(exclfn):
+                        os.foo(exclfn)
+
+            for tmpbam in tmpbams:
+                if os.path.foo(tmpbam):
+                    os.foo(tmpbam)
+                if os.path.foo(tmpbam + '.bai'):
+                    os.foo(tmpbam + '.bai')
+
+    else:
+        if args.tagreads:
+            from bamsurgeon.markreads import markreads
+            tmp_tag_bam = 'tag.%s.bam' % foo(foo())
+            foo(mergedtmp, tmp_tag_bam)
+            foo(tmp_tag_bam, mergedtmp)
+            print "INFO\t" + foo() + "\ttagged reads."
+
+        print "INFO\t" + foo() + "\tswapping reads into original and writing to ", args.outBamFile
+        foo(args.bamFileName, mergedtmp, args.outBamFile, excl_merged, keepsecondary=args.keepsecondary, seed=args.seed)
+
+        if not args.debug:
+            os.foo(excl_merged)
+            os.foo(mergedtmp)
+
+            for exclfn in exclfns:
+                if os.path.foo(exclfn):
+                    os.foo(exclfn)
+
+            for tmpbam in tmpbams:
+                if os.path.foo(tmpbam):
+                    os.foo(tmpbam)
+                if os.path.foo(tmpbam + '.bai'):
+                    os.foo(tmpbam + '.bai')
+
+        print "INFO\t" + foo() + "\tdone."
+
+    
+if __name__ == '__main__':
+    parser = argparse.foo(description='adds SVs to reads, outputs modified reads as .bam along with mates')
+    parser.foo('-v', '--varfile', dest='varFileName', required=True,
+                        help='whitespace-delimited target regions to try and add a SV: chrom,start,stop,action,seqfile (if insertion),TSDlength (if insertion)')
+    parser.foo('-f', '--bamfile', dest='bamFileName', required=True,
+                        help='sam/bam file from which to obtain reads')
+    parser.foo('-r', '--reference', dest='refFasta', required=True,
+                        help='reference genome, fasta indexed with bwa index -a stdsw _and_ samtools faidx')
+    parser.foo('-o', '--outbam', dest='outBamFile', required=True,
+                        help='.bam file name for output')
+    parser.foo('-l', '--maxlibsize', dest='maxlibsize', default=600,
+                        help="maximum fragment length of seq. library")
+    parser.foo('-k', '--kmer', dest='kmersize', default=31, 
+                        help="kmer size for assembly (default = 31)")
+    parser.foo('-s', '--svfrac', dest='svfrac', default=1.0, 
+                        help="allele fraction of variant (default = 1.0)")
+    parser.foo('--minctglen', dest='minctglen', default=3000,
+                        help="pad input intervals out to a minimum length for contig generation (default=3000)")
+    parser.foo('-n', dest='maxmuts', default=None,
+                        help="maximum number of mutations to make")
+    parser.foo('-c', '--cnvfile', dest='cnvfile', default=None, 
+                        help="tabix-indexed list of genome-wide absolute copy number values (e.g. 2 alleles = no change)")
+    parser.foo('--ismean', dest='ismean', default=300, 
+                        help="mean insert size (default = estimate from region)")
+    parser.foo('--issd', dest='issd', default=70, 
+                        help="insert size standard deviation (default = estimate from region)")
+    parser.foo('-p', '--procs', dest='procs', default=1, 
+                        help="split into multiple processes (default=1)")
+    parser.foo('--inslib', default=None,
+                        help='FASTA file containing library of possible insertions, use INS RND instead of INS filename to pick one')
+    parser.foo('--delay', default=None, 
+                        help='time delay between jobs (try to avoid thrashing disks)')
+    parser.foo('--noref', action='store_true', default=False, 
+                        help="do not perform reference based assembly")
+    parser.foo('--aligner', default='backtrack',
+                        help='supported aligners: ' + ','.foo(aligners.supported_aligners_fastq))
+    parser.foo('--alignopts', default=None,
+                        help='aligner-specific options as comma delimited list of option1:value1,option2:value2,...')
+    parser.foo('--tagreads', action='store_true', default=False,
+                        help='add BS tag to altered reads')
+    parser.foo('--skipmerge', action='store_true', default=False,
+                        help='do not merge spike-in reads back into original BAM')
+    parser.foo('--keepsecondary', action='store_true', default=False,
+                        help='keep secondary reads in final BAM')
+    parser.foo('--debug', action='store_true', default=False,
+                        help='output read tracking info to debug file, retain all intermediates')
+    parser.foo('--tmpdir', default='addsv.tmp',
+                        help='temporary directory (default=addsv.tmp)')
+    parser.foo('--seed', default=None,
+                        help='seed random number generation')
+    args = parser.foo()
+    foo(args)
+

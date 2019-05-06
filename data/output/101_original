@@ -1,220 +1,166 @@
-#!/usr/bin/env python
-#
-# Copyright 2007 Google Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-"""Tests for google.apphosting.tools.devappserver2.devappserver2."""
+"""
+This module contains helper functions for controlling caching. It does so by
+managing the "Vary" header of responses. It includes functions to patch the
+header of response objects directly and decorators that change functions to do
+that header-patching themselves.
 
+For information on the Vary header, see:
 
-import argparse
-import getpass
-import itertools
-import os
-import os.path
-import sys
-import tempfile
-import unittest
+    http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.44
 
-import google
-import mox
+Essentially, the "Vary" HTTP header defines which headers a cache should take
+into account when building its cache key. Requests with the same path but
+different header content for headers named in "Vary" need to get different
+cache keys to prevent delivery of wrong content.
 
-from google.appengine.tools.devappserver2 import devappserver2
+A example: i18n middleware would need to distinguish caches by the
+"Accept-language" header.
+"""
 
+import datetime, md5, re
+from django.conf import settings
+from django.core.cache import cache
 
-class WinError(Exception):
-  pass
+cc_delim_re = re.compile(r'\s*,\s*')
 
+def patch_cache_control(response, **kwargs):
+    """
+    This function patches the Cache-Control header by adding all
+    keyword arguments to it. The transformation is as follows:
 
-class GenerateStoragePathsTest(unittest.TestCase):
-  """Tests for devappserver._generate_storage_paths."""
+    * All keyword parameter names are turned to lowercase, and underscores
+      are converted to hyphens.
+    * If the value of a parameter is True (exactly True, not just a
+      true value), only the parameter name is added to the header.
+    * All other parameters are added with their value, after applying
+      str() to it.
+    """
+    def dictitem(s):
+        t = s.split('=',1)
+        if len(t) > 1:
+            return (t[0].lower().replace('-', '_'), t[1])
+        else:
+            return (t[0].lower().replace('-', '_'), True)
 
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.mox.StubOutWithMock(getpass, 'getuser')
-    self.mox.StubOutWithMock(tempfile, 'gettempdir')
+    def dictvalue(t):
+        if t[1] == True:
+            return t[0]
+        else:
+            return t[0] + '=' + str(t[1])
 
-  def tearDown(self):
-    self.mox.UnsetStubs()
-
-  @unittest.skipUnless(sys.platform.startswith('win'), 'Windows only')
-  def test_windows(self):
-    tempfile.gettempdir().AndReturn('/tmp')
-
-    self.mox.ReplayAll()
-    self.assertEqual(
-        [os.path.join('/tmp', 'appengine.myapp'),
-         os.path.join('/tmp', 'appengine.myapp.1'),
-         os.path.join('/tmp', 'appengine.myapp.2')],
-        list(itertools.islice(devappserver2._generate_storage_paths('myapp'),
-                              3)))
-    self.mox.VerifyAll()
-
-  @unittest.skipIf(sys.platform.startswith('win'), 'not on Windows')
-  def test_working_getuser(self):
-    getpass.getuser().AndReturn('johndoe')
-    tempfile.gettempdir().AndReturn('/tmp')
-
-    self.mox.ReplayAll()
-    self.assertEqual(
-        [os.path.join('/tmp', 'appengine.myapp.johndoe'),
-         os.path.join('/tmp', 'appengine.myapp.johndoe.1'),
-         os.path.join('/tmp', 'appengine.myapp.johndoe.2')],
-        list(itertools.islice(devappserver2._generate_storage_paths('myapp'),
-                              3)))
-    self.mox.VerifyAll()
-
-  @unittest.skipIf(sys.platform.startswith('win'), 'not on Windows')
-  def test_broken_getuser(self):
-    getpass.getuser().AndRaise(Exception())
-    tempfile.gettempdir().AndReturn('/tmp')
-
-    self.mox.ReplayAll()
-    self.assertEqual(
-        [os.path.join('/tmp', 'appengine.myapp'),
-         os.path.join('/tmp', 'appengine.myapp.1'),
-         os.path.join('/tmp', 'appengine.myapp.2')],
-        list(itertools.islice(devappserver2._generate_storage_paths('myapp'),
-                              3)))
-    self.mox.VerifyAll()
-
-
-class GetStoragePathTest(unittest.TestCase):
-  """Tests for devappserver._get_storage_path."""
-
-  def setUp(self):
-    self.mox = mox.Mox()
-    self.mox.StubOutWithMock(devappserver2, '_generate_storage_paths')
-
-  def tearDown(self):
-    self.mox.UnsetStubs()
-
-  def test_no_path_given_directory_does_not_exist(self):
-    path = tempfile.mkdtemp()
-    os.rmdir(path)
-    devappserver2._generate_storage_paths('example.com_myapp').AndReturn([path])
-
-    self.mox.ReplayAll()
-    self.assertEqual(
-        path,
-        devappserver2._get_storage_path(None, 'example.com:myapp'))
-    self.mox.VerifyAll()
-    self.assertTrue(os.path.isdir(path))
-
-  def test_no_path_given_directory_exists(self):
-    path1 = tempfile.mkdtemp()
-    os.chmod(path1, 0777)
-    path2 = tempfile.mkdtemp()  # Made with mode 0700.
-
-    devappserver2._generate_storage_paths('example.com_myapp').AndReturn(
-        [path1, path2])
-
-    self.mox.ReplayAll()
-    if sys.platform == 'win32':
-      expected_path = path1
+    if response.has_header('Cache-Control'):
+        cc = cc_delim_re.split(response['Cache-Control'])
+        cc = dict([dictitem(el) for el in cc])
     else:
-      expected_path = path2
-    self.assertEqual(
-        expected_path,
-        devappserver2._get_storage_path(None, 'example.com:myapp'))
-    self.mox.VerifyAll()
+        cc = {}
+    for (k,v) in kwargs.items():
+        cc[k.replace('_', '-')] = v
+    cc = ', '.join([dictvalue(el) for el in cc.items()])
+    response['Cache-Control'] = cc
 
-  def test_path_given_does_not_exist(self):
-    path = tempfile.mkdtemp()
-    os.rmdir(path)
+vary_delim_re = re.compile(r',\s*')
 
-    self.assertEqual(
-        path,
-        devappserver2._get_storage_path(path, 'example.com:myapp'))
-    self.assertTrue(os.path.isdir(path))
+def patch_response_headers(response, cache_timeout=None):
+    """
+    Adds some useful headers to the given HttpResponse object:
+        ETag, Last-Modified, Expires and Cache-Control
 
-  def test_path_given_not_directory(self):
-    _, path = tempfile.mkstemp()
+    Each header is only added if it isn't already set.
 
-    self.assertRaises(
-        IOError,
-        devappserver2._get_storage_path, path, 'example.com:myapp')
+    cache_timeout is in seconds. The CACHE_MIDDLEWARE_SECONDS setting is used
+    by default.
+    """
+    if cache_timeout is None:
+        cache_timeout = settings.CACHE_MIDDLEWARE_SECONDS
+    now = datetime.datetime.utcnow()
+    if not response.has_header('ETag'):
+        response['ETag'] = md5.new(response.content).hexdigest()
+    if not response.has_header('Last-Modified'):
+        response['Last-Modified'] = now.strftime('%a, %d %b %Y %H:%M:%S GMT')
+    if not response.has_header('Expires'):
+        expires = now + datetime.timedelta(0, cache_timeout)
+        response['Expires'] = expires.strftime('%a, %d %b %Y %H:%M:%S GMT')
+    if cache_timeout < 0:
+        cache_timeout = 0 # Can't have max-age negative
+    patch_cache_control(response, max_age=cache_timeout)
 
-  def test_path_given_exists(self):
-    path = tempfile.mkdtemp()
+def add_never_cache_headers(response):
+    """
+    Add headers to a response to indicate that 
+    a page should never be cached.
+    """
+    patch_response_headers(response, cache_timeout=-1)
 
-    self.assertEqual(
-        path,
-        devappserver2._get_storage_path(path, 'example.com:myapp'))
+def patch_vary_headers(response, newheaders):
+    """
+    Adds (or updates) the "Vary" header in the given HttpResponse object.
+    newheaders is a list of header names that should be in "Vary". Existing
+    headers in "Vary" aren't removed.
+    """
+    # Note that we need to keep the original order intact, because cache
+    # implementations may rely on the order of the Vary contents in, say,
+    # computing an MD5 hash.
+    vary = []
+    if response.has_header('Vary'):
+        vary = vary_delim_re.split(response['Vary'])
+    oldheaders = dict([(el.lower(), 1) for el in vary])
+    for newheader in newheaders:
+        if not newheader.lower() in oldheaders:
+            vary.append(newheader)
+    response['Vary'] = ', '.join(vary)
 
+def _generate_cache_key(request, headerlist, key_prefix):
+    "Returns a cache key from the headers given in the header list."
+    ctx = md5.new()
+    for header in headerlist:
+        value = request.META.get(header, None)
+        if value is not None:
+            ctx.update(value)
+    return 'views.decorators.cache.cache_page.%s.%s.%s' % (key_prefix, request.path, ctx.hexdigest())
 
-class PortParserTest(unittest.TestCase):
+def get_cache_key(request, key_prefix=None):
+    """
+    Returns a cache key based on the request path. It can be used in the
+    request phase because it pulls the list of headers to take into account
+    from the global path registry and uses those to build a cache key to check
+    against.
 
-  def test_valid_port(self):
-    self.assertEqual(8080, devappserver2.PortParser()('8080'))
+    If there is no headerlist stored, the page needs to be rebuilt, so this
+    function returns None.
+    """
+    if key_prefix is None:
+        key_prefix = settings.CACHE_MIDDLEWARE_KEY_PREFIX
+    cache_key = 'views.decorators.cache.cache_header.%s.%s' % (key_prefix, request.path)
+    headerlist = cache.get(cache_key, None)
+    if headerlist is not None:
+        return _generate_cache_key(request, headerlist, key_prefix)
+    else:
+        return None
 
-  def test_port_zero_allowed(self):
-    self.assertEqual(0, devappserver2.PortParser()('0'))
+def learn_cache_key(request, response, cache_timeout=None, key_prefix=None):
+    """
+    Learns what headers to take into account for some request path from the
+    response object. It stores those headers in a global path registry so that
+    later access to that path will know what headers to take into account
+    without building the response object itself. The headers are named in the
+    Vary header of the response, but we want to prevent response generation.
 
-  def test_port_zero_not_allowed(self):
-    self.assertRaises(argparse.ArgumentTypeError,
-                      devappserver2.PortParser(allow_port_zero=False), '0')
-
-  def test_negative_port(self):
-    self.assertRaises(argparse.ArgumentTypeError, devappserver2.PortParser(),
-                      '-1')
-
-  def test_port_too_high(self):
-    self.assertRaises(argparse.ArgumentTypeError, devappserver2.PortParser(),
-                      '65536')
-
-  def test_port_max_value(self):
-    self.assertEqual(65535, devappserver2.PortParser()('65535'))
-
-  def test_not_an_int(self):
-    self.assertRaises(argparse.ArgumentTypeError, devappserver2.PortParser(),
-                      'a port')
-
-
-class ParseMaxServerInstancesTest(unittest.TestCase):
-
-  def test_single_valid_arg(self):
-    self.assertEqual(1, devappserver2.parse_max_server_instances('1'))
-
-  def test_single_zero_arg(self):
-    self.assertRaises(argparse.ArgumentTypeError,
-                      devappserver2.parse_max_server_instances, '0')
-
-  def test_single_nonint_arg(self):
-    self.assertRaises(argparse.ArgumentTypeError,
-                      devappserver2.parse_max_server_instances, 'cat')
-
-  def test_multiple_valid_args(self):
-    self.assertEqual(
-        {'default': 10,
-         'foo': 5},
-        devappserver2.parse_max_server_instances('default:10,foo:5'))
-
-  def test_multiple_non_colon(self):
-    self.assertRaises(
-        argparse.ArgumentTypeError,
-        devappserver2.parse_max_server_instances, 'default:10,foo')
-
-  def test_multiple_non_int(self):
-    self.assertRaises(
-        argparse.ArgumentTypeError,
-        devappserver2.parse_max_server_instances, 'default:cat')
-
-  def test_duplicate_servers(self):
-    self.assertRaises(
-        argparse.ArgumentTypeError,
-        devappserver2.parse_max_server_instances, 'default:5,default:10')
-
-
-if __name__ == '__main__':
-  unittest.main()
+    The list of headers to use for cache key generation is stored in the same
+    cache as the pages themselves. If the cache ages some data out of the
+    cache, this just means that we have to build the response once to get at
+    the Vary header and so at the list of headers to use for the cache key.
+    """
+    if key_prefix is None:
+        key_prefix = settings.CACHE_MIDDLEWARE_KEY_PREFIX
+    if cache_timeout is None:
+        cache_timeout = settings.CACHE_MIDDLEWARE_SECONDS
+    cache_key = 'views.decorators.cache.cache_header.%s.%s' % (key_prefix, request.path)
+    if response.has_header('Vary'):
+        headerlist = ['HTTP_'+header.upper().replace('-', '_') for header in vary_delim_re.split(response['Vary'])]
+        cache.set(cache_key, headerlist, cache_timeout)
+        return _generate_cache_key(request, headerlist, key_prefix)
+    else:
+        # if there is no Vary header, we still need a cache key
+        # for the request.path
+        cache.set(cache_key, [], cache_timeout)
+        return _generate_cache_key(request, [], key_prefix)

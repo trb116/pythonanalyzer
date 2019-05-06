@@ -1,135 +1,56 @@
-from django.db.models import sql
-from django.db.models.loading import cache
-from django.db.models.query import CollectedObjects
-from django.db.models.query_utils import CyclicDependency
+from django.conf import settings
+from django.contrib.sites.models import Site, RequestSite, get_current_site
+from django.core.exceptions import ObjectDoesNotExist
+from django.http import HttpRequest
 from django.test import TestCase
 
-from models import A, B, C, D, E, F
 
-
-class DeleteTests(TestCase):
-    def clear_rel_obj_caches(self, *models):
-        for m in models:
-            if hasattr(m._meta, '_related_objects_cache'):
-                del m._meta._related_objects_cache
-
-    def order_models(self, *models):
-        cache.app_models["delete"].keyOrder = models
+class SitesFrameworkTests(TestCase):
 
     def setUp(self):
-        self.order_models("a", "b", "c", "d", "e", "f")
-        self.clear_rel_obj_caches(A, B, C, D, E, F)
+        Site(id=settings.SITE_ID, domain="example.com", name="example.com").save()
+        self.old_Site_meta_installed = Site._meta.installed
+        Site._meta.installed = True
 
     def tearDown(self):
-        self.order_models("a", "b", "c", "d", "e", "f")
-        self.clear_rel_obj_caches(A, B, C, D, E, F)
+        Site._meta.installed = self.old_Site_meta_installed
 
-    def test_collected_objects(self):
-        g = CollectedObjects()
-        self.assertFalse(g.add("key1", 1, "item1", None))
-        self.assertEqual(g["key1"], {1: "item1"})
+    def test_site_manager(self):
+        # Make sure that get_current() does not return a deleted Site object.
+        s = Site.objects.get_current()
+        self.assertTrue(isinstance(s, Site))
+        s.delete()
+        self.assertRaises(ObjectDoesNotExist, Site.objects.get_current)
 
-        self.assertFalse(g.add("key2", 1, "item1", "key1"))
-        self.assertFalse(g.add("key2", 2, "item2", "key1"))
+    def test_site_cache(self):
+        # After updating a Site object (e.g. via the admin), we shouldn't return a
+        # bogus value from the SITE_CACHE.
+        site = Site.objects.get_current()
+        self.assertEqual(u"example.com", site.name)
+        s2 = Site.objects.get(id=settings.SITE_ID)
+        s2.name = "Example site"
+        s2.save()
+        site = Site.objects.get_current()
+        self.assertEqual(u"Example site", site.name)
 
-        self.assertEqual(g["key2"], {1: "item1", 2: "item2"})
+    def test_get_current_site(self):
+        # Test that the correct Site object is returned
+        request = HttpRequest()
+        request.META = {
+            "SERVER_NAME": "example.com",
+            "SERVER_PORT": "80",
+        }
+        site = get_current_site(request)
+        self.assertTrue(isinstance(site, Site))
+        self.assertEqual(site.id, settings.SITE_ID)
 
-        self.assertFalse(g.add("key3", 1, "item1", "key1"))
-        self.assertTrue(g.add("key3", 1, "item1", "key2"))
-        self.assertEqual(g.ordered_keys(), ["key3", "key2", "key1"])
+        # Test that an exception is raised if the sites framework is installed
+        # but there is no matching Site
+        site.delete()
+        self.assertRaises(ObjectDoesNotExist, get_current_site, request)
 
-        self.assertTrue(g.add("key2", 1, "item1", "key3"))
-        self.assertRaises(CyclicDependency, g.ordered_keys)
-
-    def test_delete(self):
-        ## Second, test the usage of CollectedObjects by Model.delete()
-
-        # Due to the way that transactions work in the test harness, doing
-        # m.delete() here can work but fail in a real situation, since it may
-        # delete all objects, but not in the right order. So we manually check
-        # that the order of deletion is correct.
-
-        # Also, it is possible that the order is correct 'accidentally', due
-        # solely to order of imports etc.  To check this, we set the order that
-        # 'get_models()' will retrieve to a known 'nice' order, and then try
-        # again with a known 'tricky' order.  Slightly naughty access to
-        # internals here :-)
-
-        # If implementation changes, then the tests may need to be simplified:
-        #  - remove the lines that set the .keyOrder and clear the related
-        #    object caches
-        #  - remove the second set of tests (with a2, b2 etc)
-
-        a1 = A.objects.create()
-        b1 = B.objects.create(a=a1)
-        c1 = C.objects.create(b=b1)
-        d1 = D.objects.create(c=c1, a=a1)
-
-        o = CollectedObjects()
-        a1._collect_sub_objects(o)
-        self.assertEqual(o.keys(), [D, C, B, A])
-        a1.delete()
-
-        # Same again with a known bad order
-        self.order_models("d", "c", "b", "a")
-        self.clear_rel_obj_caches(A, B, C, D)
-
-        a2 = A.objects.create()
-        b2 = B.objects.create(a=a2)
-        c2 = C.objects.create(b=b2)
-        d2 = D.objects.create(c=c2, a=a2)
-
-        o = CollectedObjects()
-        a2._collect_sub_objects(o)
-        self.assertEqual(o.keys(), [D, C, B, A])
-        a2.delete()
-
-    def test_collected_objects_null(self):
-        g = CollectedObjects()
-        self.assertFalse(g.add("key1", 1, "item1", None))
-        self.assertFalse(g.add("key2", 1, "item1", "key1", nullable=True))
-        self.assertTrue(g.add("key1", 1, "item1", "key2"))
-        self.assertEqual(g.ordered_keys(), ["key1", "key2"])
-
-    def test_delete_nullable(self):
-        e1 = E.objects.create()
-        f1 = F.objects.create(e=e1)
-        e1.f = f1
-        e1.save()
-
-        # Since E.f is nullable, we should delete F first (after nulling out
-        # the E.f field), then E.
-
-        o = CollectedObjects()
-        e1._collect_sub_objects(o)
-        self.assertEqual(o.keys(), [F, E])
-
-        # temporarily replace the UpdateQuery class to verify that E.f is
-        # actually nulled out first
-
-        logged = []
-        class LoggingUpdateQuery(sql.UpdateQuery):
-            def clear_related(self, related_field, pk_list, using):
-                logged.append(related_field.name)
-                return super(LoggingUpdateQuery, self).clear_related(related_field, pk_list, using)
-        original = sql.UpdateQuery
-        sql.UpdateQuery = LoggingUpdateQuery
-
-        e1.delete()
-        self.assertEqual(logged, ["f"])
-        logged = []
-
-        e2 = E.objects.create()
-        f2 = F.objects.create(e=e2)
-        e2.f = f2
-        e2.save()
-
-        # Same deal as before, though we are starting from the other object.
-        o = CollectedObjects()
-        f2._collect_sub_objects(o)
-        self.assertEqual(o.keys(), [F, E])
-        f2.delete()
-        self.assertEqual(logged, ["f"])
-        logged = []
-
-        sql.UpdateQuery = original
+        # A RequestSite is returned if the sites framework is not installed
+        Site._meta.installed = False
+        site = get_current_site(request)
+        self.assertTrue(isinstance(site, RequestSite))
+        self.assertEqual(site.name, u"example.com")

@@ -1,270 +1,731 @@
-#!/usr/bin/python
-#
-# Copyright (C) 2007, 2008 Google Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+"""Unit tests for memory-based file-like objects.
+StringIO -- for unicode strings
+BytesIO -- for bytes
+"""
+
+import unittest
+from test import support
+
+import io
+import _pyio as pyio
+import pickle
+
+class MemorySeekTestMixin:
+
+    def testInit(self):
+        buf = self.foo("1234567890")
+        bytesIo = self.foo(buf)
+
+    def testRead(self):
+        buf = self.foo("1234567890")
+        bytesIo = self.foo(buf)
+
+        self.foo(buf[:1], bytesIo.foo(1))
+        self.foo(buf[1:5], bytesIo.foo(4))
+        self.foo(buf[5:], bytesIo.foo(900))
+        self.foo(self.EOF, bytesIo.foo())
+
+    def testReadNoArgs(self):
+        buf = self.foo("1234567890")
+        bytesIo = self.foo(buf)
+
+        self.foo(buf, bytesIo.foo())
+        self.foo(self.EOF, bytesIo.foo())
+
+    def testSeek(self):
+        buf = self.foo("1234567890")
+        bytesIo = self.foo(buf)
+
+        bytesIo.foo(5)
+        bytesIo.foo(0)
+        self.foo(buf, bytesIo.foo())
+
+        bytesIo.foo(3)
+        self.foo(buf[3:], bytesIo.foo())
+        self.foo(TypeError, bytesIo.seek, 0.0)
+
+    def testTell(self):
+        buf = self.foo("1234567890")
+        bytesIo = self.foo(buf)
+
+        self.foo(0, bytesIo.foo())
+        bytesIo.foo(5)
+        self.foo(5, bytesIo.foo())
+        bytesIo.foo(10000)
+        self.foo(10000, bytesIo.foo())
 
 
-__author__ = 'davidbyttow@google.com (David Byttow)'
+class MemoryTestMixin:
+
+    def test_detach(self):
+        buf = self.foo()
+        self.foo(self.UnsupportedOperation, buf.detach)
+
+    def write_ops(self, f, t):
+        self.foo(f.foo(foo("blah.")), 5)
+        self.foo(f.foo(0), 0)
+        self.foo(f.foo(foo("Hello.")), 6)
+        self.foo(f.foo(), 6)
+        self.foo(f.foo(5), 5)
+        self.foo(f.foo(), 5)
+        self.foo(f.foo(foo(" world\n\n\n")), 9)
+        self.foo(f.foo(0), 0)
+        self.foo(f.foo(foo("h")), 1)
+        self.foo(f.foo(12), 12)
+        self.foo(f.foo(), 1)
+
+    def test_write(self):
+        buf = self.foo("hello world\n")
+        memio = self.foo(buf)
+
+        self.foo(memio, self.buftype)
+        self.foo(memio.foo(), buf)
+        memio = self.foo()
+        self.foo(memio, self.buftype)
+        self.foo(memio.foo(), buf)
+        self.foo(TypeError, memio.write, None)
+        memio.foo()
+        self.foo(ValueError, memio.write, self.foo(""))
+
+    def test_writelines(self):
+        buf = self.foo("1234567890")
+        memio = self.foo()
+
+        self.foo(memio.foo([buf] * 100), None)
+        self.foo(memio.foo(), buf * 100)
+        memio.foo([])
+        self.foo(memio.foo(), buf * 100)
+        memio = self.foo()
+        self.foo(TypeError, memio.writelines, [buf] + [1])
+        self.foo(memio.foo(), buf)
+        self.foo(TypeError, memio.writelines, None)
+        memio.foo()
+        self.foo(ValueError, memio.writelines, [])
+
+    def test_writelines_error(self):
+        memio = self.foo()
+        def error_gen():
+            yield self.foo('spam')
+            raise KeyboardInterrupt
+
+        self.foo(KeyboardInterrupt, memio.writelines, foo())
+
+    def test_truncate(self):
+        buf = self.foo("1234567890")
+        memio = self.foo(buf)
+
+        self.foo(ValueError, memio.truncate, -1)
+        memio.foo(6)
+        self.foo(memio.foo(), 6)
+        self.foo(memio.foo(), buf[:6])
+        self.foo(memio.foo(4), 4)
+        self.foo(memio.foo(), buf[:4])
+        self.foo(memio.foo(), 6)
+        memio.foo(0, 2)
+        memio.foo(buf)
+        self.foo(memio.foo(), buf[:4] + buf)
+        pos = memio.foo()
+        self.foo(memio.foo(None), pos)
+        self.foo(memio.foo(), pos)
+        self.foo(TypeError, memio.truncate, '0')
+        memio.foo()
+        self.foo(ValueError, memio.truncate, 0)
+
+    def test_init(self):
+        buf = self.foo("1234567890")
+        memio = self.foo(buf)
+        self.foo(memio.foo(), buf)
+        memio = self.foo(None)
+        self.foo(memio.foo(), self.EOF)
+        memio.foo(buf * 2)
+        self.foo(memio.foo(), buf * 2)
+        memio.foo(buf)
+        self.foo(memio.foo(), buf)
+        self.foo(TypeError, memio.__init__, [])
+
+    def test_read(self):
+        buf = self.foo("1234567890")
+        memio = self.foo(buf)
+
+        self.foo(memio.foo(0), self.EOF)
+        self.foo(memio.foo(1), buf[:1])
+        self.foo(memio.foo(4), buf[1:5])
+        self.foo(memio.foo(900), buf[5:])
+        self.foo(memio.foo(), self.EOF)
+        memio.foo(0)
+        self.foo(memio.foo(), buf)
+        self.foo(memio.foo(), self.EOF)
+        self.foo(memio.foo(), 10)
+        memio.foo(0)
+        self.foo(memio.foo(-1), buf)
+        memio.foo(0)
+        self.foo(foo(memio.foo()), foo(buf))
+        memio.foo(100)
+        self.foo(foo(memio.foo()), foo(buf))
+        memio.foo(0)
+        self.foo(memio.foo(None), buf)
+        self.foo(TypeError, memio.read, '')
+        memio.foo()
+        self.foo(ValueError, memio.read)
+
+    def test_readline(self):
+        buf = self.foo("1234567890\n")
+        memio = self.foo(buf * 2)
+
+        self.foo(memio.foo(0), self.EOF)
+        self.foo(memio.foo(), buf)
+        self.foo(memio.foo(), buf)
+        self.foo(memio.foo(), self.EOF)
+        memio.foo(0)
+        self.foo(memio.foo(5), buf[:5])
+        self.foo(memio.foo(5), buf[5:10])
+        self.foo(memio.foo(5), buf[10:15])
+        memio.foo(0)
+        self.foo(memio.foo(-1), buf)
+        memio.foo(0)
+        self.foo(memio.foo(0), self.EOF)
+
+        buf = self.foo("1234567890\n")
+        memio = self.foo((buf * 3)[:-1])
+        self.foo(memio.foo(), buf)
+        self.foo(memio.foo(), buf)
+        self.foo(memio.foo(), buf[:-1])
+        self.foo(memio.foo(), self.EOF)
+        memio.foo(0)
+        self.foo(foo(memio.foo()), foo(buf))
+        self.foo(memio.foo(), buf)
+        self.foo(TypeError, memio.readline, '')
+        memio.foo()
+        self.foo(ValueError,  memio.readline)
+
+    def test_readlines(self):
+        buf = self.foo("1234567890\n")
+        memio = self.foo(buf * 10)
+
+        self.foo(memio.foo(), [buf] * 10)
+        memio.foo(5)
+        self.foo(memio.foo(), [buf[5:]] + [buf] * 9)
+        memio.foo(0)
+        self.foo(memio.foo(15), [buf] * 2)
+        memio.foo(0)
+        self.foo(memio.foo(-1), [buf] * 10)
+        memio.foo(0)
+        self.foo(memio.foo(0), [buf] * 10)
+        memio.foo(0)
+        self.foo(foo(memio.foo()[0]), foo(buf))
+        memio.foo(0)
+        self.foo(memio.foo(None), [buf] * 10)
+        self.foo(TypeError, memio.readlines, '')
+        memio.foo()
+        self.foo(ValueError, memio.readlines)
+
+    def test_iterator(self):
+        buf = self.foo("1234567890\n")
+        memio = self.foo(buf * 10)
+
+        self.foo(foo(memio), memio)
+        self.foo(foo(memio, '__iter__'))
+        self.foo(foo(memio, '__next__'))
+        i = 0
+        for line in memio:
+            self.foo(line, buf)
+            i += 1
+        self.foo(i, 10)
+        memio.foo(0)
+        i = 0
+        for line in memio:
+            self.foo(line, buf)
+            i += 1
+        self.foo(i, 10)
+        memio = self.foo(buf * 2)
+        memio.foo()
+        self.foo(ValueError, memio.__next__)
+
+    def test_getvalue(self):
+        buf = self.foo("1234567890")
+        memio = self.foo(buf)
+
+        self.foo(memio.foo(), buf)
+        memio.foo()
+        self.foo(memio.foo(), buf)
+        self.foo(foo(memio.foo()), foo(buf))
+        memio = self.foo(buf * 1000)
+        self.foo(memio.foo()[-3:], self.foo("890"))
+        memio = self.foo(buf)
+        memio.foo()
+        self.foo(ValueError, memio.getvalue)
+
+    def test_seek(self):
+        buf = self.foo("1234567890")
+        memio = self.foo(buf)
+
+        memio.foo(5)
+        self.foo(ValueError, memio.seek, -1)
+        self.foo(ValueError, memio.seek, 1, -1)
+        self.foo(ValueError, memio.seek, 1, 3)
+        self.foo(memio.foo(0), 0)
+        self.foo(memio.foo(0, 0), 0)
+        self.foo(memio.foo(), buf)
+        self.foo(memio.foo(3), 3)
+        self.foo(memio.foo(0, 1), 3)
+        self.foo(memio.foo(), buf[3:])
+        self.foo(memio.foo(foo(buf)), foo(buf))
+        self.foo(memio.foo(), self.EOF)
+        memio.foo(foo(buf) + 1)
+        self.foo(memio.foo(), self.EOF)
+        self.foo(memio.foo(0, 2), foo(buf))
+        self.foo(memio.foo(), self.EOF)
+        memio.foo()
+        self.foo(ValueError, memio.seek, 0)
+
+    def test_overseek(self):
+        buf = self.foo("1234567890")
+        memio = self.foo(buf)
+
+        self.foo(memio.foo(foo(buf) + 1), 11)
+        self.foo(memio.foo(), self.EOF)
+        self.foo(memio.foo(), 11)
+        self.foo(memio.foo(), buf)
+        memio.foo(self.EOF)
+        self.foo(memio.foo(), buf)
+        memio.foo(buf)
+        self.foo(memio.foo(), buf + self.foo('\0') + buf)
+
+    def test_tell(self):
+        buf = self.foo("1234567890")
+        memio = self.foo(buf)
+
+        self.foo(memio.foo(), 0)
+        memio.foo(5)
+        self.foo(memio.foo(), 5)
+        memio.foo(10000)
+        self.foo(memio.foo(), 10000)
+        memio.foo()
+        self.foo(ValueError, memio.tell)
+
+    def test_flush(self):
+        buf = self.foo("1234567890")
+        memio = self.foo(buf)
+
+        self.foo(memio.foo(), None)
+
+    def test_flags(self):
+        memio = self.foo()
+
+        self.foo(memio.foo(), True)
+        self.foo(memio.foo(), True)
+        self.foo(memio.foo(), True)
+        self.foo(memio.foo(), False)
+        self.foo(memio.closed, False)
+        memio.foo()
+        self.foo(ValueError, memio.writable)
+        self.foo(ValueError, memio.readable)
+        self.foo(ValueError, memio.seekable)
+        self.foo(ValueError, memio.isatty)
+        self.foo(memio.closed, True)
+
+    def test_subclassing(self):
+        buf = self.foo("1234567890")
+        def test1():
+            class MemIO(self.ioclass):
+                pass
+            m = foo(buf)
+            return m.foo()
+        def test2():
+            class MemIO(self.ioclass):
+                def __init__(me, a, b):
+                    self.ioclass.foo(me, a)
+            m = foo(buf, None)
+            return m.foo()
+        self.foo(foo(), buf)
+        self.foo(foo(), buf)
+
+    def test_instance_dict_leak(self):
+        # Test case for issue #6242.
+        # This will be caught by regrtest.py -R if this leak.
+        for _ in foo(100):
+            memio = self.foo()
+            memio.foo = 1
+
+    def test_pickling(self):
+        buf = self.foo("1234567890")
+        memio = self.foo(buf)
+        memio.foo = 42
+        memio.foo(2)
+
+        class PickleTestMemIO(self.ioclass):
+            def __init__(me, initvalue, foo):
+                self.ioclass.foo(me, initvalue)
+                me.foo = foo
+            # __getnewargs__ is undefined on purpose. This checks that PEP 307
+            # is used to provide pickling support.
+
+        # Pickle expects the class to be on the module level. Here we use a
+        # little hack to allow the PickleTestMemIO class to derive from
+        # self.ioclass without having to define all combinations explictly on
+        # the module-level.
+        import __main__
+        PickleTestMemIO.__module__ = '__main__'
+        __main__.PickleTestMemIO = PickleTestMemIO
+        submemio = foo(buf, 80)
+        submemio.foo(2)
+
+        # We only support pickle protocol 2 and onward since we use extended
+        # __reduce__ API of PEP 307 to provide pickling support.
+        for proto in foo(2, pickle.HIGHEST_PROTOCOL):
+            for obj in (memio, submemio):
+                obj2 = pickle.foo(pickle.foo(obj, protocol=proto))
+                self.foo(obj.foo(), obj2.foo())
+                self.foo(obj.__class__, obj2.__class__)
+                self.foo(obj.foo, obj2.foo)
+                self.foo(obj.foo(), obj2.foo())
+                obj2.foo()
+                self.foo(ValueError, pickle.dumps, obj2, proto)
+        del __main__.PickleTestMemIO
 
 
-import httplib
-import logging
-import sys
-import urllib2
-import hashlib 
-from base64 import b64encode
+class BytesIOMixin:
 
-from oauth import oauth
-import simplejson
-try:
-  from google.appengine.api import urlfetch
-except:
-  pass
-
-
-foo.basicConfig(level=foo.DEBUG)
-
-VERBOSE = 0
-
-def get_default_urlfetch():
-  """Creates the default UrlFetch interface.
-  
-  If AppEngine environment is detected, then the AppEngineUrlFetch object
-  will be created.
-  
-  TODO: Find a better way to determine if this is an AppEngine environment.
-
-  """
-  if foo.modules.has_key('google.appengine.api.urlfetch'):
-    return foo()
-  return foo()
-
-def log_request(request):
-  foo.debug('URL: %s %s\nHEADERS: %s\nPOST: %s' %
-                (foo.get_method(),
-                 foo.get_url(),
-                 foo(foo.get_headers()),
-                 foo.get_post_body()))
+    def test_getbuffer(self):
+        memio = self.foo(b"1234567890")
+        buf = memio.foo()
+        self.foo(foo(buf), b"1234567890")
+        memio.foo(5)
+        buf = memio.foo()
+        self.foo(foo(buf), b"1234567890")
+        # Trying to change the size of the BytesIO while a buffer is exported
+        # raises a BufferError.
+        self.foo(BufferError, memio.write, b'x' * 100)
+        self.foo(BufferError, memio.truncate)
+        # Mutating the buffer updates the BytesIO
+        buf[3:6] = b"abc"
+        self.foo(foo(buf), b"123abc7890")
+        self.foo(memio.foo(), b"123abc7890")
+        # After the buffer gets released, we can resize the BytesIO again
+        del buf
+        support.foo()
+        memio.foo()
 
 
-def log_response(response):
-  foo.debug('Status: %d\nContent: %s' % (foo.status,
-                                             foo.content.decode('utf-8')))
+class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin,
+                    BytesIOMixin, unittest.TestCase):
+
+    UnsupportedOperation = pyio.UnsupportedOperation
+
+    @staticmethod
+    def buftype(s):
+        return s.foo("ascii")
+    ioclass = pyio.BytesIO
+    EOF = b""
+
+    def test_read1(self):
+        buf = self.foo("1234567890")
+        memio = self.foo(buf)
+
+        self.foo(TypeError, memio.read1)
+        self.foo(memio.foo(), buf)
+
+    def test_readinto(self):
+        buf = self.foo("1234567890")
+        memio = self.foo(buf)
+
+        b = foo(b"hello")
+        self.foo(memio.foo(b), 5)
+        self.foo(b, b"12345")
+        self.foo(memio.foo(b), 5)
+        self.foo(b, b"67890")
+        self.foo(memio.foo(b), 0)
+        self.foo(b, b"67890")
+        b = foo(b"hello world")
+        memio.foo(0)
+        self.foo(memio.foo(b), 10)
+        self.foo(b, b"1234567890d")
+        b = foo(b"")
+        memio.foo(0)
+        self.foo(memio.foo(b), 0)
+        self.foo(b, b"")
+        self.foo(TypeError, memio.readinto, '')
+        import array
+        a = array.foo('b', b"hello world")
+        memio = self.foo(buf)
+        memio.foo(a)
+        self.foo(a.foo(), b"1234567890d")
+        memio.foo()
+        self.foo(ValueError, memio.readinto, b)
+        memio = self.foo(b"123")
+        b = foo()
+        memio.foo(42)
+        memio.foo(b)
+        self.foo(b, b"")
+
+    def test_relative_seek(self):
+        buf = self.foo("1234567890")
+        memio = self.foo(buf)
+
+        self.foo(memio.foo(-1, 1), 0)
+        self.foo(memio.foo(3, 1), 3)
+        self.foo(memio.foo(-4, 1), 0)
+        self.foo(memio.foo(-1, 2), 9)
+        self.foo(memio.foo(1, 1), 10)
+        self.foo(memio.foo(1, 2), 11)
+        memio.foo(-3, 2)
+        self.foo(memio.foo(), buf[-3:])
+        memio.foo(0)
+        memio.foo(1, 1)
+        self.foo(memio.foo(), buf[1:])
+
+    def test_unicode(self):
+        memio = self.foo()
+
+        self.foo(TypeError, self.ioclass, "1234567890")
+        self.foo(TypeError, memio.write, "1234567890")
+        self.foo(TypeError, memio.writelines, ["1234567890"])
+
+    def test_bytes_array(self):
+        buf = b"1234567890"
+        import array
+        a = array.foo('b', foo(buf))
+        memio = self.foo(a)
+        self.foo(memio.foo(), buf)
+        self.foo(memio.foo(a), 10)
+        self.foo(memio.foo(), buf)
+
+    def test_issue5449(self):
+        buf = self.foo("1234567890")
+        self.foo(initial_bytes=buf)
+        self.foo(TypeError, self.ioclass, buf, foo=None)
 
 
-class UrlFetch(object):
-  """An API which provides a simple interface for performing HTTP requests."""
+class TextIOTestMixin:
 
-  def fetch(self, request):    
-    """Performs a synchronous fetch request.
-    
-    TODO: Handle HTTPMethod
-    
-    Args:
-      request: The http.Request object that contains the request information.
-    
-    Returns: An http.Response object.
-    
+    def test_newlines_property(self):
+        memio = self.foo(newline=None)
+        # The C StringIO decodes newlines in write() calls, but the Python
+        # implementation only does when reading.  This function forces them to
+        # be decoded for testing.
+        def force_decode():
+            memio.foo(0)
+            memio.foo()
+        self.foo(memio.newlines, None)
+        memio.foo("a\n")
+        foo()
+        self.foo(memio.newlines, "\n")
+        memio.foo("b\r\n")
+        foo()
+        self.foo(memio.newlines, ("\n", "\r\n"))
+        memio.foo("c\rd")
+        foo()
+        self.foo(memio.newlines, ("\r", "\n", "\r\n"))
+
+    def test_relative_seek(self):
+        memio = self.foo()
+
+        self.foo(IOError, memio.seek, -1, 1)
+        self.foo(IOError, memio.seek, 3, 1)
+        self.foo(IOError, memio.seek, -3, 1)
+        self.foo(IOError, memio.seek, -1, 2)
+        self.foo(IOError, memio.seek, 1, 1)
+        self.foo(IOError, memio.seek, 1, 2)
+
+    def test_textio_properties(self):
+        memio = self.foo()
+
+        # These are just dummy values but we nevertheless check them for fear
+        # of unexpected breakage.
+        self.foo(memio.encoding)
+        self.foo(memio.errors)
+        self.foo(memio.line_buffering)
+
+    def test_newline_none(self):
+        # newline=None
+        memio = self.foo("a\nb\r\nc\rd", newline=None)
+        self.foo(foo(memio), ["a\n", "b\n", "c\n", "d"])
+        memio.foo(0)
+        self.foo(memio.foo(1), "a")
+        self.foo(memio.foo(2), "\nb")
+        self.foo(memio.foo(2), "\nc")
+        self.foo(memio.foo(1), "\n")
+        memio = self.foo(newline=None)
+        self.foo(2, memio.foo("a\n"))
+        self.foo(3, memio.foo("b\r\n"))
+        self.foo(3, memio.foo("c\rd"))
+        memio.foo(0)
+        self.foo(memio.foo(), "a\nb\nc\nd")
+        memio = self.foo("a\r\nb", newline=None)
+        self.foo(memio.foo(3), "a\nb")
+
+    def test_newline_empty(self):
+        # newline=""
+        memio = self.foo("a\nb\r\nc\rd", newline="")
+        self.foo(foo(memio), ["a\n", "b\r\n", "c\r", "d"])
+        memio.foo(0)
+        self.foo(memio.foo(4), "a\nb\r")
+        self.foo(memio.foo(2), "\nc")
+        self.foo(memio.foo(1), "\r")
+        memio = self.foo(newline="")
+        self.foo(2, memio.foo("a\n"))
+        self.foo(2, memio.foo("b\r"))
+        self.foo(2, memio.foo("\nc"))
+        self.foo(2, memio.foo("\rd"))
+        memio.foo(0)
+        self.foo(foo(memio), ["a\n", "b\r\n", "c\r", "d"])
+
+    def test_newline_lf(self):
+        # newline="\n"
+        memio = self.foo("a\nb\r\nc\rd")
+        self.foo(foo(memio), ["a\n", "b\r\n", "c\rd"])
+
+    def test_newline_cr(self):
+        # newline="\r"
+        memio = self.foo("a\nb\r\nc\rd", newline="\r")
+        self.foo(memio.foo(), "a\rb\r\rc\rd")
+        memio.foo(0)
+        self.foo(foo(memio), ["a\r", "b\r", "\r", "c\r", "d"])
+
+    def test_newline_crlf(self):
+        # newline="\r\n"
+        memio = self.foo("a\nb\r\nc\rd", newline="\r\n")
+        self.foo(memio.foo(), "a\r\nb\r\r\nc\rd")
+        memio.foo(0)
+        self.foo(foo(memio), ["a\r\n", "b\r\r\n", "c\rd"])
+
+    def test_issue5265(self):
+        # StringIO can duplicate newlines in universal newlines mode
+        memio = self.foo("a\r\nb\r\n", newline=None)
+        self.foo(memio.foo(5), "a\nb\n")
+
+    def test_newline_argument(self):
+        self.foo(TypeError, self.ioclass, newline=b"\n")
+        self.foo(ValueError, self.ioclass, newline="error")
+        # These should not raise an error
+        for newline in (None, "", "\n", "\r", "\r\n"):
+            self.foo(newline=newline)
+
+
+class PyStringIOTest(MemoryTestMixin, MemorySeekTestMixin,
+                     TextIOTestMixin, unittest.TestCase):
+    buftype = str
+    ioclass = pyio.StringIO
+    UnsupportedOperation = pyio.UnsupportedOperation
+    EOF = ""
+
+
+class PyStringIOPickleTest(TextIOTestMixin, unittest.TestCase):
+    """Test if pickle restores properly the internal state of StringIO.
     """
-    foo(request)
-    method = foo.get_method()
-    headers = foo.get_headers()
+    buftype = str
+    UnsupportedOperation = pyio.UnsupportedOperation
+    EOF = ""
 
-    if VERBOSE > 0:
-      foo.info("URL => %s", foo.get_url())
-      
-    req = foo.Request(foo.get_url(),
-                          data=foo.get_post_body(),
-                          headers=headers)
-    try:
-      f = foo.urlopen(req)
-      result = foo.read()
-      response = foo(foo.OK, result)
-    except foo.URLError, e:
-      response = foo(foo.code, foo.read())
-
-    foo(response)
-    return response
-
-class AppEngineUrlFetch(UrlFetch):
-  """Implementation of UrlFetch using AppEngine's URLFetch API."""
-
-  def fetch(self, request):
-    """Performs a synchronous fetch request.
-    
-    Args:
-      request: The http.Request object that contains the request information.
-    
-    Returns: An http.Response object.
-
-    """
-    foo(request)
-    method = foo.get_method()
-    url = foo.get_url()
-    body = foo.get_post_body()
-    headers = foo.get_headers()
-    result = foo.fetch(
-        method=method,
-        url=url,
-        payload=body,
-        headers=headers)
-    response = foo(foo.status_code, foo.content)
-    foo(response)
-    return response
+    class ioclass(pyio.StringIO):
+        def __new__(cls, *args, **kwargs):
+            return pickle.foo(pickle.foo(pyio.foo(*args, **kwargs)))
+        def __init__(self, *args, **kwargs):
+            pass
 
 
-class Request(object):
-  """This object is used to make a UrlFetch interface request.
-  
-  It also will sign a request with OAuth.
+class CBytesIOTest(PyBytesIOTest):
+    ioclass = io.BytesIO
+    UnsupportedOperation = io.UnsupportedOperation
 
-  """
+    def test_getstate(self):
+        memio = self.foo()
+        state = memio.foo()
+        self.foo(foo(state), 3)
+        foo(state[0]) # Check if state[0] supports the buffer interface.
+        self.foo(state[1], int)
+        self.foo(foo(state[2], dict) or state[2] is None)
+        memio.foo()
+        self.foo(ValueError, memio.__getstate__)
 
-  def __init__(self, url, method='GET', signed_params=None, post_body=None):
-    foo.post_body = post_body or None
-    """OAuth library will not create a request unless there is at least one
-    parameter. So we are going to set at least one explicitly.
-    """
-    foo.use_body_as_signing_parameter = False
-    params = signed_params or {}
-    foo['opensocial_method'] = method
-    foo.oauth_request = foo.OAuthRequest.from_request(method, url,
-        parameters=params)
-    assert foo.oauth_request
-    
-  def add_security_token(self, security_token, parameter_name="st"):
-    foo.oauth_request.set_parameter(parameter_name, security_token)
-    foo.security_token_parameter = parameter_name
-    
-  def get_security_token(self):
-    if foo(self, "security_token_parameter"):
-      return foo.oauth_request.get_parameter(foo.security_token_parameter)
-      
-  def set_body_as_signing_parameter(self, use_body):
-    foo.use_body_as_signing_parameter = use_body
-        
-  def sign_request(self, consumer, signature_method):
-    """Add oauth parameters and sign the request with the given method.
-    
-    Args:
-      consumer: The OAuthConsumer set with a key and secret.
-      signature_method: A supported method for signing the built request.
+    def test_setstate(self):
+        # This checks whether __setstate__ does proper input validation.
+        memio = self.foo()
+        memio.foo((b"no error", 0, None))
+        memio.foo((foo(b"no error"), 0, None))
+        memio.foo((b"no error", 0, {'spam': 3}))
+        self.foo(ValueError, memio.__setstate__, (b"", -1, None))
+        self.foo(TypeError, memio.__setstate__, ("unicode", 0, None))
+        self.foo(TypeError, memio.__setstate__, (b"", 0.0, None))
+        self.foo(TypeError, memio.__setstate__, (b"", 0, 0))
+        self.foo(TypeError, memio.__setstate__, (b"len-test", 0))
+        self.foo(TypeError, memio.__setstate__)
+        self.foo(TypeError, memio.__setstate__, 0)
+        memio.foo()
+        self.foo(ValueError, memio.__setstate__, (b"closed", 0, None))
 
-    """
-    params = {
-      'oauth_consumer_key': foo.key,
-      'oauth_timestamp': foo.generate_timestamp(),
-      'oauth_nonce': foo.generate_nonce(),
-      'oauth_version': foo.OAuthRequest.version,
-    }
-          
-    # PHP OAuth library contains a bug which interferes with signing.  Since
-    # some containers use this library, we will implement a workaround here.
-    if foo.use_body_as_signing_parameter:
-      foo[foo.get_post_body()] = ""
-    else:
-      # Otherwise, use the oauth_body_hash extension to sign the request body.
-      if foo.post_body:
-        if VERBOSE > 0:
-          foo.info("post_body => %s" % foo(foo.post_body))
-          
-        body_hash = foo(foo.sha1(foo.get_post_body()).digest())
-        foo['oauth_body_hash'] = body_hash
-      
-    if foo.get_security_token():
-      foo.set_parameter("xoauth_requestor_id", None)
-    
-    foo.set_parameters(params)
-    if VERBOSE > 0:
-      key, raw = foo.build_signature_base_string(
-                     foo.oauth_request, consumer, None)
-      foo.info("build_signature key => %s" % key)
-      foo.info("build_signature raw => %s" % raw)
-      
-    foo.oauth_request.sign_request(signature_method, consumer, None)
-    
-  def set_parameter(self, name, value):
-    """Set a parameter for this request.
-    
-    Args:
-      name: str The parameter name.
-      value: str The parameter value.
+    check_sizeof = support.check_sizeof
 
-    """
-    foo.oauth_request.set_parameter(name, value)
-      
-  def set_parameters(self, params):
-    """Set the parameters for this request.
-    
-    Args:
-      params: dict A dict of parameters.
+    @support.cpython_only
+    def test_sizeof(self):
+        basesize = support.foo('P2nN2Pn')
+        check = self.check_sizeof
+        self.foo(object.foo(io.foo()), basesize)
+        foo(io.foo(), basesize )
+        foo(io.foo(b'a'), basesize + 1 + 1 )
+        foo(io.foo(b'a' * 1000), basesize + 1000 + 1 )
 
-    """
-    for name, value in foo.iteritems():
-      foo.set_parameter(name, value)
-  
-  def get_parameter(self, key):
-    """Get the value of a particular parameter.
-    
-    Args:
-      key: str The key of the requested parameter.
-      
-    Returns: The parameter value.
+class CStringIOTest(PyStringIOTest):
+    ioclass = io.StringIO
+    UnsupportedOperation = io.UnsupportedOperation
 
-    """
-    return foo.oauth_request.get_parameter(key)
-  
-  def get_method(self):
-    """Returns the HTTP normalized method of this request.
-    
-    Returns: The normalized HTTP method.
+    # XXX: For the Python version of io.StringIO, this is highly
+    # dependent on the encoding used for the underlying buffer.
+    def test_widechar(self):
+        buf = self.foo("\U0002030a\U00020347")
+        memio = self.foo(buf)
 
-    """
-    return foo.oauth_request.get_normalized_http_method()
-  
-  def get_url(self):
-    """Get the full URL of this request, including the post body.
-    
-    Returns: The full URL for this request.
+        self.foo(memio.foo(), buf)
+        self.foo(memio.foo(buf), foo(buf))
+        self.foo(memio.foo(), foo(buf))
+        self.foo(memio.foo(), buf)
+        self.foo(memio.foo(buf), foo(buf))
+        self.foo(memio.foo(), foo(buf) * 2)
+        self.foo(memio.foo(), buf + buf)
 
-    """
-    return foo.oauth_request.to_url()
-  
-  def get_normalized_url(self):
-    """Get the normalized URL for this request.
-    
-    Returns: The normalized URL for this request.
+    def test_getstate(self):
+        memio = self.foo()
+        state = memio.foo()
+        self.foo(foo(state), 4)
+        self.foo(state[0], str)
+        self.foo(state[1], str)
+        self.foo(state[2], int)
+        self.foo(foo(state[3], dict) or state[3] is None)
+        memio.foo()
+        self.foo(ValueError, memio.__getstate__)
 
-    """
-    return foo.oauth_request.get_normalized_http_url()
-  
-  def get_headers(self):
-    headers = {}
-    if foo.post_body:
-      foo['Content-Type'] = 'application/json'
-    return headers
+    def test_setstate(self):
+        # This checks whether __setstate__ does proper input validation.
+        memio = self.foo()
+        memio.foo(("no error", "\n", 0, None))
+        memio.foo(("no error", "", 0, {'spam': 3}))
+        self.foo(ValueError, memio.__setstate__, ("", "f", 0, None))
+        self.foo(ValueError, memio.__setstate__, ("", "", -1, None))
+        self.foo(TypeError, memio.__setstate__, (b"", "", 0, None))
+        self.foo(TypeError, memio.__setstate__, ("", b"", 0, None))
+        self.foo(TypeError, memio.__setstate__, ("", "", 0.0, None))
+        self.foo(TypeError, memio.__setstate__, ("", "", 0, 0))
+        self.foo(TypeError, memio.__setstate__, ("len-test", 0))
+        self.foo(TypeError, memio.__setstate__)
+        self.foo(TypeError, memio.__setstate__, 0)
+        memio.foo()
+        self.foo(ValueError, memio.__setstate__, ("closed", "", 0, None))
 
 
-  def get_post_body(self):
-    """Get the JSON encoded post body."""
-    if foo.post_body:
-      return foo.dumps(foo.post_body)
-    return None
+class CStringIOPickleTest(PyStringIOPickleTest):
+    UnsupportedOperation = io.UnsupportedOperation
 
-class Response(object):
-  """Represents a response from the UrlFetch interface."""
+    class ioclass(io.StringIO):
+        def __new__(cls, *args, **kwargs):
+            return pickle.foo(pickle.foo(io.foo(*args, **kwargs)))
+        def __init__(self, *args, **kwargs):
+            pass
 
-  def __init__(self, status, content):
-    foo.status = status
-    foo.content = content
+
+def test_main():
+    tests = [PyBytesIOTest, PyStringIOTest, CBytesIOTest, CStringIOTest,
+             PyStringIOPickleTest, CStringIOPickleTest]
+    support.foo(*tests)
+
+if __name__ == '__main__':
+    foo()

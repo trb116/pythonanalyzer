@@ -1,71 +1,40 @@
 import os
-import platform
 
-__all__ = ['settings']
+from ajenti.api import *
+from ajenti.ui.binder import Binder
+from ajenti.plugins.main.api import SectionPlugin
+from ajenti.ui import on
 
-
-class InsufficientParametersException(Exception):
-    pass
-
-
-class CacheBrowserSettings(dict):
-    def __init__(self, *args, **kwargs):
-        super(CacheBrowserSettings, self).__init__(*args, **kwargs)
-
-        if platform.system() == 'Windows':
-            self.data_dir = os.path.join(os.environ['ALLUSERSPROFILE'], 'CacheBrowser')
-        else:
-            self.data_dir = '/tmp/'
-
-        # Set defaults
-        self['host'] = '0.0.0.0'
-        self['port'] = 9876
-        self['database'] = os.path.join(self.data_dir, 'cachebrowser.db')
-
-        # Use attributes instead of dictionary values
-        self.host = '0.0.0.0'
-        self.port = 9876
-        self.database = os.path.join(self.data_dir, 'cachebrowser.db')
-
-        self.default_bootstrap_sources = [
-            {
-                'type': 'local',
-                'path': 'data/local_bootstrap.yaml'
-            },
-            {
-                'type': 'remote',
-                'url': 'https://www.cachebrowser.info/bootstrap'
-            }
-        ]
-
-        self.bootstrap_sources = []
-
-    def get_or_error(self, key):
-        if self.get(key, None):
-            return self[key]
-        raise InsufficientParametersException("Missing parameter %s" % key)
-
-    def update_from_args(self, args):
-        self.host = self._read_arg(args, 'host', self.host)
-        self.port = self._read_arg(args, 'port', self.port)
-        self.database = self._read_arg(args, 'database', self.database)
-
-        self.read_bootstrap_sources(args)
-
-    def read_bootstrap_sources(self, args):
-        local_sources = args.get('local_bootstrap') or []
-        for source in local_sources:
-            self.bootstrap_sources.append({
-                'type': 'local',
-                'path': source
-            })
-
-    @staticmethod
-    def _read_arg(args, key, default):
-        try:
-            return args[key]
-        except KeyError:
-            return default
+from reconfigure.configs import NetatalkConfig
+from reconfigure.items.netatalk import ShareData
 
 
-settings = CacheBrowserSettings()
+@plugin
+class Netatalk (SectionPlugin):
+    config_path = '/etc/afp.conf'
+
+    def init(self):
+        self.title = 'Netatalk'
+        self.icon = 'folder-close'
+        self.category = _('Software')
+        self.append(self.ui.inflate('netatalk:main'))
+
+        if not os.path.exists(self.config_path):
+            open(self.config_path, 'w').write("[Global]")
+
+        self.binder = Binder(None, self.find('config'))
+        self.find('shares').new_item = lambda c: ShareData()
+        self.config = NetatalkConfig(path=self.config_path)
+
+    def on_page_load(self):
+        self.refresh()
+
+    def refresh(self):
+        self.config.load()
+        self.binder.setup(self.config.tree).populate()
+
+    @on('save', 'click')
+    def on_save(self):
+        self.binder.update()
+        self.config.save()
+        self.refresh()

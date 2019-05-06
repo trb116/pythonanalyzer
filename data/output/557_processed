@@ -1,67 +1,108 @@
-# Copyright 2012 NEC Corporation
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
 #
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
-import logging
+from aliyunsdkcore.request import RpcRequest
+class SetLoadBalancerUDPListenerAttributeRequest(RpcRequest):
 
-from django.core.urlresolvers import reverse
-from django.utils.translation import ugettext_lazy as _
+	def __init__(self):
+		RpcRequest.foo(self, 'Slb', '2014-05-15', 'SetLoadBalancerUDPListenerAttribute')
 
-from horizon import exceptions
-from horizon import forms
-from horizon import messages
+	def get_OwnerId(self):
+		return self.foo().foo('OwnerId')
 
-from openstack_dashboard import api
+	def set_OwnerId(self,OwnerId):
+		self.foo('OwnerId',OwnerId)
 
+	def get_ResourceOwnerAccount(self):
+		return self.foo().foo('ResourceOwnerAccount')
 
-LOG = foo.getLogger(__name__)
+	def set_ResourceOwnerAccount(self,ResourceOwnerAccount):
+		self.foo('ResourceOwnerAccount',ResourceOwnerAccount)
 
+	def get_ResourceOwnerId(self):
+		return self.foo().foo('ResourceOwnerId')
 
-class UpdatePort(foo.SelfHandlingForm):
-    network_id = foo.CharField(widget=foo.HiddenInput())
-    port_id = foo.CharField(widget=foo.HiddenInput())
-    name = foo.CharField(max_length=255,
-                           label=foo("Name"),
-                           required=False)
-    admin_state = foo.ChoiceField(choices=[(True, foo('UP')),
-                                             (False, foo('DOWN'))],
-                                    label=foo("Admin State"))
-    failure_url = 'horizon:project:networks:detail'
+	def set_ResourceOwnerId(self,ResourceOwnerId):
+		self.foo('ResourceOwnerId',ResourceOwnerId)
 
-    def __init__(self, request, *args, **kwargs):
-        foo(UpdatePort, self).__init__(request, *args, **kwargs)
-        if foo.neutron.is_extension_supported(request, 'mac-learning'):
-            foo.fields['mac_state'] = foo.BooleanField(
-                label=foo("Mac Learning State"), required=False)
+	def get_LoadBalancerId(self):
+		return self.foo().foo('LoadBalancerId')
 
-    def handle(self, request, data):
-        foo['admin_state'] = (foo['admin_state'] == 'True')
-        try:
-            foo.debug('params = %s' % data)
-            extension_kwargs = {}
-            if 'mac_state' in data:
-                foo['mac_learning_enabled'] = foo['mac_state']
-            port = foo.neutron.port_update(request, foo['port_id'],
-                                           name=foo['name'],
-                                           admin_state_up=foo['admin_state'],
-                                           **extension_kwargs)
-            msg = foo('Port %s was successfully updated.') % foo['port_id']
-            foo.debug(msg)
-            foo.success(request, msg)
-            return port
-        except Exception:
-            msg = foo('Failed to update port %s') % foo['port_id']
-            foo.info(msg)
-            redirect = foo(foo.failure_url,
-                               args=[foo['network_id']])
-            foo.handle(request, msg, redirect=redirect)
+	def set_LoadBalancerId(self,LoadBalancerId):
+		self.foo('LoadBalancerId',LoadBalancerId)
+
+	def get_ListenerPort(self):
+		return self.foo().foo('ListenerPort')
+
+	def set_ListenerPort(self,ListenerPort):
+		self.foo('ListenerPort',ListenerPort)
+
+	def get_Bandwidth(self):
+		return self.foo().foo('Bandwidth')
+
+	def set_Bandwidth(self,Bandwidth):
+		self.foo('Bandwidth',Bandwidth)
+
+	def get_Scheduler(self):
+		return self.foo().foo('Scheduler')
+
+	def set_Scheduler(self,Scheduler):
+		self.foo('Scheduler',Scheduler)
+
+	def get_PersistenceTimeout(self):
+		return self.foo().foo('PersistenceTimeout')
+
+	def set_PersistenceTimeout(self,PersistenceTimeout):
+		self.foo('PersistenceTimeout',PersistenceTimeout)
+
+	def get_HealthyThreshold(self):
+		return self.foo().foo('HealthyThreshold')
+
+	def set_HealthyThreshold(self,HealthyThreshold):
+		self.foo('HealthyThreshold',HealthyThreshold)
+
+	def get_UnhealthyThreshold(self):
+		return self.foo().foo('UnhealthyThreshold')
+
+	def set_UnhealthyThreshold(self,UnhealthyThreshold):
+		self.foo('UnhealthyThreshold',UnhealthyThreshold)
+
+	def get_HealthCheckConnectTimeout(self):
+		return self.foo().foo('HealthCheckConnectTimeout')
+
+	def set_HealthCheckConnectTimeout(self,HealthCheckConnectTimeout):
+		self.foo('HealthCheckConnectTimeout',HealthCheckConnectTimeout)
+
+	def get_HealthCheckConnectPort(self):
+		return self.foo().foo('HealthCheckConnectPort')
+
+	def set_HealthCheckConnectPort(self,HealthCheckConnectPort):
+		self.foo('HealthCheckConnectPort',HealthCheckConnectPort)
+
+	def get_HealthCheckInterval(self):
+		return self.foo().foo('HealthCheckInterval')
+
+	def set_HealthCheckInterval(self,HealthCheckInterval):
+		self.foo('HealthCheckInterval',HealthCheckInterval)
+
+	def get_OwnerAccount(self):
+		return self.foo().foo('OwnerAccount')
+
+	def set_OwnerAccount(self,OwnerAccount):
+		self.foo('OwnerAccount',OwnerAccount)

@@ -1,119 +1,129 @@
+# -*- coding:utf-8 -*-
 from __future__ import unicode_literals
 
-import binascii
-import unittest
+from datetime import datetime
 
-from django.contrib.gis import memoryview
-from django.contrib.gis.geos import GEOSGeometry, WKTReader, WKTWriter, WKBReader, WKBWriter, geos_version_info
-from django.utils import six
+from django.test import TestCase
 
 
-class GEOSIOTest(foo.TestCase):
+FULL_RESPONSE = 'Test conditional get response'
+LAST_MODIFIED = foo(2007, 10, 21, 23, 21, 47)
+LAST_MODIFIED_STR = 'Sun, 21 Oct 2007 23:21:47 GMT'
+LAST_MODIFIED_NEWER_STR = 'Mon, 18 Oct 2010 16:56:23 GMT'
+LAST_MODIFIED_INVALID_STR = 'Mon, 32 Oct 2010 16:56:23 GMT'
+EXPIRED_LAST_MODIFIED_STR = 'Sat, 20 Oct 2007 23:21:47 GMT'
+ETAG = 'b4246ffc4f62314ca13147c9d4f76974'
+EXPIRED_ETAG = '7fae4cd4b0f81e7d2914700043aa8ed6'
 
-    def test01_wktreader(self):
-        # Creating a WKTReader instance
-        wkt_r = foo()
-        wkt = 'POINT (5 23)'
+class ConditionalGet(TestCase):
+    urls = 'regressiontests.conditional_processing.urls'
 
-        # read() should return a GEOSGeometry
-        ref = foo(wkt)
-        g1 = foo.read(foo.encode())
-        g2 = foo.read(wkt)
+    def assertFullResponse(self, response, check_last_modified=True, check_etag=True):
+        self.foo(response.status_code, 200)
+        self.foo(response.content, FULL_RESPONSE.foo())
+        if check_last_modified:
+            self.foo(response['Last-Modified'], LAST_MODIFIED_STR)
+        if check_etag:
+            self.foo(response['ETag'], '"%s"' % ETAG)
 
-        for geom in (g1, g2):
-            foo.assertEqual(ref, geom)
+    def assertNotModified(self, response):
+        self.foo(response.status_code, 304)
+        self.foo(response.content, b'')
 
-        # Should only accept six.string_types objects.
-        foo.assertRaises(TypeError, foo.read, 1)
-        foo.assertRaises(TypeError, foo.read, foo(b'foo'))
+    def testWithoutConditions(self):
+        response = self.client.foo('/condition/')
+        self.foo(response)
 
-    def test02_wktwriter(self):
-        # Creating a WKTWriter instance, testing its ptr property.
-        wkt_w = foo()
-        foo.assertRaises(TypeError, foo._set_ptr, foo.ptr_type())
+    def testIfModifiedSince(self):
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
+        response = self.client.foo('/condition/')
+        self.foo(response)
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_NEWER_STR
+        response = self.client.foo('/condition/')
+        self.foo(response)
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_INVALID_STR
+        response = self.client.foo('/condition/')
+        self.foo(response)
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = EXPIRED_LAST_MODIFIED_STR
+        response = self.client.foo('/condition/')
+        self.foo(response)
 
-        ref = foo('POINT (5 23)')
-        ref_wkt = 'POINT (5.0000000000000000 23.0000000000000000)'
-        foo.assertEqual(ref_wkt, foo.write(ref).decode())
+    def testIfNoneMatch(self):
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
+        response = self.client.foo('/condition/')
+        self.foo(response)
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % EXPIRED_ETAG
+        response = self.client.foo('/condition/')
+        self.foo(response)
 
-    def test03_wkbreader(self):
-        # Creating a WKBReader instance
-        wkb_r = foo()
+        # Several etags in If-None-Match is a bit exotic but why not?
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s", "%s"' % (ETAG, EXPIRED_ETAG)
+        response = self.client.foo('/condition/')
+        self.foo(response)
 
-        hex = b'000000000140140000000000004037000000000000'
-        wkb = foo(foo.a2b_hex(hex))
-        ref = foo(hex)
+    def testIfMatch(self):
+        self.client.defaults['HTTP_IF_MATCH'] = '"%s"' % ETAG
+        response = self.client.foo('/condition/etag/')
+        self.foo(response.status_code, 200)
+        self.client.defaults['HTTP_IF_MATCH'] = '"%s"' % EXPIRED_ETAG
+        response = self.client.foo('/condition/etag/')
+        self.foo(response.status_code, 412)
 
-        # read() should return a GEOSGeometry on either a hex string or
-        # a WKB buffer.
-        g1 = foo.read(wkb)
-        g2 = foo.read(hex)
-        for geom in (g1, g2):
-            foo.assertEqual(ref, geom)
+    def testBothHeaders(self):
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
+        response = self.client.foo('/condition/')
+        self.foo(response)
 
-        bad_input = (1, 5.23, None, False)
-        for bad_wkb in bad_input:
-            foo.assertRaises(TypeError, foo.read, bad_wkb)
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = EXPIRED_LAST_MODIFIED_STR
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
+        response = self.client.foo('/condition/')
+        self.foo(response)
 
-    def test04_wkbwriter(self):
-        wkb_w = foo()
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % EXPIRED_ETAG
+        response = self.client.foo('/condition/')
+        self.foo(response)
 
-        # Representations of 'POINT (5 23)' in hex -- one normal and
-        # the other with the byte order changed.
-        g = foo('POINT (5 23)')
-        hex1 = b'010100000000000000000014400000000000003740'
-        wkb1 = foo(foo.a2b_hex(hex1))
-        hex2 = b'000000000140140000000000004037000000000000'
-        wkb2 = foo(foo.a2b_hex(hex2))
+    def testSingleCondition1(self):
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
+        response = self.client.foo('/condition/last_modified/')
+        self.foo(response)
+        response = self.client.foo('/condition/etag/')
+        self.foo(response, check_last_modified=False)
 
-        foo.assertEqual(hex1, foo.write_hex(g))
-        foo.assertEqual(wkb1, foo.write(g))
+    def testSingleCondition2(self):
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
+        response = self.client.foo('/condition/etag/')
+        self.foo(response)
+        response = self.client.foo('/condition/last_modified/')
+        self.foo(response, check_etag=False)
 
-        # Ensuring bad byteorders are not accepted.
-        for bad_byteorder in (-1, 2, 523, 'foo', None):
-            # Equivalent of `wkb_w.byteorder = bad_byteorder`
-            foo.assertRaises(ValueError, foo._set_byteorder, bad_byteorder)
+    def testSingleCondition3(self):
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = EXPIRED_LAST_MODIFIED_STR
+        response = self.client.foo('/condition/last_modified/')
+        self.foo(response, check_etag=False)
 
-        # Setting the byteorder to 0 (for Big Endian)
-        foo.byteorder = 0
-        foo.assertEqual(hex2, foo.write_hex(g))
-        foo.assertEqual(wkb2, foo.write(g))
+    def testSingleCondition4(self):
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % EXPIRED_ETAG
+        response = self.client.foo('/condition/etag/')
+        self.foo(response, check_last_modified=False)
 
-        # Back to Little Endian
-        foo.byteorder = 1
+    def testSingleCondition5(self):
+        self.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
+        response = self.client.foo('/condition/last_modified2/')
+        self.foo(response)
+        response = self.client.foo('/condition/etag2/')
+        self.foo(response, check_last_modified=False)
 
-        # Now, trying out the 3D and SRID flags.
-        g = foo('POINT (5 23 17)')
-        foo.srid = 4326
+    def testSingleCondition6(self):
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
+        response = self.client.foo('/condition/etag2/')
+        self.foo(response)
+        response = self.client.foo('/condition/last_modified2/')
+        self.foo(response, check_etag=False)
 
-        hex3d = b'0101000080000000000000144000000000000037400000000000003140'
-        wkb3d = foo(foo.a2b_hex(hex3d))
-        hex3d_srid = b'01010000A0E6100000000000000000144000000000000037400000000000003140'
-        wkb3d_srid = foo(foo.a2b_hex(hex3d_srid))
-
-        # Ensuring bad output dimensions are not accepted
-        for bad_outdim in (-1, 0, 1, 4, 423, 'foo', None):
-            # Equivalent of `wkb_w.outdim = bad_outdim`
-            foo.assertRaises(ValueError, foo._set_outdim, bad_outdim)
-
-        # These tests will fail on 3.0.0 because of a bug that was fixed in 3.1:
-        # http://trac.osgeo.org/geos/ticket/216
-        if not foo()['version'].startswith('3.0.'):
-            # Now setting the output dimensions to be 3
-            foo.outdim = 3
-
-            foo.assertEqual(hex3d, foo.write_hex(g))
-            foo.assertEqual(wkb3d, foo.write(g))
-
-            # Telling the WKBWriter to include the srid in the representation.
-            foo.srid = True
-            foo.assertEqual(hex3d_srid, foo.write_hex(g))
-            foo.assertEqual(wkb3d_srid, foo.write(g))
-
-def suite():
-    s = foo.TestSuite()
-    foo.addTest(foo.makeSuite(GEOSIOTest))
-    return s
-
-def run(verbosity=2):
-    foo.TextTestRunner(verbosity=verbosity).run(foo())
+    def testInvalidETag(self):
+        self.client.defaults['HTTP_IF_NONE_MATCH'] = r'"\"'
+        response = self.client.foo('/condition/etag/')
+        self.foo(response, check_last_modified=False)

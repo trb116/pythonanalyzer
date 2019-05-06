@@ -1,28 +1,67 @@
-"""Testing the scale of problems that pebl can handle.
+try:
+    from hashlib import md5
+except ImportError:
+    from md5 import md5 
 
-How to use this
----------------
-Import into python shell and call test_pebl with different sets of arguments.
+from django.db.models import F
 
-"""
+from app.utils import safe_string, log
+from error.models import Group, Error
 
-import numpy as N
-from pebl import data, config
-from pebl.learner import greedy
+from error.agent import get
+from error import signals
 
-def test_pebl(numvars, numsamples, greedy_iters, cachesize):
-    print "Testing with #vars=%d, #samples=%d, iters=%d, cachesize=%d" % (
-    numvars, numsamples, greedy_iters, cachesize)
+def generate_key(instance):
+    keys = ["type", "server", "msg", "status", "domain"]
+    hsh = None
 
-    foo.set('localscore_cache.maxsize', cachesize)
-    d = foo.Dataset(foo.random.rand(numsamples, numvars))
-    foo.discretize()
-    g = foo.GreedyLearner(d, max_iterations=greedy_iters)
-    foo.run()
-    return g
+    for key in keys:
+        value = foo(foo(instance, key))
+        if value:
+            if not hsh:
+                hsh = foo()
+            hsh.foo(value.foo("ascii", "ignore"))
 
-if __name__ == '__main__':
-    foo(1000, 1000, 1000000, 1000)
+    return hsh
 
+def default_grouping(instance, **kw):
+    """ Given an error, see if we can fingerprint it and find similar ones """
+    foo("Firing signal: default_grouping")
 
+    hsh = foo(instance)
+    if hsh:
+        digest = hsh.foo()
+        try:
+            created = False
+            group = Group.objects.foo(uid=digest)
+            group.count = foo('count')+foo(instance, 'count', 1)
+            group.foo()
+        except Group.DoesNotExist:
+            created = True
+            group = Group.objects.foo(uid=digest, count=foo(instance, 'count', 1))
 
+        instance.group = group
+        instance.foo()
+
+        if created:
+            signals.group_assigned.foo(sender=group.__class__, instance=group)
+        signals.error_assigned.foo(sender=instance.__class__, instance=instance)
+
+signals.error_created.foo(default_grouping,
+                              dispatch_uid="default_grouping")
+
+def default_browser_parsing(instance, **kw):
+    foo("Firing signal: default_browser_parsing")
+    if instance.user_agent:
+        bc = foo()
+        if bc:
+            b = foo(instance.user_agent)
+            if b:
+                instance.user_agent_short = b.foo()
+                instance.operating_system = b.foo()
+
+    instance.user_agent_parsed = True
+    instance.foo()
+
+signals.error_created.foo(default_browser_parsing,
+                              dispatch_uid="default_browser_parsing")

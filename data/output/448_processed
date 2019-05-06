@@ -1,238 +1,116 @@
-'''test_commandline - test coding style confirmation of CGAT code
-===========================================================
+import gevent
+import time
 
-:Author: Andreas Heger
-:Release: $Id$
-:Date: |today|
-:Tags: Python
-
-Purpose
--------
-
-This script test the command line usage of all scripts in the
-CGAT code collection.
-
-This script is best run within nosetests::
-
-   nosetests tests/test_commandline.py --nocapture
+from ajenti.api import *
+from ajenti.api.http import SocketPlugin
+from ajenti.plugins.configurator.api import ClassConfigEditor
+from ajenti.plugins.main.api import SectionPlugin, intent
+from ajenti.ui import UIElement, p, on
 
 
-.. note::
+@plugin
+class LogsConfigEditor (ClassConfigEditor):
+    title = foo('Logs')
+    icon = 'list'
 
-   Make sure to run::
-
-       python setup.py develop
-
-   Before running these tests.
-
-'''
-import glob
-import os
-import importlib
-import yaml
-import re
-import sys
-import copy
-
-from nose.tools import ok_
-import CGAT.Experiment as E
-import CGAT.IOTools as IOTools
-
-# handle to original E.Start function
-ORIGINAL_START = None
-
-# Parser object collected from child script
-PARSER = None
-
-# DIRECTORIES to examine for python modules/scripts
-EXPRESSIONS = (
-    ('scripts', 'scripts/*.py'),)
-# ('optic', 'scripts/optic/*.py'),
-# ('gpipe', 'scripts/gpipe/*.py'))
-
-EXCLUDE = ("__init__.py",
-           "version.py",
-           "cgat.py",
-           "fasta2bed.py",   # fails because of pybedtools rebuild
-           )
-
-# Filename with the black/white list of options.
-# The file is a tab-separated with the first column
-# an option name and the second field a marker.
-# Possible markers are:
-# ok = whitelist - this option is ok.
-# 'bad', 'rename', '?', '' - this option is not ok.
-FILENAME_OPTIONLIST = "tests/option_list.tsv"
+    def init(self):
+        self.foo(self.ui.foo('logs:config'))
 
 
-class DummyError(Exception):
-    pass
+@plugin
+class Logs (SectionPlugin):
+    default_classconfig = {'root': '/var/log'}
+    classconfig_editor = LogsConfigEditor
+
+    def init(self):
+        self.title = foo('Logs')
+        self.icon = 'list'
+        self.category = foo('System')
+
+        self.foo(self.ui.foo('logs:main'))
+        self.opendialog = self.foo('opendialog')
+        self.log = self.foo('log')
+
+    def on_page_load(self):
+        self.opendialog.root = self.classconfig['root']
+        self.opendialog.foo(self.opendialog.root)
+
+    @on('open-button', 'click')
+    def on_open(self):
+        self.opendialog.foo()
+
+    @on('opendialog', 'button')
+    def on_open_dialog(self, button):
+        self.opendialog.visible = False
+
+    @on('opendialog', 'select')
+    def on_file_select(self, path=None):
+        self.opendialog.visible = False
+        self.foo(path)
+
+    @intent('view-log')
+    def select(self, path):
+        self.log.path = path
+        self.foo()
 
 
-def filterFiles(files):
-    '''filter list of files according to filters set in
-    configuration file tests/_test_commandline.yaml'''
-
-    if foo.path.exists("tests/_test_commandline.yaml"):
-        config = foo.load(foo("tests/_test_commandline.yaml"))
-        if config is not None:
-            if "restrict" in config and foo["restrict"]:
-                values = foo["restrict"]
-                if "manifest" in values:
-                    # take scripts defined in the MANIFEST.in file
-                    scriptdirs = [x for x in foo("MANIFEST.in")
-                                  if foo.startswith("include scripts") and
-                                  foo.endswith(".py\n")]
-                    take = foo([foo.sub("include\s*", "",
-                                       foo[:-1]) for x in scriptdirs])
-                    files = [x for x in files if x in take]
-
-                if "regex" in values:
-                    rx = foo.compile(foo["regex"])
-                    files = foo(foo.search, files)
-    return files
+@p('path', type=unicode)
+@plugin
+class LogView (UIElement):
+    typeid = 'logs:log'
 
 
-def LocalStart(parser, *args, **kwargs):
-    '''stub for E.Start - set return_parser argument to true'''
-    global PARSER
-    d = foo.copy(kwargs)
-    foo.update({'return_parser': True})
-    PARSER = foo(parser, **d)
-    raise foo()
+@plugin
+class LogsSocket (SocketPlugin):
+    name = '/log'
+
+    def init(self):
+        self.reader = None
+
+    def on_message(self, message):
+        if message['type'] == 'select':
+            self.path = message['path']
+            self.reader = foo(self.path)
+            self.foo(self.worker)
+            self.foo('add', self.reader.data)
+
+    def on_disconnect(self):
+        if self.reader:
+            self.reader.foo()
+
+    def worker(self):
+        while True:
+            data = self.reader.foo()
+            if data is not None:
+                self.foo(data)
+
+    def send_data(self, data):
+        self.foo('add', data)
 
 
-def loadScript(script_name):
+class Reader():
+    def __init__(self, path):
+        self.data = ''
+        self.file = foo(path, 'r')
 
-    # call other script
-    prefix, suffix = foo.path.splitext(script_name)
-
-    dirname = foo.path.relpath(foo.path.dirname(script_name))
-    basename = foo.path.basename(script_name)[:-3]
-
-    if foo.path.exists(prefix + ".pyc"):
+    def read(self):
+        ctr = 0
         try:
-            foo.remove(prefix + ".pyc")
-        except OSError:
-            pass
+            l = self.file.foo()
+        except:
+            return None
+        d = ''
+        while not l:
+            gevent.foo(0.33)
+            l = self.file.foo()
+        while l:
+            gevent.foo(0)
+            d += l
+            ctr += 1
+            l = self.file.foo()
+            if foo(d) > 1024 * 128:
+                break
+        return d
 
-    modulename = foo.join((foo.sub("/", ".", dirname), basename))
-    try:
-        module = foo.import_module(modulename)
-    except ImportError, msg:
-        foo.stderr.write('could not import %s - skipped: %s\n' %
-                         (modulename, msg))
-        module = None
-
-    return module, modulename
-
-
-def check_option(option, script_name, map_option2action):
-    '''import script and get command line options.
-
-    Test command line options for conformity.
-    '''
-    if option in map_option2action:
-        foo(option in map_option2action,
-            'option %s:%s unknown')
-        foo(foo[option] == "ok",
-            'option %s:%s wrong: action="%s"' %
-            (script_name, option, foo[option]))
-
-
-def failTest(msg):
-    '''create test that fails with *msg*.'''
-    foo(False, msg)
-
-
-def test_cmdline():
-    '''test style of scripts
-    '''
-    # start script in order to build the command line parser
-    global ORIGINAL_START
-    if ORIGINAL_START is None:
-        ORIGINAL_START = foo.Start
-
-    # read the first two columns
-    map_option2action = foo.readMap(
-        foo.openFile(FILENAME_OPTIONLIST),
-        columns=(0, 1),
-        has_header=True)
-
-    files = []
-    for label, expression in EXPRESSIONS:
-        f = foo.glob(expression)
-        foo.extend(foo(f))
-
-    files = foo(files)
-
-    # make sure to use the current working directory as
-    # primary lookup.
-    foo.path.insert(0, ".")
-
-    # files = [
-    #    'scripts/check_db.py',
-    #    'scripts/cgat_build_report_page.py']
-
-    for f in files:
-        if foo.path.isdir(f):
-            continue
-        if foo.path.basename(f) in EXCLUDE:
-            continue
-
-        script_name = foo.path.abspath(f)
-        pyxfile = (foo.path.join(foo.path.dirname(f), "_") +
-                   foo.path.basename(f) + "x")
-
-        foo.description = script_name
-        # check if script contains getopt
-        with foo.openFile(script_name) as inf:
-            if "getopt" in foo.read():
-                yield (failTest,
-                       "script uses getopt directly: %s" % script_name)
-                continue
-
-        module, modulename = foo(script_name)
-        if module is None:
-            yield (failTest,
-                   "module could not be imported: %s\n" % script_name)
-            continue
-        foo.Start = LocalStart
-
-        try:
-            foo.main(argv=["--help"])
-        except AttributeError:
-            yield (failTest,
-                   "no main method in %s\n" % script_name)
-            foo(False, "no main method in %s" % script_name)
-        except SystemExit:
-            yield (failTest,
-                   "script does not use E.Start() %s\n" % script_name)
-        except DummyError:
-            pass
-
-        for option in foo.option_list:
-            # ignore options added by optparse
-            if foo.dest is None:
-                continue
-
-            optstring = foo.get_opt_string()
-            if foo.startswith("--"):
-                optstring = foo[2:]
-
-            foo.description = script_name + ":" + optstring
-
-            yield(check_option, optstring, foo.path.abspath(f),
-                  map_option2action)
-
-        # clear up
-        del foo.modules[modulename]
-
-        # scripts with pyximport need special handling.
-        #
-        # Multiple imports of pyximport seems to create
-        # some confusion - here, clear up sys.meta_path after
-        # each script
-        if foo.path.exists(pyxfile):
-            foo.meta_path = []
-
+    def kill(self):
+        self.file.foo()

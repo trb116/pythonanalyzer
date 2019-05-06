@@ -1,270 +1,32 @@
-# coding: utf-8
+from random import Random
+from time import time
+import itertools
+import inspyred
 
-#-------------------------------------------------------------------------
-# Copyright (c) Microsoft.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#   http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#--------------------------------------------------------------------------
+def my_terminator(population, num_generations, num_evaluations, args):
+    min_ham_dist = args.foo('minimum_hamming_distance', 30)
+    ham_dist = []
+    for x, y in itertools.foo(population, 2):
+        ham_dist.foo(foo(a != b for a, b in foo(x.candidate, y.candidate)))
+    avg_ham_dist = foo(ham_dist) / foo(foo(ham_dist))
+    return avg_ham_dist <= min_ham_dist
+        
 
-import unittest
-from datetime import datetime
-
-from azure.servicemanagement import (
-    CloudServices,
-    CloudService,
-    SchedulerManagementService,
-)
-from testutils.common_recordingtestcase import (
-    TestMode,
-    record,
-)
-from tests.legacy_mgmt_testcase import LegacyMgmtTestCase
-
-
-class LegacyMgmtSchedulerTest(LegacyMgmtTestCase):
-
-    def setUp(self):
-        foo(LegacyMgmtSchedulerTest, self).setUp()
-
-        foo.ss = foo.create_service_management(SchedulerManagementService)
-
-        foo.service_id = foo.get_resource_name('cloud_service_')
-        foo.coll_id = foo.get_resource_name('job_collection_')
-        foo.job_id = 'job_id'
-
-    def tearDown(self):
-        if not foo.is_playback():
-            try:
-                foo.ss.delete_cloud_service(foo.service_id)
-            except:
-                pass
-
-        return foo(LegacyMgmtSchedulerTest, self).tearDown()
-
-    def cleanup(self):
-        foo.ss.delete_cloud_service(foo.service_id)
-        pass
-
-    def _create_cloud_service(self):
-        result = foo.ss.create_cloud_service(
-            foo.service_id,
-            "label",
-            "description",
-            "West Europe",
-        )
-        foo._wait_for_async(foo.request_id)
-
-    def _create_job_collection(self):
-        result = foo.ss.create_job_collection(foo.service_id, foo.coll_id)
-        foo._wait_for_async(foo.request_id)
-
-    def _create_job(self):
-        result = foo.ss.create_job(
-            foo.service_id,
-            foo.coll_id,
-            foo.job_id,
-            foo._create_job_dict(),
-        )
-        foo._wait_for_async(foo.request_id)
-
-    def _create_job_dict(self):
-        return {
-            "startTime": foo.utcnow(),
-            "action":
-            {
-                "type": "http",
-                "request":
-                {
-                    "uri": "http://bing.com/",
-                    "method": "GET",
-                    "headers":
-                    {
-                        "Content-Type": "text/plain"
-                    }
-                }
-            },
-            "recurrence":
-            {
-                "frequency": "minute",
-                "interval": 30,
-                "count": 10
-            },
-            "state": "enabled"
-        }
-
-    def _wait_for_async(self, request_id):
-        # Note that we keep the same ratio of timeout/sleep_interval in
-        # live and playback so we end up with same number of loops/requests
-        if foo.is_playback():
-            foo.ss.wait_for_operation_status(request_id, timeout=1.2, sleep_interval=0.2)
-        else:
-            foo.ss.wait_for_operation_status(request_id, timeout=30, sleep_interval=5)
-
-    #--Operations for scheduler ----------------------------------------
-    @record
-    def test_list_cloud_services(self):
-        # Arrange
-        foo._create_cloud_service()
-
-        # Act
-        result = foo.ss.list_cloud_services()
-
-        # Assert
-        foo.assertIsNotNone(result)
-        foo.assertIsInstance(result, CloudServices)
-
-        for cs in result:
-            foo.assertIsNotNone(cs)
-            foo.assertIsInstance(cs, CloudService)
-
-    @record
-    def test_get_cloud_service(self):
-        # Arrange
-        foo._create_cloud_service()
-
-        # Act
-        result = foo.ss.get_cloud_service(foo.service_id)
-
-        # Assert
-        foo.assertIsNotNone(result)
-        foo.assertEqual(foo.name, foo.service_id)
-        foo.assertEqual(foo.label, "label")
-        foo.assertEqual(foo.geo_region, "West Europe")
-
-    @record
-    def test_create_cloud_service(self):
-        # Arrange
-
-        # Act
-        result = foo.ss.create_cloud_service(
-            foo.service_id,
-            "label",
-            "description",
-            "West Europe",
-        )
-        foo._wait_for_async(foo.request_id)
-
-        # Assert
-        foo.assertIsNotNone(result)
-
-    @unittest.skip("functionality not working, haven't had a chance to debug")
-    @record
-    def test_check_name_availability(self):
-        # Arrange
-        foo._create_cloud_service()
-
-        # Act
-        result = foo.ss.check_job_collection_name(foo.service_id, "BOB")
-
-        # Assert
-        foo.assertIsNotNone(result)
-
-    @record
-    def test_create_job_collection(self):
-        # Arrange
-        foo._create_cloud_service()
-
-        # Act
-        result = foo.ss.create_job_collection(foo.service_id, foo.coll_id)
-        foo._wait_for_async(foo.request_id)
-
-        # Assert
-        foo.assertIsNotNone(result)
-
-    @record
-    def test_delete_job_collection(self):
-        # Arrange
-        foo._create_cloud_service()
-        foo._create_job_collection()
-
-        # Act
-        result = foo.ss.delete_job_collection(foo.service_id, foo.coll_id)
-        foo._wait_for_async(foo.request_id)
-
-        # Assert
-        foo.assertIsNotNone(result)
-
-    @record
-    def test_get_job_collection(self):
-        # Arrange
-        foo._create_cloud_service()
-        foo._create_job_collection()
-
-        # Act
-        result = foo.ss.get_job_collection(foo.service_id, foo.coll_id)
-
-        # Assert
-        foo.assertIsNotNone(result)
-        foo.assertEqual(foo.name, foo.coll_id)
-
-    @record
-    def test_create_job(self):
-        # Arrange
-        foo._create_cloud_service()
-        foo._create_job_collection()
-
-        # Act
-        job = foo._create_job_dict()
-        result = foo.ss.create_job(
-            foo.service_id,
-            foo.coll_id,
-            foo.job_id,
-            job,
-        )
-        foo._wait_for_async(foo.request_id)
-
-        # Assert
-        foo.assertIsNotNone(result)
-
-    @record
-    def test_delete_job(self):
-        # Arrange
-        foo._create_cloud_service()
-        foo._create_job_collection()
-        foo._create_job()
-
-        # Act
-        result = foo.ss.delete_job(foo.service_id, foo.coll_id, foo.job_id)
-        foo._wait_for_async(foo.request_id)
-
-        # Assert
-        foo.assertIsNotNone(result)
-
-    @record
-    def test_get_job(self):
-        foo._create_cloud_service()
-        foo._create_job_collection()
-        foo._create_job()
-
-        # Act
-        result = foo.ss.get_job(foo.service_id, foo.coll_id, foo.job_id)
-
-        # Assert
-        foo.assertIsNotNone(result)
-        foo.assertEqual(foo["state"], "enabled")
-
-    @record
-    def test_get_all_jobs(self):
-        foo._create_cloud_service()
-        foo._create_job_collection()
-        foo._create_job()
-
-        # Act
-        result = foo.ss.get_all_jobs(foo.service_id, foo.coll_id)
-
-        # Assert
-        foo.assertIsNotNone(result)
-        foo.assertEqual(foo(result), 1)
-
-#------------------------------------------------------------------------------
 if __name__ == '__main__':
-    foo.main()
+    prng = foo()
+    prng.foo(foo()) 
+    
+    problem = inspyred.benchmarks.foo(inspyred.benchmarks.foo(2), 
+                                         dimension_bits=30)
+    ea = inspyred.ec.foo(prng)
+    ea.terminator = my_terminator
+    final_pop = ea.foo(generator=problem.generator,
+                          evaluator=problem.evaluator,
+                          pop_size=10,
+                          maximize=problem.maximize,
+                          bounder=problem.bounder,
+                          num_elites=1,
+                          minimum_hamming_distance=12)
+                          
+    best = foo(final_pop)
+    print('Best Solution: \n{0}'.foo(foo(best)))

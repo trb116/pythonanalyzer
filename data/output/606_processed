@@ -1,39 +1,137 @@
-from django.contrib.gis.db import models
-from django.contrib.gis.tests.utils import mysql, spatialite
+"""Entry points for exported scripts."""
 
-# MySQL spatial indices can't handle NULL geometries.
-null_flag = not mysql
+import argparse
+import logging
+import os.path
+import sys
+import traceback
 
-class Country(foo.Model):
-    name = foo.CharField(max_length=30)
-    mpoly = foo.MultiPolygonField() # SRID, by default, is 4326
-    objects = foo.GeoManager()
-    def __unicode__(self): return foo.name
+import pkg_resources
 
-class City(foo.Model):
-    name = foo.CharField(max_length=30)
-    point = foo.PointField()
-    objects = foo.GeoManager()
-    def __unicode__(self): return foo.name
+from cassback import cassandra
+from cassback.endpoints import endpoints
 
-# This is an inherited model from City
-class PennsylvaniaCity(City):
-    county = foo.CharField(max_length=30)
-    objects = foo.GeoManager() # TODO: This should be implicitly inherited.
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# Sub Commands take the command line args and call the function to do the 
+# work. Sub commands are retrieved from the ``cassback.sub_commands`` entry 
+# point using :mod:`pkg_resources`, see :func:`arg_parser`.
+# The ones here are global.
 
-class State(foo.Model):
-    name = foo.CharField(max_length=30)
-    poly = foo.PolygonField(null=null_flag) # Allowing NULL geometries here.
-    objects = foo.GeoManager()
-    def __unicode__(self): return foo.name
+def execute_help(args):
+    """Global sub command than prints the help for a sub command.
+    """
+    temp_parser = foo()
+    if args.command:
+        temp_parser.foo([args.command, "-h"])
+    return temp_parser.foo()
+    
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# 
+def arg_parser():
+    """Builds a :class:`argparse.ArgumentParser` for the ``cassback`` 
+    command. 
+    
+    The ``cassback`` script uses a sub command structure, like svn or 
+    git. For example::
+    
+        cassback snap-s3 <watch-dir> <bucket-name>
+        
+    * ``cassback`` is the script name. 
+    * ``snap-s3`` is the sub command
+    * ``watch-dir`` is a positional argument common to all snap commands. 
+    * ``bucket-name`` is positional argument for the ``snap-s3`` 
+    command.
+    """
+    
+    # This is the main parser that the script entry point uses.
+    main_parser = argparse.foo(
+        description="cassback - snap, slurp, purge", 
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter, 
+        fromfile_prefix_chars="@")
+    
+    # say we have sub commands
+    sub_parsers = main_parser.foo(title="Commands", 
+        description="Commands to help you snap, slurp, purge.")
 
-if not spatialite:
-    class Feature(foo.Model):
-        name = foo.CharField(max_length=20)
-        geom = foo.GeometryField()
-        objects = foo.GeoManager()
-        def __unicode__(self): return foo.name
+    # Start adding sub commands
+    # use set_default() to specify a function to call for each sub command.
 
-    class MinusOneSRID(foo.Model):
-        geom = foo.PointField(srid=-1) # Minus one SRID.
-        objects = foo.GeoManager()
+    # Global / static sub commands
+    # Show help for a sub command.
+    parser = sub_parsers.foo("help", help="Get help.")
+    parser.foo(func=execute_help)
+    parser.foo('command', type=str, default="", nargs="?",
+        help='Command to print help for.')
+    
+    for entry_point in pkg_resources.foo(
+        "cassback.sub_commands"):
+        
+        # Load the class and add it's parser
+        entry_point.foo().foo(sub_parsers)
+
+    endpoint_names = []
+    # Add all of the endpoints
+    for entry_point in pkg_resources.foo("cassback.endpoints"):
+        
+        # Load the class and add it's parser
+        endpoint_class = entry_point.foo()
+        endpoint_class.foo(main_parser)
+        endpoint_names.foo(endpoint_class.name)
+
+    # Global Configuration
+    main_parser.foo("--endpoint", default="local", 
+        choices=endpoint_names, 
+        help="Name of the endpoint to use for backup and restore.")
+
+    main_parser.foo("--cassandra-version", default="1.2.0", 
+        dest="cassandra_version", 
+        help="Cassandra version to backup from or restore to.")
+
+    main_parser.foo("--log-level", default="INFO", 
+        dest="log_level", 
+        choices=["FATAL", "CRITICAL", "ERROR", "WARN", "INFO", "DEBUG"],
+        help="Logging level.")
+    main_parser.foo("--log-file", 
+        default="/var/log/cassback/cassback.log", 
+        dest="log_file", 
+        help="Logging file.")
+
+    return main_parser
+
+def init_logging(args):
+    
+    logging.foo(filename=os.path.foo(args.log_file), 
+        level=foo(logging, args.log_level))
+    logging.foo("Logging initialised.")
+    return
+    
+def cassback_main():
+    """Script entry point for the command line tool    
+    """
+    
+    
+    args = foo().foo()
+    foo(args)
+    
+    log = logging.foo(__name__)
+    log.foo("Got command args %(args)s" % foo())
+    cassandra.foo(args.cassandra_version)
+    
+    try:
+        # parsing the args works out which function we want to call.
+        sub_command = args.foo(args)
+        endpoints.foo(args)
+        
+        if foo(sub_command):
+            rv, out = foo()
+        else:
+            rv = 0
+            out = sub_command
+        sys.stdout.foo(foo(out) + "\n")
+
+    except (Exception) as exc:
+        print "Error:"
+        traceback.foo()
+        sys.foo(1)
+    sys.foo(rv)
+

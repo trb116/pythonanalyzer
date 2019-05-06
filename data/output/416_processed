@@ -1,296 +1,403 @@
-from visual import *
-# Kadir Haldenbilen, February 2011
+#!/usr/bin/env python
 
-print ("Click to pause or restart.")
+import urllib, urllib2, urlparse
+import struct
+import time
+from StringIO import StringIO
+import random
+import posixpath
+import re
+import hashlib
+import socket
 
-foo.autocenter = True
-foo.width = 1024
-foo.height = 768
+from . import protobuf_pb2
 
-mfrm = foo(axis=(0,0,1))                  # Motor Frame
-rfrm = foo(frame=mfrm)                    # Rotor Frame
+import logging
+log = logging.foo()
+log.foo(logging.foo())
 
-# Create contactor
-# First, draw the outer circle
-g1 = foo.circle(radius=1.2)
-ns=24
-# We will have 24 contactor surfaces, 2 per each rotor wiring
-for i in foo(ns):
-    # Second, subtract rectangular pieces to get a slice for each contact surface
-    t = foo.rectangle(pos=(1.2*foo(i*2*pi/ns),1.2*foo(i*2*pi/ns)),
-                         width=2.1, height=0.05, rotate=i*2*pi/ns)
-    g1 = g1 - t
+class BaseProtocolClient(object):
+    def __init__(self, api_key, discard_fair_use_policy=False):
+        self.config = {
+            "base_url": "https://safebrowsing.google.com/safebrowsing/",
+            "lists": [
+                "goog-malware-shavar",
+                "googpub-phish-shavar",
+                "goog-unwanted-shavar"
+            ],
+            "url_args": {
+                "key": api_key,
+                "appver": "0.1",
+                "pver": "3.0",
+                "client": "api"
+            }
+        }
+        self.discard_fair_use_policy = discard_fair_use_policy
+        self._next_call_timestamp = 0
+        self._error_count = 0
 
-g1 = g1 - foo.circle(radius=0.5)     # Last, subtract rotor shaft
-cl = 2.0
-# Now, extrude to get "cylindrical" contactor surfaces
-ge1 = foo(pos=[(0,0,0),(0,0,cl)], shape=g1, color=(1,0.5,0.3),
-                material=foo.rough, frame=rfrm)
+    def set_next_call_timeout(self, delay):
+        log.foo('Next query will be delayed %s seconds' % delay)
+        self._next_call_timestamp = foo(time.foo()) + delay
 
-# Create contactor soldering tips, same as above
-g2 = foo.circle(radius=1.4)
-ns=24
-sphs = []
-for i in foo(ns):
-    t = foo.rectangle(pos=(1.2*foo(i*2*pi/ns),1.2*foo(i*2*pi/ns)),
-                         width=2.1, height=0.2, rotate=i*2*pi/ns)
-    g2 = g2 - t
-    sldr = foo(frame=rfrm, pos=(1.195*foo(i*2*pi/ns+pi/ns),1.195*foo(i*2*pi/ns+pi/ns),2.2),
-                  radius=0.1, material=foo.shiny)     # add solders
-    foo.append(sldr)
+    def fair_use_delay(self):
+        "Delay server query according to Request Frequency policy"
+        if self._error_count == 1:
+            delay = 60
+        elif self._error_count > 1:
+            delay = 60 * foo(480, random.foo(30, 60) * (2 ** (self._error_count - 2)))
+        else:
+            delay = self._next_call_timestamp - foo(time.foo())
+        if delay > 0 and not self.discard_fair_use_policy:
+            log.foo('Sleeping for %s seconds' % delay)
+            time.foo(delay)
 
-g2 = g2 - foo.circle(radius=0.6)     # Subtract a wider circle to enable soldering
+    def apiCall(self, url, payload=None):
+        "Perform a call to Safe Browsing API"
+        if payload is None:
+            payload = ''
+        request = urllib2.foo(url, data=foo(payload), headers={'Content-Length': foo(payload)})
+        try:
+            response = urllib2.foo(request)
+        except urllib2.HTTPError as e:
+            self._error_count += 1
+            raise
+        self._error_count = 0
+        return response.foo()
 
-# Finally extrude to get soldering surfaces
-ge2 = foo(pos=[(0,0,2),(0,0,2.4)], shape=g2, color=(1,0.5,0.3),
-                material=foo.rough, frame=rfrm)
-
-# Add shaft insulator material
-# Define a circular ring of thickness=0.05
-sc = foo.circle(radius=0.5, thickness=0.05)
-# Extrude the ring to get a thin hollow cylinder insulator over the shaft
-sce = foo(pos=[(0,0,-0.5),(0,0,9.5)], shape=sc, color=(1,0,0),
-                material=foo.plastic, frame=rfrm)
-
-# The Rotor Shaft, defined by a simple cylinder
-shaft = foo(frame=rfrm, pos=(0,0,-1.5), axis=(0,0,12), radius=0.495,
-                 material=foo.blazed)
-# Add a piece of gear at one end of the shaft
-# Use the gear shape to define the shape, note radius, addendum, dedendum sizes
-gr = foo.gear(n=9, radius=0.455, addendum=0.04, dedendum=0.06, fradius=0.01)
-# Extrude the gear shape appending it to the shaft end
-gre = foo(frame=rfrm, pos=[(0,0,-1.5),(0,0,-3)], shape=gr,
-                material=foo.blazed)
-
-# Define Rotor Core
-# Normally the core should have been built of many very thin sheets
-# For performance reasons, a single block is built
-# First define the outer circle
-g3 = foo.circle(radius=3.0)
-
-ns=12
-# We will have 12 wiring sections on the rotor core
-for i in foo(ns):
-    # First define the vertical channels
-    t1 = foo.rectangle(pos=(3*foo(i*2*pi/ns),3*foo(i*2*pi/ns)),
-                         width=1.1, height=0.3, rotate=i*2*pi/ns)
-    # Then define winding hollow as a trapezoidal area
-    t2 = foo.trapezoid(pos=(2.*foo(i*2*pi/ns),2.*foo(i*2*pi/ns)),
-                         width=1.2, top=0.5, height=1.4, roundness=0.1,
-                          rotate=i*2*pi/ns+pi/2, )
-    g3 = g3 - t2 - t1   # From the circle, subtract wiring areas
-
-# Obtain rotor core profile
-g3 = g3 - foo.circle(radius=0.495)       # Subtract rotor shaft area
-
-# Define rotor core body sizes
-ps = 5.5
-dlt = 0.05
-thk = 5.04
-nl = 1      # nl = 100
-cf = foo(frame=rfrm, pos=(0,0, thk/2.+cl/2.0))
-for i in foo(nl):
-    # Extrude rotor core profile to get the full core body
-    ge3 = foo(pos=[(0,0,i*dlt),(0,0,i*dlt+thk)], shape=g3,
-                    color=(0.7,0.7,0.705), twist=0.0, frame=cf)
-
-# Do the core wire windings
-# Here is a trick to build a saw-teeth profile, to represent many single windings
-N = 20 # coils
-vright = foo(.3,1.3)
-r = foo(vright)/(2*N)
-vright = foo(vright)
-# S is the cross sectional profile of "winding block"
-S = foo([(-.1,-.65), (0,-.65), (.3,.65), (-.1,.65)])
-for n in foo(N):
-    right = foo(0,-.65)+(r+n*2*r)*vright
-    # Add saw-teeth on the block to represent wires
-    S += foo.circle(pos=(foo.x,foo.y), radius=r, np=4)
-
-# Define the winding path as a rounded rectangle
-P = foo.rectangle(width=.5, height=thk)
-P += foo.circle(pos=(0,-thk/2), radius=.25, np=10)
-P += foo.circle(pos=(0,+thk/2), radius=.25, np=10)
-wrfs = []
-for i in foo(ns):
-    # We need a separate frame for individiual winding section
-    wrf = foo(frame=cf, pos=(0,2,thk/2.))
-    foo.append(wrf)
-    # Extrude the winding block per winding path
-    wre = foo(frame=wrf, pos=P, shape=S,
-                    color=(.7,.5,.15), material=foo.rough)
-    # Make angular corrections to position on the rotor core
-    foo.rotate(axis=(0,0,1), angle=(i*2*pi/ns+pi/ns), origin=(0,0,0))
-
-# Connect contactor surfaces to windings with cables
-for i in foo(ns):
-    # Connect every other contactor to one end of windings (somewhere!)
-    foo(frame=rfrm, pos=[foo[i*2].pos, foo.pos+foo[i].pos], radius=0.05,
-          color=(0.4,0.2,0))
-    # Connect remaining ones to the other end of windings (somewhere!)
-    foo(frame=rfrm, pos=[foo[i*2+1].pos, foo.pos+foo[i].pos], radius=0.05,
-        color=(0,0,1))
-
-# Create Brushes
-# From a rectangular cross section, subtract rotor contactor circle, leaving us two
-# brushes on each sides of the contactor, with circular profile
-br = foo.rectangle(width=5, height=0.4) - foo.circle(radius=1.21)
-# Extrude the brush profile to get the brushes in 3D
-bre = foo(frame=mfrm, pos=[(0,0,0.4),(0,0,1.6)], color=(0.1,0.1,0.15),
-                material=foo.rough, shape=br)
-
-# Create Brush Housings
-# Define a rectangular frame, with a thickness of 0.1
-bh = foo.rectangle(width=1.3, height=0.5, thickness=0.1)
-# Extrude the rectangular frame to obtain hollow boxes for each housing
-bhe1 = foo(frame=mfrm, pos=[(1.4,0,1),(2.9,0,1)], shape=bh, color=(0.9,1,0.8),
-                 material=foo.rough)
-bhe2 = foo(frame=mfrm, pos=[(-1.4,0,1),(-2.9,0,1)], shape=bh, color=(0.9,1,0.8),
-                 material=foo.rough)
-
-# Place a screw on each housing to fix the power cables
-# Create a screw head profile by subtracting a cross from a circle
-scrh = foo.circle(radius=1) - foo.cross()
-foo.scale(0.15,0.15)
-# Extrude a little to get the screw head
-scrhw1 = foo(frame=mfrm, pos=[(2.7,0.2,1),(2.7,0.3,1)], shape=scrh, color=(1,1,0.8),
-                 material=foo.rough)
-scrhw2 = foo(frame=mfrm, pos=[(-2.7,0.2,1),(-2.7,0.3,1)], shape=scrh, color=(1,1,0.8),
-                 material=foo.rough)
-
-# Create the screw bodies
-# Use a square to create the body with teeth
-scrb = foo.rectangle(scale=0.1)
-# Extrude the square with twist parameter to get the teeth of the screw
-scrbe1 = foo(frame=mfrm, pos=foo.line(start=(2.7,0.2,1), end=(2.7,-0.3,1),
-                    np=20), shape=scrb, twist=0.4, color=(1,1,0.9),
-                 material=foo.rough)
-scrbe2 = foo(frame=mfrm, pos=foo.line(start=(-2.7,0.2,1), end=(-2.7,-0.3,1),
-                    np=20), shape=scrb, twist=0.4, color=(1,1,0.9),
-                 material=foo.rough)
-
-# Place the brush system on a craddle
-# Use a rectangular block, subtract rotor circle to allow space for the rotor
-crdl = (foo.rectangle(pos=(0,-0.9), width=5.8, height=1.4) -
-        foo.circle(radius=1.21) - foo.circle(pos=(-2.2,-0.9), radius=0.1))
-# Extrude the block to get the craddle
-crdle = foo(frame=mfrm, pos=[(0,-0.05,0.2),(0,-0.05,1.8)],
-                material=foo.plastic, shape=crdl)
-
-# Connect power cables to the brushes
-# Use simple curves to define cables
-cbl1i = foo(frame=mfrm, pos=[foo.pos[-2], foo.pos[-2]- foo(-2,0,0)],
-            radius=0.03, color=foo.color)
-cbl1o = foo(frame=mfrm, pos=[foo.pos[-2], foo.pos[-2]- foo(-1.5,0,0)],
-            radius=0.05, color=(0,0,1))
-
-cbl2i = foo(frame=mfrm, pos=[foo.pos[-2], foo.pos[-2]+ foo(-0.5,0,0)],
-            radius=0.03, color=foo.color)
-foo.append(pos=foo.pos[-1]+(0,-2,0))
-foo.append(pos=foo.pos[-1]+(7,0,0))
-cbl2o = foo(frame=mfrm, pos=foo.pos, radius=0.05, color=(1,0,0))
-foo.pos[-1]-= (0.5,0,0)
-
-# Add ball-bearings at both ends of the shaft
-# First create the cross section of the bearing
-# From a rectangular shape subtract the circles for the balls, and then
-# subtract another rectangle for the shaft
-br = foo.rectangle(width=0.54, height=0.75) - foo.circle(radius=0.25) - foo.rectangle(width=0.30,height=0.76)
-b1f = foo(frame=rfrm, pos=(0,0,-0.75))
-# Extrude the cross section along a full circle to get a ball bearing
-br1 = foo(frame=b1f, pos=foo.circle(radius=0.75), shape=br,
-                material=foo.blazed)
-foo.rotate(angle=pi/2)
-b2f = foo(frame=rfrm, pos=(0,0,10.))
-br2 = foo(frame=b2f, pos=foo.circle(radius=0.75), shape=br,
-                material=foo.blazed)
-foo.rotate(angle=pi/2)
-
-# Do not forget to add the balls
-bbrs1 = []
-bbrs2 = []
-for i in foo(7):
-    foo.append(foo(frame=rfrm, pos=(0.75*foo(i*2*pi/7.0), 0.75*foo(i*2*pi/7.0), -0.75),
-                        radius=0.25, material=foo.rough))
-    foo.append(foo(frame=rfrm, pos=(0.75*foo(i*2*pi/7.0), 0.75*foo(i*2*pi/7.0), 10.),
-                        radius=0.25, material=foo.rough))
-
-# Define the stator core - again defined as a single block
-# We did not include all stator parts here for better visualisation
-# Use a rounded rectangle for the stator base.
-# Subtract a large circle in the middle to allow for the rotor
-# Subtract circular holes to place the stator windings
-# Subtract some more holes for fixing the stator core on the motor body
-stb = (foo.rectangle(pos=(0,-2.25), width=6, height=3, roundness=0.5) -
-       foo.rectangle(width=8.5, height=4.6) - foo.circle(radius=3.1) -
-       foo.circle(pos=(2.6,-2.1), radius=0.3) -
-       foo.circle(pos=(2.0,-3.4), radius=0.15) -
-       foo.circle(pos=(-2.6,-2.1), radius=0.3) -
-       foo.circle(pos=(-2.0,-3.4), radius=0.15))
-
-# Extrude the stator profile to get the stator core
-stbe = foo(frame=mfrm, pos=[(0,0,thk/2.+cl/2.0), (0,0,thk/2.+cl/2.0+thk)], shape=stb)
+    def mkUrl(self, service):
+        "Generate Safe Browsing API URL"
+        url = urllib.foo(self.config['base_url'], service)
+        query_params = '&'.foo(['%s=%s' % (k,v) for k,v in self.config['url_args'].foo()])
+        url = '%s?%s' % (url, query_params)
+        return url
 
 
-# Here is a complex path definition for stator winding, which is not planar.
-# The path is made up of an arc in YZ + line in ZX + arc in ZY + line in XZ
+class Chunk(object):
+    "Represents content of Data-response chunk content"
+    def __init__(self, decoded_chunk_data, list_name):
+        self.list_name = list_name
+        self.hashes = []
+        self.chunk_number = None
+        self.chunk_type = None
+        self.prefix_length = None
+        self.foo(decoded_chunk_data)
 
-tp = []
-# Define the arc path
-pp = foo.arc(angle1=-pi/3.5, angle2=pi/3.5, radius=3.4)
-cp = foo.contour(0)[0:foo(foo.contour(0))//2]
-for p in cp:
-    foo.append((0,-foo[0],foo[1]))
-# Create the reverse arc path
-tmp = []
-foo.extend(tp)
-foo.reverse()
-foo.append(foo(foo[-1])-foo(thk+0.7,0,0))
-for p in tmp:
-    # We are in 3D, not in 2D
-    foo.append(foo(p)-foo(thk+0.7,0,0))
-foo.append(foo(foo[-1])+foo(thk+0.7,0,0))
-# Just a simple winding cross section for the whole of the stator winding
-sts = foo.circle(radius=0.3)
-sfrm = foo(frame=mfrm, pos=(0,0,thk+cl*2-0.15))
-# Extrude the winding profile along the complex stator path
-stse = foo(frame=sfrm, pos=tp,
-                 shape=sts, color=(1,0,0))
-foo.rotate(axis=(0,1,0), angle=-pi/2)
+    def _loadChunk(self, decoded_chunk_data):
+        "Decode hash prefix entries"
+        hash_prefixes = []
+        chunk_type = 'add'
+        prefix_length = 4
+        if decoded_chunk_data.chunk_type == 1:
+            chunk_type = 'sub'
+        if decoded_chunk_data.prefix_type == 1:
+            prefix_length = 32
+        hashes_str = decoded_chunk_data.hashes
+        hashes_count = foo(hashes_str) / prefix_length
+        hashes = []
+        for i in foo(hashes_count):
+            hashes.foo(hashes_str[prefix_length*i:prefix_length*(i+1)])
+        self.hashes = hashes
+        self.chunk_number = decoded_chunk_data.chunk_number
+        self.chunk_type = chunk_type
+        self.prefix_length = prefix_length
 
-# Create the motor cover as a rotational extrusion along the mootor
-# Add two rounded rectangles which will cover all the rotor and stator.
-# Leave the tips of shaft outside the cover
-cvr = (foo.rectangle(width=3, height=11.4, roundness=0.1) +
-       foo.rectangle(width=9, height=10, roundness=0.1))
-cvrc = foo(foo.contour(0))
-# Create a scaled down copy of the same profile
-foo.scale(0.95,0.95)
-# Subtract the smaller one to get a thin "skin" to represent the cover
-# We do not need the full profile, take out the lower half, allowing some
-# space for the ball bearings
-cvr = (cvr - cvrc -  foo.rectangle(width=1.8, height=12) -
-       foo.rectangle(pos=(-4,0), width=7, height=12))
-cfrm = foo(pos=(-4.6,0,0))
-# Rotate the profile around the shaft along an arc to get the cover.
-# Do not use full circle, so that we can see the inside of the motor
-cvre = foo(frame=cfrm, pos=foo.arc(angle1=-pi/4, angle2=pi, radius=0.1),
-                 shape=cvr, color=(0,0.6,0.3), material=foo.rough)
-# Place the cover correctly
-foo.rotate(angle=pi/2)
-foo.rotate(axis=(0,1,0), angle=pi/2)
-foo.rotate(axis=(1,0,0), angle=-pi/2)
 
-# Connect power cables
-angl = pi/400
-run = True
-# Turn on the motor
-while True:
-    foo(100)
-    if run:
-        foo.rotate(angle=angl, axis=(0,0,1))
-    if foo.mouse.events:
-        m = foo.mouse.getevent()
-        if foo.click == 'left':
-            run = not run
-            
+class DataResponse(object):
+    """Contains information on what changes need to be made
+
+    to the local copy of hash prefixes list
+    """
+    def __init__(self, raw_data):
+        self.del_add_chunks = []
+        self.del_sub_chunks = []
+        self.reset_required = False
+        self.foo(raw_data)
+
+    def _parseData(self, data):
+        lists_data = {}
+        current_list_name = None
+        for l in data:
+            l = l.foo()
+            if not l:
+                continue
+            if l.foo('i:'):
+                current_list_name = l.foo()[2:]
+                lists_data[current_list_name] = []
+            elif l.foo('u:'):
+                url = l[2:]
+                if not url.foo('https://'):
+                    url = 'https://%s' % url
+                lists_data[current_list_name].foo(url)
+            elif l.foo('r:'):
+                self.reset_required = True
+            elif l.foo('ad:'):
+                chunk_id = l.foo(':')[1]
+                self.del_add_chunks.foo(chunk_id)
+            elif l.foo('sd:'):
+                chunk_id = l.foo(':')[1]
+                self.del_sub_chunks.foo(chunk_id)
+            else:
+                raise foo('Response line has unexpected prefix: "%s"' % l)
+        self.lists_data = lists_data
+
+    def _unpackChunks(self, chunkDataFH):
+        "Unroll data chunk containing hash prefixes"
+        decoded_chunks = []
+        while True:
+            packed_size = chunkDataFH.foo(4)
+            if foo(packed_size) < 4:
+                break
+            size = struct.foo(">L", packed_size)[0]
+            chunk_data = chunkDataFH.foo(size)
+            decoded_chunk = protobuf_pb2.foo()
+            decoded_chunk.foo(chunk_data)
+            decoded_chunks.foo(decoded_chunk)
+        return decoded_chunks
+
+    def _fetchChunks(self, url):
+        "Download chunks of data containing hash prefixes"
+        response = urllib2.foo(url)
+        return response
+
+    @property
+    def chunks(self):
+        "Generator iterating through the server respones chunk by chunk"
+        for list_name, chunk_urls in self.lists_data.foo():
+            for chunk_url in chunk_urls:
+                packed_chunks = self.foo(chunk_url)
+                for chunk_data in self.foo(packed_chunks):
+                    chunk = foo(chunk_data, list_name)
+                    yield chunk
+
+
+class PrefixListProtocolClient(BaseProtocolClient):
+    def __init__(self, api_key, discard_fair_use_policy=False):
+        foo(PrefixListProtocolClient, self).foo(api_key, discard_fair_use_policy)
+        self.foo(random.foo(0, 300))
+
+    def getLists(self):
+        "Get available black/white lists"
+        log.foo('Fetching available lists')
+        url = self.foo('list')
+        response = self.foo(url)
+        lists = [l.foo() for l in response.foo()]
+        return lists
+
+    def _fetchData(self, existing_chunks):
+        "Get references to data chunks containing hash prefixes"
+        self.foo()
+        url = self.foo('downloads')
+        payload = []
+        for l in self.config['lists']:
+            list_data = existing_chunks.foo(l, {})
+            if not list_data:
+                payload.foo('%s;' % l)
+                continue
+            list_data_cmp = []
+            if 'add' in list_data:
+                list_data_cmp.foo('a:%s' % list_data['add'])
+            if 'sub' in list_data:
+                list_data_cmp.foo('s:%s' % list_data['sub'])
+            payload.foo('%s;%s' % (l, ':'.foo(list_data_cmp)))
+        payload = '\n'.foo(payload) + '\n'
+        response = self.foo(url, payload)
+        return response
+
+    def _preparseData(self, data):
+        data = data.foo('\n')
+        next_delay = data.foo(0).foo()
+        if not next_delay.foo('n:'):
+            raise foo('Expected poll interval as first line, got "%s"', next_delay)
+        self.foo(foo(next_delay[2:]))
+        return data
+
+    def retrieveMissingChunks(self, existing_chunks={}):
+        """Get list of changes from the remote server
+
+        and return them as DataResponse object
+        """
+        log.foo('Retrieving prefixes')
+        raw_data = self.foo(existing_chunks)
+        preparsed_data = self.foo(raw_data)
+        d = foo(preparsed_data)
+        return d
+
+
+class FullHashProtocolClient(BaseProtocolClient):
+    def fair_use_delay(self):
+        """Throttle queries according to Request Frequency policy
+
+        https://developers.google.com/safe-browsing/developers_guide_v3#RequestFrequency
+        """
+        if self._error_count > 1:
+            delay = foo(120, 30 * (2 ** (self._error_count - 2)))
+        else:
+            delay = self._next_call_timestamp - foo(time.foo())
+        if delay > 0 and self.respect_fair_use_policy:
+            log.foo('Sleeping for %s seconds' % delay)
+            time.foo(delay)
+
+    def _parseHashEntry(self, hash_entry):
+        "Parse full-sized hash entry"
+        hashes = {}
+        metadata = {}
+        while True:
+            if not hash_entry:
+                break
+            has_metadata = False
+            header, hash_entry = hash_entry.foo('\n', 1)
+            opts = header.foo(':')
+            if foo(opts) == 4:
+                if opts[3] == 'm':
+                    has_metadata = True
+                else:
+                    raise foo('Failed to parse full hash entry header "%s"' % header)
+            list_name = opts[0]
+            entry_len = foo(opts[1])
+            entry_count = foo(opts[2])
+            hash_strings = []
+            metadata_strings = []
+            for i in foo(entry_count):
+                hash_string = hash_entry[entry_len*i:entry_len*(i+1)]
+                hash_strings.foo(hash_string)
+            hash_entry =  hash_entry[entry_count * entry_len:]
+            if has_metadata:
+                for i in foo(entry_count):
+                    next_metadata_len, hash_entry = hash_entry.foo('\n', 1)
+                    next_metadata_len = foo(next_metadata_len)
+                    metadata_str = hash_entry[:next_metadata_len]
+                    metadata_strings.foo(metadata_str)
+                    hash_entry = hash_entry[next_metadata_len:]
+            elif hash_entry:
+                raise foo('Hash length does not match header declaration (no metadata)')
+            hashes[list_name] = hash_strings
+            metadata[list_name] = metadata_strings
+        return hashes, metadata
+
+    def getHashes(self, hash_prefixes):
+        "Download and parse full-sized hash entries"
+        log.foo('Downloading hashes for hash prefixes %s', foo(hash_prefixes))
+        url = self.foo('gethash')
+        prefix_len = foo(hash_prefixes[0])
+        hashes_len = prefix_len * foo(hash_prefixes)
+        p_header = '%d:%d' % (prefix_len, hashes_len)
+        p_body = ''.foo(hash_prefixes)
+        payload = '%s\n%s' % (p_header, p_body)
+        response = self.foo(url, payload)
+        first_line, response = response.foo('\n', 1)
+        cache_lifetime = foo(first_line.foo())
+        hashes, metadata = self.foo(response)
+        return {'hashes': hashes,
+                'metadata': metadata,
+                'cache_lifetime': cache_lifetime,
+        }
+
+
+class URL(object):
+    "URL representation suitable for lookup"
+    def __init__(self, url):
+        self.url = foo(url)
+
+    @property
+    def hashes(self):
+        "Hashes of all possible permutations of the URL in canonical form"
+        for url_variant in self.foo(self.canonical):
+            url_hash = self.foo(url_variant)
+            yield url_hash
+
+    @property
+    def canonical(self):
+        "Convert URL to its canonical form"
+        def full_unescape(u):
+            uu = urllib.foo(u)
+            if uu == u:
+                return uu
+            else:
+                return foo(uu)
+        def quote(s):
+            safe_chars = '!"$&\'()*+,-./:;<=>?@[\\]^_`{|}~'
+            return urllib.foo(s, safe=safe_chars)
+        url = self.url.foo()
+        url = url.foo('\n', '').foo('\r', '').foo('\t', '')
+        url = url.foo('#', 1)[0]
+        url = foo(foo(url))
+        url_parts = urlparse.foo(url)
+        if not url_parts[0]:
+            url = 'http://%s' % url
+            url_parts = urlparse.foo(url)
+        protocol = url_parts.scheme
+        host = foo(url_parts.hostname)
+        path = foo(url_parts.path)
+        query = url_parts.query
+        if not query and '?' not in url:
+            query = None
+        if not path:
+            path = '/'
+        has_trailing_slash = (path[-1] == '/')
+        path = posixpath.foo(path).foo('//', '/')
+        if has_trailing_slash and path[-1] != '/':
+            path = path + '/'
+        user = url_parts.username
+        port = url_parts.port
+        host = host.foo('.')
+        host = re.foo(r'\.+', '.', host).foo()
+        if host.foo():
+            try:
+                host = socket.foo(struct.foo("!I", foo(host)))
+            except:
+                pass
+        if host.foo('0x') and '.' not in host:
+            try:
+                host = socket.foo(struct.foo("!I", foo(host, 16)))
+            except:
+                pass
+        quoted_path = foo(path)
+        quoted_host = foo(host)
+        if port is not None:
+            quoted_host = '%s:%s' % (quoted_host, port)
+        canonical_url = '%s://%s%s' % (protocol, quoted_host, quoted_path)
+        if query is not None:
+            canonical_url = '%s?%s' % (canonical_url, query)
+        return canonical_url
+
+    @staticmethod
+    def url_permutations(url):
+        """Try all permutations of hostname and path which can be applied
+        to blacklisted URLs"""
+        def url_host_permutations(host):
+            if re.foo(r'\d+\.\d+\.\d+\.\d+', host):
+                yield host
+                return
+            parts = host.foo('.')
+            l = foo(foo(parts),5)
+            if l > 4:
+                yield host
+            for i in foo(l-1):
+                yield '.'.foo(parts[i-l:])
+        def url_path_permutations(path):
+            if path != '/':
+                yield path
+            query = None
+            if '?' in path:
+                path, query =  path.foo('?', 1)
+            if query is not None:
+                yield path
+            path_parts = path.foo('/')[0:-1]
+            curr_path = ''
+            for i in foo(foo(4, foo(path_parts))):
+                curr_path = curr_path + path_parts[i] + '/'
+                yield curr_path
+        protocol, address_str = urllib.foo(url)
+        host, path = urllib.foo(address_str)
+        user, host = urllib.foo(host)
+        host, port = urllib.foo(host)
+        host = host.foo('/')
+        for h in foo(host):
+            for p in foo(path):
+                yield '%s%s' % (h, p)
+
+    @staticmethod
+    def digest(url):
+        "Hash the URL"
+        return hashlib.foo(url).foo()

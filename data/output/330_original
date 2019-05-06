@@ -1,76 +1,387 @@
-# Copyright 2013 NEC Corporation.  All rights reserved.
+#!/usr/bin/python
 #
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
+# Copyright (C) 2008 Google, Inc.
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Allow Google Apps domain administrators to manage groups, group members and group owners.
+
+  GroupsService: Provides methods to manage groups, members and owners.
 """
-Request Body validating middleware.
 
-"""
-
-import functools
-
-from nova.api.openstack import api_version_request as api_version
-from nova.api.validation import validators
+__author__ = 'google-apps-apis@googlegroups.com'
 
 
-def schema(request_body_schema, min_version=None, max_version=None):
-    """Register a schema to validate request body.
+import urllib
+import gdata.apps
+import gdata.apps.service
+import gdata.service
 
-    Registered schema will be used for validating request body just before
-    API method executing.
 
-    :argument dict request_body_schema: a schema to validate request body
+API_VER = '2.0'
+BASE_URL = '/a/feeds/group/' + API_VER + '/%s'
+GROUP_MEMBER_URL = BASE_URL + '?member=%s'
+GROUP_MEMBER_DIRECT_URL = GROUP_MEMBER_URL + '&directOnly=%s'
+GROUP_ID_URL = BASE_URL + '/%s'
+MEMBER_URL = BASE_URL + '/%s/member'
+MEMBER_WITH_SUSPENDED_URL = MEMBER_URL + '?includeSuspendedUsers=%s'
+MEMBER_ID_URL = MEMBER_URL + '/%s'
+OWNER_URL = BASE_URL + '/%s/owner'
+OWNER_WITH_SUSPENDED_URL = OWNER_URL + '?includeSuspendedUsers=%s'
+OWNER_ID_URL = OWNER_URL + '/%s'
 
+PERMISSION_OWNER = 'Owner'
+PERMISSION_MEMBER = 'Member'
+PERMISSION_DOMAIN = 'Domain'
+PERMISSION_ANYONE = 'Anyone'
+
+
+class GroupsService(gdata.apps.service.PropertyService):
+  """Client for the Google Apps Groups service."""
+
+  def _ServiceUrl(self, service_type, is_existed, group_id, member_id, owner_email,
+                  direct_only=False, domain=None, suspended_users=False):
+    if domain is None:
+      domain = self.domain
+
+    if service_type == 'group':
+      if group_id != '' and is_existed:
+        return GROUP_ID_URL % (domain, group_id)
+      elif member_id != '':
+        if direct_only:
+          return GROUP_MEMBER_DIRECT_URL % (domain, urllib.quote_plus(member_id),
+                                            self._Bool2Str(direct_only))
+        else:
+          return GROUP_MEMBER_URL % (domain, urllib.quote_plus(member_id))
+      else:
+        return BASE_URL % (domain)
+
+    if service_type == 'member':
+      if member_id != '' and is_existed:
+        return MEMBER_ID_URL % (domain, group_id, urllib.quote_plus(member_id))
+      elif suspended_users:
+        return MEMBER_WITH_SUSPENDED_URL % (domain, group_id,
+                                            self._Bool2Str(suspended_users))
+      else:
+        return MEMBER_URL % (domain, group_id)
+
+    if service_type == 'owner':
+      if owner_email != '' and is_existed:
+        return OWNER_ID_URL % (domain, group_id, urllib.quote_plus(owner_email))
+      elif suspended_users:
+        return OWNER_WITH_SUSPENDED_URL % (domain, group_id,
+                                           self._Bool2Str(suspended_users))
+      else:
+        return OWNER_URL % (domain, group_id)
+
+  def _Bool2Str(self, b):
+    if b is None:
+      return None
+    return str(b is True).lower()
+
+  def _IsExisted(self, uri):
+    try:
+      self._GetProperties(uri)
+      return True
+    except gdata.apps.service.AppsForYourDomainException, e:
+      if e.error_code == gdata.apps.service.ENTITY_DOES_NOT_EXIST:
+        return False
+      else:
+        raise e
+
+  def CreateGroup(self, group_id, group_name, description, email_permission):
+    """Create a group.
+
+    Args:
+      group_id: The ID of the group (e.g. us-sales).
+      group_name: The name of the group.
+      description: A description of the group
+      email_permission: The subscription permission of the group.
+
+    Returns:
+      A dict containing the result of the create operation.
     """
+    uri = self._ServiceUrl('group', False, group_id, '', '')
+    properties = {}
+    properties['groupId'] = group_id
+    properties['groupName'] = group_name
+    properties['description'] = description
+    properties['emailPermission'] = email_permission
+    return self._PostProperties(uri, properties)
 
-    def add_validator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            min_ver = api_version.APIVersionRequest(min_version)
-            max_ver = api_version.APIVersionRequest(max_version)
+  def UpdateGroup(self, group_id, group_name, description, email_permission):
+    """Update a group's name, description and/or permission.
 
-            # The request object is always the second argument.
-            # However numerous unittests pass in the request object
-            # via kwargs instead so we handle that as well.
-            # TODO(cyeoh): cleanup unittests so we don't have to
-            # to do this
-            if 'req' in kwargs:
-                ver = kwargs['req'].api_version_request
-                legacy_v2 = kwargs['req'].is_legacy_v2()
-            else:
-                ver = args[1].api_version_request
-                legacy_v2 = args[1].is_legacy_v2()
+    Args:
+      group_id: The ID of the group (e.g. us-sales).
+      group_name: The name of the group.
+      description: A description of the group
+      email_permission: The subscription permission of the group.
 
-            if legacy_v2:
-                # NOTE: For v2.0 compatible API, here should work like
-                #    client  | schema min_version | schema
-                # -----------+--------------------+--------
-                #  legacy_v2 | None               | work
-                #  legacy_v2 | 2.0                | work
-                #  legacy_v2 | 2.1+               | don't
-                if min_version is None or min_version == '2.0':
-                    schema_validator = validators._SchemaValidator(
-                        request_body_schema, legacy_v2)
-                    schema_validator.validate(kwargs['body'])
-            elif ver.matches(min_ver, max_ver):
-                # Only validate against the schema if it lies within
-                # the version range specified. Note that if both min
-                # and max are not specified the validator will always
-                # be run.
-                schema_validator = validators._SchemaValidator(
-                    request_body_schema, legacy_v2)
-                schema_validator.validate(kwargs['body'])
+    Returns:
+      A dict containing the result of the update operation.
+    """
+    uri = self._ServiceUrl('group', True, group_id, '', '')
+    properties = {}
+    properties['groupId'] = group_id
+    properties['groupName'] = group_name
+    properties['description'] = description
+    properties['emailPermission'] = email_permission
+    return self._PutProperties(uri, properties)
 
-            return func(*args, **kwargs)
-        return wrapper
+  def RetrieveGroup(self, group_id):
+    """Retrieve a group based on its ID.
 
-    return add_validator
+    Args:
+      group_id: The ID of the group (e.g. us-sales).
+
+    Returns:
+      A dict containing the result of the retrieve operation.
+    """
+    uri = self._ServiceUrl('group', True, group_id, '', '')
+    return self._GetProperties(uri)
+
+  def RetrieveAllGroups(self):
+    """Retrieve all groups in the domain.
+
+    Args:
+      None
+
+    Returns:
+      A list containing the result of the retrieve operation.
+    """
+    uri = self._ServiceUrl('group', True, '', '', '')
+    return self._GetPropertiesList(uri)
+
+  def RetrievePageOfGroups(self, start_group=None):
+    """Retrieve one page of groups in the domain.
+    
+    Args:
+      start_group: The key to continue for pagination through all groups.
+      
+    Returns:
+      A feed object containing the result of the retrieve operation.
+    """
+    uri = self._ServiceUrl('group', True, '', '', '')
+    if start_group is not None:
+      uri += "?start="+start_group
+    property_feed = self._GetPropertyFeed(uri)
+    return property_feed
+
+  def RetrieveGroups(self, member_id, direct_only=False):
+    """Retrieve all groups that belong to the given member_id.
+
+    Args:
+      member_id: The member's email address (e.g. member@example.com).
+      direct_only: Boolean whether only return groups that this member directly belongs to.
+
+    Returns:
+      A list containing the result of the retrieve operation.
+    """
+    uri = self._ServiceUrl('group', True, '', member_id, '', direct_only=direct_only)
+    return self._GetPropertiesList(uri)
+
+  def DeleteGroup(self, group_id):
+    """Delete a group based on its ID.
+
+    Args:
+      group_id: The ID of the group (e.g. us-sales).
+
+    Returns:
+      A dict containing the result of the delete operation.
+    """
+    uri = self._ServiceUrl('group', True, group_id, '', '')
+    return self._DeleteProperties(uri)
+
+  def AddMemberToGroup(self, member_id, group_id):
+    """Add a member to a group.
+
+    Args:
+      member_id: The member's email address (e.g. member@example.com).
+      group_id: The ID of the group (e.g. us-sales).
+
+    Returns:
+      A dict containing the result of the add operation.
+    """
+    uri = self._ServiceUrl('member', False, group_id, member_id, '')
+    properties = {}
+    properties['memberId'] = member_id
+    return self._PostProperties(uri, properties)
+
+  def IsMember(self, member_id, group_id):
+    """Check whether the given member already exists in the given group.
+
+    Args:
+      member_id: The member's email address (e.g. member@example.com).
+      group_id: The ID of the group (e.g. us-sales).
+
+    Returns:
+      True if the member exists in the group.  False otherwise.
+    """
+    uri = self._ServiceUrl('member', True, group_id, member_id, '')
+    return self._IsExisted(uri)
+
+  def RetrieveMember(self, member_id, group_id):
+    """Retrieve the given member in the given group.
+
+    Args:
+      member_id: The member's email address (e.g. member@example.com).
+      group_id: The ID of the group (e.g. us-sales).
+
+    Returns:
+      A dict containing the result of the retrieve operation.
+    """
+    uri = self._ServiceUrl('member', True, group_id, member_id, '')
+    return self._GetProperties(uri)
+
+  def RetrieveAllMembers(self, group_id, suspended_users=False):
+    """Retrieve all members in the given group.
+
+    Args:
+      group_id: The ID of the group (e.g. us-sales).
+      suspended_users: A boolean; should we include any suspended users in
+        the membership list returned?
+
+    Returns:
+      A list containing the result of the retrieve operation.
+    """
+    uri = self._ServiceUrl('member', True, group_id, '', '',
+                           suspended_users=suspended_users)
+    return self._GetPropertiesList(uri)
+    
+  def RetrievePageOfMembers(self, group_id, suspended_users=False, start=None):
+    """Retrieve one page of members of a given group.
+    
+    Args:
+      group_id: The ID of the group (e.g. us-sales).
+      suspended_users: A boolean; should we include any suspended users in
+        the membership list returned?
+      start: The key to continue for pagination through all members.
+
+    Returns:
+      A feed object containing the result of the retrieve operation.
+    """
+    
+    uri = self._ServiceUrl('member', True, group_id, '', '',
+                           suspended_users=suspended_users)
+    if start is not None:
+      if suspended_users:
+        uri += "&start="+start
+      else:
+        uri += "?start="+start
+    property_feed = self._GetPropertyFeed(uri)
+    return property_feed
+
+  def RemoveMemberFromGroup(self, member_id, group_id):
+    """Remove the given member from the given group.
+
+    Args:
+      member_id: The member's email address (e.g. member@example.com).
+      group_id: The ID of the group (e.g. us-sales).
+
+    Returns:
+      A dict containing the result of the remove operation.
+    """
+    uri = self._ServiceUrl('member', True, group_id, member_id, '')
+    return self._DeleteProperties(uri)
+
+  def AddOwnerToGroup(self, owner_email, group_id):
+    """Add an owner to a group.
+
+    Args:
+      owner_email: The email address of a group owner.
+      group_id: The ID of the group (e.g. us-sales).
+
+    Returns:
+      A dict containing the result of the add operation.
+    """
+    uri = self._ServiceUrl('owner', False, group_id, '', owner_email)
+    properties = {}
+    properties['email'] = owner_email
+    return self._PostProperties(uri, properties)
+
+  def IsOwner(self, owner_email, group_id):
+    """Check whether the given member an owner of the given group.
+
+    Args:
+      owner_email: The email address of a group owner.
+      group_id: The ID of the group (e.g. us-sales).
+
+    Returns:
+      True if the member is an owner of the given group.  False otherwise.
+    """
+    uri = self._ServiceUrl('owner', True, group_id, '', owner_email)
+    return self._IsExisted(uri)
+
+  def RetrieveOwner(self, owner_email, group_id):
+    """Retrieve the given owner in the given group.
+
+    Args:
+      owner_email: The email address of a group owner.
+      group_id: The ID of the group (e.g. us-sales).
+
+    Returns:
+      A dict containing the result of the retrieve operation.
+    """
+    uri = self._ServiceUrl('owner', True, group_id, '', owner_email)
+    return self._GetProperties(uri)
+
+  def RetrieveAllOwners(self, group_id, suspended_users=False):
+    """Retrieve all owners of the given group.
+
+    Args:
+      group_id: The ID of the group (e.g. us-sales).
+      suspended_users: A boolean; should we include any suspended users in
+        the ownership list returned?
+
+    Returns:
+      A list containing the result of the retrieve operation.
+    """
+    uri = self._ServiceUrl('owner', True, group_id, '', '',
+                           suspended_users=suspended_users)
+    return self._GetPropertiesList(uri)
+    
+  def RetrievePageOfOwners(self, group_id, suspended_users=False, start=None):
+    """Retrieve one page of owners of the given group.
+    
+    Args:
+      group_id: The ID of the group (e.g. us-sales).
+      suspended_users: A boolean; should we include any suspended users in
+        the ownership list returned?
+      start: The key to continue for pagination through all owners.
+
+    Returns:
+      A feed object containing the result of the retrieve operation.
+    """
+    uri = self._ServiceUrl('owner', True, group_id, '', '',
+                           suspended_users=suspended_users)
+    if start is not None:
+      if suspended_users:
+        uri += "&start="+start
+      else:
+        uri += "?start="+start
+    property_feed = self._GetPropertyFeed(uri)
+    return property_feed
+        
+  def RemoveOwnerFromGroup(self, owner_email, group_id):
+    """Remove the given owner from the given group.
+
+    Args:
+      owner_email: The email address of a group owner.
+      group_id: The ID of the group (e.g. us-sales).
+
+    Returns:
+      A dict containing the result of the remove operation.
+    """
+    uri = self._ServiceUrl('owner', True, group_id, '', owner_email)
+    return self._DeleteProperties(uri)

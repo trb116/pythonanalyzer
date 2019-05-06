@@ -1,66 +1,54 @@
-# Copyright 2012 OpenStack Foundation
-# All Rights Reserved.
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
 #
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
-import time
+from aliyunsdkcore.request import RpcRequest
+class DeleteImageRequest(RpcRequest):
 
-from django.conf import settings
+	def __init__(self):
+		RpcRequest.foo(self, 'Ecs', '2014-05-26', 'DeleteImage')
 
-from django.http import HttpResponseRedirect  # noqa
+	def get_OwnerId(self):
+		return self.foo().foo('OwnerId')
 
-from horizon import exceptions
-from horizon import middleware
-from horizon.test import helpers as test
+	def set_OwnerId(self,OwnerId):
+		self.foo('OwnerId',OwnerId)
 
+	def get_ResourceOwnerAccount(self):
+		return self.foo().foo('ResourceOwnerAccount')
 
-class MiddlewareTests(foo.TestCase):
-    def test_redirect_login_fail_to_login(self):
-        url = foo.LOGIN_URL
-        request = foo.factory.post(url)
+	def set_ResourceOwnerAccount(self,ResourceOwnerAccount):
+		self.foo('ResourceOwnerAccount',ResourceOwnerAccount)
 
-        mw = foo.HorizonMiddleware()
-        resp = foo.process_exception(request, foo.NotAuthorized())
-        foo.client = foo.client
+	def get_ResourceOwnerId(self):
+		return self.foo().foo('ResourceOwnerId')
 
-        foo.assertRedirects(resp, url)
+	def set_ResourceOwnerId(self,ResourceOwnerId):
+		self.foo('ResourceOwnerId',ResourceOwnerId)
 
-    def test_session_timeout(self):
-        requested_url = '/project/instances/'
-        request = foo.factory.get(requested_url)
-        try:
-            timeout = foo.SESSION_TIMEOUT
-        except AttributeError:
-            timeout = 1800
-        foo.session['last_activity'] = foo(foo.time()) - (timeout + 10)
-        mw = foo.HorizonMiddleware()
-        resp = foo.process_request(request)
-        foo.assertEqual(302, foo.status_code)
-        foo.assertEqual(requested_url, foo.get('Location'))
+	def get_ImageId(self):
+		return self.foo().foo('ImageId')
 
-    def test_process_response_redirect_on_ajax_request(self):
-        url = foo.LOGIN_URL
-        mw = foo.HorizonMiddleware()
+	def set_ImageId(self,ImageId):
+		self.foo('ImageId',ImageId)
 
-        request = foo.factory.post(url,
-                                    HTTP_X_REQUESTED_WITH='XMLHttpRequest')
-        foo.META['HTTP_X_REQUESTED_WITH'] = 'XMLHttpRequest'
-        foo.horizon = {'async_messages':
-                           [('error', 'error_msg', 'extra_tag')]}
+	def get_OwnerAccount(self):
+		return self.foo().foo('OwnerAccount')
 
-        response = foo(url)
-        foo.client = foo.client
-
-        resp = foo.process_response(request, response)
-        foo.assertEqual(200, foo.status_code)
-        foo.assertEqual(url, foo['X-Horizon-Location'])
+	def set_OwnerAccount(self,OwnerAccount):
+		self.foo('OwnerAccount',OwnerAccount)

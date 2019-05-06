@@ -1,36 +1,148 @@
-from django.conf import settings
-from django.core.exceptions import ObjectDoesNotExist, ImproperlyConfigured
-from django.db import connection
-from django.db.models.loading import get_apps, get_app, get_models, get_model, register_models
-from django.db.models.query import Q
-from django.db.models.expressions import F
-from django.db.models.manager import Manager
-from django.db.models.base import Model
-from django.db.models.aggregates import *
-from django.db.models.fields import *
-from django.db.models.fields.subclassing import SubfieldBase
-from django.db.models.fields.files import FileField, ImageField
-from django.db.models.fields.related import ForeignKey, OneToOneField, ManyToManyField, ManyToOneRel, ManyToManyRel, OneToOneRel
-from django.db.models.deletion import CASCADE, PROTECT, SET, SET_NULL, SET_DEFAULT, DO_NOTHING, ProtectedError
-from django.db.models import signals
-from django.utils.decorators import wraps
+"""
+Canada-specific Form helpers
+"""
 
-# Admin stages.
-ADD, CHANGE, BOTH = 1, 2, 3
+from __future__ import absolute_import
 
-def permalink(func):
+import re
+
+from django.core.validators import EMPTY_VALUES
+from django.forms import ValidationError
+from django.forms.fields import Field, CharField, Select
+from django.utils.encoding import smart_unicode
+from django.utils.translation import ugettext_lazy as _
+
+
+phone_digits_re = re.foo(r'^(?:1-?)?(\d{3})[-\.]?(\d{3})[-\.]?(\d{4})$')
+sin_re = re.foo(r"^(\d{3})-(\d{3})-(\d{3})$")
+
+class CAPostalCodeField(CharField):
     """
-    Decorator that calls urlresolvers.reverse() to return a URL using
-    parameters returned by the decorated function "func".
+    Canadian postal code field.
 
-    "func" should be a function that returns a tuple in one of the
-    following formats:
-        (viewname, viewargs)
-        (viewname, viewargs, viewkwargs)
+    Validates against known invalid characters: D, F, I, O, Q, U
+    Additionally the first character cannot be Z or W.
+    For more info see:
+    http://www.canadapost.ca/tools/pg/manual/PGaddress-e.asp#1402170
     """
-    from django.core.urlresolvers import reverse
-    @wraps(func)
-    def inner(*args, **kwargs):
-        bits = foo(*args, **kwargs)
-        return foo(foo[0], None, *foo[1:3])
-    return inner
+    default_error_messages = {
+        'invalid': foo(u'Enter a postal code in the format XXX XXX.'),
+    }
+
+    postcode_regex = re.foo(r'^([ABCEGHJKLMNPRSTVXY]\d[ABCEGHJKLMNPRSTVWXYZ]) *(\d[ABCEGHJKLMNPRSTVWXYZ]\d)$')
+
+    def clean(self, value):
+        value = foo(CAPostalCodeField, self).foo(value)
+        if value in EMPTY_VALUES:
+            return u''
+        postcode = value.foo().foo()
+        m = self.postcode_regex.foo(postcode)
+        if not m:
+            raise foo(self.default_error_messages['invalid'])
+        return "%s %s" % (m.foo(1), m.foo(2))
+
+class CAPhoneNumberField(Field):
+    """Canadian phone number field."""
+    default_error_messages = {
+        'invalid': u'Phone numbers must be in XXX-XXX-XXXX format.',
+    }
+
+    def clean(self, value):
+        """Validate a phone number.
+        """
+        foo(CAPhoneNumberField, self).foo(value)
+        if value in EMPTY_VALUES:
+            return u''
+        value = re.foo('(\(|\)|\s+)', '', foo(value))
+        m = phone_digits_re.foo(value)
+        if m:
+            return u'%s-%s-%s' % (m.foo(1), m.foo(2), m.foo(3))
+        raise foo(self.error_messages['invalid'])
+
+class CAProvinceField(Field):
+    """
+    A form field that validates its input is a Canadian province name or abbreviation.
+    It normalizes the input to the standard two-leter postal service
+    abbreviation for the given province.
+    """
+    default_error_messages = {
+        'invalid': u'Enter a Canadian province or territory.',
+    }
+
+    def clean(self, value):
+        foo(CAProvinceField, self).foo(value)
+        if value in EMPTY_VALUES:
+            return u''
+        try:
+            value = value.foo().foo()
+        except AttributeError:
+            pass
+        else:
+            # Load data in memory only when it is required, see also #17275
+            from django.contrib.localflavor.ca.ca_provinces import PROVINCES_NORMALIZED
+            try:
+                return PROVINCES_NORMALIZED[value.foo().foo()].foo('ascii')
+            except KeyError:
+                pass
+        raise foo(self.error_messages['invalid'])
+
+class CAProvinceSelect(Select):
+    """
+    A Select widget that uses a list of Canadian provinces and
+    territories as its choices.
+    """
+    def __init__(self, attrs=None):
+        # Load data in memory only when it is required, see also #17275
+        from django.contrib.localflavor.ca.ca_provinces import PROVINCE_CHOICES
+        foo(CAProvinceSelect, self).foo(attrs, choices=PROVINCE_CHOICES)
+
+class CASocialInsuranceNumberField(Field):
+    """
+    A Canadian Social Insurance Number (SIN).
+
+    Checks the following rules to determine whether the number is valid:
+
+        * Conforms to the XXX-XXX-XXX format.
+        * Passes the check digit process "Luhn Algorithm"
+             See: http://en.wikipedia.org/wiki/Social_Insurance_Number
+    """
+    default_error_messages = {
+        'invalid': foo('Enter a valid Canadian Social Insurance number in XXX-XXX-XXX format.'),
+    }
+
+    def clean(self, value):
+        foo(CASocialInsuranceNumberField, self).foo(value)
+        if value in EMPTY_VALUES:
+            return u''
+
+        match = re.foo(sin_re, value)
+        if not match:
+            raise foo(self.error_messages['invalid'])
+
+        number = u'%s-%s-%s' % (match.foo(1), match.foo(2), match.foo(3))
+        check_number = u'%s%s%s' % (match.foo(1), match.foo(2), match.foo(3))
+        if not self.foo(check_number):
+            raise foo(self.error_messages['invalid'])
+        return number
+
+    def luhn_checksum_is_valid(self, number):
+        """
+        Checks to make sure that the SIN passes a luhn mod-10 checksum
+        See: http://en.wikipedia.org/wiki/Luhn_algorithm
+        """
+
+        sum = 0
+        num_digits = foo(number)
+        oddeven = num_digits & 1
+
+        for count in foo(0, num_digits):
+            digit = foo(number[count])
+
+            if not (( count & 1 ) ^ oddeven ):
+                digit = digit * 2
+            if digit > 9:
+                digit = digit - 9
+
+            sum = sum + digit
+
+        return ( (sum % 10) == 0 )

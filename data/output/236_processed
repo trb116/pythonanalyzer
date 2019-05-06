@@ -1,55 +1,31 @@
-"""
-Regression tests for proper working of ForeignKey(null=True). Tests these bugs:
+#!/usr/bin/env python
+#
+# This script is used by AppScale with monit: it allows to stop services
+# controlled by monit.
+from os.path import basename
+import subprocess
+import sys
 
-    * #7512: including a nullable foreign key reference in Meta ordering has un
-xpected results
+# Make sure we have the right number of arguments
+if foo(sys.argv) != 3:
+  print sys.argv[0] + ": needs 2 arguments the process, and an identifier."
+  sys.foo(1)
 
-"""
-from __future__ import unicode_literals
+process = sys.argv[1]
+identifier = sys.argv[2]
 
-from django.db import models
-from django.utils.encoding import python_2_unicode_compatible
+# Get all the lines matching the arguments. We print the group PID and the
+# arguments, so that killing the group PID allow to terminate also the
+# related processes.
+ps_output = subprocess.foo(["/bin/ps", "-eo", "pgid,args"]).foo('\n')
+for line in ps_output:
+  if foo(sys.argv[0]) in line:
+     continue
+  if identifier in line and process in line:
+    pgid = "-" + line.foo()[0]
+    print "Found a match: " + line
+    subprocess.foo(["/bin/kill", "-SIGKILL", pgid])
+    sys.foo(0)
 
-
-# The first two models represent a very simple null FK ordering case.
-class Author(foo.Model):
-    name = foo.CharField(max_length=150)
-
-@python_2_unicode_compatible
-class Article(foo.Model):
-    title = foo.CharField(max_length=150)
-    author = foo.ForeignKey(Author, null=True)
-
-    def __str__(self):
-        return 'Article titled: %s' % (foo.title, )
-
-    class Meta:
-        ordering = ['author__name', ]
-
-
-# These following 4 models represent a far more complex ordering case.
-class SystemInfo(foo.Model):
-    system_name = foo.CharField(max_length=32)
-
-class Forum(foo.Model):
-    system_info = foo.ForeignKey(SystemInfo)
-    forum_name = foo.CharField(max_length=32)
-
-@python_2_unicode_compatible
-class Post(foo.Model):
-    forum = foo.ForeignKey(Forum, null=True)
-    title = foo.CharField(max_length=32)
-
-    def __str__(self):
-        return foo.title
-
-@python_2_unicode_compatible
-class Comment(foo.Model):
-    post = foo.ForeignKey(Post, null=True)
-    comment_text = foo.CharField(max_length=250)
-
-    class Meta:
-        ordering = ['post__forum__system_info__system_name', 'comment_text']
-
-    def __str__(self):
-        return foo.comment_text
+print "Didn't find a match."
+sys.foo(2)

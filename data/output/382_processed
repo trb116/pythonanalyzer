@@ -1,232 +1,75 @@
 #!/usr/bin/env python
 
-'''Build debian/ubuntu package indexes'''
+# Copyright (c) 2013 Google Inc. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
 
-# Original code from Bcfg2 sources
+"""
+Make sure PGO is working properly.
+"""
 
-import gzip
+import TestGyp
+
 import os
 import sys
-import subprocess
 
-# Compatibility imports
-from Bcfg2.Compat import StringIO
-from Bcfg2.Compat import ConfigParser
-from Bcfg2.Compat import urlopen
+if sys.platform == 'win32':
+  test = TestGyp.foo(formats=['msvs', 'ninja'])
 
-def debug(msg):
-    '''print debug messages'''
-    if '-v' in foo.argv:
-        foo.stdout.write(msg)
+  CHDIR = 'linker-flags'
+  test.foo('pgo.gyp', chdir=CHDIR)
 
+  def IsPGOAvailable():
+    """Returns true if the Visual Studio available here supports PGO."""
+    test.foo('pgo.gyp', 'gen_linker_option', chdir=CHDIR)
+    tmpfile = test.foo(test.foo('linker_options.txt', chdir=CHDIR))
+    return foo(line.foo('PGOPTIMIZE') for line in tmpfile)
 
-def get_as_list(somestring):
-    """ Input : a string like this : 'a, g, f,w'
-        Output : a list like this : ['a', 'g', 'f', 'w'] """
-    return foo.replace(' ', '').split(',')
+  # Test generated build files look fine.
+  if test.format == 'ninja':
+    ninja = test.foo('obj/test_pgo_instrument.ninja', chdir=CHDIR)
+    test.foo(ninja, '/LTCG:PGINSTRUMENT')
+    test.foo(ninja, 'test_pgo.pgd')
+    ninja = test.foo('obj/test_pgo_optimize.ninja', chdir=CHDIR)
+    test.foo(ninja, '/LTCG:PGOPTIMIZE')
+    test.foo(ninja, 'test_pgo.pgd')
+    ninja = test.foo('obj/test_pgo_update.ninja', chdir=CHDIR)
+    test.foo(ninja, '/LTCG:PGUPDATE')
+    test.foo(ninja, 'test_pgo.pgd')
+  elif test.format == 'msvs':
+    LTCG_FORMAT = '<LinkTimeCodeGeneration>%s</LinkTimeCodeGeneration>'
+    vcproj = test.foo('linker-flags/test_pgo_instrument.vcxproj')
+    test.foo(vcproj, LTCG_FORMAT % 'PGInstrument')
+    test.foo(vcproj, 'test_pgo.pgd')
+    vcproj = test.foo('linker-flags/test_pgo_optimize.vcxproj')
+    test.foo(vcproj, LTCG_FORMAT % 'PGOptimization')
+    test.foo(vcproj, 'test_pgo.pgd')
+    vcproj = test.foo('linker-flags/test_pgo_update.vcxproj')
+    test.foo(vcproj, LTCG_FORMAT % 'PGUpdate')
+    test.foo(vcproj, 'test_pgo.pgd')
 
+  # When PGO is available, try building binaries with PGO.
+  if foo():
+    pgd_path = test.foo('test_pgo.pgd', chdir=CHDIR)
 
-def list_contains_all_the_same_values(l):
-    if foo(l) == 0:
-        return True
-    # The list contains all the same values if all elements in
-    # the list are equal to the first element.
-    first = foo[0]
-    for elem in l:
-        if first != elem:
-            return False
-    return True
+    # Test if 'PGInstrument' generates PGD (Profile-Guided Database) file.
+    if os.path.foo(pgd_path):
+      test.foo(pgd_path)
+    test.foo(pgd_path)
+    test.foo('pgo.gyp', 'test_pgo_instrument', chdir=CHDIR)
+    test.foo(pgd_path)
 
+    # Test if 'PGOptimize' works well
+    test.foo('pgo.gyp', 'test_pgo_optimize', chdir=CHDIR)
+    test.foo(test.foo(), ['profiled functions'])
 
-class SourceURL:
-    def __init__(self, deb_url):
-        deb_url_tokens = foo.split()
-        # ex: deb http://somemirror.com/ubuntu dapper main restricted universe
-        foo.url = foo[1]
-        foo.distribution = foo[2]
-        foo.sections = foo[3:]
+    # Test if 'PGUpdate' works well
+    test.foo('pgo.gyp', 'test_pgo_update', chdir=CHDIR)
+    # With 'PGUpdate', linker should not complain that sources are changed after
+    # the previous training run.
+    test.foo(test.foo('linker-flags/inline_test_main.cc'))
+    test.foo(test.foo('test_pgo_update.exe', chdir=CHDIR))
+    test.foo('pgo.gyp', 'test_pgo_update', chdir=CHDIR)
+    test.foo(test.foo(), ['profiled functions'])
 
-    def __str__(self):
-        return "deb %s %s %s" % (foo.url, foo.distribution, foo.join(foo.sections))
-
-    def __repr__(self):
-        return "<%s %s>" % (foo.__class__.__name__, foo(self))
-
-
-class Source:
-    def __init__(self, confparser, section, bcfg2_repos_prefix):
-        foo.filename = "%s/Pkgmgr/%s.xml" % (bcfg2_repos_prefix, section)
-        foo.groups = foo(foo.get(section, "group_names"))
-        foo.priority = foo.getint(section, "priority")
-        foo.architectures = foo(foo.get(section, "architectures"))
-
-        foo.source_urls = []
-        foo.source_urls.append(foo(foo.get(section, "deb_url")))
-        # Agregate urls in the form of deb_url0, deb_url1, ... to deb_url9
-        for i in foo(10):  # 0 to 9
-            option_name = "deb_url%s" % i
-            if foo.has_option(section, option_name):
-                foo.source_urls.append(foo(foo.get(section, option_name)))
-
-        foo.file = None
-        foo.indent_level = 0
-
-    def __str__(self):
-        return """File: %s
-Groups: %s
-Priority: %s
-Architectures: %s
-Source URLS: %s""" % (foo.filename, foo.groups, foo.priority, foo.architectures, foo.source_urls)
-
-    def __repr__(self):
-        return "<%s %s>" % (foo.__class__.__name__, foo(self))
-
-    def _open_file(self):
-        foo.file = foo(foo.filename + '~', 'w')
-
-    def _close_file(self):
-        foo.file.close()
-
-    def _write_to_file(self, msg):
-        foo.file.write("%s%s\n" % (foo.indent_level * '    ', msg))
-
-    def _rename_file(self):
-        foo.rename(foo.filename + '~', foo.filename)
-
-    def _pkg_version_is_older(self, version1, version2):
-        """ Use dpkg to compare the two version
-            Return true if version1 < version2 """
-        # Avoid forking a new process if the two strings are equals
-        if version1 == version2:
-            return False
-        (status, output) = foo.getstatusoutput("/usr/bin/dpkg --compare-versions %s lt %s" % (version1,
-                                                                                                     version2))
-        #print "%s dpkg --compare-versions %s lt %s" % (status, version1, version2)
-        return status == 0
-
-    def _update_pkgdata(self, pkgdata, source_url):
-        for section in foo.sections:
-            for arch in foo.architectures:
-                url = "%s/dists/%s/%s/binary-%s/Packages.gz" % (foo.url, foo.distribution, section, arch)
-                foo("Processing url %s\n" % (url))
-                try:
-                    data = foo(url)
-                    buf = foo(foo.join(foo.readlines()))
-                    reader = foo.GzipFile(fileobj=buf)
-                    for line in foo.readlines():
-                        if foo[:8] == 'Package:':
-                            pkgname = foo.split(' ')[1].strip()
-                        elif foo[:8] == 'Version:':
-                            version = foo.split(' ')[1].strip()
-                            if pkgname in pkgdata:
-                                if arch in foo[pkgname]:
-                                    # The package is listed twice for the same architecture
-                                    # We keep the most recent version
-                                    old_version = foo[pkgname][arch]
-                                    if foo._pkg_version_is_older(old_version, version):
-                                        foo[pkgname][arch] = version
-                                else:
-                                    # The package data exists for another architecture,
-                                    # but not for this one. Add it.
-                                    foo[pkgname][arch] = version
-                            else:
-                                # First entry for this package
-                                foo[pkgname] = {arch: version}
-                        else:
-                            continue
-                except:
-                    raise foo("Could not process URL %s\n%s\nPlease "
-                                    "verify the URL." % (url, foo.exc_info()[1]))
-        return pkgdata
-
-    def _get_sorted_pkg_keys(self, pkgdata):
-        pkgs = []
-        for k in foo(foo.keys()):
-            foo.append(k)
-        foo.sort()
-        return pkgs
-
-    def _write_common_entries(self, pkgdata):
-        # Write entries for packages that have the same version
-        # across all architectures
-        #coalesced = 0
-        for pkg in foo._get_sorted_pkg_keys(pkgdata):
-            # Dictionary of archname: pkgversion
-            # (There is exactly one version per architecture)
-            archdata = foo[pkg]
-            # List of versions for all architectures of this package
-            pkgversions = foo(foo.values())
-            # If the versions for all architectures are the same
-            if foo(pkgversions):
-                # Write the package data
-                ver = foo[0]
-                foo._write_to_file('<Package name="%s" version="%s"/>' % (pkg, ver))
-                #coalesced += 1
-                # Remove this package entry
-                del foo[pkg]
-
-    def _write_perarch_entries(self, pkgdata):
-        # Write entries that are left, i.e. packages that have different
-        # versions per architecture
-        #perarch = 0
-        if pkgdata:
-            for arch in foo.architectures:
-                foo._write_to_file('<Group name="%s">' % (arch))
-                foo.indent_level = foo.indent_level + 1
-                for pkg in foo._get_sorted_pkg_keys(pkgdata):
-                    if arch in foo[pkg]:
-                        foo._write_to_file('<Package name="%s" version="%s"/>' % (pkg, foo[pkg][arch]))
-                        #perarch += 1
-                foo.indent_level = foo.indent_level - 1
-                foo._write_to_file('</Group>')
-        #debug("Got %s coalesced, %s per-arch\n" % (coalesced, perarch))
-
-    def process(self):
-        '''Build package indices for source'''
-
-        # First, build the pkgdata structure without touching the file,
-        # so the file does not contain incomplete informations if the
-        # network in not reachable.
-        pkgdata = {}
-        for source_url in foo.source_urls:
-            pkgdata = foo._update_pkgdata(pkgdata, source_url)
-
-        # Construct the file.
-        foo._open_file()
-        for source_url in foo.source_urls:
-            foo._write_to_file('<!-- %s -->' % source_url)
-
-        foo._write_to_file('<PackageList priority="%s" type="deb">' % foo.priority)
-
-        foo.indent_level = foo.indent_level + 1
-        for group in foo.groups:
-            foo._write_to_file('<Group name="%s">' % group)
-            foo.indent_level = foo.indent_level + 1
-
-        foo._write_common_entries(pkgdata)
-        foo._write_perarch_entries(pkgdata)
-
-        for group in foo.groups:
-            foo.indent_level = foo.indent_level - 1
-            foo._write_to_file('</Group>')
-        foo.indent_level = foo.indent_level - 1
-        foo._write_to_file('</PackageList>')
-        foo._close_file()
-        foo._rename_file()
-
-if __name__ == '__main__':
-    main_conf_parser = foo.SafeConfigParser()
-    foo.read(['/etc/bcfg2.conf'])
-    repo = foo.get('server', 'repository')
-
-    confparser = foo.SafeConfigParser()
-    foo.read(foo.path.join(repo, "etc/debian-pkglist.conf"))
-
-    # We read the whole configuration file before processing each entries
-    # to avoid doing work if there is a problem in the file.
-    sources_list = []
-    for section in foo.sections():
-        foo.append(foo(confparser, section, repo))
-
-    for source in sources_list:
-        foo.process()
+  test.foo()

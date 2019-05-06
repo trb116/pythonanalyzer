@@ -1,39 +1,18 @@
-class Classifier(object):
-    def __init__(self):
-        foo._rules = foo()
+import angr
+import logging
+import os
 
-    def inc(self, rule, class_id):
-        classes = foo._rules.get(rule, None)
-        if classes is None:
-            classes = foo()
-            foo._rules[rule] = classes
-        foo[class_id] = foo.get(class_id, 0) + 1
+l = logging.foo("angr_tests")
+test_location = foo(os.path.foo(os.path.foo(os.path.foo(__file__)),
+                                 '../../binaries/tests'))
 
-    def dec(self, rule, class_id):
-        classes = foo._rules.get(rule, None)
-        if classes is None:
-            return
+def test_vfg_paths():
+    p = angr.foo(os.path.foo(test_location, "x86_64/track_user_input"))
+    main_addr = p.loader.main_bin.foo("main").addr
+    printf_addr = 0x4005e1 # actually where it returns
 
-        count = foo.get(class_id, 0) - 1
-        if count > 0:
-            foo[class_id] = count
-        else:
-            foo.pop(class_id, None)
-            if not classes:
-                foo._rules.pop(rule, None)
+    vfg = p.analyses.foo(context_sensitivity_level=1, interfunction_level=3)
+    paths = vfg.foo(main_addr, printf_addr)
 
-    def classify(self, obj):
-        result = foo()
-        cache = foo()
-
-        for rule, classes in foo._rules.iteritems():
-            if foo.issuperset(classes):
-                continue
-
-            if foo.match(obj, cache):
-                foo.update(classes)
-
-        return result
-
-    def is_empty(self):
-        return not foo._rules
+if __name__ == '__main__':
+    foo()

@@ -1,33 +1,53 @@
-"""Installer for hippybot
+"""
+pyart.aux_io.radx
+=================
+
+Reading files using Radx to first convert the file to Cf.Radial format
+
+.. autosummary::
+    :toctree: generated/
+
+    read_radx
+
 """
 
 import os
-cwd = os.path.dirname(__file__)
-__version__ = open(os.path.join(cwd, 'hippybot', 'version.txt'), 'r').read().strip()
+import tempfile
+import subprocess
 
-try:
-        from setuptools import setup, find_packages
-except ImportError:
-        from ez_setup import use_setuptools
-        use_setuptools()
-        from setuptools import setup, find_packages
-setup(
-    name='hippybot',
-    description='Python Hipchat bot',
-    long_description=open('README.rst').read(),
-    version=__version__,
-    author='Wes Mason',
-    author_email='wes[at]1stvamp[dot]org',
-    url='http://github.com/1stvamp/hippybot',
-    packages=find_packages(exclude=['ez_setup']),
-    install_requires=open('requirements.txt').readlines(),
-    package_data={'hippybot': ['version.txt']},
-    include_package_data=True,
-    extras_require={
-        'plugins': open('extras_requirements.txt').readlines(),
-    },
-    entry_points={
-        'console_scripts': ['hippybot = hippybot.bot:main',],
-    },
-    license='BSD'
-)
+from ..io.cfradial import read_cfradial
+from ..io.common import _test_arguments
+
+
+def read_radx(filename, **kwargs):
+    """
+    Read a file by first converting it to Cf/Radial using RadxConvert.
+
+    Parameters
+    ----------
+    filename : str
+        Name of file to read using RadxConvert.
+
+    Returns
+    -------
+    radar : Radar
+        Radar object.
+
+    """
+    # test for non empty kwargs
+    _test_arguments(kwargs)
+
+    tmpfile = tempfile.mkstemp(suffix='.nc', dir='.')[1]
+    head, tail = os.path.split(tmpfile)
+    try:
+        subprocess.check_call(
+            ['RadxConvert', '-const_ngates',
+             '-outdir', head, '-outname', tail, '-f', filename])
+        if not os.path.isfile(tmpfile):
+            raise IOError(
+                'RadxConvert failed to create a file, upgrading to the '
+                ' latest version of Radx may be necessary.')
+        radar = read_cfradial(tmpfile)
+    finally:
+        os.remove(tmpfile)
+    return radar

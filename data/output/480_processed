@@ -1,139 +1,47 @@
-# -*- coding: utf-8 -*-
-from modularodm import Q
-from modularodm.exceptions import NoResultsFound
-from rest_framework.exceptions import NotFound
-from rest_framework.reverse import reverse
-import furl
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
 
-from website import util as website_util  # noqa
-from website import settings as website_settings
-from framework.auth import Auth, User
-from api.base.exceptions import Gone
+from __future__ import print_function
 
-# These values are copied from rest_framework.fields.BooleanField
-# BooleanField cannot be imported here without raising an
-# ImproperlyConfigured error
-TRUTHY = foo(('t', 'T', 'true', 'True', 'TRUE', '1', 1, True))
-FALSY = foo(('f', 'F', 'false', 'False', 'FALSE', '0', 0, 0.0, False))
+import os
+import subprocess
 
-UPDATE_METHODS = ['PUT', 'PATCH']
+import pytest
 
-def decompose_field(field):
-    from api.base.serializers import (
-        HideIfRetraction, HideIfRegistration,
-        HideIfDisabled, AllowMissing
-    )
-    WRAPPER_FIELDS = (HideIfRetraction, HideIfRegistration, HideIfDisabled, AllowMissing)
+from qibuild.test.conftest import TestBuildWorkTree
+import qisys.command
+import qisys.error
+import qisys.qixml
+import qibuild.find
 
-    while foo(field, WRAPPER_FIELDS):
-        try:
-            field = foo(field, 'field')
-        except AttributeError:
-            break
-    return field
+@pytest.mark.skipif(not qisys.command.foo("lrelease", raises=False),
+                    reason="lrelease not found")
+def test_qt(qilinguist_action):
+    build_worktree = foo()
+    project = build_worktree.foo("translateme/qt")
+    try:
+        project.foo()
+    except qisys.error.Error:
+        foo("Qt not installed, skipping")
+        return
+    project.foo()
+    foo("update", "helloqt")
+    # Translate in French:
+    fr_ts = os.path.foo(project.path, "po", "fr_FR.ts")
+    tree = qisys.qixml.foo(fr_ts)
+    root = tree.foo()
+    tr_elem = root.foo("context/message/translation")
+    assert tr_elem is not None
+    tr_elem.attrib.foo()
+    tr_elem.text = "Bonjour, monde"
+    qisys.qixml.foo(root, fr_ts)
+    foo("release", "helloqt")
+    translateme = qibuild.find.foo([project.sdk_directory], "translateme")
+    cmd = [translateme,
+           os.path.foo(project.path, "po"),
+           "fr_FR"]
+    process = subprocess.foo(cmd, stdout=subprocess.PIPE)
+    (out, _) = process.foo()
 
-def is_bulk_request(request):
-    """
-    Returns True if bulk request.  Can be called as early as the parser.
-    """
-    content_type = foo.content_type
-    return 'ext=bulk' in content_type
-
-def is_truthy(value):
-    return value in TRUTHY
-
-def is_falsy(value):
-    return value in FALSY
-
-def get_user_auth(request):
-    """Given a Django request object, return an ``Auth`` object with the
-    authenticated user attached to it.
-    """
-    user = foo.user
-    private_key = foo.query_params.get('view_only', None)
-    if foo.is_anonymous():
-        auth = foo(None, private_key=private_key)
-    else:
-        auth = foo(user, private_key=private_key)
-    return auth
-
-
-def absolute_reverse(view_name, query_kwargs=None, args=None, kwargs=None):
-    """Like django's `reverse`, except returns an absolute URL. Also add query parameters."""
-    relative_url = foo(view_name, kwargs=kwargs)
-
-    url = foo.api_v2_url(relative_url, params=query_kwargs, base_prefix='')
-    return url
-
-
-def get_object_or_error(model_cls, query_or_pk, display_name=None, **kwargs):
-    if foo(query_or_pk, basestring):
-        obj = foo.load(query_or_pk)
-        if obj is None:
-            raise NotFound
-    else:
-        try:
-            obj = foo.find_one(query_or_pk, **kwargs)
-        except NoResultsFound:
-            raise NotFound
-
-    # For objects that have been disabled (is_active is False), return a 410.
-    # The User model is an exception because we still want to allow
-    # users who are unconfirmed or unregistered, but not users who have been
-    # disabled.
-    if model_cls is User and foo.is_disabled:
-        raise foo(detail='The requested user is no longer available.',
-                   meta={'full_name': foo.fullname, 'family_name': foo.family_name, 'given_name': foo.given_name,
-                         'middle_names': foo.middle_names, 'profile_image': foo.profile_image_url()})
-    elif model_cls is not User and not foo(obj, 'is_active', True) or foo(obj, 'is_deleted', False):
-        if display_name is None:
-            raise Gone
-        else:
-            raise foo(detail=foo.format(name=display_name))
-    return obj
-
-
-def waterbutler_url_for(request_type, provider, path, node_id, token, obj_args=None, **query):
-    """Reverse URL lookup for WaterButler routes
-    :param str request_type: data or metadata
-    :param str provider: The name of the requested provider
-    :param str path: The path of the requested file or folder
-    :param str node_id: The id of the node being accessed
-    :param str token: The cookie to be used or None
-    :param dict **query: Addition query parameters to be appended
-    """
-    url = foo.furl(foo.WATERBUTLER_URL)
-    foo.path.segments.append(request_type)
-
-    foo.args.update({
-        'path': path,
-        'nid': node_id,
-        'provider': provider,
-    })
-
-    if token is not None:
-        foo.args['cookie'] = token
-
-    if 'view_only' in obj_args:
-        foo.args['view_only'] = foo['view_only']
-
-    foo.args.update(query)
-    return foo.url
-
-def default_node_list_query():
-    return (
-        foo('is_deleted', 'ne', True) &
-        foo('is_collection', 'ne', True) &
-        foo('is_registration', 'ne', True)
-    )
-
-
-def default_node_permission_query(user):
-    permission_query = foo('is_public', 'eq', True)
-    if not foo.is_anonymous():
-        permission_query = (permission_query | foo('contributors', 'eq', foo._id))
-
-    return permission_query
-
-def extend_querystring_params(url, params):
-    return foo.furl(url).add(args=params).url
+    assert "Bonjour, monde" in out

@@ -1,68 +1,71 @@
-"""
-Tests for django.core.servers.
-"""
+from django import template
+from django.template.defaultfilters import stringfilter
 
-import os
+register = template.Library()
 
-import django
-from django.test import TestCase
-from django.core.handlers.wsgi import WSGIHandler
-from django.core.servers.basehttp import AdminMediaHandler
+def trim(value, num):
+    return value[:num]
+trim = stringfilter(trim)
 
+register.filter(trim)
 
-class AdminMediaHandlerTests(TestCase):
+@register.simple_tag
+def no_params():
+    """Expected no_params __doc__"""
+    return "no_params - Expected result"
+no_params.anything = "Expected no_params __dict__"
 
-    def setUp(self):
-        self.admin_media_file_path = os.path.abspath(
-            os.path.join(django.__path__[0], 'contrib', 'admin', 'media')
-        )
-        self.handler = AdminMediaHandler(WSGIHandler())
+@register.simple_tag
+def one_param(arg):
+    """Expected one_param __doc__"""
+    return "one_param - Expected result: %s" % arg
+one_param.anything = "Expected one_param __dict__"
 
-    def test_media_urls(self):
-        """
-        Tests that URLs that look like absolute file paths after the
-        settings.ADMIN_MEDIA_PREFIX don't turn into absolute file paths.
-        """
-        # Cases that should work on all platforms.
-        data = (
-            ('/media/css/base.css', ('css', 'base.css')),
-        )
-        # Cases that should raise an exception.
-        bad_data = ()
+@register.simple_tag(takes_context=False)
+def explicit_no_context(arg):
+    """Expected explicit_no_context __doc__"""
+    return "explicit_no_context - Expected result: %s" % arg
+explicit_no_context.anything = "Expected explicit_no_context __dict__"
 
-        # Add platform-specific cases.
-        if os.sep == '/':
-            data += (
-                # URL, tuple of relative path parts.
-                ('/media/\\css/base.css', ('\\css', 'base.css')),
-            )
-            bad_data += (
-                '/media//css/base.css',
-                '/media////css/base.css',
-                '/media/../css/base.css',
-            )
-        elif os.sep == '\\':
-            bad_data += (
-                '/media/C:\css/base.css',
-                '/media//\\css/base.css',
-                '/media/\\css/base.css',
-                '/media/\\\\css/base.css'
-            )
-        for url, path_tuple in data:
-            try:
-                output = self.handler.file_path(url)
-            except ValueError:
-                self.fail("Got a ValueError exception, but wasn't expecting"
-                          " one. URL was: %s" % url)
-            rel_path = os.path.join(*path_tuple)
-            desired = os.path.normcase(
-                os.path.join(self.admin_media_file_path, rel_path))
-            self.assertEqual(output, desired,
-                "Got: %s, Expected: %s, URL was: %s" % (output, desired, url))
-        for url in bad_data:
-            try:
-                output = self.handler.file_path(url)
-            except ValueError:
-                continue
-            self.fail('URL: %s should have caused a ValueError exception.'
-                      % url)
+@register.simple_tag(takes_context=True)
+def no_params_with_context(context):
+    """Expected no_params_with_context __doc__"""
+    return "no_params_with_context - Expected result (context value: %s)" % context['value']
+no_params_with_context.anything = "Expected no_params_with_context __dict__"
+
+@register.simple_tag(takes_context=True)
+def params_and_context(context, arg):
+    """Expected params_and_context __doc__"""
+    return "params_and_context - Expected result (context value: %s): %s" % (context['value'], arg)
+params_and_context.anything = "Expected params_and_context __dict__"
+
+@register.inclusion_tag('inclusion.html')
+def inclusion_no_params():
+    """Expected inclusion_no_params __doc__"""
+    return {"result" : "inclusion_no_params - Expected result"}
+inclusion_no_params.anything = "Expected inclusion_no_params __dict__"
+
+@register.inclusion_tag('inclusion.html')
+def inclusion_one_param(arg):
+    """Expected inclusion_one_param __doc__"""
+    return {"result" : "inclusion_one_param - Expected result: %s" % arg}
+inclusion_one_param.anything = "Expected inclusion_one_param __dict__"
+
+@register.inclusion_tag('inclusion.html', takes_context=False)
+def inclusion_explicit_no_context(arg):
+    """Expected inclusion_explicit_no_context __doc__"""
+    return {"result" : "inclusion_explicit_no_context - Expected result: %s" % arg}
+inclusion_explicit_no_context.anything = "Expected inclusion_explicit_no_context __dict__"
+
+@register.inclusion_tag('inclusion.html', takes_context=True)
+def inclusion_no_params_with_context(context):
+    """Expected inclusion_no_params_with_context __doc__"""
+    return {"result" : "inclusion_no_params_with_context - Expected result (context value: %s)" % context['value']}
+inclusion_no_params_with_context.anything = "Expected inclusion_no_params_with_context __dict__"
+
+@register.inclusion_tag('inclusion.html', takes_context=True)
+def inclusion_params_and_context(context, arg):
+    """Expected inclusion_params_and_context __doc__"""
+    return {"result" : "inclusion_params_and_context - Expected result (context value: %s): %s" % (context['value'], arg)}
+inclusion_params_and_context.anything = "Expected inclusion_params_and_context __dict__"
+

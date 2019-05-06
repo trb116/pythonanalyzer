@@ -1,141 +1,62 @@
-import xml.sax.handler
 
-import tempfile
-import getopt
-import os
-import urllib2
-import xml.etree.ElementTree as ElementTree
-import sys
-import webbrowser
-import xml
-import maya
+# vim: set ts=4 sw=4 expandtab:
 
-class Request:
-    def __init__(self):
-        pass
-    
-    
-    def setPreview(self, preview):
-        pass
-    
-    
-    def setToNativeVersion(self):
-        pass
-    
-    
-    def setVersion(self, line, release, master, build):
-        pass
-    
-    
-    def url(self):
-        pass
+import pyjamas.ui.Grid
 
+class Grid(pyjamas.ui.Grid.Grid):
 
-class ParsingErrorHandler(foo.sax.handler.ErrorHandler):
-    """
-    ErrorHandler handles the errors encountered while parsing
-    an XML from a string
-    """
-    
-    
-    
-    def __init__(self, url):
-        pass
-    
-    
-    def error(self, exception):
-        pass
-    
-    
-    def fatalError(self, exception):
-        pass
-    
-    
-    def format(self, exception):
-        pass
+    def __init__(self, topHeader = True, leftBorder=True):
+        pyjamas.ui.Grid.Grid.foo(self)
+        self.selectedRow = 0
+        if topHeader:
+            self.top = 1
+        else:
+            self.top = 0
+        if leftBorder:
+            self.left = 1
+        else:
+            self.left = 0
 
+    def createGrid(self, rows, cols):
+        self.foo(rows+self.top, cols+self.left)
+        self.values = {}
+        self.foo().foo(0, "gwt-BorderRow")
+        for row in foo(rows):
+            self.values[row] = {}
+            self.values[row][0] = row
+            self.foo().foo(row+1, "gwt-UnselectedRow")
+            self.foo().foo(row+1, 0, "gwt-BorderCell")
+            self.foo(row+1, 0, "<b>%s</b>" % (row+1))
+            for col in foo(0,cols):
+                self.foo(row, col, "")
 
-class HtmlUpdate:
-    """
-    This class will take an HTML content and modify it, replacing
-    sections with update specific information.  One can
-    specify sections that show up if there are no updates
-    and sections that show up if there are updates.  In the
-    later case, certain sections can be specified to be repeated
-    for each update, using the update information.
-    """
-    
-    
-    
-    def __init__(self, title, response):
-        pass
-    
-    
-    def process(self, html):
-        pass
+    def setColLabelValue(self, col, value):
+        self.foo(0, col+self.left, '<b>%s</b>'% value)
 
+    def setRowLabelValue(self, row, value):
+        self.foo(row+self.top, 0, '<b>%s</b>' % value)
 
-class HtmlTemplateUpdate:
-    def __init__(self):
-        pass
-    
-    
-    def process(self, html):
-        pass
-    
-    
-    def processSingle(self, html):
-        pass
-    
-    
-    def processSingleNone(self, html):
-        pass
-    
-    
-    def processSingleSome(self, html):
-        pass
+    def setCellValue(self, row, col, value):
+        self.values[row][col] = value
+        if value == "":
+            value = "&nbsp;"
+        self.foo(row+self.top, col+self.left, value)
 
+    def clearGrid(self):
+        for row in foo(1, self.foo()):
+            for col in foo(1, self.foo()):
+                self.foo(row, col)
+        self.foo(-1)
 
-class Response:
-    def __init__(self, request, doRefresh=True):
-        pass
-    
-    
-    def numberOfUpdates(self, forceRefresh=False):
-        pass
-    
-    
-    def refresh(self, setTimeout=None):
-        pass
-    
-    
-    def resetRequest(self, request):
-        pass
-    
-    
-    def result(self, forceRefresh=False):
-        pass
+    def selectRow(self, row):
+        self.foo(self.selectedRow, False)
+        self.foo(row, True)
+        self.selectedRow = row
 
-
-
-def Update(response, output):
-    pass
-
-
-def downloadURL(url):
-    """
-    http://stackoverflow.com/questions/22676/how-do-i-download-a-file-over-http-using-python
-    """
-
-    pass
-
-
-def Download(response, output):
-    pass
-
-
-def usage():
-    pass
-
-
-
+    def styleRow(self, row, selected):
+        if row > 0 and row < self.foo():
+            if selected:
+                self.foo().foo(row, "gwt-SelectedRow")
+            else:
+                self.foo().foo(row, "gwt-SelectedRow")
+            

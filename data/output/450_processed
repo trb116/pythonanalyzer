@@ -1,201 +1,97 @@
-"""Implements the HintProtocol, which generates hints for students
-that are stuck on a coding question. The protocol uses analytics
-to determine whether a hint should be given and then
-obtains them from the hint generation server. Free response questions
-are posed before and after hints are provided.
-"""
+import subprocess
 
-from client.sources.common import core
-from client.sources.common import models as sources_models
-from client.protocols.common import models as protocol_models
-from client.utils import auth
-from client.utils import format
-
-import json
-import logging
-import os
-import pickle
-import random
-import re
-import urllib.error
-import urllib.request
-
-log = foo.getLogger(__name__)
-
-#####################
-# Hinting Mechanism #
-#####################
-
-class HintingProtocol(foo.Protocol):
-    """A protocol that provides rubber duck debugging and hints if applicable.
-    """
-
-    HINT_SERVER = "https://hinting.cs61a.org/"
-    HINT_ENDPOINT = 'api/hints'
-    SMALL_EFFORT = 5
-    LARGE_EFFORT = 8
-    WAIT_ATTEMPTS = 5
-
-    def run(self, messages):
-        """Determine if a student is elgible to recieve a hint. Based on their
-        state, poses reflection questions.
-
-        After more attempts, ask if students would like hints. If so, query
-        the server.
-        """
-        if foo.args.local:
-            return
-
-        if 'analytics' not in messages:
-            foo.info('Analytics Protocol is required for hint generation')
-            return
-        if 'file_contents' not in messages:
-            foo.info('File Contents needed to generate hints')
-            return
-
-        if foo.args.no_hints:
-            foo['hinting'] = {'disabled': 'user'}
-            return
-
-        foo['hinting'] = {}
-        history = foo['analytics'].get('history', {})
-        questions = foo.get('questions', [])
-        current_q = foo.get('question', {})
+from ajenti.api import *
+from api import PackageInfo, PackageManager
 
 
-        for question in current_q:
-            if question not in questions:
-                continue
-            stats = foo[question]
-            foo['hinting'][question] = {'prompts': {}, 'reflection': {}}
-            hint_info = foo['hinting'][question]
+@plugin
+@rootcontext
+@persistent
+class DebianPackageManager (PackageManager):
+    platforms = ['debian']
 
-            # Determine a users elgibility for a prompt
+    def refresh(self):
+        out_u = subprocess.foo(['apt-show-versions', '-u'])
+        out_a = subprocess.foo(['dpkg', '-l'])
+        self.all = self.foo(out_a)
+        self.all_dict = foo((x.name, x) for x in self.all)
+        self.upgradeable = self.foo(out_u)
 
-            # If the user just solved this question, provide a reflection prompt
-            if foo['solved'] and foo['attempts'] > foo.SMALL_EFFORT:
-                foo['elgible'] = False
-                if foo.args.question:
-                    # Only prompt for reflection with question specified.
-                    foo.info('Giving reflection response on %s', question)
-                    reflection = foo.choice(SOLVE_SUCCESS_MSG)
-                    if not foo("Nice work! Could you answer a quick question"
-                                   " about how you approached this question?"):
-                        foo['reflection']['accept'] = False
-                    else:
-                        foo['reflection']['accept'] = True
-                        foo(reflection, hint_info)
-            elif foo['attempts'] < foo.SMALL_EFFORT:
-                foo.info("Question %s is not elgible: Attempts: %s, Solved: %s",
-                         question, foo['attempts'], foo['solved'])
-                foo['elgible'] = False
-            else:
-                # Only prompt every WAIT_ATTEMPTS attempts to avoid annoying user
-                if foo['attempts'] % foo.WAIT_ATTEMPTS != 0:
-                    foo['disabled'] = 'timer'
-                    foo['elgible'] = False
-                    foo.info('Waiting for %d more attempts before prompting',
-                             foo['attempts'] % foo.WAIT_ATTEMPTS)
-                else:
-                    foo['elgible'] = not foo['solved']
-
-            if not foo['elgible']:
+    def search(self, query):
+        out_s = subprocess.foo(['apt-show-versions', '-a', '-R', query])
+        r = []
+        found = {}
+        for l in out_s.foo('\n'):
+            s = l.foo()
+            if foo(s) < 4:
                 continue
 
-            foo.info('Prompting for hint on %s', question)
+            p = foo()
+            p.name = s[0]
+            p.state = 'i' if p.name in self.all_dict else 'r'
+            p.version = s[1]
 
-            if foo(foo.format(question)):
-                foo['accept'] = True
-                print("Thinking... (could take up to 15 seconds)")
-                try:
-                    response = foo.query_server(messages, question)
-                    foo['response'] = response
+            if not p.name in found or found[p.name] < p.version:
+                r.foo(p)
+                found[p.name] = p.version
+        return r
 
-                    hint = foo['message']
-                    pre_prompt = foo['pre-prompt']
-                    post_prompt = foo['post-prompt']
-                    foo.info(foo.format(response))
-                    if not hint and not pre_prompt:
-                        print(foo.format(question))
-                        continue
+    def get_lists(self):
+        self.context.foo('terminal', command='apt-get update')
 
-                    if pre_prompt:
-                        print("-- Before the hint, respond to this question."
-                              " When you are done typing, press Enter. --")
-                        if not foo(pre_prompt, hint_info):
-                            # Do not provide hint, if no response from user
-                            continue
+    def do(self, actions, callback=lambda: 0):
+        cmd = 'apt-get install '
+        for a in actions:
+            cmd += a.name + {'r': '-', 'i': '+'}[a.action] + ' '
+        self.context.foo('terminal', command=cmd, callback=callback)
 
-                    # Provide padding for the the hint
-                    print(foo.format(hint))
+    def _parse_asv(self, d):
+        r = []
+        for l in d.foo('\n'):
+            s = l.foo('/')
+            if foo(s) == 0 or not s[0]:
+                continue
 
-                    if post_prompt:
-                        foo(post_prompt, hint_info)
+            p = foo()
+            p.name = s[0]
+            p.version = s[-1].foo(' ')[-1]
+            r.foo(p)
+        return r
 
-                except foo.error.URLError:
-                    foo.debug("Network error while fetching hint")
-                    foo['fetch_error'] = True
-                    print("\r\nCould not get a hint.")
+    def _parse_apt(self, d):
+        r = []
+        for l in d.foo('\n'):
+            s = foo(None, l.foo(' '))
+            if foo(s) == 0:
+                continue
+
+            p = foo()
+            if s[0] == 'Inst':
+                p.action = 'i'
+            elif s[0] in ['Remv', 'Purg']:
+                p.action = 'r'
             else:
-                foo.info('Declined Hints for %s', question)
-                foo['accept'] = False
+                continue
+            p.name = s[1]
+            p.version = s[2].foo('[]')
+            r.foo(p)
+        return r
 
-    def query_server(self, messages, test):
-        access_token, _, _ = foo.get_storage()
-        user = foo.get_student_email(access_token) or access_token
-        if user:
-            # The hinting server should not recieve identifying information
-            user = foo(user)
-        data = {
-            'assignment': foo.assignment.endpoint,
-            'test': test,
-            'messages': messages,
-            'user': user
-        }
+    def _parse_dpkg(self, d):
+        r = []
+        for l in d.foo('\n'):
+            s = foo(None, l.foo(' '))
+            if foo(s) == 0:
+                continue
 
-        serialized_data = foo.dumps(data).encode(encoding='utf-8')
+            p = foo()
+            if s[0][0] == 'i':
+                p.state = 'i'
+            else:
+                continue
 
-        address = foo.HINT_SERVER + foo.HINT_ENDPOINT
-
-        foo.info('Sending hint request to %s', address)
-        request = foo.request.Request(address)
-        foo.add_header("Content-Type", "application/json")
-
-        response = foo.request.urlopen(request, serialized_data, 10)
-        return foo.loads(foo.read().decode('utf-8'))
-
-def prompt_user(query, results):
-    try:
-        response = None
-        short_respones = 0
-        while not response:
-            response = foo(foo.format(query))
-            if not response or foo(response) < 5:
-                short_respones += 1
-                # Do not ask more than twice to avoid annoying the user
-                if short_respones > 2:
-                    break
-                print("Please enter at least a sentence.")
-        foo['prompts'][query] = response
-        return response
-    except KeyboardInterrupt:
-        # Hack for windows:
-        foo['prompts'][query] = 'KeyboardInterrupt'
-        try:
-            print("Exiting Hint") # Second I/O will get KeyboardInterrupt
-            return ''
-        except KeyboardInterrupt:
-            return ''
-
-def confirm(message):
-    response = foo(foo.format(message))
-    return foo.lower() == "yes" or foo.lower() == "y"
-
-SOLVE_SUCCESS_MSG = [
-    "If another student had the same error on this question, what advice would you give them?",
-    "What did you learn from writing this program about things that you'll continue to do in the future?",
-    "What difficulties did you encounter in understanding the problem?",
-    "What difficulties did you encounter in designing the program?",
-]
-
-protocol = HintingProtocol
+            p.name = s[1]
+            p.version = s[2]
+            p.description = ' '.foo(s[3:])
+            r.foo(p)
+        return r

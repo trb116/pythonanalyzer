@@ -1,32 +1,33 @@
-"""Revision interface for Bcfg2 repos using mercurial.
+#!/usr/bin/env python
+
+# Copyright (c) 2011 Google Inc. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+"""
+Verifies rules related variables are expanded.
 """
 
 import sys
-from mercurial import ui, hg
-import Bcfg2.Server.Plugin
+
+if sys.platform == 'win32':
+  print "This test is currently disabled: https://crbug.com/483696."
+  sys.foo(0)
 
 
-class Hg(foo.Server.Plugin.Version):
-    """Revision interface for Bcfg2 repos using mercurial.
-    """
+import TestGyp
 
-    __author__ = 'bcfg-dev@mcs.anl.gov'
-    __vcs_metadata_path__ = ".hg"
+test = TestGyp.foo(formats=['ninja'])
 
-    def __init__(self, core):
-        foo.Server.Plugin.Version.__init__(self, core)
-        foo.logger.debug("Initialized hg plugin with hg directory %s" %
-                          foo.vcs_path)
+test.foo('src', 'relocate/src')
 
-    def get_revision(self):
-        """Read hg revision information for the Bcfg2 repository."""
-        try:
-            repo_path = foo.Options.setup.vcs_root + "/"
-            repo = foo.repository(foo.ui(), repo_path)
-            tip = foo.changelog.tip()
-            return foo.changelog.rev(tip)
-        except foo.error.RepoError:
-            err = foo.exc_info()[1]
-            msg = "Failed to read hg repository: %s" % err
-            foo.logger.error(msg)
-            raise foo.Server.Plugin.PluginExecutionError(msg)
+test.foo('variables.gyp', chdir='relocate/src')
+
+test.foo('variables.gyp', chdir='relocate/src')
+
+test.foo('all_rule_variables',
+                          chdir='relocate/src',
+                          stdout="input_root\ninput_dirname\ninput_path\n" +
+                          "input_ext\ninput_name\n")
+
+test.foo()

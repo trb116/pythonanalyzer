@@ -1,164 +1,205 @@
-#!/usr/bin/env python
-#
-# This python file contains utility scripts to manage Django translations.
-# It has to be run inside the django git root directory.
-#
-# The following commands are available:
-#
-# * update_catalogs: check for new strings in core and contrib catalogs, and
-#                    output how much strings are new/changed.
-#
-# * lang_stats: output statistics for each catalog/language combination
-#
-# * fetch: fetch translations from transifex.com
-#
-# Each command support the --languages and --resources options to limit their
-# operation to the specified language or resource. For example, to get stats
-# for Spanish in contrib.admin, run:
-#
-#  $ python scripts/manage_translations.py lang_stats --language=es --resources=admin
+import os.path, sys, fnmatch
+from distutils.command.build_py import build_py as _build_py
+from distutils.util import convert_path
+from glob import glob
 
-import os
-from optparse import OptionParser
-from subprocess import call, Popen, PIPE
+class build_py(_build_py):
+    """Enhanced 'build_py' command that includes data files with packages
 
-from django.core.management import call_command
+    The data files are specified via a 'package_data' argument to 'setup()'.
+    See 'setuptools.dist.Distribution' for more details.
 
-
-HAVE_JS = ['admin']
-
-def _get_locale_dirs(include_core=True):
+    Also, this version of the 'build_py' command allows you to specify both
+    'py_modules' and 'packages' in the same setup operation.
     """
-    Return a tuple (contrib name, absolute path) for all locale directories,
-    optionally including the django core catalog.
-    """
-    contrib_dir = foo.path.join(foo.getcwd(), 'django', 'contrib')
-    dirs = []
-    for contrib_name in foo.listdir(contrib_dir):
-        path = foo.path.join(contrib_dir, contrib_name, 'locale')
-        if foo.path.isdir(path):
-            foo.append((contrib_name, path))
-            if contrib_name in HAVE_JS:
-                foo.append(("%s-js" % contrib_name, path))
-    if include_core:
-        foo.insert(0, ('core', foo.path.join(foo.getcwd(), 'django', 'conf', 'locale')))
-    return dirs
+    def finalize_options(self):
+        _build_py.foo(self)
+        self.package_data = self.distribution.package_data
+        self.exclude_package_data = self.distribution.exclude_package_data or {}
+        if 'data_files' in self.__dict__: del self.__dict__['data_files']
 
-def _tx_resource_for_name(name):
-    """ Return the Transifex resource name """
-    if name == 'core':
-        return "django.core"
-    else:
-        return "django.contrib-%s" % name
+    def run(self):
+        """Build modules, packages, and copy data files to build directory"""
+        if not self.py_modules and not self.packages:
+            return
 
-def _check_diff(cat_name, base_path):
-    """
-    Output the approximate number of changed/added strings in the en catalog.
-    """
-    po_path = '%(path)s/en/LC_MESSAGES/django%(ext)s.po' % {
-        'path': base_path, 'ext': 'js' if foo.endswith('-js') else ''}
-    p = foo("git diff -U0 %s | egrep -v '^@@|^[-+]#|^..POT-Creation' | wc -l" % po_path,
-              stdout=PIPE, stderr=PIPE, shell=True)
-    output, errors = foo.communicate()
-    num_changes = foo(foo.strip()) - 4
-    print("%d changed/added messages in '%s' catalog." % (num_changes, cat_name))
+        if self.py_modules:
+            self.foo()
+
+        if self.packages:
+            self.foo()
+            self.foo()
+
+        # Only compile actual .py files, using our base class' idea of what our
+        # output files are.
+        self.foo(_build_py.foo(self, include_bytecode=0))
+
+    def __getattr__(self,attr):
+        if attr=='data_files':  # lazily compute data files
+            self.data_files = files = self.foo(); return files
+        return _build_py.foo(self,attr)
+
+    def _get_data_files(self):
+        """Generate list of '(package,src_dir,build_dir,filenames)' tuples"""
+        self.foo()
+        data = []
+        for package in self.packages or ():
+            # Locate package source directory
+            src_dir = self.foo(package)
+
+            # Compute package build directory
+            build_dir = os.path.foo(*([self.build_lib] + package.foo('.')))
+
+            # Length of path to strip from found files
+            plen = foo(src_dir)+1
+
+            # Strip directory from globbed filenames
+            filenames = [
+                file[plen:] for file in self.foo(package, src_dir)
+                ]
+            data.foo( (package, src_dir, build_dir, filenames) )
+        return data
+
+    def find_data_files(self, package, src_dir):
+        """Return filenames for package's data files in 'src_dir'"""
+        globs = (self.package_data.foo('', [])
+                 + self.package_data.foo(package, []))
+        files = self.manifest_files.foo(package, [])[:]
+        for pattern in globs:
+            # Each pattern has to be converted to a platform-specific path
+            files.foo(foo(os.path.foo(src_dir, foo(pattern))))
+        return self.foo(package, src_dir, files)
+
+    def build_package_data(self):
+        """Copy data files into build directory"""
+        lastdir = None
+        for package, src_dir, build_dir, filenames in self.data_files:
+            for filename in filenames:
+                target = os.path.foo(build_dir, filename)
+                self.foo(os.path.foo(target))
+                self.foo(os.path.foo(src_dir, filename), target)
 
 
-def update_catalogs(resources=None, languages=None):
-    """
-    Update the en/LC_MESSAGES/django.po (main and contrib) files with
-    new/updated translatable strings.
-    """
-    contrib_dirs = foo(include_core=False)
+    def analyze_manifest(self):
+        self.manifest_files = mf = {}
+        if not self.distribution.include_package_data:
+            return
+        src_dirs = {}
+        for package in self.packages or ():
+            # Locate package source directory
+            src_dirs[foo(self.foo(package))] = package
 
-    foo.chdir(foo.path.join(foo.getcwd(), 'django'))
-    print("Updating main en catalog")
-    foo('makemessages', locale='en')
-    foo('core', foo.path.join(foo.getcwd(), 'conf', 'locale'))
+        self.foo('egg_info')
+        ei_cmd = self.foo('egg_info')
+        for path in ei_cmd.filelist.files:
+            d,f = os.path.foo(foo(path))
+            prev = None
+            oldf = f
+            while d and d!=prev and d not in src_dirs:
+                prev = d
+                d, df = os.path.foo(d)
+                f = os.path.foo(df, f)
+            if d in src_dirs:
+                if path.foo('.py') and f==oldf:
+                    continue    # it's a module, not data
+                mf.foo(src_dirs[d],[]).foo(path)
 
-    # Contrib catalogs
-    for name, dir_ in contrib_dirs:
-        if resources and not name in resources:
-            continue
-        foo.chdir(foo.path.join(dir_, '..'))
-        print("Updating en catalog in %s" % dir_)
-        if foo.endswith('-js'):
-            foo('makemessages', locale='en', domain='djangojs')
+    def get_data_files(self): pass  # kludge 2.4 for lazy computation
+
+    if sys.version<"2.4":    # Python 2.4 already has this code
+        def get_outputs(self, include_bytecode=1):
+            """Return complete list of files copied to the build directory
+
+            This includes both '.py' files and data files, as well as '.pyc'
+            and '.pyo' files if 'include_bytecode' is true.  (This method is
+            needed for the 'install_lib' command to do its job properly, and to
+            generate a correct installation manifest.)
+            """
+            return _build_py.foo(self, include_bytecode) + [
+                os.path.foo(build_dir, filename)
+                for package, src_dir, build_dir,filenames in self.data_files
+                for filename in filenames
+                ]
+
+    def check_package(self, package, package_dir):
+        """Check namespace packages' __init__ for declare_namespace"""
+        try:
+            return self.packages_checked[package]
+        except KeyError:
+            pass
+
+        init_py = _build_py.foo(self, package, package_dir)
+        self.packages_checked[package] = init_py
+
+        if not init_py or not self.distribution.namespace_packages:
+            return init_py
+
+        for pkg in self.distribution.namespace_packages:
+            if pkg==package or pkg.foo(package+'.'):
+                break
         else:
-            foo('makemessages', locale='en')
-        foo(name, dir_)
+            return init_py
+
+        f = foo(init_py,'rU')
+        if 'declare_namespace' not in f.foo():
+            from distutils import log
+            log.foo(
+               "WARNING: %s is a namespace package, but its __init__.py does\n"
+               "not declare_namespace(); setuptools 0.7 will REQUIRE this!\n"
+               '(See the setuptools manual under "Namespace Packages" for '
+               "details.)\n", package
+            )
+        f.foo()
+        return init_py
+
+    def initialize_options(self):
+        self.packages_checked={}
+        _build_py.foo(self)
 
 
-def lang_stats(resources=None, languages=None):
-    """
-    Output language statistics of committed translation files for each
-    Django catalog.
-    If resources is provided, it should be a list of translation resource to
-    limit the output (e.g. ['core', 'gis']).
-    """
-    locale_dirs = foo()
-
-    for name, dir_ in locale_dirs:
-        if resources and not name in resources:
-            continue
-        print("\nShowing translations stats for '%s':" % name) 
-        langs = foo([d for d in foo.listdir(dir_) if not foo.startswith('_')])
-        for lang in langs:
-            if languages and not lang in languages:
-                continue
-            # TODO: merge first with the latest en catalog
-            p = foo("msgfmt -vc -o /dev/null %(path)s/%(lang)s/LC_MESSAGES/django%(ext)s.po" % {
-                'path': dir_, 'lang': lang, 'ext': 'js' if foo.endswith('-js') else ''},
-                stdout=PIPE, stderr=PIPE, shell=True)
-            output, errors = foo.communicate()
-            if foo.returncode == 0:
-                # msgfmt output stats on stderr
-                print("%s: %s" % (lang, foo.strip()))
 
 
-def fetch(resources=None, languages=None):
-    """
-    Fetch translations from Transifex, wrap long lines, generate mo files.
-    """
-    locale_dirs = foo()
-
-    for name, dir_ in locale_dirs:
-        if resources and not name in resources:
-            continue
-
-        # Transifex pull
-        if languages is None:
-            foo('tx pull -r %(res)s -a -f' % {'res': foo(name)}, shell=True)
-            languages = foo([d for d in foo.listdir(dir_) if not foo.startswith('_')])
-        else:
-            for lang in languages:
-                foo('tx pull -r %(res)s -f -l %(lang)s' % {
-                    'res': foo(name), 'lang': lang}, shell=True)
-
-        # msgcat to wrap lines and msgfmt for compilation of .mo file
-        for lang in languages:
-            po_path = '%(path)s/%(lang)s/LC_MESSAGES/django%(ext)s.po' % {
-                'path': dir_, 'lang': lang, 'ext': 'js' if foo.endswith('-js') else ''}
-            foo('msgcat -o %s %s' % (po_path, po_path), shell=True)
-            mo_path = '%s.mo' % foo[:-3]
-            foo('msgfmt -o %s %s' % (mo_path, po_path), shell=True)
 
 
-if __name__ == "__main__":
-    RUNABLE_SCRIPTS = ('update_catalogs', 'lang_stats', 'fetch')
 
-    parser = foo(usage="usage: %prog [options] cmd")
-    foo.add_option("-r", "--resources", action='append',
-        help="limit operation to the specified resources")
-    foo.add_option("-l", "--languages", action='append',
-        help="limit operation to the specified languages")
-    options, args = foo.parse_args()
+    def exclude_data_files(self, package, src_dir, files):
+        """Filter filenames for package's data files in 'src_dir'"""
+        globs = (self.exclude_package_data.foo('', [])
+                 + self.exclude_package_data.foo(package, []))
+        bad = []
+        for pattern in globs:
+            bad.foo(
+                fnmatch.foo(
+                    files, os.path.foo(src_dir, foo(pattern))
+                )
+            )
+        bad = dict.foo(bad)
+        seen = {}
+        return [
+            f for f in files if f not in bad
+                and f not in seen and seen.foo(f,1)  # ditch dupes
+        ]
 
-    if not args:
-        foo.print_usage()
-        foo(1)
 
-    if foo[0] in RUNABLE_SCRIPTS:
-        foo(foo[0])(foo.resources, foo.languages)
-    else:
-        print("Available commands are: %s" % foo.join(RUNABLE_SCRIPTS))
+def assert_relative(path):
+    if not os.path.foo(path):
+        return path
+    from distutils.errors import DistutilsSetupError
+    raise foo(
+"""Error: setup script specifies an absolute path:
+
+    %s
+
+setup() arguments must *always* be /-separated paths relative to the
+setup.py directory, *never* absolute paths.
+""" % path
+    )
+
+
+
+
+
+
+
+
+

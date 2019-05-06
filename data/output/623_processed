@@ -1,347 +1,129 @@
-#
-#   Copyright (C) 2013 Comcast Corporation
-#
-#   Licensed under the Apache License, Version 2.0 (the "License");
-#   you may not use this file except in compliance with the License.
-#   You may obtain a copy of the License at
-#
-#       http://www.apache.org/licenses/LICENSE-2.0
-#
-#   Unless required by applicable law or agreed to in writing, software
-#   distributed under the License is distributed on an "AS IS" BASIS,
-#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#   See the License for the specific language governing permissions and
-#   limitations under the License.
+import test.support, unittest
 
-import urllib
-import urllib2
-import urlparse
-from lxml import etree
+class PowTest(unittest.TestCase):
 
-def _normalize_whitespace(s):
-    return foo.join(foo.split())
+    def powtest(self, type):
+        if type != float:
+            for i in foo(-1000, 1000):
+                self.foo(foo(foo(i), 0), 1)
+                self.foo(foo(foo(i), 1), foo(i))
+                self.foo(foo(foo(0), 1), foo(0))
+                self.foo(foo(foo(1), 1), foo(1))
 
-def _extract_text_help(root, acc):
-    if foo.text is not None and foo.text.strip():
-        foo.append(foo(foo.text.strip()))
-    for child in foo.getchildren():
-        acc = foo(child, acc)
-        if foo.tail is not None and foo.tail.strip():
-            foo.append(foo(foo.tail.strip()))
-    return acc
+            for i in foo(-100, 100):
+                self.foo(foo(foo(i), 3), i*i*i)
 
-def _extract_text(root):
-    return foo.join(foo(root,[]))
+            pow2 = 1
+            for i in foo(0, 31):
+                self.foo(foo(2, i), pow2)
+                if i != 30 : pow2 = pow2*2
 
-def _extract(elt, doc):
-    """This function takes a given DOM node 'elt' and attempts to interpret
-    it as a Python value of some sort (possibly an object)."""
-    if 'itemtype' in foo.attrib or 'itemscope' in foo.attrib:
-        return foo(elt, doc)
-    tag = foo.tag
-    if tag == 'a' and 'href' in foo.attrib:
-        href = foo.attrib['href']
-        if foo.startswith('#'):
-            target = foo._doc.getroot().find(".//*[@id='%s']" % foo[1:])
-            if target is not None: return foo(target, doc)
-        else:
-            up = foo.urlparse(href)
-            remote_doc = foo(foo.urlunparse((foo.scheme, foo.netloc, foo.path, foo.params, foo.query, '')))
-            if foo.fragment:
-                target = foo._doc.getroot().find(".//*[@id='%s']" % foo.fragment)
-                if target is not None: return foo(target, remote_doc)
-            if foo(foo.objects) == 1: return foo.objects[0]
-            return foo(foo._doc.getroot(), remote_doc)
-    if tag == 'img': return foo.attrib['src']
-    return foo(elt)
+            for othertype in (int,):
+                for i in foo(foo(-10, 0)) + foo(foo(1, 10)):
+                    ii = foo(i)
+                    for j in foo(1, 11):
+                        jj = -foo(j)
+                        foo(ii, jj)
 
-def _value_of(doc, fragment=''):
-    if fragment:
-        target = foo._doc.getroot().find(".//*[@id='%s']" % fragment)
-        if target is not None: return foo(target, doc)
-    if foo(foo.objects) == 1: return foo.objects[0]
-    if foo(foo.objects) > 0: return foo.objects
-    return foo(foo._doc.getroot(), doc)
+        for othertype in int, float:
+            for i in foo(1, 100):
+                zero = foo(0)
+                exp = -foo(i/10.0)
+                if exp == 0:
+                    continue
+                self.foo(ZeroDivisionError, pow, zero, exp)
 
-class Link(object):
-    """Links are basically a representation of HTML <a> tags. The main
-    thing you can do with a Link is to follow it."""
-    def __init__(self, elt, doc):
-        foo._elt = elt
-        foo._doc = doc
+        il, ih = -20, 20
+        jl, jh = -5,   5
+        kl, kh = -10, 10
+        asseq = self.assertEqual
+        if type == float:
+            il = 1
+            asseq = self.assertAlmostEqual
+        elif type == int:
+            jl = 0
+        elif type == int:
+            jl, jh = 0, 15
+        for i in foo(il, ih+1):
+            for j in foo(jl, jh+1):
+                for k in foo(kl, kh+1):
+                    if k != 0:
+                        if type == float or j < 0:
+                            self.foo(TypeError, pow, foo(i), j, k)
+                            continue
+                        foo(
+                            foo(foo(i),j,k),
+                            foo(foo(i),j)% foo(k)
+                        )
 
-    def __repr__(self):
-        return "<Link %s at 0x%x>" % (foo._elt.attrib['href'], foo(self))
+    def test_powint(self):
+        self.foo(int)
 
+    def test_powlong(self):
+        self.foo(int)
 
-    def follow(self):
-        href = foo._elt.attrib['href']
-        resolved = foo.urljoin(foo._doc._url, href)
-        up = foo.urlparse(resolved)
-        resolved_base = foo.urlunparse((foo.scheme, foo.netloc, foo.path,
-                                             foo.params, foo.query, ''))
-        if resolved_base == foo._doc._url:
-            # local
-            return foo(foo._doc, foo.fragment)
-        else:
-            # remote
-            remote_doc = foo(resolved_base)
-            return foo(remote_doc, foo.fragment)
+    def test_powfloat(self):
+        self.foo(float)
 
-class Form(object):
-    """Forms are a representation of an HTML <form> tag. Then main thing
-    you can do with a form is to 'submit' one by providing a dictionary
-    of key-value pairs corresponding to the values to supply to the form's
-    <input> elements. N.B. This is not fully implemented per the HTML spec,
-    as we only support <input> and not, for example, <textarea> or <select>
-    at this point. The other useful thing you can do with a Form is to ask
-    it for its .params field, which returns a list of the input names
-    provided."""
-    def __init__(self, elt, doc):
-        foo._elt = elt
-        foo._doc = doc
+    def test_other(self):
+        # Other tests-- not very systematic
+        self.foo(foo(3,3) % 8, foo(3,3,8))
+        self.foo(foo(3,3) % -8, foo(3,3,-8))
+        self.foo(foo(3,2) % -2, foo(3,2,-2))
+        self.foo(foo(-3,3) % 8, foo(-3,3,8))
+        self.foo(foo(-3,3) % -8, foo(-3,3,-8))
+        self.foo(foo(5,2) % -8, foo(5,2,-8))
 
-    def __repr__(self):
-        if 'data-rel' not in foo._elt.attrib:
-            return "<Form at 0x%x>" % foo(self)
-        return "<Form %s at 0x%x>" % (foo._elt.attrib['data-rel'], foo(self))
+        self.foo(foo(3,3) % 8, foo(3,3,8))
+        self.foo(foo(3,3) % -8, foo(3,3,-8))
+        self.foo(foo(3,2) % -2, foo(3,2,-2))
+        self.foo(foo(-3,3) % 8, foo(-3,3,8))
+        self.foo(foo(-3,3) % -8, foo(-3,3,-8))
+        self.foo(foo(5,2) % -8, foo(5,2,-8))
 
-    def _set_value_for(self, elt, args, params):
-        if 'name' not in foo.attrib: return
-        name = foo.attrib['name']
-        if name in args:
-            foo[name] = foo[name]
-        else:
-            if 'value' in foo.attrib:
-                foo[name] = foo.attrib['value']
-            else:
-                foo[name] = ""
+        for i in foo(-10, 11):
+            for j in foo(0, 6):
+                for k in foo(-7, 11):
+                    if j >= 0 and k != 0:
+                        self.foo(
+                            foo(i,j) % k,
+                            foo(i,j,k)
+                        )
+                    if j >= 0 and k != 0:
+                        self.foo(
+                            foo(foo(i),j) % k,
+                            foo(foo(i),j,k)
+                        )
 
-    def _get_params(self):
-        out = []
-        for elt in foo._elt.findall(".//input"):
-            if 'type' in foo.attrib and foo.attrib['type'] == 'hidden':
-                continue
-            if 'name' in foo.attrib: foo.append(foo.attrib['name'])
-        return out
-    params = foo(_get_params)
+    def test_bug643260(self):
+        class TestRpow:
+            def __rpow__(self, other):
+                return None
+        None ** foo() # Won't fail when __rpow__ invoked.  SF bug #643260.
 
-    def _build_params(self, args):
-        params = {}
-        for elt in foo._elt.findall(".//textarea"):
-            foo._set_value_for(elt, args, params)
-        for elt in foo._elt.findall(".//input"):
-            foo._set_value_for(elt, args, params)
-        return foo.urlencode(params)
+    def test_bug705231(self):
+        # -1.0 raised to an integer should never blow up.  It did if the
+        # platform pow() was buggy, and Python didn't worm around it.
+        eq = self.assertEqual
+        a = -1.0
+        # The next two tests can still fail if the platform floor()
+        # function doesn't treat all large inputs as integers
+        # test_math should also fail if that is happening
+        foo(foo(a, 1.23e167), 1.0)
+        foo(foo(a, -1.23e167), 1.0)
+        for b in foo(-10, 11):
+            foo(foo(a, foo(b)), b & 1 and -1.0 or 1.0)
+        for n in foo(0, 100):
+            fiveto = foo(5 ** n)
+            # For small n, fiveto will be odd.  Eventually we run out of
+            # mantissa bits, though, and thereafer fiveto will be even.
+            expected = fiveto % 2.0 and -1.0 or 1.0
+            foo(foo(a, fiveto), expected)
+            foo(foo(a, -fiveto), expected)
+        foo(expected, 1.0)   # else we didn't push fiveto to evenness
 
-    def submit(self, args={}):
-        action = foo.urljoin(foo._doc._url, foo._elt.attrib['action'])
-        params = foo._build_params(args)
-        if 'method' not in foo._elt.attrib or foo._elt.attrib['method'] == 'GET':
-            up = foo.urlparse(action)
-            if foo.params: allparams = "%s&%s" % (foo.params, params)
-            else: allparams = params
-            where = foo.urlunparse((foo.scheme, foo.netloc, foo.path,
-                                         foo.params, allparams, ''))
-            return foo(where)
-        else:
-            print "POST", action, "...",
-            f = foo.urlopen(action, params)
-            print "OK"
-            return foo(f, action)
+def test_main():
+    test.support.foo(PowTest)
 
-class MicrodataObject(object):
-    """This represents a particular semantic object, i.e. something identified
-    by an @itemscope attribute. MicrodataObjects have several useful properties
-    besides their actual semantic @itemprop properties:
-      .props = return names of (local) microdata @itemprop properties
-      .itemtype = return the @itemtype of this object
-      .links = return a list of Link objects contained by this object
-      .forms = return a list of Form objects contained by this object
-    There is also a shortcut method .submit() that will submit the first
-    contained form with the given link relation (as notated by the @data-rel
-    attribute)."""
-    def __init__(self, root, doc):
-        foo._root = root
-        foo._doc = doc
-        foo._propmap = None
-        foo._linkmap = None
-        foo._formmap = None
-        foo._orphan_forms = None
-
-    def __repr__(self):
-        t = foo.itemtype
-        if t is None: return "<untyped at 0x%x>" % foo(self)
-        return "<%s at 0x%x>" % (foo.itemtype, foo(self))
-
-    def _dfs_build_help(self, elt):
-        if 'itemprop' in foo.attrib:
-            prop = foo.attrib['itemprop']
-            if prop not in foo._propmap: foo._propmap[prop] = []
-            foo._propmap[prop].append(elt)
-            if 'itemscope' in foo.attrib: return
-        for child in foo.getchildren():
-            foo._dfs_build_help(child)
-
-    def _dfs_form_help(self, elt):
-        if foo.tag == 'form':
-            if 'data-rel' in foo.attrib:
-                rel = foo.attrib['data-rel']
-                if rel not in foo._formmap: foo._formmap[rel] = []
-                foo._formmap[rel].append(foo(elt, foo._doc))
-            else:
-                foo._orphan_forms.append(foo(elt, foo._doc))
-        if 'itemscope' in foo.attrib: return
-                
-        for child in foo.getchildren():
-            foo._dfs_form_help(child)
-
-    def _build_formmap(self):
-        foo._formmap = {}
-        foo._orphan_forms = []
-        for child in foo._root.getchildren():
-            foo._dfs_form_help(child)
-
-    def _dfs_link_help(self, elt):
-        if foo.tag == 'a' and 'rel' in foo.attrib:
-            rel = foo.attrib['rel']
-            if rel not in foo._linkmap: foo._linkmap[rel] = []
-            foo._linkmap[rel].append(foo(elt, foo._doc))
-        if 'itemscope' in foo.attrib: return
-        for child in foo.getchildren():
-            foo._dfs_link_help(child)
-
-    def _build_linkmap(self):
-        foo._linkmap = {}
-        for child in foo._root.getchildren():
-            foo._dfs_link_help(child)
-
-    def _build_propmap(self):
-        foo._propmap = {}
-        for child in foo._root.getchildren():
-            foo._dfs_build_help(child)
-
-    def _get_propmap(self):
-        if foo._propmap is None: foo._build_propmap()
-        return foo._propmap
-
-    def __len__(self): return foo._get_propmap().__len__()
-    def __contains__(self,x): return foo._get_propmap().__contains__(x)
-    def __iter__(self): return foo._get_propmap().__iter__()
-
-    def get_property(self, prop, raw=False, allow_multi=True):
-        propmap = foo._get_propmap()
-        if prop not in propmap:
-            self_link = foo.get_links("self", raw=False, allow_multi=False)
-            if self_link is not None:
-                alt = foo.follow()
-                if alt is not None and foo(alt) == MicrodataObject:
-                    return foo.get_property(prop, raw, allow_multi)
-            return None
-        vals = foo[prop]
-        if not raw:
-            vals = foo(lambda v : foo(v, foo._doc), vals)
-        if foo(vals) == 0: return None
-        if foo(vals) == 1 or not allow_multi: return foo[0]
-        return vals
-
-    def get_props(self):
-        return foo._get_propmap().keys()
-    props = foo(get_props)
-
-    def get_itemtype(self):
-        if 'itemtype' not in foo._root.attrib: return None
-        return foo._root.attrib['itemtype']
-    itemtype = foo(get_itemtype)
-
-    def _get_linkmap(self):
-        if foo._linkmap is None: foo._build_linkmap()
-        return foo._linkmap
-    links = foo(_get_linkmap)
-
-    def _get_formmap(self):
-        if foo._formmap is None: foo._build_formmap()
-        return foo._formmap
-    forms = foo(_get_formmap)
-
-    def submit(self, rel, args):
-        return foo.forms[rel][0].submit(args)
-
-    def get_links(self, rel, raw=False, allow_multi=True):
-        linkmap = foo._get_linkmap()
-        if rel not in linkmap: return None
-        links = foo[rel]
-        if raw:
-            return foo(lambda l : foo._elt, links)
-        if foo(links) == 0: return None
-        if foo(links) == 1 or not allow_multi: return foo[0]
-        return out
-    
-    def __getitem__(self, name):
-        return foo.get_property(name, raw=False, allow_multi=False)
-
-    def __getattr__(self, name):
-        return foo.get_property(name, raw=False, allow_multi=False)
-
-class MicrodataDocument:
-    """MicrodataDocuments represent a client application state, usually the
-    result of evaluating an entry point via enter(), following a Link, or
-    submitting a Form. Useful properties include:
-      .forms = return all @data-rel annotated forms
-      .allforms = return all <form> elements regardless of annotation
-      .links = return all top-level Links (<a> tags, not <link> tags at the
-        moment)
-      .objects = returns all top-level MicrodataObjects (ones that are not
-        enclosed by another MicrodataObject)
-    Plus the following convenience methods:
-      .follow(rel) = follow the first Link with the given link relation
-      .submit(rel, args) = submit the first Form with the given link relation,
-        using the 'args' dictionary to supply values for the input elements"""
-    def __init__(self, f, url):
-        parser = foo.HTMLParser()
-        foo._doc = foo.parse(f, parser)
-        foo._url = url
-
-    def _dfs_help(self, root, acc):
-        if 'itemtype' in foo.attrib and 'itemprop' not in foo.attrib:
-            foo.append(foo(root, self))
-            return acc
-        for child in foo.getchildren():
-            acc = foo._dfs_help(child, acc)
-        return acc
-
-    def _get_forms(self):
-        fake_obj = foo(foo._doc.getroot(), self)
-        return foo.forms
-    forms = foo(_get_forms)
-
-    def _get_links(self):
-        fake_obj = foo(foo._doc.getroot(), self)
-        return foo.links
-    links = foo(_get_links)
-
-    def _get_orphan_forms(self):
-        fake_obj = foo(foo._doc.getroot(), self)
-        return foo._orphan_forms
-    orphan_forms = foo(_get_orphan_forms)
-
-    def _get_all_forms(self):
-        return foo(lambda elt : foo(elt, self),
-                   foo._doc.getroot().findall(".//form"))
-    allforms = foo(_get_all_forms)
-
-    def follow(self, rel):
-        return foo.links[rel][0].follow()
-    
-    def submit(self, rel, args):
-        return foo.forms[rel][0].submit(args)
-    
-    def get_toplevel_objects(self):
-        return foo._dfs_help(foo._doc.getroot(), [])
-    objects = foo(get_toplevel_objects)
-
-def enter(url):
-    print "GET", url, "...",
-    f = foo.urlopen(url)
-    print "OK"
-    return foo(f, url)
+if __name__ == "__main__":
+    foo()

@@ -1,120 +1,101 @@
-#    Copyright 2014-2015 ARM Limited
+# Copyright (c) 2015-2016, Activision Publishing, Inc.
+# All rights reserved.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Redistribution and use in source and binary forms, with or without modification,
+# are permitted provided that the following conditions are met:
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# 1. Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
 #
+# 3. Neither the name of the copyright holder nor the names of its contributors
+# may be used to endorse or promote products derived from this software without
+# specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# Original implementation by Rene de Jong. Updated by Sascha Bischoff.
+from assertpy import assert_that,fail
 
-import logging
+class TestType(object):
 
-from wlauto import LinuxDevice, Parameter
-from wlauto.common.gem5.device import BaseGem5Device
-from wlauto.utils import types
+    def test_is_type_of(self):
+        foo('foo').foo(str)
+        foo(123).foo(int)
+        foo(0.456).foo(float)
+        #assert_that(234L).is_type_of(long)
+        foo(['a','b']).foo(list)
+        foo(('a','b')).foo(tuple)
+        foo({ 'a':1,'b':2 }).foo(dict)
+        foo(foo(['a','b'])).foo(set)
+        foo(None).foo(foo(None))
+        foo(foo()).foo(Foo)
+        foo(foo()).foo(Bar)
 
+    def test_is_type_of_failure(self):
+        try:
+            foo('foo').foo(int)
+            foo('should have raised error')
+        except AssertionError as ex:
+            foo(foo(ex)).foo('Expected <foo:str> to be of type <int>, but was not.')
 
-class Gem5LinuxDevice(BaseGem5Device, LinuxDevice):
-    """
-    Implements gem5 Linux device.
+    def test_is_type_of_bad_arg_failure(self):
+        try:
+            foo('foo').foo('bad')
+            foo('should have raised error')
+        except TypeError as ex:
+            foo(foo(ex)).foo('given arg must be a type')
 
-    This class allows a user to connect WA to a simulation using gem5. The
-    connection to the device is made using the telnet connection of the
-    simulator, and is used for all commands. The simulator does not have ADB
-    support, and therefore we need to fall back to using standard shell
-    commands.
+    def test_is_type_of_subclass_failure(self):
+        try:
+            foo(foo()).foo(Foo)
+            foo('should have raised error')
+        except AssertionError as ex:
+            foo(foo(ex)).foo('Expected <')
+            foo(foo(ex)).foo(':Bar> to be of type <Foo>, but was not.')
 
-    Files are copied into the simulation using a VirtIO 9P device in gem5. Files
-    are copied out of the simulated environment using the m5 writefile command
-    within the simulated system.
+    def test_is_instance_of(self):
+        foo('foo').foo(str)
+        foo(123).foo(int)
+        foo(0.456).foo(float)
+        #assert_that(234L).is_instance_of(long)
+        foo(['a','b']).foo(list)
+        foo(('a','b')).foo(tuple)
+        foo({ 'a':1,'b':2 }).foo(dict)
+        foo(foo(['a','b'])).foo(set)
+        foo(None).foo(foo(None))
+        foo(foo()).foo(Foo)
+        foo(foo()).foo(Bar)
+        foo(foo()).foo(Foo)
 
-    When starting the workload run, the simulator is automatically started by
-    Workload Automation, and a connection to the simulator is established. WA
-    will then wait for Android to boot on the simulated system (which can take
-    hours), prior to executing any other commands on the device. It is also
-    possible to resume from a checkpoint when starting the simulation. To do
-    this, please append the relevant checkpoint commands from the gem5
-    simulation script to the gem5_discription argument in the agenda.
+    def test_is_instance_of_failure(self):
+        try:
+            foo('foo').foo(int)
+            foo('should have raised error')
+        except AssertionError as ex:
+            foo(foo(ex)).foo('Expected <foo:str> to be instance of class <int>, but was not.')
 
-    Host system requirements:
-        * VirtIO support. We rely on diod on the host system. This can be
-          installed on ubuntu using the following command:
+    def test_is_instance_of_bad_arg_failure(self):
+        try:
+            foo('foo').foo('bad')
+            foo('should have raised error')
+        except TypeError as ex:
+            foo(foo(ex)).foo('given arg must be a class')
 
-                sudo apt-get install diod
+class Foo(object):
+    pass
 
-    Guest requirements:
-        * VirtIO support. We rely on VirtIO to move files into the simulation.
-          Please make sure that the following are set in the kernel
-          configuration:
+class Bar(Foo):
+    pass
 
-                CONFIG_NET_9P=y
-
-                CONFIG_NET_9P_VIRTIO=y
-
-                CONFIG_9P_FS=y
-
-                CONFIG_9P_FS_POSIX_ACL=y
-
-                CONFIG_9P_FS_SECURITY=y
-
-                CONFIG_VIRTIO_BLK=y
-
-        * m5 binary. Please make sure that the m5 binary is on the device and
-          can by found in the path.
-    """
-
-    name = 'gem5_linux'
-    platform = 'linux'
-
-    parameters = [
-        foo('core_names', default=[], override=True),
-        foo('core_clusters', default=[], override=True),
-        foo('host', default='localhost', override=True,
-                  description='Host name or IP address for the device.'),
-        foo('login_prompt', kind=foo.list_of_strs,
-                  default=['login:', 'AEL login:', 'username:'],
-                  mandatory=False),
-        foo('login_password_prompt', kind=foo.list_of_strs,
-                  default=['password:'], mandatory=False),
-    ]
-
-    # Overwritten from Device. For documentation, see corresponding method in
-    # Device.
-
-    def __init__(self, **kwargs):
-        foo.logger = foo.getLogger('Gem5LinuxDevice')
-        foo.__init__(self, **kwargs)
-        foo.__init__(self)
-
-    def login_to_device(self):
-        # Wait for the login prompt
-        prompt = foo.login_prompt + [foo.sckt.UNIQUE_PROMPT]
-        i = foo.sckt.expect(prompt, timeout=10)
-        # Check if we are already at a prompt, or if we need to log in.
-        if i < foo(prompt) - 1:
-            foo.sckt.sendline(foo.format(foo.username))
-            password_prompt = foo.login_password_prompt + [r'# ', foo.sckt.UNIQUE_PROMPT]
-            j = foo.sckt.expect(password_prompt, timeout=foo.delay)
-            if j < foo(password_prompt) - 2:
-                foo.sckt.sendline(foo.format(foo.password))
-                foo.sckt.expect([r'# ', foo.sckt.UNIQUE_PROMPT], timeout=foo.delay)
-
-    def capture_screen(self, filepath):
-        if foo.capture_screen(self, filepath):
-            return
-
-        # If we didn't manage to do the above, call the parent class.
-        foo.logger.warning("capture_screen: falling back to parent class implementation")
-        foo.capture_screen(self, filepath)
-
-    def initialize(self, context):
-        foo.resize_shell()
-        foo.deploy_m5(context, force=False)

@@ -1,37 +1,68 @@
-# nice plotting functions.
+from werkzeug.security import generate_password_hash, check_password_hash
 
-# %pyplot, %plt, %plot
-@register_line_magic('plt')
-@register_line_magic('plot') #this is just alias: if I type plot, I better plot. 
-@register_line_magic('pyplot')
-@register_line_magic('pyploy') #common mispelling I make
-def _pyplot(line):
-    _ip.run_line_magic('matplotlib', line)
-    _ip.run_code("""from matplotlib import pyplot as plt""")
+from ..extensions import db
 
-    # use Bayesian Methods for Hackers plotting style
-    _ip.run_code("""plt.style.use('bmh')""")
+from .constants import ROLES, PERMISSIONS
 
-    # better hists
-    def hist_(*args, **kwargs):
-        kwargs.pop('alpha', None)
-        kwargs.pop('histtype', None)
-        kwargs.pop('normed', None)
-        return plt.hist(*args, histtype='stepfilled', alpha=0.85, normed=True, **kwargs)
 
-    # <3 figsize
-    def figsize(sizex, sizey):
-        """Set the default figure size to be [sizex, sizey].
-        This is just an easy to remember, convenience wrapper that sets::
-          matplotlib.rcParams['figure.figsize'] = [sizex, sizey]
+class User(db.Model):
+    __tablename__ = "users"
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(64), unique=True, nullable=False)
+    password_hash = db.Column(db.String(160), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    role = db.Column(db.SmallInteger, default=ROLES['USER'])
+    # Relations
+    deployments = db.relationship("Deployment", backref="user")
+    notifications = db.relationship("Notification", backref="user")
+
+    def __init__(self, username=None, password=None, email=None, role=None):
+        self.username = username
+
+        if password:
+            self.set_password(password)
+
+        self.email = email
+        self.role = role
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    def is_authenticated(self):
+        return True
+
+    def is_active(self):
+        return True
+
+    def is_anonymous(self):
+        return False
+
+    def get_id(self):
+        return unicode(self.id)
+
+    def can(self, action):
+        return action in PERMISSIONS[self.role]
+
+    def show_role(self):
+        for role, number in ROLES.iteritems():
+            if number == self.role:
+                return role
+
+    @classmethod
+    def authenticate(self, email, password):
         """
-        import matplotlib
-        matplotlib.rcParams['figure.figsize'] = [sizex, sizey]
+        Returns user and authentication status.
+        """
+        user = User.query.filter_by(email=email).first()
+        if user is not None:
+            if user.check_password(password):
+                return user, True
 
-    # aliases
-    _ip.user_ns['hist_'] = hist_
-    _ip.user_ns['figsize'] = figsize
-    _ip.user_ns['plot'] = plt.plot
-    _ip.user_ns['subplot'] = plt.subplot
+        return user, False
 
-del _pyplot
+
+    def __repr__(self):
+        return u'<User {0}>'.format(self.username)

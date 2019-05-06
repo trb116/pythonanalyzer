@@ -1,100 +1,160 @@
-# -*- coding: utf-8 -*-
-"""
-    webapp2_extras.securecookie
-    ===========================
+#!/usr/bin/python
 
-    A serializer for signed cookies.
+''' SAX parser implementation to prepare an Ordnance Survey
+    GML file (.gml or .gz) so that it is ready to be loaded by OGR 1.9
+    or above.
+    The parser promotes the fid attribute to a child element.
+    Output is via stdout and is UTF-8 encoded.
 
-    :copyright: 2011 by tipfy.org.
-    :license: Apache Sotware License, see LICENSE for details.
-"""
-import hashlib
-import hmac
-import logging
-import time
+    usage: python prepgml4ogr.py file.gml
+'''
 
-from webapp2_extras import json
-from webapp2_extras import security
+import sys
+import os.path
+import gzip
+import zipfile
+from xml.sax import make_parser
+from xml.sax.handler import ContentHandler
+from xml.sax import saxutils
 
 
-class SecureCookieSerializer(object):
-    """Serializes and deserializes secure cookie values.
+class gmlhandler(ContentHandler):
 
-    Extracted from `Tornado`_ and modified.
-    """
+    def __init__(self, preparer):
+        # The class that will prepare the features
+        self.preparer = preparer
+        # Flag to indicate if we have encountered the first element yet
+        self.first_elm = True
+        self.feat = None
+        self.recording = False
 
-    def __init__(self, secret_key):
-        """Initiliazes the serializer/deserializer.
-
-        :param secret_key:
-            A random string to be used as the HMAC secret for the cookie
-            signature.
-        """
-        self.secret_key = secret_key
-
-    def serialize(self, name, value):
-        """Serializes a signed cookie value.
-
-        :param name:
-            Cookie name.
-        :param value:
-            Cookie value to be serialized.
-        :returns:
-            A serialized value ready to be stored in a cookie.
-        """
-        timestamp = str(self._get_timestamp())
-        value = self._encode(value)
-        signature = self._get_signature(name, value, timestamp)
-        return '|'.join([value, timestamp, signature])
-
-    def deserialize(self, name, value, max_age=None):
-        """Deserializes a signed cookie value.
-
-        :param name:
-            Cookie name.
-        :param value:
-            A cookie value to be deserialized.
-        :param max_age:
-            Maximum age in seconds for a valid cookie. If the cookie is older
-            than this, returns None.
-        :returns:
-            The deserialized secure cookie, or None if it is not valid.
-        """
-        if not value:
-            return None
-
-        parts = value.split('|')
-        if len(parts) != 3:
-            return None
-
-        signature = self._get_signature(name, parts[0], parts[1])
-
-        if not security.compare_hashes(parts[2], signature):
-            logging.warning('Invalid cookie signature %r', value)
-            return None
-
-        if max_age is not None:
-            if int(parts[1]) < self._get_timestamp() - max_age:
-                logging.warning('Expired cookie %r', value)
-                return None
-
+    def startElement(self, name, attrs):
+        if self.first_elm:
+            # Output the xml declaration prior to the first element,
+            # done here instead of in startDocument to allow us to avoid
+            # outputting the declaration when we try and parse non XML content
+            # as can happen when we parse all files in a zip archive
+            self.first_elm = False
+            output('<?xml version="1.0" ?>')
         try:
-            return self._decode(parts[0])
-        except Exception, e:
-            logging.warning('Cookie value failed to be decoded: %r', parts[0])
-            return None
+            name = name.split(':')[1]
+        except IndexError:
+            pass
+        # Determine if we are interested
+        # in starting to record the raw
+        # XML string so we can prepare
+        # the feature when the feature ends
+        if name in self.preparer.feat_types:
+            self.buffer = []
+            self.recording = True
+        # Process the attributes
+        tmp = '<' + name
+        for (name, value) in attrs.items():
+            try:
+                name = name.split(':')[1]
+            except IndexError:
+                pass
+            tmp += ' %s=%s' % (name, saxutils.quoteattr(value))
+        tmp += '>'
+        if self.recording:
+            self.buffer.append(tmp)
+        else:
+            output(tmp)
+        return
 
-    def _encode(self, value):
-        return json.b64encode(value)
+    def characters(self, ch):
+        if len(ch.strip()) > 0:
+            if self.recording:
+                self.buffer.append(saxutils.escape(ch))
+            else:
+                output(saxutils.escape(ch))
 
-    def _decode(self, value):
-        return json.b64decode(value)
+    def endElement(self, name):
+        try:
+            name = name.split(':')[1]
+        except IndexError:
+            pass
+        if self.recording:
+            self.buffer.append('</' + name + '>')
+        else:
+            output('</' + name + '>')
+        if name in self.preparer.feat_types:
+            self.recording = False
+            output(self.preparer.prepare_feature(''.join(self.buffer)))
+            self.buffer = []
 
-    def _get_timestamp(self):
-        return int(time.time())
 
-    def _get_signature(self, *parts):
-        """Generates an HMAC signature."""
-        signature = hmac.new(self.secret_key, digestmod=hashlib.sha1)
-        signature.update('|'.join(parts))
-        return signature.hexdigest()
+def output(str):
+    try:
+        sys.stdout.write(str.encode('utf_8', 'xmlcharrefreplace').decode('utf_8'))
+    except UnicodeEncodeError:
+        sys.stdout.write(str.encode('utf_8', 'xmlcharrefreplace'))
+
+
+class prep_gml():
+
+    def __init__(self, inputfile):
+        self.feat_types = []
+
+    def get_feat_types(self):
+        return self.feat_types
+
+    def prepare_feature(self, feat_str):
+        return feat_str
+
+
+def main():
+    if len(sys.argv) < 2:
+        print('usage: python prepgml4ogr.py file [[prep_module.]prep_class]')
+        sys.exit(1)
+
+    inputfile = sys.argv[1]
+    if os.path.exists(inputfile):
+
+        # Create an instance of a preparer
+        # class which is used to prepare
+        # features as they are read
+        prep_class = 'prep_gml'
+        try:
+            prep_class = sys.argv[2]
+        except IndexError:
+            pass
+        prep_class = get_preparer(prep_class)
+        preparer = prep_class(inputfile)
+
+        parser = make_parser()
+        parser.setContentHandler(gmlhandler(preparer))
+
+        if os.path.splitext(inputfile)[1].lower() == '.zip':
+            archive = zipfile.ZipFile(inputfile, 'r')
+            for filename in archive.namelist():
+                file = archive.open(filename)
+                try:
+                    parser.parse(file)
+                except:
+                    # Ignore any files that can't be parsed
+                    pass
+        else:
+            if os.path.splitext(inputfile)[1].lower() == '.gz':
+                file = gzip.open(inputfile, 'r')
+            else:
+                # Assume non compressed gml, xml or no extension
+                file = open(inputfile, 'r')
+            parser.parse(file)
+
+    else:
+        print('Could not find input file: ' + inputfile)
+
+
+def get_preparer(prep_class):
+    parts = prep_class.split('.')
+    if len(parts) > 1:
+        prep_module = parts[0]
+        prep_module = __import__(prep_module)
+        prep_class = getattr(prep_module, parts[1])
+    else:
+        prep_class = globals()[prep_class]
+    return prep_class
+
+if __name__ == '__main__':
+    main()

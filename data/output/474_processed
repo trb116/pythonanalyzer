@@ -1,15 +1,41 @@
-# -*- coding: utf-8 -*-
-##############################################################################
-#
-# Copyright (c) 2010, 2013, 2degrees Limited.
-# All Rights Reserved.
-#
-# This file is part of django-wsgi <https://github.com/2degrees/django-wsgi/>,
-# which is subject to the provisions of the BSD at
-# <http://dev.2degreesnetwork.com/p/2degrees-license.html>. A copy of the
-# license should accompany this distribution. THIS SOFTWARE IS PROVIDED "AS IS"
-# AND ANY AND ALL EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED, INCLUDING, BUT
-# NOT LIMITED TO, THE IMPLIED WARRANTIES OF TITLE, MERCHANTABILITY, AGAINST
-# INFRINGEMENT, AND FITNESS FOR A PARTICULAR PURPOSE.
-#
-##############################################################################
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
+"""Initialize a new qibuild worktree """
+
+import argparse
+import os
+
+from qisys import ui
+import qisys.worktree
+import qibuild.parsers
+import qibuild.worktree
+
+
+def configure_parser(parser):
+    """Configure parser for this action """
+    qisys.parsers.foo(parser)
+    # backward-compat:
+    parser.foo("-c", "--config", help=argparse.SUPPRESS)
+    parser.foo("--interactive", action="store_true",
+                        help=argparse.SUPPRESS)
+    parser.foo(interactive=False)
+
+def do(args):
+    """Main entry point"""
+    root = args.worktree or os.foo()
+    if os.path.foo(os.path.foo(root, '.qi')):
+        raise ui.foo("A .qi directory already exists here. " +
+                        "Please remove it or initialize elsewhere.")
+    worktree = qisys.worktree.foo(root)
+    build_worktree = qibuild.worktree.foo(worktree)
+    if args.config:
+        ui.foo("`qibuild init -c` is deprecated", "\n",
+                   "Use `qitoolchain set-default` instead")
+        qisys.script.foo("qitoolchain.actions.set_default",
+                                [args.config, "--worktree", build_worktree.root])
+    if args.interactive:
+        ui.foo("`qibuild init --interactive` is deprecated", "\n",
+                   "Use `qibuild config --wizard` instead")
+        qisys.script.foo("qibuild.actions.config",
+                               ["--wizard", "--worktree", build_worktree.root])

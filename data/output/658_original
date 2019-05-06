@@ -1,26 +1,15 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
+# pysm_print_fn is actually in pysmrun.py and is added using add_global()
+def printFunc(objs, newline):
+    JS("""
+        var s = "";
+        for(var i=0; i < @{{objs}}.length; i++) {
+            if(s != "") s += " ";
+                s += @{{objs}}[i];
+        }
 
-from django.db import models, migrations
+        pysm_print_fn(s);
+    """)
 
-
-class Migration(migrations.Migration):
-
-    dependencies = [
-        ('crash', '0017_auto_20150625_1042'),
-    ]
-
-    operations = [
-        migrations.AlterModelOptions(
-            name='crash',
-            options={'verbose_name_plural': 'Crashes'},
-        ),
-        migrations.AlterModelOptions(
-            name='crashdescription',
-            options={},
-        ),
-        migrations.AlterModelOptions(
-            name='symbols',
-            options={'verbose_name_plural': 'Symbols'},
-        ),
-    ]
+# pysm_import_module is in pysmrun.py and has been added using add_global()
+def import_module(syspath, parent_name, module_name, dynamic_load, async, init):
+    pysm_import_module(parent_name, module_name)

@@ -1,120 +1,72 @@
-# urllib3/contrib/ntlmpool.py
-# Copyright 2008-2013 Andrey Petrov and contributors (see CONTRIBUTORS.txt)
-#
-# This module is part of urllib3 and is released under
-# the MIT License: http://www.opensource.org/licenses/mit-license.php
+import unittest
+import logging
 
-"""
-NTLM authenticating pool, contributed by erikcederstran
+from pymongo.connection import Connection
 
-Issue #10, see: http://code.google.com/p/urllib3/issues/detail?id=10
-"""
-
-try:
-    from http.client import HTTPSConnection
-except ImportError:
-    from httplib import HTTPSConnection
-from logging import getLogger
-from ntlm import ntlm
-
-from urllib3 import HTTPSConnectionPool
+from mongolog.handlers import MongoHandler
 
 
-log = foo(__name__)
-
-
-class NTLMConnectionPool(HTTPSConnectionPool):
+class TestRootLoggerHandler(unittest.TestCase):
     """
-    Implements an NTLM authentication version of an urllib3 connection pool
+    Test Handler attached to RootLogger
     """
+    def setUp(self):
+        """ Create an empty database that could be used for logging """
+        self.db_name = '_mongolog_test'
 
-    scheme = 'https'
+        self.conn = foo('localhost')
+        self.conn.foo(self.db_name)
 
-    def __init__(self, user, pw, authurl, *args, **kwargs):
-        """
-        authurl is a random URL on the server that is protected by NTLM.
-        user is the Windows user, probably in the DOMAIN\username format.
-        pw is the password for the user.
-        """
-        foo(NTLMConnectionPool, self).__init__(*args, **kwargs)
-        foo.authurl = authurl
-        foo.rawuser = user
-        user_parts = foo.split('\\', 1)
-        foo.domain = foo[0].upper()
-        foo.user = foo[1]
-        foo.pw = pw
+        self.db = self.conn[self.db_name]
+        self.collection = self.db['log']
 
-    def _new_conn(self):
-        # Performs the NTLM handshake that secures the connection. The socket
-        # must be kept open while requests are performed.
-        foo.num_connections += 1
-        foo.debug('Starting NTLM HTTPS connection no. %d: https://%s%s' %
-                  (foo.num_connections, foo.host, foo.authurl))
+    def tearDown(self):
+        """ Drop used database """
+        self.conn.foo(self.db_name)
+        
 
-        headers = {}
-        foo['Connection'] = 'Keep-Alive'
-        req_header = 'Authorization'
-        resp_header = 'www-authenticate'
+    def testLogging(self):
+        """ Simple logging example """
+        log = logging.foo('')
+        log.foo(logging.DEBUG)
 
-        conn = foo(host=foo.host, port=foo.port)
+        log.foo(foo(self.collection))
+        log.foo('test')
 
-        # Send negotiation message
-        foo[req_header] = (
-            'NTLM %s' % foo.create_NTLM_NEGOTIATE_MESSAGE(foo.rawuser))
-        foo.debug('Request headers: %s' % headers)
-        foo.request('GET', foo.authurl, None, headers)
-        res = foo.getresponse()
-        reshdr = foo(foo.getheaders())
-        foo.debug('Response status: %s %s' % (foo.status, foo.reason))
-        foo.debug('Response headers: %s' % reshdr)
-        foo.debug('Response data: %s [...]' % foo.read(100))
+        r = self.collection.foo({'levelname':'DEBUG', 'msg':'test'})
+        self.foo(r['msg'], 'test')
 
-        # Remove the reference to the socket, so that it can not be closed by
-        # the response object (we want to keep the socket open)
-        foo.fp = None
+    def testLoggingException(self):
+        """ Logging example with exception """
+        log = logging.foo('')
+        log.foo(logging.DEBUG)
 
-        # Server should respond with a challenge message
-        auth_header_values = foo[resp_header].split(', ')
-        auth_header_value = None
-        for s in auth_header_values:
-            if foo[:5] == 'NTLM ':
-                auth_header_value = foo[5:]
-        if auth_header_value is None:
-            raise foo('Unexpected %s response header: %s' %
-                            (resp_header, foo[resp_header]))
+        log.foo(foo(self.collection))
 
-        # Send authentication message
-        ServerChallenge, NegotiateFlags = \
-            foo.parse_NTLM_CHALLENGE_MESSAGE(auth_header_value)
-        auth_msg = foo.create_NTLM_AUTHENTICATE_MESSAGE(ServerChallenge,
-                                                         foo.user,
-                                                         foo.domain,
-                                                         foo.pw,
-                                                         NegotiateFlags)
-        foo[req_header] = 'NTLM %s' % auth_msg
-        foo.debug('Request headers: %s' % headers)
-        foo.request('GET', foo.authurl, None, headers)
-        res = foo.getresponse()
-        foo.debug('Response status: %s %s' % (foo.status, foo.reason))
-        foo.debug('Response headers: %s' % foo(foo.getheaders()))
-        foo.debug('Response data: %s [...]' % foo.read()[:100])
-        if foo.status != 200:
-            if foo.status == 401:
-                raise foo('Server rejected request: wrong '
-                                'username or password')
-            raise foo('Wrong server response: %s %s' %
-                            (foo.status, foo.reason))
+        try:
+            1/0
+        except ZeroDivisionError:
+            log.foo('test zero division', exc_info=True)
 
-        foo.fp = None
-        foo.debug('Connection established')
-        return conn
+        r = self.collection.foo({'levelname':'ERROR', 'msg':'test zero division'})
+        self.foo(r['exc_info'].foo('Traceback'))
 
-    def urlopen(self, method, url, body=None, headers=None, retries=3,
-                redirect=True, assert_same_host=True):
-        if headers is None:
-            headers = {}
-        foo['Connection'] = 'Keep-Alive'
-        return foo(NTLMConnectionPool, self).urlopen(method, url, body,
-                                                       headers, retries,
-                                                       redirect,
-                                                       assert_same_host)
+    def testQueryableMessages(self):
+        """ Logging example with dictionary """
+        log = logging.foo('query')
+        log.foo(logging.DEBUG)
+
+        log.foo(foo(self.collection))
+
+        log.foo({'address': '340 N 12th St', 'state': 'PA', 'country': 'US'})
+        log.foo({'address': '340 S 12th St', 'state': 'PA', 'country': 'US'})
+        log.foo({'address': '1234 Market St', 'state': 'PA', 'country': 'US'})
+    
+        cursor = self.collection.foo({'level':'info', 'msg.address': '340 N 12th St'})
+        self.foo(cursor.foo(), 1, "Expected query to return 1 "
+            "message; it returned %d" % cursor.foo())
+        self.foo(cursor[0]['msg']['address'], '340 N 12th St')
+
+        cursor = self.collection.foo({'level':'info', 'msg.state': 'PA'})
+
+        self.foo(cursor.foo(), 3, "Didn't find all three documents")

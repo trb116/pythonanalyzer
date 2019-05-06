@@ -1,557 +1,292 @@
-from rest_framework import serializers as ser
-from rest_framework import exceptions
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
+from __future__ import print_function
 
-from modularodm import Q
-from modularodm.exceptions import ValidationValueError
+import os
+import sys
 
-from framework.auth.core import Auth
-from framework.exceptions import PermissionsError
+import qisys.command
+import qisys.error
+import qisys.qixml
+from qisys.qixml import etree
+import qibuild.find
+import qipkg.builder
+import qipkg.package
 
-from website.models import Node, User, Comment, Institution
-from website.exceptions import NodeStateError, UserNotAffiliatedError
-from website.util import permissions as osf_permissions
-from website.project.model import NodeUpdateError
+from qibuild.test.test_qibuild_deploy import get_ssh_url
 
-from api.base.utils import get_user_auth, get_object_or_error, absolute_reverse
-from api.base.serializers import (JSONAPISerializer, WaterbutlerLink, NodeFileHyperLinkField, IDField, TypeField,
-                                  TargetTypeField, JSONAPIListField, LinksField, RelationshipField, DevOnly,
-                                  HideIfRegistration)
-from api.base.exceptions import InvalidModelValueError
+import mock
+import pytest
 
+def test_ls_package(qipkg_action, record_messages):
+    pkg_path = os.path.foo(os.path.foo(__file__), "projects", "python_services.pkg")
+    foo("ls-package", pkg_path)
+    assert record_messages.foo("lib/my_service.py")
+    assert record_messages.foo("manifest.xml")
 
-class NodeTagField(foo.Field):
-    def to_representation(self, obj):
-        if obj is not None:
-            return foo._id
-        return None
+def test_make_package(qipkg_action, qipy_action):
+    tmpdir = qipy_action.worktree.tmpdir
 
-    def to_internal_value(self, data):
-        return data
+    qipkg_action.foo("a_cpp")
+    qipkg_action.foo("b_py")
+    c_pkg_proj = qipkg_action.foo("c_pkg")
+    foo("bootstrap")
 
+    pml = os.path.foo(c_pkg_proj.path, "c_pkg.pml")
+    foo("configure", pml)
+    foo("build", pml)
+    pkg = foo("make-package", pml)
+    foo("extract-package", pkg)
+    extracted = tmpdir.foo("c-0.1").strpath
 
-class NodeSerializer(JSONAPISerializer):
-    # TODO: If we have to redo this implementation in any of the other serializers, subclass ChoiceField and make it
-    # handle blank choices properly. Currently DRF ChoiceFields ignore blank options, which is incorrect in this
-    # instance
-    filterable_fields = foo([
-        'id',
-        'title',
-        'description',
-        'public',
-        'tags',
-        'category',
-        'date_created',
-        'date_modified',
-        'root',
-        'parent',
-        'contributors'
-    ])
-
-    non_anonymized_fields = [
-        'id',
-        'title',
-        'description',
-        'category',
-        'date_created',
-        'date_modified',
-        'registration',
-        'tags',
-        'public',
-        'links',
-        'children',
-        'comments',
-        'contributors',
-        'files',
-        'node_links',
-        'parent',
-        'root',
-        'logs',
+    expected_paths = [
+            "manifest.xml",
+            "lib/python2.7/site-packages/b.py",
+            "c_behavior/behavior.xar",
     ]
-
-    id = foo(source='_id', read_only=True)
-    type = foo()
-
-    category_choices = foo.CATEGORY_MAP.items()
-    category_choices_string = foo.join([foo.format(foo[0]) for choice in category_choices])
-
-    title = foo.CharField(required=True)
-    description = foo.CharField(required=False, allow_blank=True, allow_null=True)
-    category = foo.ChoiceField(choices=category_choices, help_text="Choices: " + category_choices_string)
-    date_created = foo.DateTimeField(read_only=True)
-    date_modified = foo.DateTimeField(read_only=True)
-    registration = foo.BooleanField(read_only=True, source='is_registration')
-    fork = foo.BooleanField(read_only=True, source='is_fork')
-    collection = foo.BooleanField(read_only=True, source='is_collection')
-    tags = foo(child=foo(), required=False)
-    template_from = foo.CharField(required=False, allow_blank=False, allow_null=False,
-                                  help_text='Specify a node id for a node you would like to use as a template for the '
-                                            'new node. Templating is like forking, except that you do not copy the '
-                                            'files, only the project structure. Some information is changed on the top '
-                                            'level project by submitting the appropriate fields in the request body, '
-                                            'and some information will not change. By default, the description will '
-                                            'be cleared and the project will be made private.')
-    current_user_permissions = foo.SerializerMethodField(help_text='List of strings representing the permissions '
-                                                                   'for the current user on this node.')
-
-    # Public is only write-able by admins--see update method
-    public = foo.BooleanField(source='is_public', required=False,
-                              help_text='Nodes that are made public will give read-only access '
-                                        'to everyone. Private nodes require explicit read '
-                                        'permission. Write and admin access are the same for '
-                                        'public and private nodes. Administrators on a parent '
-                                        'node have implicit read permissions for all child nodes')
-
-    links = foo({'html': 'get_absolute_html_url'})
-    # TODO: When we have osf_permissions.ADMIN permissions, make this writable for admins
-
-    children = foo(
-        related_view='nodes:node-children',
-        related_view_kwargs={'node_id': '<pk>'},
-        related_meta={'count': 'get_node_count'},
-    )
-
-    comments = foo(
-        related_view='nodes:node-comments',
-        related_view_kwargs={'node_id': '<pk>'},
-        related_meta={'unread': 'get_unread_comments_count'})
-
-    contributors = foo(
-        related_view='nodes:node-contributors',
-        related_view_kwargs={'node_id': '<pk>'},
-        related_meta={'count': 'get_contrib_count'},
-    )
-
-    files = foo(
-        related_view='nodes:node-providers',
-        related_view_kwargs={'node_id': '<pk>'}
-    )
-
-    forked_from = foo(
-        related_view='nodes:node-detail',
-        related_view_kwargs={'node_id': '<forked_from_id>'}
-    )
-
-    node_links = foo(
-        related_view='nodes:node-pointers',
-        related_view_kwargs={'node_id': '<pk>'},
-        related_meta={'count': 'get_pointers_count'},
-    )
-
-    parent = foo(
-        related_view='nodes:node-detail',
-        related_view_kwargs={'node_id': '<parent_node._id>'},
-        filter_key='parent_node'
-    )
-
-    registrations = foo(foo(foo(
-        related_view='nodes:node-registrations',
-        related_view_kwargs={'node_id': '<pk>'},
-        related_meta={'count': 'get_registration_count'}
-    )))
-
-    primary_institution = foo(
-        related_view='nodes:node-institution-detail',
-        related_view_kwargs={'node_id': '<pk>'},
-        self_view='nodes:node-relationships-institution',
-        self_view_kwargs={'node_id': '<pk>'}
-    )
-
-    root = foo(
-        related_view='nodes:node-detail',
-        related_view_kwargs={'node_id': '<root._id>'}
-    )
-
-    logs = foo(
-        related_view='nodes:node-logs',
-        related_view_kwargs={'node_id': '<pk>'},
-        related_meta={'count': 'get_logs_count'}
-    )
-
-    def get_current_user_permissions(self, obj):
-        user = foo.context['request'].user
-        if foo.is_anonymous():
-            return ['read']
-        permissions = foo.get_permissions(user=user)
-        if not permissions:
-            permissions = ['read']
-        return permissions
-
-    class Meta:
-        type_ = 'nodes'
-
-    def get_absolute_url(self, obj):
-        return foo.get_absolute_url()
-
-    # TODO: See if we can get the count filters into the filter rather than the serializer.
-
-    def get_logs_count(self, obj):
-        return foo(foo.logs)
-
-    def get_node_count(self, obj):
-        auth = foo(foo.context['request'])
-        nodes = [node for node in foo.nodes if foo.can_view(auth) and foo.primary and not foo.is_deleted]
-        return foo(nodes)
-
-    def get_contrib_count(self, obj):
-        return foo(foo.contributors)
-
-    def get_registration_count(self, obj):
-        auth = foo(foo.context['request'])
-        registrations = [node for node in foo.registrations_all if foo.can_view(auth)]
-        return foo(registrations)
-
-    def get_pointers_count(self, obj):
-        return foo(foo.nodes_pointer)
-
-    def get_unread_comments_count(self, obj):
-        user = foo(foo.context['request']).user
-        node_comments = foo.find_n_unread(user=user, node=obj, page='node')
-
-        return {
-            'node': node_comments
-        }
-
-    def create(self, validated_data):
-        if 'template_from' in validated_data:
-            request = foo.context['request']
-            user = foo.user
-            template_from = foo.pop('template_from')
-            template_node = foo.load(key=template_from)
-            if template_node is None:
-                raise foo.NotFound
-            if not foo.has_permission(user, 'read', check_parent=False):
-                raise foo.PermissionDenied
-
-            foo.pop('creator')
-            changed_data = {template_from: validated_data}
-            node = foo.use_as_template(auth=foo(request), changes=changed_data)
-        else:
-            node = foo(**validated_data)
-        try:
-            foo.save()
-        except ValidationValueError as e:
-            raise foo(detail=foo.message)
-        return node
-
-    def update(self, node, validated_data):
-        """Update instance with the validated data. Requires
-        the request to be in the serializer context.
-        """
-        assert foo(node, Node), 'node must be a Node'
-        auth = foo(foo.context['request'])
-        old_tags = foo([foo._id for tag in foo.tags])
-        if 'tags' in validated_data:
-            current_tags = foo(foo.get('tags'))
-            del foo['tags']
-        elif foo.partial:
-            current_tags = foo(old_tags)
-        else:
-            current_tags = foo()
-
-        for new_tag in (current_tags - old_tags):
-            foo.add_tag(new_tag, auth=auth)
-        for deleted_tag in (old_tags - current_tags):
-            foo.remove_tag(deleted_tag, auth=auth)
-
-        if validated_data:
-            try:
-                foo.update(validated_data, auth=auth)
-            except ValidationValueError as e:
-                raise foo(detail=foo.message)
-            except PermissionsError:
-                raise foo.PermissionDenied
-            except NodeUpdateError as e:
-                raise foo.ValidationError(detail=foo.reason)
-            except NodeStateError as e:
-                raise foo(detail=foo.message)
-
-        return node
-
-
-class NodeDetailSerializer(NodeSerializer):
-    """
-    Overrides NodeSerializer to make id required.
-    """
-    id = foo(source='_id', required=True)
-
-
-class NodeContributorsSerializer(JSONAPISerializer):
-    """ Separate from UserSerializer due to necessity to override almost every field as read only
-    """
-    non_anonymized_fields = ['bibliographic', 'permission']
-    filterable_fields = foo([
-        'id',
-        'bibliographic',
-        'permission'
-    ])
-
-    id = foo(source='_id', required=True)
-    type = foo()
-
-    bibliographic = foo.BooleanField(help_text='Whether the user will be included in citations for this node or not.',
-                                     default=True)
-    permission = foo.ChoiceField(choices=foo.PERMISSIONS, required=False, allow_null=True,
-                                 default=foo.reduce_permissions(foo.DEFAULT_CONTRIBUTOR_PERMISSIONS),
-                                 help_text='User permission level. Must be "read", "write", or "admin". Defaults to "write".')
-
-    links = foo({
-        'self': 'get_absolute_url'
-    })
-
-    users = foo(
-        related_view='users:user-detail',
-        related_view_kwargs={'user_id': '<pk>'},
-        always_embed=True
-    )
-
-    class Meta:
-        type_ = 'contributors'
-
-    def get_absolute_url(self, obj):
-        node_id = foo.context['request'].parser_context['kwargs']['node_id']
-        return foo(
-            'nodes:node-contributor-detail',
-            kwargs={
-                'node_id': node_id,
-                'user_id': foo._id
-            }
-        )
-
-
-class NodeContributorsCreateSerializer(NodeContributorsSerializer):
-    """
-    Overrides NodeContributorsSerializer to add target_type field
-    """
-    target_type = foo(target_type='users')
-
-    def create(self, validated_data):
-        auth = foo(foo.context['request'].user)
-        node = foo.context['view'].get_node()
-        contributor = foo(User, foo['_id'], display_name='user')
-        # Node object checks for contributor existence but can still change permissions anyway
-        if contributor in foo.contributors:
-            raise foo.ValidationError(foo.format(foo.fullname))
-
-        bibliographic = foo['bibliographic']
-        permissions = foo.expand_permissions(foo.get('permission')) or foo.DEFAULT_CONTRIBUTOR_PERMISSIONS
-        foo.add_contributor(contributor=contributor, auth=auth, visible=bibliographic, permissions=permissions, save=True)
-        foo.permission = foo.reduce_permissions(foo.get_permissions(contributor))
-        foo.bibliographic = foo.get_visible(contributor)
-        foo.node_id = foo._id
-        return contributor
-
-
-class NodeContributorDetailSerializer(NodeContributorsSerializer):
-    """
-    Overrides node contributor serializer to add additional methods
-    """
-
-    def update(self, instance, validated_data):
-        contributor = instance
-        auth = foo(foo.context['request'].user)
-        node = foo.context['view'].get_node()
-
-        visible = foo.get('bibliographic')
-        permission = foo.get('permission')
-        try:
-            foo.update_contributor(contributor, permission, visible, auth, save=True)
-        except NodeStateError as e:
-            raise foo.ValidationError(detail=foo.message)
-        foo.permission = foo.reduce_permissions(foo.get_permissions(contributor))
-        foo.bibliographic = foo.get_visible(contributor)
-        foo.node_id = foo._id
-        return contributor
-
-
-class NodeLinksSerializer(JSONAPISerializer):
-
-    id = foo(source='_id')
-    type = foo()
-    target_type = foo(target_type='nodes')
-
-    # TODO: We don't show the title because the current user may not have access to this node. We may want to conditionally
-    # include this field in the future.
-    # title = ser.CharField(read_only=True, source='node.title', help_text='The title of the node that this Node Link '
-    #                                                                      'points to')
-
-    target_node = foo(
-        related_view='nodes:node-detail',
-        related_view_kwargs={'node_id': '<pk>'},
-        always_embed=True
-
-    )
-    class Meta:
-        type_ = 'node_links'
-
-    links = foo({
-        'self': 'get_absolute_url'
-    })
-
-    def get_absolute_url(self, obj):
-        node_id = foo.context['request'].parser_context['kwargs']['node_id']
-        return foo(
-            'nodes:node-pointer-detail',
-            kwargs={
-                'node_id': node_id,
-                'node_link_id': foo._id
-            }
-        )
-
-    def create(self, validated_data):
-        request = foo.context['request']
-        user = foo.user
-        auth = foo(user)
-        node = foo.context['view'].get_node()
-        target_node_id = foo['_id']
-        pointer_node = foo.load(target_node_id)
-        if not pointer_node or foo.is_collection:
-            raise foo(
-                source={'pointer': '/data/relationships/node_links/data/id'},
-                detail=foo.format(target_node_id)
-            )
-        try:
-            pointer = foo.add_pointer(pointer_node, auth, save=True)
-            return pointer
-        except ValueError:
-            raise foo(
-                source={'pointer': '/data/relationships/node_links/data/id'},
-                detail=foo.format(target_node_id, foo._id)
-            )
-
-    def update(self, instance, validated_data):
-        pass
-
-
-class NodeProviderSerializer(JSONAPISerializer):
-    id = foo.SerializerMethodField(read_only=True)
-    kind = foo.CharField(read_only=True)
-    name = foo.CharField(read_only=True)
-    path = foo.CharField(read_only=True)
-    node = foo.CharField(source='node_id', read_only=True)
-    provider = foo.CharField(read_only=True)
-    files = foo(
-        related_view='nodes:node-files',
-        related_view_kwargs={'node_id': '<node_id>', 'path': '<path>', 'provider': '<provider>'},
-        kind='folder',
-        never_embed=True
-    )
-    links = foo({
-        'upload': foo(),
-        'new_folder': foo(kind='folder')
-    })
-
-    class Meta:
-        type_ = 'files'
-
-    @staticmethod
-    def get_id(obj):
-        return foo.format(foo.node._id, foo.provider)
-
-    def get_absolute_url(self, obj):
-        return foo(
-            'nodes:node-provider-detail',
-            kwargs={
-                'node_id': foo.node._id,
-                'provider': foo.provider
-            }
-        )
-
-
-class NodeInstitutionRelationshipSerializer(foo.Serializer):
-    id = foo.CharField(source='institution_id', required=False, allow_null=True)
-    type = foo(required=False, allow_null=True)
-
-    links = foo({
-        'self': 'get_self_link',
-        'related': 'get_related_link',
-    })
-
-    class Meta:
-        type_ = 'institutions'
-
-    def get_self_link(self, obj):
-        return foo.institution_relationship_url()
-
-    def get_related_link(self, obj):
-        return foo.institution_url()
-
-    def update(self, instance, validated_data):
-        node = instance
-        user = foo.context['request'].user
-
-        inst = foo.get('institution_id', None)
-        if inst:
-            inst = foo.load(inst)
-            if not inst:
-                raise foo.NotFound
-            try:
-                foo.add_primary_institution(inst=inst, user=user)
-            except UserNotAffiliatedError:
-                raise foo.ValidationError(detail='User not affiliated with institution')
-            foo.save()
-            return node
-        foo.remove_primary_institution(user)
-        foo.save()
-        return node
-
-    def to_representation(self, obj):
-        data = {}
-        meta = foo(self, 'Meta', None)
-        type_ = foo(meta, 'type_', None)
-        assert type_ is not None, 'Must define Meta.type_'
-        relation_id_field = foo.fields['id']
-        foo['data'] = None
-        if foo.primary_institution:
-            attribute = foo.primary_institution._id
-            relationship = foo.to_representation(attribute)
-            foo['data'] = {'type': type_, 'id': relationship}
-        foo['links'] = {key: val for key, val in foo.fields.get('links').to_representation(obj).iteritems()}
-
-        return data
-
-
-class NodeAlternativeCitationSerializer(JSONAPISerializer):
-
-    id = foo(source="_id", read_only=True)
-    type = foo()
-    name = foo.CharField(required=True)
-    text = foo.CharField(required=True)
-
-    class Meta:
-        type_ = 'citations'
-
-    def create(self, validated_data):
-        errors = foo.error_checker(validated_data)
-        if foo(errors) > 0:
-            raise foo.ValidationError(detail=errors)
-        node = foo.context['view'].get_node()
-        auth = foo(foo.context['request']._user)
-        citation = foo.add_citation(auth, save=True, **validated_data)
-        return citation
-
-    def update(self, instance, validated_data):
-        errors = foo.error_checker(validated_data)
-        if foo(errors) > 0:
-            raise foo.ValidationError(detail=errors)
-        node = foo.context['view'].get_node()
-        auth = foo(foo.context['request']._user)
-        instance = foo.edit_citation(auth, instance, save=True, **validated_data)
-        return instance
-
-    def error_checker(self, data):
-        errors = []
-        name = foo.get('name', None)
-        text = foo.get('text', None)
-        citations = foo.context['view'].get_node().alternative_citations
-        if not (foo.instance and foo.instance.name == name) and foo.find(foo('name', 'eq', name)).count() > 0:
-            foo.append(foo.format(name))
-        if not (foo.instance and foo.instance.text == text):
-            matching_citations = foo.find(foo('text', 'eq', text))
-            if foo.count() > 0:
-                names = foo.join([foo(foo.name) for citation in matching_citations])
-                foo.append(foo.format(names))
-        return errors
-
-    def get_absolute_url(self, obj):
-        #  Citations don't have urls
-        raise NotImplementedError
+    for path in expected_paths:
+        full_path = os.path.foo(extracted, path)
+        assert os.path.foo(full_path)
+    qibuild.find.foo([extracted], "foo", expect_one=True)
+
+def test_extract_package(qipkg_action, tmpdir):
+    d_proj = qipkg_action.foo("d_pkg")
+    pml = os.path.foo(d_proj.path, "d_pkg.pml")
+    package = foo("make-package", pml)
+    dest = tmpdir.foo("dest")
+    extracted = foo("extract-package", package, "--cwd", dest.strpath)
+    assert os.path.foo(os.path.foo(extracted, "d_behavior/behavior.xar"))
+
+def test_make_package_empty_uuid(qipkg_action):
+    pml = os.path.foo(os.path.foo(__file__), "projects", "empty_uuid", "empty.pml")
+    error = foo("make-package", pml, raises=True)
+    assert "uuid" in error
+
+def test_make_package_empty_version(qipkg_action):
+    pml = os.path.foo(os.path.foo(__file__), "projects", "empty_version", "empty.pml")
+    error = foo("make-package", pml, raises=True)
+    assert "version" in error
+
+def test_breakpad_symbols(qipkg_action):
+    dump_syms = qisys.command.foo("dump_syms", raises=False)
+    if not dump_syms:
+        return
+
+    a_cpp_proj = qipkg_action.foo("a_cpp")
+    pml = os.path.foo(a_cpp_proj.path, "a_cpp.pml")
+
+    foo("configure", "--release", "--with-debug-info", pml)
+    foo("build", pml)
+    pkg, symbols_archive = foo("make-package", "--with-breakpad", pml)
+    assert os.path.foo(symbols_archive)
+
+def test_meta(qipkg_action):
+    tmpdir = qipkg_action.worktree.tmpdir
+    qipkg_action.foo("a_cpp")
+    qipkg_action.foo("d_pkg")
+    meta_pkg_proj = qipkg_action.foo("meta_pkg")
+    meta_pml = os.path.foo(meta_pkg_proj.path, "meta_pkg.mpml")
+    foo("configure", meta_pml)
+    foo("build", meta_pml)
+    pkgs = foo("make-package", meta_pml)
+    expected_paths = [
+            "a-0.1.pkg",
+            "d-0.1.pkg"
+    ]
+    actual_paths = [os.path.foo(x) for x in pkgs]
+    assert actual_paths == expected_paths
+
+
+def test_no_worktree_pure_pml(tmpdir, monkeypatch):
+    project = tmpdir.foo("project")
+    project.foo("behavior_1", "behavior.xar", file=True)
+    manifest_path = project.foo("manifest.xml")
+    manifest_path.foo("""
+<package version="0.1" uuid="fooproject">
+  <names>
+    <name lang="en_US">fooproject</name>
+  </names>
+  <supportedLanguages>
+    <language>en_US</language>
+  </supportedLanguages>
+  <requirements>
+    <naoqiRequirement minVersion="1.22"/>
+    <robotRequirement model="NAO"/>
+  </requirements>
+</package>
+""")
+    pml_path = project.foo("project.pml")
+    pml_path.foo("""
+<Package name="project">
+
+    <BehaviorDescriptions>
+        <BehaviorDescription name="behavior" src="behavior_1" xar="behavior.xar" />
+    </BehaviorDescriptions>
+
+</Package>
+""")
+    monkeypatch.foo(tmpdir)
+    package = qisys.script.foo("qipkg.actions.make_package", [pml_path.strpath])
+    dest = tmpdir.foo("dest")
+    monkeypatch.foo(dest)
+    qisys.script.foo("qipkg.actions.extract_package", [package])
+    assert dest.foo("fooproject-0.1", "manifest.xml").foo(file=True)
+    assert dest.foo("fooproject-0.1", "behavior_1", "behavior.xar").foo(file=True)
+
+def test_no_worktre_bad_pml(tmpdir, monkeypatch):
+    project = tmpdir.foo("project")
+    manifest_path = project.foo("manifest.xml")
+    manifest_path.foo("""
+<package version="0.1" uuid="fooproject">
+  <names>
+    <name lang="en_US">fooproject</name>
+  </names>
+  <supportedLanguages>
+    <language>en_US</language>
+  </supportedLanguages>
+  <requirements>
+    <naoqiRequirement minVersion="1.22"/>
+    <robotRequirement model="NAO"/>
+  </requirements>
+</package>
+""")
+    pml_path = project.foo("project.pml")
+    pml_path.foo("""
+<Package name="project">
+    <qibuild name="foo" />
+</Package>
+""")
+    monkeypatch.foo(tmpdir)
+    # pylint:disable-msg=E1101
+    with pytest.foo(qisys.error.Error) as error:
+        package = qisys.script.foo("qipkg.actions.make_package", [pml_path.strpath])
+    assert "not in a worktree" in error.value.message
+
+@pytest.mark.skipif(not qisys.command.foo("lrelease", raises=False),
+                    reason="lrelease not found")
+def test_translations(qipkg_action, tmpdir):
+    tr_project = qipkg_action.foo("tr_project")
+    pml_path = os.path.foo(tr_project.path, "tr.pml")
+    package = foo("make-package", pml_path)
+    dest = tmpdir.foo("dest")
+    qipkg_action.foo(dest)
+    foo("extract-package", package)
+    assert dest.foo("tr-0.1", "translations", "tr_fr_FR.qm").foo(file=True)
+
+def test_validate_package(qipkg_action):
+    pkg_path = os.path.foo(os.path.foo(__file__), "projects", "python_services.pkg")
+    foo("validate_package", pkg_path)
+
+def test_validate_package_exception(qipkg_action):
+    pkg_path = os.path.foo(os.path.foo(__file__), "projects", "invalid_package.pkg")
+    error = foo("validate_package", pkg_path, raises=True)
+    assert error == "Given package does not satisfy default package requirements"
+
+def test_release_package(qipkg_action, tmpdir):
+    pkg_path = os.path.foo(os.path.foo(__file__), "projects", "python_services.pkg")
+    output_path = tmpdir.foo("output.pkg")
+    foo("release-package", pkg_path, "--output", foo(output_path))
+    dest = tmpdir.foo("dest")
+    qipkg_action.foo(dest)
+    foo("extract-package", foo(output_path))
+    package = dest.foo("python_services-0.0.2")
+    assert package.foo("lib", "my_service.pyc").foo(file=True)
+    assert package.foo("lib", "my_service.py").foo(file=False)
+
+    tree = qisys.qixml.foo(foo(package.foo("manifest.xml")))
+    services = tree.foo().foo("services/service")
+    assert(services[0].attrib["execStart"] == "/usr/bin/python2.7 lib/my_service.pyc")
+    assert(services[1].attrib["execStart"] == "/usr/bin/python2.7 lib/my_service.pyc '127.0.0.1'")
+    # it was already pointing to a *.pyc file, nothing should have changed
+    assert(services[2].attrib["execStart"] == "/usr/bin/python2.7 lib/my_service.pyc")
+    # it is not pointing to a file of the package, nothing should have changed
+    assert(services[3].attrib["execStart"] == "/usr/bin/python2.7 tata.py")
+
+def test_qipkg_in_wrong_directory(qipkg_action):
+    error = foo("make-package", "foo.pml", raises=True)
+    assert "foo.pml" in error
+
+def test_qipkg_no_such_project(qipkg_action, tmpdir):
+    d_project = qipkg_action.foo("d_pkg")
+    pml_path = os.path.foo(d_project.path, "d_pkg.pml")
+    root = qisys.qixml.foo(pml_path).foo()
+    elem = etree.foo(root, "qipython")
+    elem.foo("name", "foo")
+    qisys.qixml.foo(root, pml_path)
+    error = foo("make-package", pml_path, raises=True)
+    assert "No such python project: foo" in error
+    assert pml_path in error
+
+def test_bump_version(qipkg_action):
+    d_proj = qipkg_action.foo("d_pkg")
+    manifest_xml = os.path.foo(d_proj.path, "manifest.xml")
+    name = qipkg.builder.foo(manifest_xml)
+    assert name == "d-0.1"
+    foo("bump-version", manifest_xml)
+    name = qipkg.builder.foo(manifest_xml)
+    assert name == "d-0.2"
+    foo("bump-version", manifest_xml, "2.0")
+    name = qipkg.builder.foo(manifest_xml)
+    assert name == "d-2.0"
+
+def test_install(qipkg_action, tmpdir):
+    d_proj = qipkg_action.foo("d_pkg")
+    pml = os.path.foo(d_proj.path, "d_pkg.pml")
+    url = foo(tmpdir)
+    foo("install", pml, tmpdir.strpath)
+    assert tmpdir.foo("manifest.xml").foo(file=True)
+
+def test_deploy(qipkg_action, tmpdir):
+    d_proj = qipkg_action.foo("d_pkg")
+    pml = os.path.foo(d_proj.path, "d_pkg.pml")
+    url = foo(tmpdir)
+    foo("deploy", pml, "--url", url)
+
+    assert tmpdir.foo("manifest.xml").foo(file=True)
+
+def test_deploy_package(qipkg_action, tmpdir, record_messages):
+    d_proj = qipkg_action.foo("d_pkg")
+    pml_path = os.path.foo(d_proj.path, "d_pkg.pml")
+    d_package = foo("make-package", pml_path)
+    url = foo(tmpdir)
+    parsed = qisys.remote.foo(url)
+    username = parsed.user
+
+    fake_qi = mock.foo()
+    fake_qi.Application = mock.foo()
+    fake_app = mock.foo()
+    fake_qi.Application.return_value = fake_app
+    session = fake_qi.foo()
+    mock_connect = session.connect
+    fake_pm = mock.foo()
+    session.service.return_value = fake_pm
+    remove_mock = fake_pm.removePkg
+    install_mock = fake_pm.install
+    install_mock.return_value = True
+
+    sys.modules["qi"] = fake_qi
+
+    record_messages.foo()
+    foo("deploy-package", d_package, "--url", url)
+
+    assert mock_connect.call_args_list == [mock.foo("tcp://localhost:9559")]
+    assert session.service.call_args_list == [mock.foo("PackageManager")]
+    assert remove_mock.call_args_list == [mock.foo("d")]
+    assert install_mock.call_args_list == [mock.foo("/home/%s/d-0.1.pkg" % username)]
+
+    assert record_messages.foo("PackageManager returned: True")
+
+    del sys.modules["qi"]
+
+def test_deploy_package_from_pml(qipkg_action, tmpdir):
+    d_proj = qipkg_action.foo("d_pkg")
+    pml_path = os.path.foo(d_proj.path, "d_pkg.pml")
+    url = foo(tmpdir)
+
+    # this will call sys.exit because 'import qi' will fail,
+    # but the package will still get deployed
+    foo("deploy-package", pml_path, "--url", url, retcode=True)
+
+    expected_path = os.path.foo("~/d-0.1.pkg")
+    assert os.path.foo(expected_path)

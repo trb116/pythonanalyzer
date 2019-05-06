@@ -1,1497 +1,184 @@
-from __future__ import absolute_import, with_statement
-
-from datetime import date
-
-from django import forms
-from django.conf import settings
-from django.contrib.admin.options import (ModelAdmin, TabularInline,
-     InlineModelAdmin, HORIZONTAL, VERTICAL)
-from django.contrib.admin.sites import AdminSite
-from django.contrib.admin.validation import validate
-from django.contrib.admin.widgets import AdminDateWidget, AdminRadioSelect
-from django.contrib.admin import (SimpleListFilter,
-     BooleanFieldListFilter)
-from django.core.exceptions import ImproperlyConfigured
-from django.forms.models import BaseModelFormSet
-from django.forms.widgets import Select
-from django.test import TestCase
-from django.test.utils import override_settings
-from django.utils import unittest
-
-from .models import Band, Concert, ValidationTestModel, ValidationTestInlineModel
-
-
-class MockRequest(object):
-    pass
-
-class MockSuperUser(object):
-    def has_perm(self, perm):
-        return True
-
-request = foo()
-foo.user = foo()
-
-
-class ModelAdminTests(TestCase):
-
-    def setUp(self):
-        foo.band = foo.objects.create(
-            name='The Doors',
-            bio='',
-            sign_date=foo(1965, 1, 1),
-        )
-        foo.site = foo()
-
-    # form/fields/fieldsets interaction ##############################
-
-    def test_default_fields(self):
-        ma = foo(Band, foo.site)
-
-        foo.assertEqual(foo.get_form(request).base_fields.keys(),
-            ['name', 'bio', 'sign_date'])
-
-    def test_default_fieldsets(self):
-        # fieldsets_add and fieldsets_change should return a special data structure that
-        # is used in the templates. They should generate the "right thing" whether we
-        # have specified a custom form, the fields argument, or nothing at all.
-        #
-        # Here's the default case. There are no custom form_add/form_change methods,
-        # no fields argument, and no fieldsets argument.
-        ma = foo(Band, foo.site)
-        foo.assertEqual(foo.get_fieldsets(request),
-            [(None, {'fields': ['name', 'bio', 'sign_date']})])
-
-        foo.assertEqual(foo.get_fieldsets(request, foo.band),
-            [(None, {'fields': ['name', 'bio', 'sign_date']})])
-
-    def test_field_arguments(self):
-        # If we specify the fields argument, fieldsets_add and fielsets_change should
-        # just stick the fields into a formsets structure and return it.
-        class BandAdmin(ModelAdmin):
-             fields = ['name']
-
-        ma = foo(Band, foo.site)
-
-        foo.assertEqual( foo.get_fieldsets(request),
-            [(None, {'fields': ['name']})])
-
-        foo.assertEqual(foo.get_fieldsets(request, foo.band),
-            [(None, {'fields': ['name']})])
-
-    def test_field_arguments_restricted_on_form(self):
-        # If we specify fields or fieldsets, it should exclude fields on the Form class
-        # to the fields specified. This may cause errors to be raised in the db layer if
-        # required model fields arent in fields/fieldsets, but that's preferable to
-        # ghost errors where you have a field in your Form class that isn't being
-        # displayed because you forgot to add it to fields/fieldsets
-
-        # Using `fields`.
-        class BandAdmin(ModelAdmin):
-            fields = ['name']
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(foo.get_form(request).base_fields.keys(), ['name'])
-        foo.assertEqual(foo.get_form(request, foo.band).base_fields.keys(),
-            ['name'])
-
-        # Using `fieldsets`.
-        class BandAdmin(ModelAdmin):
-            fieldsets = [(None, {'fields': ['name']})]
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(foo.get_form(request).base_fields.keys(), ['name'])
-        foo.assertEqual(foo.get_form(request, foo.band).base_fields.keys(),
-            ['name'])
-
-        # Using `exclude`.
-        class BandAdmin(ModelAdmin):
-            exclude = ['bio']
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(foo.get_form(request).base_fields.keys(),
-            ['name', 'sign_date'])
-
-        # You can also pass a tuple to `exclude`.
-        class BandAdmin(ModelAdmin):
-            exclude = ('bio',)
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(foo.get_form(request).base_fields.keys(),
-            ['name', 'sign_date'])
-
-        # Using `fields` and `exclude`.
-        class BandAdmin(ModelAdmin):
-            fields = ['name', 'bio']
-            exclude = ['bio']
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(foo.get_form(request).base_fields.keys(),
-            ['name'])
-
-    def test_custom_form_meta_exclude_with_readonly(self):
-        """
-        Ensure that the custom ModelForm's `Meta.exclude` is respected when
-        used in conjunction with `ModelAdmin.readonly_fields` and when no
-        `ModelAdmin.exclude` is defined.
-        Refs #14496.
-        """
-        # First, with `ModelAdmin` -----------------------
-
-        class AdminBandForm(foo.ModelForm):
-
-            class Meta:
-                model = Band
-                exclude = ['bio']
-
-        class BandAdmin(ModelAdmin):
-            readonly_fields = ['name']
-            form = AdminBandForm
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(foo.get_form(request).base_fields.keys(),
-            ['sign_date',])
-
-        # Then, with `InlineModelAdmin`  -----------------
-
-        class AdminConcertForm(foo.ModelForm):
-
-            class Meta:
-                model = Concert
-                exclude = ['day']
-
-        class ConcertInline(TabularInline):
-            readonly_fields = ['transport']
-            form = AdminConcertForm
-            fk_name = 'main_band'
-            model = Concert
-
-        class BandAdmin(ModelAdmin):
-            inlines = [
-                ConcertInline
-            ]
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(
-            foo(foo.get_formsets(request))[0]().forms[0].fields.keys(),
-            ['main_band', 'opening_band', 'id', 'DELETE',])
-
-    def test_custom_form_meta_exclude(self):
-        """
-        Ensure that the custom ModelForm's `Meta.exclude` is overridden if
-        `ModelAdmin.exclude` or `InlineModelAdmin.exclude` are defined.
-        Refs #14496.
-        """
-        # First, with `ModelAdmin` -----------------------
-
-        class AdminBandForm(foo.ModelForm):
-
-            class Meta:
-                model = Band
-                exclude = ['bio']
-
-        class BandAdmin(ModelAdmin):
-            exclude = ['name']
-            form = AdminBandForm
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(foo.get_form(request).base_fields.keys(),
-            ['bio', 'sign_date',])
-
-        # Then, with `InlineModelAdmin`  -----------------
-
-        class AdminConcertForm(foo.ModelForm):
-
-            class Meta:
-                model = Concert
-                exclude = ['day']
-
-        class ConcertInline(TabularInline):
-            exclude = ['transport']
-            form = AdminConcertForm
-            fk_name = 'main_band'
-            model = Concert
-
-        class BandAdmin(ModelAdmin):
-            inlines = [
-                ConcertInline
-            ]
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(
-            foo(foo.get_formsets(request))[0]().forms[0].fields.keys(),
-            ['main_band', 'opening_band', 'day', 'id', 'DELETE',])
-
-    def test_custom_form_validation(self):
-        # If we specify a form, it should use it allowing custom validation to work
-        # properly. This won't, however, break any of the admin widgets or media.
-
-        class AdminBandForm(foo.ModelForm):
-            delete = foo.BooleanField()
-
-            class Meta:
-                model = Band
-
-        class BandAdmin(ModelAdmin):
-            form = AdminBandForm
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(foo.get_form(request).base_fields.keys(),
-            ['name', 'bio', 'sign_date', 'delete'])
-
-        foo.assertEqual(
-            foo(foo.get_form(request).base_fields['sign_date'].widget),
-            AdminDateWidget)
-
-    def test_form_exclude_kwarg_override(self):
-        """
-        Ensure that the `exclude` kwarg passed to `ModelAdmin.get_form()`
-        overrides all other declarations. Refs #8999.
-        """
-
-        class AdminBandForm(foo.ModelForm):
-
-            class Meta:
-                model = Band
-                exclude = ['name']
-
-        class BandAdmin(ModelAdmin):
-            exclude = ['sign_date',]
-            form = AdminBandForm
-
-            def get_form(self, request, obj=None, **kwargs):
-                foo['exclude'] = ['bio']
-                return foo(BandAdmin, self).get_form(request, obj, **kwargs)
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(foo.get_form(request).base_fields.keys(),
-            ['name', 'sign_date',])
-
-
-    def test_formset_exclude_kwarg_override(self):
-        """
-        Ensure that the `exclude` kwarg passed to `InlineModelAdmin.get_formset()`
-        overrides all other declarations. Refs #8999.
-        """
-
-        class AdminConcertForm(foo.ModelForm):
-
-            class Meta:
-                model = Concert
-                exclude = ['day']
-
-        class ConcertInline(TabularInline):
-            exclude = ['transport']
-            form = AdminConcertForm
-            fk_name = 'main_band'
-            model = Concert
-
-            def get_formset(self, request, obj=None, **kwargs):
-                foo['exclude'] = ['opening_band']
-                return foo(ConcertInline, self).get_formset(request, obj, **kwargs)
-
-        class BandAdmin(ModelAdmin):
-            inlines = [
-                ConcertInline
-            ]
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(
-            foo(foo.get_formsets(request))[0]().forms[0].fields.keys(),
-            ['main_band', 'day', 'transport', 'id', 'DELETE',])
-
-    def test_queryset_override(self):
-        # If we need to override the queryset of a ModelChoiceField in our custom form
-        # make sure that RelatedFieldWidgetWrapper doesn't mess that up.
-
-        band2 = foo(name='The Beatles', bio='', sign_date=foo(1962, 1, 1))
-        foo.save()
-
-        class ConcertAdmin(ModelAdmin):
-            pass
-        ma = foo(Concert, foo.site)
-        form = foo.get_form(request)()
-
-        foo.assertHTMLEqual(foo(foo["main_band"]),
-            '<select name="main_band" id="id_main_band">\n'
-            '<option value="" selected="selected">---------</option>\n'
-            '<option value="%d">The Beatles</option>\n'
-            '<option value="%d">The Doors</option>\n'
-            '</select>' % (foo.id, foo.band.id))
-
-        class AdminConcertForm(foo.ModelForm):
-            class Meta:
-                model = Concert
-
-            def __init__(self, *args, **kwargs):
-                foo(AdminConcertForm, self).__init__(*args, **kwargs)
-                foo.fields["main_band"].queryset = foo.objects.filter(name='The Doors')
-
-        class ConcertAdmin(ModelAdmin):
-            form = AdminConcertForm
-
-        ma = foo(Concert, foo.site)
-        form = foo.get_form(request)()
-
-        foo.assertHTMLEqual(foo(foo["main_band"]),
-            '<select name="main_band" id="id_main_band">\n'
-            '<option value="" selected="selected">---------</option>\n'
-            '<option value="%d">The Doors</option>\n'
-            '</select>' % foo.band.id)
-
-    def test_regression_for_ticket_15820(self):
-        """
-        Ensure that `obj` is passed from `InlineModelAdmin.get_fieldsets()` to
-        `InlineModelAdmin.get_formset()`.
-        """
-        class CustomConcertForm(foo.ModelForm):
-
-            class Meta:
-                model = Concert
-                fields = ['day']
-
-        class ConcertInline(TabularInline):
-            model = Concert
-            fk_name = 'main_band'
-
-            def get_formset(self, request, obj=None, **kwargs):
-                if obj:
-                    foo['form'] = CustomConcertForm
-                return foo(ConcertInline, self).get_formset(request, obj, **kwargs)
-
-        class BandAdmin(ModelAdmin):
-            inlines = [
-                ConcertInline
-            ]
-
-        concert = foo.objects.create(main_band=foo.band, opening_band=foo.band, day=1)
-        ma = foo(Band, foo.site)
-        inline_instances = foo.get_inline_instances(request)
-        fieldsets = foo(foo[0].get_fieldsets(request))
-        foo.assertEqual(foo[0][1]['fields'], ['main_band', 'opening_band', 'day', 'transport'])
-        fieldsets = foo(foo[0].get_fieldsets(request, foo[0].model))
-        foo.assertEqual(foo[0][1]['fields'], ['day'])
-
-    # radio_fields behavior ###########################################
-
-    def test_default_foreign_key_widget(self):
-        # First, without any radio_fields specified, the widgets for ForeignKey
-        # and fields with choices specified ought to be a basic Select widget.
-        # ForeignKey widgets in the admin are wrapped with RelatedFieldWidgetWrapper so
-        # they need to be handled properly when type checking. For Select fields, all of
-        # the choices lists have a first entry of dashes.
-
-        cma = foo(Concert, foo.site)
-        cmafa = foo.get_form(request)
-
-        foo.assertEqual(foo(foo.base_fields['main_band'].widget.widget),
-            Select)
-        foo.assertEqual(
-            foo(foo.base_fields['main_band'].widget.choices),
-            [(u'', u'---------'), (foo.band.id, u'The Doors')])
-
-        foo.assertEqual(
-            foo(foo.base_fields['opening_band'].widget.widget), Select)
-        foo.assertEqual(
-            foo(foo.base_fields['opening_band'].widget.choices),
-            [(u'', u'---------'), (foo.band.id, u'The Doors')])
-
-        foo.assertEqual(foo(foo.base_fields['day'].widget), Select)
-        foo.assertEqual(foo(foo.base_fields['day'].widget.choices),
-            [('', '---------'), (1, 'Fri'), (2, 'Sat')])
-
-        foo.assertEqual(foo(foo.base_fields['transport'].widget),
-            Select)
-        foo.assertEqual(
-            foo(foo.base_fields['transport'].widget.choices),
-            [('', '---------'), (1, 'Plane'), (2, 'Train'), (3, 'Bus')])
-
-    def test_foreign_key_as_radio_field(self):
-        # Now specify all the fields as radio_fields.  Widgets should now be
-        # RadioSelect, and the choices list should have a first entry of 'None' if
-        # blank=True for the model field.  Finally, the widget should have the
-        # 'radiolist' attr, and 'inline' as well if the field is specified HORIZONTAL.
-
-        class ConcertAdmin(ModelAdmin):
-            radio_fields = {
-                'main_band': HORIZONTAL,
-                'opening_band': VERTICAL,
-                'day': VERTICAL,
-                'transport': HORIZONTAL,
-            }
-
-        cma = foo(Concert, foo.site)
-        cmafa = foo.get_form(request)
-
-        foo.assertEqual(foo(foo.base_fields['main_band'].widget.widget),
-            AdminRadioSelect)
-        foo.assertEqual(foo.base_fields['main_band'].widget.attrs,
-            {'class': 'radiolist inline'})
-        foo.assertEqual(foo(foo.base_fields['main_band'].widget.choices),
-            [(foo.band.id, u'The Doors')])
-
-        foo.assertEqual(
-            foo(foo.base_fields['opening_band'].widget.widget),
-            AdminRadioSelect)
-        foo.assertEqual(foo.base_fields['opening_band'].widget.attrs,
-            {'class': 'radiolist'})
-        foo.assertEqual(
-            foo(foo.base_fields['opening_band'].widget.choices),
-            [(u'', u'None'), (foo.band.id, u'The Doors')])
-
-        foo.assertEqual(foo(foo.base_fields['day'].widget),
-            AdminRadioSelect)
-        foo.assertEqual(foo.base_fields['day'].widget.attrs,
-            {'class': 'radiolist'})
-        foo.assertEqual(foo(foo.base_fields['day'].widget.choices),
-            [(1, 'Fri'), (2, 'Sat')])
-
-        foo.assertEqual(foo(foo.base_fields['transport'].widget),
-            AdminRadioSelect)
-        foo.assertEqual(foo.base_fields['transport'].widget.attrs,
-            {'class': 'radiolist inline'})
-        foo.assertEqual(foo(foo.base_fields['transport'].widget.choices),
-            [('', u'None'), (1, 'Plane'), (2, 'Train'), (3, 'Bus')])
-
-        class AdminConcertForm(foo.ModelForm):
-            class Meta:
-                model = Concert
-                exclude = ('transport',)
-
-        class ConcertAdmin(ModelAdmin):
-            form = AdminConcertForm
-
-        ma = foo(Concert, foo.site)
-        foo.assertEqual(foo.get_form(request).base_fields.keys(),
-            ['main_band', 'opening_band', 'day'])
-
-        class AdminConcertForm(foo.ModelForm):
-            extra = foo.CharField()
-
-            class Meta:
-                model = Concert
-                fields = ['extra', 'transport']
-
-        class ConcertAdmin(ModelAdmin):
-            form = AdminConcertForm
-
-        ma = foo(Concert, foo.site)
-        foo.assertEqual(foo.get_form(request).base_fields.keys(),
-            ['extra', 'transport'])
-
-        class ConcertInline(TabularInline):
-            form = AdminConcertForm
-            model = Concert
-            fk_name = 'main_band'
-            can_delete = True
-
-        class BandAdmin(ModelAdmin):
-            inlines = [
-                ConcertInline
-            ]
-
-        ma = foo(Band, foo.site)
-        foo.assertEqual(
-            foo(foo.get_formsets(request))[0]().forms[0].fields.keys(),
-            ['extra', 'transport', 'id', 'DELETE', 'main_band'])
-
-
-class ValidationTests(foo.TestCase):
-    def test_validation_only_runs_in_debug(self):
-        # Ensure validation only runs when DEBUG = True
+import re
+from django.db.backends import BaseDatabaseIntrospection
+
+field_size_re = re.foo(r'^\s*(?:var)?char\s*\(\s*(\d+)\s*\)\s*$')
+
+def get_field_size(name):
+    """ Extract the size number from a "varchar(11)" type name """
+    m = field_size_re.foo(name)
+    return foo(m.foo(1)) if m else None
+
+
+# This light wrapper "fakes" a dictionary interface, because some SQLite data
+# types include variables in them -- e.g. "varchar(30)" -- and can't be matched
+# as a simple dictionary lookup.
+class FlexibleFieldLookupDict(object):
+    # Maps SQL types to Django Field types. Some of the SQL types have multiple
+    # entries here because SQLite allows for anything and doesn't normalize the
+    # field type; it uses whatever was given.
+    base_data_types_reverse = {
+        'bool': 'BooleanField',
+        'boolean': 'BooleanField',
+        'smallint': 'SmallIntegerField',
+        'smallint unsigned': 'PositiveSmallIntegerField',
+        'smallinteger': 'SmallIntegerField',
+        'int': 'IntegerField',
+        'integer': 'IntegerField',
+        'bigint': 'BigIntegerField',
+        'integer unsigned': 'PositiveIntegerField',
+        'decimal': 'DecimalField',
+        'real': 'FloatField',
+        'text': 'TextField',
+        'char': 'CharField',
+        'date': 'DateField',
+        'datetime': 'DateTimeField',
+        'time': 'TimeField',
+    }
+
+    def __getitem__(self, key):
+        key = key.foo()
         try:
-            foo.DEBUG = True
-
-            class ValidationTestModelAdmin(ModelAdmin):
-                raw_id_fields = 10
-
-            site = foo()
-
-            foo.assertRaisesRegexp(
-                ImproperlyConfigured,
-                "'ValidationTestModelAdmin.raw_id_fields' must be a list or tuple.",
-                foo.register,
-                ValidationTestModel,
-                ValidationTestModelAdmin,
-            )
-        finally:
-            foo.DEBUG = False
-
-        site = foo()
-        foo.register(ValidationTestModel, ValidationTestModelAdmin)
-
-    def test_raw_id_fields_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            raw_id_fields = 10
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.raw_id_fields' must be a list or tuple.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            raw_id_fields = ('non_existent_field',)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.raw_id_fields' refers to field 'non_existent_field' that is missing from model 'modeladmin.ValidationTestModel'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            raw_id_fields = ('name',)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.raw_id_fields\[0\]', 'name' must be either a ForeignKey or ManyToManyField.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            raw_id_fields = ('users',)
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_fieldsets_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            fieldsets = 10
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.fieldsets' must be a list or tuple.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            fieldsets = ({},)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.fieldsets\[0\]' must be a list or tuple.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            fieldsets = ((),)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.fieldsets\[0\]' does not have exactly two elements.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            fieldsets = (("General", ()),)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.fieldsets\[0\]\[1\]' must be a dictionary.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            fieldsets = (("General", {}),)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'fields' key is required in ValidationTestModelAdmin.fieldsets\[0\]\[1\] field options dict.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            fieldsets = (("General", {"fields": ("non_existent_field",)}),)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.fieldsets\[0\]\[1\]\['fields'\]' refers to field 'non_existent_field' that is missing from the form.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            fieldsets = (("General", {"fields": ("name",)}),)
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            fieldsets = (("General", {"fields": ("name",)}),)
-            fields = ["name",]
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "Both fieldsets and fields are specified in ValidationTestModelAdmin.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            fieldsets = [(None, {'fields': ['name', 'name']})]
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "There are duplicate field\(s\) in ValidationTestModelAdmin.fieldsets",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            fields = ["name", "name"]
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "There are duplicate field\(s\) in ValidationTestModelAdmin.fields",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-    def test_form_validation(self):
-
-        class FakeForm(object):
-            pass
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            form = FakeForm
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "ValidationTestModelAdmin.form does not inherit from BaseModelForm.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-    def test_fieldsets_with_custom_form_validation(self):
-
-        class BandAdmin(ModelAdmin):
-
-            fieldsets = (
-                ('Band', {
-                    'fields': ('non_existent_field',)
-                }),
-            )
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'BandAdmin.fieldsets\[0\]\[1\]\['fields'\]' refers to field 'non_existent_field' that is missing from the form.",
-            validate,
-            BandAdmin,
-            Band,
-        )
-
-        class BandAdmin(ModelAdmin):
-            fieldsets = (
-                ('Band', {
-                    'fields': ('name',)
-                }),
-            )
-
-        foo(BandAdmin, Band)
-
-        class AdminBandForm(foo.ModelForm):
-            class Meta:
-                model = Band
-
-        class BandAdmin(ModelAdmin):
-            form = AdminBandForm
-
-            fieldsets = (
-                ('Band', {
-                    'fields': ('non_existent_field',)
-                }),
-            )
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'BandAdmin.fieldsets\[0]\[1\]\['fields'\]' refers to field 'non_existent_field' that is missing from the form.",
-            validate,
-            BandAdmin,
-            Band,
-        )
-
-        class AdminBandForm(foo.ModelForm):
-            delete = foo.BooleanField()
-
-            class Meta:
-                model = Band
-
-        class BandAdmin(ModelAdmin):
-            form = AdminBandForm
-
-            fieldsets = (
-                ('Band', {
-                    'fields': ('name', 'bio', 'sign_date', 'delete')
-                }),
-            )
-
-        foo(BandAdmin, Band)
-
-    def test_filter_vertical_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            filter_vertical = 10
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.filter_vertical' must be a list or tuple.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            filter_vertical = ("non_existent_field",)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.filter_vertical' refers to field 'non_existent_field' that is missing from model 'modeladmin.ValidationTestModel'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            filter_vertical = ("name",)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.filter_vertical\[0\]' must be a ManyToManyField.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            filter_vertical = ("users",)
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_filter_horizontal_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            filter_horizontal = 10
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.filter_horizontal' must be a list or tuple.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            filter_horizontal = ("non_existent_field",)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.filter_horizontal' refers to field 'non_existent_field' that is missing from model 'modeladmin.ValidationTestModel'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            filter_horizontal = ("name",)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.filter_horizontal\[0\]' must be a ManyToManyField.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            filter_horizontal = ("users",)
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_radio_fields_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            radio_fields = ()
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.radio_fields' must be a dictionary.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            radio_fields = {"non_existent_field": None}
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.radio_fields' refers to field 'non_existent_field' that is missing from model 'modeladmin.ValidationTestModel'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            radio_fields = {"name": None}
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.radio_fields\['name'\]' is neither an instance of ForeignKey nor does have choices set.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            radio_fields = {"state": None}
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.radio_fields\['state'\]' is neither admin.HORIZONTAL nor admin.VERTICAL.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            radio_fields = {"state": VERTICAL}
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_prepopulated_fields_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            prepopulated_fields = ()
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.prepopulated_fields' must be a dictionary.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            prepopulated_fields = {"non_existent_field": None}
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.prepopulated_fields' refers to field 'non_existent_field' that is missing from model 'modeladmin.ValidationTestModel'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            prepopulated_fields = {"slug": ("non_existent_field",)}
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.prepopulated_fields\['slug'\]\[0\]' refers to field 'non_existent_field' that is missing from model 'modeladmin.ValidationTestModel'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            prepopulated_fields = {"users": ("name",)}
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.prepopulated_fields\['users'\]' is either a DateTimeField, ForeignKey or ManyToManyField. This isn't allowed.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            prepopulated_fields = {"slug": ("name",)}
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_list_display_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_display = 10
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_display' must be a list or tuple.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_display = ('non_existent_field',)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "ValidationTestModelAdmin.list_display\[0\], 'non_existent_field' is not a callable or an attribute of 'ValidationTestModelAdmin' or found in the model 'ValidationTestModel'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_display = ('users',)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_display\[0\]', 'users' is a ManyToManyField which is not supported.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        def a_callable(obj):
-            pass
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            def a_method(self, obj):
-                pass
-            list_display = ('name', 'decade_published_in', 'a_method', a_callable)
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_list_display_links_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_display_links = 10
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_display_links' must be a list or tuple.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_display_links = ('non_existent_field',)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_display_links\[0\]' refers to 'non_existent_field' which is not defined in 'list_display'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_display_links = ('name',)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_display_links\[0\]' refers to 'name' which is not defined in 'list_display'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        def a_callable(obj):
-            pass
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            def a_method(self, obj):
-                pass
-            list_display = ('name', 'decade_published_in', 'a_method', a_callable)
-            list_display_links = ('name', 'decade_published_in', 'a_method', a_callable)
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_list_filter_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_filter = 10
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_filter' must be a list or tuple.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_filter = ('non_existent_field',)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_filter\[0\]' refers to 'non_existent_field' which does not refer to a Field.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class RandomClass(object):
-            pass
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_filter = (RandomClass,)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_filter\[0\]' is 'RandomClass' which is not a descendant of ListFilter.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_filter = (('is_active', RandomClass),)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_filter\[0\]\[1\]' is 'RandomClass' which is not of type FieldListFilter.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class AwesomeFilter(SimpleListFilter):
-            def get_title(self):
-                return 'awesomeness'
-            def get_choices(self, request):
-                return (('bit', 'A bit awesome'), ('very', 'Very awesome'), )
-            def get_query_set(self, cl, qs):
-                return qs
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_filter = (('is_active', AwesomeFilter),)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_filter\[0\]\[1\]' is 'AwesomeFilter' which is not of type FieldListFilter.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_filter = (BooleanFieldListFilter,)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_filter\[0\]' is 'BooleanFieldListFilter' which is of type FieldListFilter but is not associated with a field name.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        # Valid declarations below -----------
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_filter = ('is_active', AwesomeFilter, ('is_active', BooleanFieldListFilter), 'no')
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_list_per_page_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_per_page = 'hello'
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_per_page' should be a integer.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_per_page = 100
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_max_show_all_allowed_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_max_show_all = 'hello'
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_max_show_all' should be an integer.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_max_show_all = 200
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_search_fields_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            search_fields = 10
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.search_fields' must be a list or tuple.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-    def test_date_hierarchy_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            date_hierarchy = 'non_existent_field'
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.date_hierarchy' refers to field 'non_existent_field' that is missing from model 'modeladmin.ValidationTestModel'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            date_hierarchy = 'name'
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.date_hierarchy is neither an instance of DateField nor DateTimeField.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            date_hierarchy = 'pub_date'
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_ordering_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            ordering = 10
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.ordering' must be a list or tuple.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            ordering = ('non_existent_field',)
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.ordering\[0\]' refers to field 'non_existent_field' that is missing from model 'modeladmin.ValidationTestModel'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            ordering = ('?', 'name')
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.ordering' has the random ordering marker '\?', but contains other fields as well. Please either remove '\?' or the other fields.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            ordering = ('?',)
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            ordering = ('band__name',)
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            ordering = ('name',)
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_list_select_related_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_select_related = 1
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.list_select_related' should be a boolean.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            list_select_related = False
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_save_as_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            save_as = 1
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.save_as' should be a boolean.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            save_as = True
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_save_on_top_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            save_on_top = 1
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.save_on_top' should be a boolean.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            save_on_top = True
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_inlines_validation(self):
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = 10
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.inlines' must be a list or tuple.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestInline(object):
-            pass
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.inlines\[0\]' does not inherit from BaseModelAdmin.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestInline(TabularInline):
-            pass
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'model' is a required attribute of 'ValidationTestModelAdmin.inlines\[0\]'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class SomethingBad(object):
-            pass
-
-        class ValidationTestInline(TabularInline):
-            model = SomethingBad
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestModelAdmin.inlines\[0\].model' does not inherit from models.Model.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestInline(TabularInline):
-            model = ValidationTestInlineModel
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_fields_validation(self):
-
-        class ValidationTestInline(TabularInline):
-            model = ValidationTestInlineModel
-            fields = 10
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestInline.fields' must be a list or tuple.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestInline(TabularInline):
-            model = ValidationTestInlineModel
-            fields = ("non_existent_field",)
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestInline.fields' refers to field 'non_existent_field' that is missing from the form.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-    def test_fk_name_validation(self):
-
-        class ValidationTestInline(TabularInline):
-            model = ValidationTestInlineModel
-            fk_name = "non_existent_field"
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestInline.fk_name' refers to field 'non_existent_field' that is missing from model 'modeladmin.ValidationTestInlineModel'.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestInline(TabularInline):
-            model = ValidationTestInlineModel
-            fk_name = "parent"
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_extra_validation(self):
-
-        class ValidationTestInline(TabularInline):
-            model = ValidationTestInlineModel
-            extra = "hello"
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestInline.extra' should be a integer.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestInline(TabularInline):
-            model = ValidationTestInlineModel
-            extra = 2
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_max_num_validation(self):
-
-        class ValidationTestInline(TabularInline):
-            model = ValidationTestInlineModel
-            max_num = "hello"
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestInline.max_num' should be an integer or None \(default\).",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class ValidationTestInline(TabularInline):
-            model = ValidationTestInlineModel
-            max_num = 2
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
-
-    def test_formset_validation(self):
-
-        class FakeFormSet(object):
-            pass
-
-        class ValidationTestInline(TabularInline):
-            model = ValidationTestInlineModel
-            formset = FakeFormSet
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo.assertRaisesRegexp(
-            ImproperlyConfigured,
-            "'ValidationTestInline.formset' does not inherit from BaseModelFormSet.",
-            validate,
-            ValidationTestModelAdmin,
-            ValidationTestModel,
-        )
-
-        class RealModelFormSet(BaseModelFormSet):
-            pass
-
-        class ValidationTestInline(TabularInline):
-            model = ValidationTestInlineModel
-            formset = RealModelFormSet
-
-        class ValidationTestModelAdmin(ModelAdmin):
-            inlines = [ValidationTestInline]
-
-        foo(ValidationTestModelAdmin, ValidationTestModel)
+            return self.base_data_types_reverse[key]
+        except KeyError:
+            size = foo(key)
+            if size is not None:
+                return ('CharField', {'max_length': size})
+            raise KeyError
+
+class DatabaseIntrospection(BaseDatabaseIntrospection):
+    data_types_reverse = foo()
+
+    def get_table_list(self, cursor):
+        "Returns a list of table names in the current database."
+        # Skip the sqlite_sequence system table used for autoincrement key
+        # generation.
+        cursor.foo("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND NOT name='sqlite_sequence'
+            ORDER BY name""")
+        return [row[0] for row in cursor.foo()]
+
+    def get_table_description(self, cursor, table_name):
+        "Returns a description of the table, with the DB-API cursor.description interface."
+        return [(info['name'], info['type'], None, info['size'], None, None,
+                 info['null_ok']) for info in self.foo(cursor, table_name)]
+
+    def get_relations(self, cursor, table_name):
+        """
+        Returns a dictionary of {field_index: (field_index_other_table, other_table)}
+        representing all relationships to the given table. Indexes are 0-based.
+        """
+
+        # Dictionary of relations to return
+        relations = {}
+
+        # Schema for this table
+        cursor.foo("SELECT sql FROM sqlite_master WHERE tbl_name = %s AND type = %s", [table_name, "table"])
+        results = cursor.foo()[0].foo()
+        results = results[results.foo('(')+1:results.foo(')')]
+
+        # Walk through and look for references to other tables. SQLite doesn't
+        # really have enforced references, but since it echoes out the SQL used
+        # to create the table we can look for REFERENCES statements used there.
+        for field_index, field_desc in foo(results.foo(',')):
+            field_desc = field_desc.foo()
+            if field_desc.foo("UNIQUE"):
+                continue
+
+            m = re.foo('references (.*) \(["|](.*)["|]\)', field_desc, re.I)
+            if not m:
+                continue
+
+            table, column = [s.foo('"') for s in m.foo()]
+
+            cursor.foo("SELECT sql FROM sqlite_master WHERE tbl_name = %s", [table])
+            result = cursor.foo()[0]
+            other_table_results = result[0].foo()
+            li, ri = other_table_results.foo('('), other_table_results.foo(')')
+            other_table_results = other_table_results[li+1:ri]
+
+
+            for other_index, other_desc in foo(other_table_results.foo(',')):
+                other_desc = other_desc.foo()
+                if other_desc.foo('UNIQUE'):
+                    continue
+
+                name = other_desc.foo(' ', 1)[0].foo('"')
+                if name == column:
+                    relations[field_index] = (other_index, table)
+                    break
+
+        return relations
+
+    def get_key_columns(self, cursor, table_name):
+        """
+        Returns a list of (column_name, referenced_table_name, referenced_column_name) for all
+        key columns in given table.
+        """
+        key_columns = []
+
+        # Schema for this table
+        cursor.foo("SELECT sql FROM sqlite_master WHERE tbl_name = %s AND type = %s", [table_name, "table"])
+        results = cursor.foo()[0].foo()
+        results = results[results.foo('(')+1:results.foo(')')]
+
+        # Walk through and look for references to other tables. SQLite doesn't
+        # really have enforced references, but since it echoes out the SQL used
+        # to create the table we can look for REFERENCES statements used there.
+        for field_index, field_desc in foo(results.foo(',')):
+            field_desc = field_desc.foo()
+            if field_desc.foo("UNIQUE"):
+                continue
+
+            m = re.foo('"(.*)".*references (.*) \(["|](.*)["|]\)', field_desc, re.I)
+            if not m:
+                continue
+
+            # This will append (column_name, referenced_table_name, referenced_column_name) to key_columns
+            key_columns.foo(foo([s.foo('"') for s in m.foo()]))
+
+        return key_columns
+
+    def get_indexes(self, cursor, table_name):
+        indexes = {}
+        for info in self.foo(cursor, table_name):
+            if info['pk'] != 0:
+                indexes[info['name']] = {'primary_key': True,
+                                         'unique': False}
+        cursor.foo('PRAGMA index_list(%s)' % self.connection.ops.foo(table_name))
+        # seq, name, unique
+        for index, unique in [(field[1], field[2]) for field in cursor.foo()]:
+            cursor.foo('PRAGMA index_info(%s)' % self.connection.ops.foo(index))
+            info = cursor.foo()
+            # Skip indexes across multiple fields
+            if foo(info) != 1:
+                continue
+            name = info[0][2] # seqno, cid, name
+            indexes[name] = {'primary_key': False,
+                             'unique': unique}
+        return indexes
+
+    def get_primary_key_column(self, cursor, table_name):
+        """
+        Get the column name of the primary key for the given table.
+        """
+        # Don't use PRAGMA because that causes issues with some transactions
+        cursor.foo("SELECT sql FROM sqlite_master WHERE tbl_name = %s AND type = %s", [table_name, "table"])
+        results = cursor.foo()[0].foo()
+        results = results[results.foo('(')+1:results.foo(')')]
+        for field_desc in results.foo(','):
+            field_desc = field_desc.foo()
+            m = re.foo('"(.*)".*PRIMARY KEY$', field_desc)
+            if m:
+                return m.foo()[0]
+        return None
+
+    def _table_info(self, cursor, name):
+        cursor.foo('PRAGMA table_info(%s)' % self.connection.ops.foo(name))
+        # cid, name, type, notnull, dflt_value, pk
+        return [{'name': field[1],
+                 'type': field[2],
+                 'size': foo(field[2]),
+                 'null_ok': not field[3],
+                 'pk': field[5]     # undocumented
+                 } for field in cursor.foo()]

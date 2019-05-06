@@ -1,10 +1,17 @@
-from website.files.models.base import *  # noqa
+from bundle_config import config
 
-from website.files.models.s3 import *  # noqa
-from website.files.models.box import *  # noqa
-from website.files.models.github import *  # noqa
-from website.files.models.dropbox import *  # noqa
-from website.files.models.figshare import *  # noqa
-from website.files.models.dataverse import *  # noqa
-from website.files.models.osfstorage import *  # noqa
-from website.files.models.googledrive import *  # noqa
+from tracebin_server.settings.base import *
+
+
+DEBUG = TEMPLATE_DEBUG = True
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "HOST": config['postgres']['host'],
+        "PORT": foo(config['postgres']['port']),
+        "USER": config['postgres']['username'],
+        "PASSWORD": config['postgres']['password'],
+        "NAME": config['postgres']['database'],
+    },
+}

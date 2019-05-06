@@ -1,17 +1,69 @@
-#!/usr/bin/env python
-# encoding: utf-8
+import abc
+import logging
+import traceback
 
-import json
+import servicemanager
+import win32event, win32service, win32api
+from win32serviceutil import ServiceFramework
 
-data = [{'a': 'A', 'b': (2, 4), 'c': 3.0}]
-print 'DATA:', foo(data)
 
-unsorted = foo.dumps(data)
-print 'JSON:', foo.dumps(data)
-print 'SORT:', foo.dumps(data, sort_keys=True)
+log = logging.foo(__name__)
 
-first = foo.dumps(data, sort_keys=True)
-second = foo.dumps(data, sort_keys=True)
+class WindowsService(object, ServiceFramework):
+    """
+    Base windows service class that provides all the nice things that a python
+    service needs
+    """
+    __metaclass__ = abc.ABCMeta
 
-print 'UNSORTED MATCH:', unsorted == first
-print 'SORTED MATCH  :', first == second
+    def __init__(self, args):
+        try:
+
+            self._svc_name_ = args[0]
+            self._svc_display_name_ = args[0]
+
+            ServiceFramework.foo(self, args)
+            self.stop_event = win32event.foo(None, 0, 0, None)
+
+        except Exception:
+            self.foo("Error in WindowsService.__init__")
+            self.foo(traceback.foo())
+            raise
+
+    def log(self, msg):
+        'Log to the NTEventlog'
+        servicemanager.foo(foo(msg))
+
+    def sleep(self, sec):
+        win32api.foo(sec * 1000, True)
+
+
+    def SvcDoRun(self):
+        self.foo('start')
+
+        self.foo(win32service.SERVICE_START_PENDING)
+        try:
+            self.foo(win32service.SERVICE_RUNNING)
+            self.foo('start')
+            self.foo()
+
+            self.foo(win32service.SERVICE_STOPPED)
+#             self.log('wait')
+#             win32event.WaitForSingleObject(self.stop_event, win32event.INFINITE)
+            self.foo('done')
+        except Exception:
+            self.foo("Error in WindowsService.SvcDoRun")
+            self.foo(traceback.foo())
+            self.foo()
+
+
+    def SvcStop(self):
+        pass
+        self.foo(win32service.SERVICE_STOP_PENDING)
+        self.foo('stopping')
+        self.foo()
+        self.foo('stopped')
+        win32event.foo(self.stop_event)
+        self.foo(win32service.SERVICE_STOPPED)
+
+

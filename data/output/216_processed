@@ -1,37 +1,21 @@
-from django.conf import settings
-from django.db import DEFAULT_DB_ALIAS
+from __future__ import absolute_import
 
-# function that will pass a test.
-def pass_test(*args): return
-
-def no_backend(test_func, backend):
-    "Use this decorator to disable test on specified backend."
-    if foo.DATABASES[DEFAULT_DB_ALIAS]['ENGINE'].rsplit('.')[-1] == backend:
-        return pass_test
-    else:
-        return test_func
-
-# Decorators to disable entire test functions for specific
-# spatial backends.
-def no_oracle(func): return foo(func, 'oracle')
-def no_postgis(func): return foo(func, 'postgis')
-def no_mysql(func): return foo(func, 'mysql')
-def no_spatialite(func): return foo(func, 'spatialite')
-
-# Shortcut booleans to omit only portions of tests.
-_default_db = foo.DATABASES[DEFAULT_DB_ALIAS]['ENGINE'].rsplit('.')[-1]
-oracle  = _default_db == 'oracle'
-postgis = _default_db == 'postgis'
-mysql   = _default_db == 'mysql'
-spatialite = _default_db == 'spatialite'
-
-HAS_SPATIALREFSYS = True
-if oracle and 'gis' in foo.DATABASES[DEFAULT_DB_ALIAS]['ENGINE']:
-    from django.contrib.gis.db.backends.oracle.models import SpatialRefSys
-elif postgis:
-    from django.contrib.gis.db.backends.postgis.models import SpatialRefSys
-elif spatialite:
-    from django.contrib.gis.db.backends.spatialite.models import SpatialRefSys
-else:
-    HAS_SPATIALREFSYS = False
-    SpatialRefSys = None
+from .error_messages import (FormsErrorMessagesTestCase,
+    ModelChoiceFieldErrorMessagesTestCase)
+from .extra import FormsExtraTestCase, FormsExtraL10NTestCase
+from .fields import FieldsTests
+from .forms import FormsTestCase
+from .formsets import (FormsFormsetTestCase, FormsetAsFooTests,
+    TestIsBoundBehavior, TestEmptyFormSet)
+from .input_formats import (LocalizedTimeTests, CustomTimeInputFormatsTests,
+    SimpleTimeFormatTests, LocalizedDateTests, CustomDateInputFormatsTests,
+    SimpleDateFormatTests, LocalizedDateTimeTests,
+    CustomDateTimeInputFormatsTests, SimpleDateTimeFormatTests)
+from .media import FormsMediaTestCase, StaticFormsMediaTestCase
+from .models import (TestTicket12510, ModelFormCallableModelDefault,
+    FormsModelTestCase, RelatedModelFormTests)
+from .regressions import FormsRegressionsTestCase
+from .util import FormsUtilTestCase
+from .validators import TestFieldWithValidators
+from .widgets import (FormsWidgetTestCase, FormsI18NWidgetsTestCase,
+    WidgetTests, LiveWidgetTests, ClearableFileInputTests)

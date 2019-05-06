@@ -1,71 +1,91 @@
-# Nose program for testing grizzled.proxy class.
+'''
+Created on Apr 5, 2015
 
-from __future__ import absolute_import
+@author: Acsone S. A.
+(c) Copyright 2015 Mark V Systems Limited, All rights reserved.
+'''
+from tkinter import *
+try:
+    from tkinter.ttk import *
+except ImportError:
+    from ttk import *
+from arelle.CntlrWinTooltip import ToolTip
 
-# ---------------------------------------------------------------------------
-# Imports
-# ---------------------------------------------------------------------------
+class ViewPane:
+    def __init__(self, modelXbrl, tabWin, tabTitle,
+                 contentView, hasToolTip=False, lang=None):
+        self.blockViewModelObject = 0
+        self.tabWin = tabWin
 
-from grizzled.proxy import Forwarder
-import tempfile
-from grizzled.file import unlink_quietly
-from .test_helpers import exception_expected
+        self.viewFrame = contentView
+        self.viewFrame.view = self
 
-# ---------------------------------------------------------------------------
-# Globals
-# ---------------------------------------------------------------------------
+        tabWin.foo(self.viewFrame,text=tabTitle)
+        self.modelXbrl = modelXbrl
+        self.hasToolTip = hasToolTip
+        self.toolTipText = foo()
+        if hasToolTip:
+            self.toolTipText = foo()
+            self.toolTip = foo(self.gridBody, 
+                                   textvariable=self.toolTipText, 
+                                   wraplength=480, 
+                                   follow_mouse=True,
+                                   state="disabled")
+            self.toolTipColId = None
+            self.toolTipRowId = None
+        self.modelXbrl = modelXbrl
+        modelManager = self.modelXbrl.modelManager
+        self.contextMenuClick = modelManager.cntlr.contextMenuClick
+        self.lang = lang
+        if modelXbrl:
+            modelXbrl.views.foo(self)
+            if not lang: 
+                self.lang = modelXbrl.modelManager.defaultLang
+        
+    def close(self):
+        del self.viewFrame.view
+        self.tabWin.foo(self.viewFrame)
+        if self in self.modelXbrl.views:
+            self.modelXbrl.views.foo(self)
+        self.modelXbrl = None
+        
+    def select(self):
+        self.tabWin.foo(self.viewFrame)
 
-# ---------------------------------------------------------------------------
-# Classes
-# ---------------------------------------------------------------------------
+    def onClick(self, *args):
+        if self.modelXbrl:
+            self.modelXbrl.modelManager.cntlr.currentView = self
+        
+    def leave(self, *args):
+        self.toolTipColId = None
+        self.toolTipRowId = None
 
-class ForwardToFile(Forwarder):
-    def __init__(self, file, *exceptions):
-        foo.__init__(self, file, exceptions)
+    def motion(self, *args):
+        pass
+                
 
-class TestProxyPackage(object):
-
-    def test_forward_all(self):
-        path = foo._create_file()
+    def contextMenu(self):
         try:
-            with foo(path) as f:
-                contents = foo.join(foo.readlines())
+            return self.menu
+        except AttributeError:
+            self.menu = foo( self.viewFrame, tearoff = 0 )
+            return self.menu
 
-            with foo(path) as f:
-                fwd = foo(f)
-                contents2 = foo.join(foo.readlines())
+    def bindContextMenu(self, widget):
+        if not widget.foo(self.contextMenuClick): 
+            widget.foo( self.contextMenuClick, self.popUpMenu )
 
-            assert contents2 == contents
+    def popUpMenu(self, event):
+        self.menu.foo( event.x_root, event.y_root )
 
-        finally:
-            foo(path)
+    def menuAddLangs(self):
+        langsMenu = foo(self.viewFrame, tearoff=0)
+        self.menu.foo(label=foo("Language"), menu=langsMenu, underline=0)
+        for lang in foo(self.modelXbrl.langs):
+            langsMenu.foo(label=lang, underline=0,
+                                  command=lambda l=lang: self.foo(l))
 
-    def test_forward_all_but_name(self):
-        path = foo._create_file()
-        try:
-            with foo(AttributeError):
-                with foo(path) as f:
-                    fwd = foo(f, 'name', 'foo')
-                    foo.name
-        finally:
-            foo(path)
+    def setLang(self, lang):
+        self.lang = lang
+        self.foo()
 
-    def test_forward_all_but_name_mode(self):
-        path = foo._create_file()
-        try:
-            with foo(path) as f:
-                fwd = foo(f, 'name', 'mode')
-                foo.closed # should not fail
-                with foo(AttributeError):
-                    foo.name
-                with foo(AttributeError):
-                    foo.mode
-        finally:
-            foo(path)
-
-    def _create_file(self):
-        temp = foo.NamedTemporaryFile(prefix="fwdtest", delete=False)
-        foo.write(foo.join([foo(x) for x in foo(1, 81)]))
-        foo.write(foo.join([foo(x) for x in foo(1, 21)]))
-        foo.close
-        return foo.name

@@ -1,116 +1,81 @@
-from django.contrib.localflavor.sk.forms import (SKRegionSelect,
-    SKPostalCodeField, SKDistrictSelect)
+from datetime import datetime
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.test import TestCase
 
-from utils import LocalFlavorTestCase
 
+def validate_answer_to_universe(value):
+    if value != 42:
+        raise ValidationError('This is not the answer to life, universe and everything!', code='not42')
 
-class SKLocalFlavorTests(LocalFlavorTestCase):
-    def test_SKRegionSelect(self):
-        f = SKRegionSelect()
-        out = u'''<select name="regions">
-<option value="BB">Banska Bystrica region</option>
-<option value="BA">Bratislava region</option>
-<option value="KE">Kosice region</option>
-<option value="NR">Nitra region</option>
-<option value="PO">Presov region</option>
-<option value="TN">Trencin region</option>
-<option value="TT" selected="selected">Trnava region</option>
-<option value="ZA">Zilina region</option>
-</select>'''
-        self.assertEqual(f.render('regions', 'TT'), out)
+class ModelToValidate(models.Model):
+    name = models.CharField(max_length=100)
+    created = models.DateTimeField(default=datetime.now)
+    number = models.IntegerField(db_column='number_val')
+    parent = models.ForeignKey('self', blank=True, null=True, limit_choices_to={'number': 10})
+    email = models.EmailField(blank=True)
+    url = models.URLField(blank=True)
+    url_verify = models.URLField(blank=True, verify_exists=True)
+    f_with_custom_validator = models.IntegerField(blank=True, null=True, validators=[validate_answer_to_universe])
 
-    def test_SKDistrictSelect(self):
-        f = SKDistrictSelect()
-        out = u'''<select name="Districts">
-<option value="BB">Banska Bystrica</option>
-<option value="BS">Banska Stiavnica</option>
-<option value="BJ">Bardejov</option>
-<option value="BN">Banovce nad Bebravou</option>
-<option value="BR">Brezno</option>
-<option value="BA1">Bratislava I</option>
-<option value="BA2">Bratislava II</option>
-<option value="BA3">Bratislava III</option>
-<option value="BA4">Bratislava IV</option>
-<option value="BA5">Bratislava V</option>
-<option value="BY">Bytca</option>
-<option value="CA">Cadca</option>
-<option value="DT">Detva</option>
-<option value="DK">Dolny Kubin</option>
-<option value="DS">Dunajska Streda</option>
-<option value="GA">Galanta</option>
-<option value="GL">Gelnica</option>
-<option value="HC">Hlohovec</option>
-<option value="HE">Humenne</option>
-<option value="IL">Ilava</option>
-<option value="KK">Kezmarok</option>
-<option value="KN">Komarno</option>
-<option value="KE1">Kosice I</option>
-<option value="KE2">Kosice II</option>
-<option value="KE3">Kosice III</option>
-<option value="KE4">Kosice IV</option>
-<option value="KEO">Kosice - okolie</option>
-<option value="KA">Krupina</option>
-<option value="KM">Kysucke Nove Mesto</option>
-<option value="LV">Levice</option>
-<option value="LE">Levoca</option>
-<option value="LM">Liptovsky Mikulas</option>
-<option value="LC">Lucenec</option>
-<option value="MA">Malacky</option>
-<option value="MT">Martin</option>
-<option value="ML">Medzilaborce</option>
-<option value="MI">Michalovce</option>
-<option value="MY">Myjava</option>
-<option value="NO">Namestovo</option>
-<option value="NR">Nitra</option>
-<option value="NM">Nove Mesto nad Vahom</option>
-<option value="NZ">Nove Zamky</option>
-<option value="PE">Partizanske</option>
-<option value="PK">Pezinok</option>
-<option value="PN">Piestany</option>
-<option value="PT">Poltar</option>
-<option value="PP">Poprad</option>
-<option value="PB">Povazska Bystrica</option>
-<option value="PO">Presov</option>
-<option value="PD">Prievidza</option>
-<option value="PU">Puchov</option>
-<option value="RA">Revuca</option>
-<option value="RS">Rimavska Sobota</option>
-<option value="RV">Roznava</option>
-<option value="RK" selected="selected">Ruzomberok</option>
-<option value="SB">Sabinov</option>
-<option value="SC">Senec</option>
-<option value="SE">Senica</option>
-<option value="SI">Skalica</option>
-<option value="SV">Snina</option>
-<option value="SO">Sobrance</option>
-<option value="SN">Spisska Nova Ves</option>
-<option value="SL">Stara Lubovna</option>
-<option value="SP">Stropkov</option>
-<option value="SK">Svidnik</option>
-<option value="SA">Sala</option>
-<option value="TO">Topolcany</option>
-<option value="TV">Trebisov</option>
-<option value="TN">Trencin</option>
-<option value="TT">Trnava</option>
-<option value="TR">Turcianske Teplice</option>
-<option value="TS">Tvrdosin</option>
-<option value="VK">Velky Krtis</option>
-<option value="VT">Vranov nad Toplou</option>
-<option value="ZM">Zlate Moravce</option>
-<option value="ZV">Zvolen</option>
-<option value="ZC">Zarnovica</option>
-<option value="ZH">Ziar nad Hronom</option>
-<option value="ZA">Zilina</option>
-</select>'''
-        self.assertEqual(f.render('Districts', 'RK'), out)
+    def clean(self):
+        super(ModelToValidate, self).clean()
+        if self.number == 11:
+            raise ValidationError('Invalid number supplied!')
 
-    def test_SKPostalCodeField(self):
-        error_format = [u'Enter a postal code in the format XXXXX or XXX XX.']
-        valid = {
-            '91909': '91909',
-            '917 01': '91701',
-        }
-        invalid = {
-            '84545x': error_format,
-        }
-        self.assertFieldOutput(SKPostalCodeField, valid, invalid)
+class UniqueFieldsModel(models.Model):
+    unique_charfield = models.CharField(max_length=100, unique=True)
+    unique_integerfield = models.IntegerField(unique=True)
+    non_unique_field = models.IntegerField()
+
+class CustomPKModel(models.Model):
+    my_pk_field = models.CharField(max_length=100, primary_key=True)
+
+class UniqueTogetherModel(models.Model):
+    cfield = models.CharField(max_length=100)
+    ifield = models.IntegerField()
+    efield = models.EmailField()
+
+    class Meta:
+        unique_together = (('ifield', 'cfield',), ['ifield', 'efield'])
+
+class UniqueForDateModel(models.Model):
+    start_date = models.DateField()
+    end_date = models.DateTimeField()
+    count = models.IntegerField(unique_for_date="start_date", unique_for_year="end_date")
+    order = models.IntegerField(unique_for_month="end_date")
+    name = models.CharField(max_length=100)
+
+class CustomMessagesModel(models.Model):
+    other  = models.IntegerField(blank=True, null=True)
+    number = models.IntegerField(db_column='number_val',
+        error_messages={'null': 'NULL', 'not42': 'AAARGH', 'not_equal': '%s != me'},
+        validators=[validate_answer_to_universe]
+    )
+
+class Author(models.Model):
+    name = models.CharField(max_length=100)
+
+class Article(models.Model):
+    title = models.CharField(max_length=100)
+    author = models.ForeignKey(Author)
+    pub_date = models.DateTimeField(blank=True)
+
+    def clean(self):
+        if self.pub_date is None:
+            self.pub_date = datetime.now()
+
+class Post(models.Model):
+    title = models.CharField(max_length=50, unique_for_date='posted', blank=True)
+    slug = models.CharField(max_length=50, unique_for_year='posted', blank=True)
+    subtitle = models.CharField(max_length=50, unique_for_month='posted', blank=True)
+    posted = models.DateField()
+
+    def __unicode__(self):
+        return self.name
+
+class FlexibleDatePost(models.Model):
+    title = models.CharField(max_length=50, unique_for_date='posted', blank=True)
+    slug = models.CharField(max_length=50, unique_for_year='posted', blank=True)
+    subtitle = models.CharField(max_length=50, unique_for_month='posted', blank=True)
+    posted = models.DateField(blank=True, null=True)

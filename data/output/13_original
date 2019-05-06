@@ -1,166 +1,97 @@
-from flask_resty import Api, GenericModelView
-from marshmallow import fields, Schema
-import pytest
-from sqlalchemy import Column, Integer, String
-
-import helpers
-
-# -----------------------------------------------------------------------------
-
-
-@pytest.yield_fixture
-def models(db):
-    class Widget(db.Model):
-        __tablename__ = 'widgets'
-
-        id_1 = Column(Integer, primary_key=True)
-        id_2 = Column(Integer, primary_key=True)
-        name = Column(String, nullable=False)
-
-    db.create_all()
-
-    yield {
-        'widget': Widget,
-    }
-
-    db.drop_all()
+#    Copyright 2014-2015 ARM Limited
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
 
-@pytest.fixture
-def schemas():
-    class WidgetSchema(Schema):
-        id_1 = fields.Integer(as_string=True)
-        id_2 = fields.Integer(as_string=True)
-        name = fields.String(required=True)
+"""
+This module contains utilities for implemening device hard reset
+using Netio 230 series power switches. This utilizes the KSHELL connection.
 
-    return {
-        'widget': WidgetSchema(),
-    }
+"""
 
-
-@pytest.fixture(autouse=True)
-def routes(app, models, schemas):
-    class WidgetViewBase(GenericModelView):
-        model = models['widget']
-        schema = schemas['widget']
-        id_fields = ('id_1', 'id_2')
-
-    class WidgetListView(WidgetViewBase):
-        def get(self):
-            return self.list()
-
-        def post(self):
-            return self.create(allow_client_id=True)
-
-    class WidgetView(WidgetViewBase):
-        def get(self, id_1, id_2):
-            return self.retrieve((id_1, id_2))
-
-        def patch(self, id_1, id_2):
-            return self.update((id_1, id_2), partial=True)
-
-        def delete(self, id_1, id_2):
-            return self.destroy((id_1, id_2))
-
-    api = Api(app)
-    api.add_resource(
-        '/widgets', WidgetListView, WidgetView,
-        id_rule='<int:id_1>/<int:id_2>',
-    )
+import telnetlib
+import socket
+import re
+import time
+import logging
 
 
-@pytest.fixture(autouse=True)
-def data(db, models):
-    db.session.add_all((
-        models['widget'](id_1=1, id_2=2, name="Foo"),
-        models['widget'](id_1=1, id_2=3, name="Bar"),
-        models['widget'](id_1=4, id_2=5, name="Baz"),
-    ))
-    db.session.commit()
+logger = logging.getLogger('NetIO')
 
 
-# -----------------------------------------------------------------------------
+class NetioError(Exception):
+    pass
 
 
-def test_list(client):
-    response = client.get('/widgets')
-    assert response.status_code == 200
+class KshellConnection(object):
 
-    assert helpers.get_data(response) == [
-        {
-            'id_1': '1',
-            'id_2': '2',
-            'name': "Foo",
-        },
-        {
-            'id_1': '1',
-            'id_2': '3',
-            'name': "Bar",
-        },
-        {
-            'id_1': '4',
-            'id_2': '5',
-            'name': "Baz",
-        },
-    ]
+    response_regex = re.compile(r'^(\d+) (.*?)\r\n')
+    delay = 0.5
 
+    def __init__(self, host='ippowerbar', port=1234, timeout=None):
+        """Parameters are passed into ``telnetlib.Telnet`` -- see Python docs."""
+        self.host = host
+        self.port = port
+        self.conn = telnetlib.Telnet(host, port, timeout)
+        time.sleep(self.delay)  # give time to respond
+        output = self.conn.read_very_eager()
+        if 'HELLO' not in output:
+            raise NetioError('Could not connect: did not see a HELLO. Got: {}'.format(output))
 
-def test_retrieve(client):
-    response = client.get('/widgets/1/2')
-    assert response.status_code == 200
+    def login(self, user, password):
+        code, out = self.send_command('login {} {}\r\n'.format(user, password))
+        if code != 250:
+            raise NetioError('Login failed. Got: {} {}'.format(code, out))
 
-    assert helpers.get_data(response) == {
-        'id_1': '1',
-        'id_2': '2',
-        'name': "Foo",
-    }
+    def enable_port(self, port):
+        """Enable the power supply at the specified port."""
+        self.set_port(port, 1)
 
+    def disable_port(self, port):
+        """Enable the power supply at the specified port."""
+        self.set_port(port, 0)
 
-def test_create(client):
-    response = helpers.request(
-        client,
-        'POST', '/widgets',
-        {
-            'id_1': '4',
-            'id_2': '6',
-            'name': "Qux",
-        },
-    )
-    assert response.status_code == 201
-    assert response.headers['Location'] == 'http://localhost/widgets/4/6'
+    def set_port(self, port, value):
+        code, out = self.send_command('port {} {}'.format(port, value))
+        if code != 250:
+            raise NetioError('Could not set {} on port {}. Got: {} {}'.format(value, port, code, out))
 
-    assert helpers.get_data(response) == {
-        'id_1': '4',
-        'id_2': '6',
-        'name': "Qux",
-    }
+    def send_command(self, command):
+        try:
+            if command.startswith('login'):
+                parts = command.split()
+                parts[2] = '*' * len(parts[2])
+                logger.debug(' '.join(parts))
+            else:
+                logger.debug(command)
+            self.conn.write('{}\n'.format(command))
+            time.sleep(self.delay)  # give time to respond
+            out = self.conn.read_very_eager()
+            match = self.response_regex.search(out)
+            if not match:
+                raise NetioError('Invalid response: {}'.format(out.strip()))
+            logger.debug('response: {} {}'.format(match.group(1), match.group(2)))
+            return int(match.group(1)), match.group(2)
+        except socket.error as err:
+            try:
+                time.sleep(self.delay)  # give time to respond
+                out = self.conn.read_very_eager()
+                if out.startswith('130 CONNECTION TIMEOUT'):
+                    raise NetioError('130 Timed out.')
+            except EOFError:
+                pass
+            raise err
 
-
-def test_update(client):
-    update_response = helpers.request(
-        client,
-        'PATCH', '/widgets/1/2',
-        {
-            'id_1': '1',
-            'id_2': '2',
-            'name': "Qux",
-        },
-    )
-    assert update_response.status_code == 204
-
-    retrieve_response = client.get('/widgets/1/2')
-    assert retrieve_response.status_code == 200
-
-    assert helpers.get_data(retrieve_response) == {
-        'id_1': '1',
-        'id_2': '2',
-        'name': "Qux",
-    }
-
-
-def test_destroy(client):
-    destroy_response = client.delete('/widgets/1/2')
-    assert destroy_response.status_code == 204
-
-    retrieve_response = client.get('/widgets/1/2')
-    assert retrieve_response.status_code == 404
+    def close(self):
+        self.conn.close()

@@ -1,84 +1,79 @@
+import os
 
-from django.core.management.base import AppCommand, CommandError
-from drf_generators.generators import *
-from optparse import make_option
-import django
+__author__ = 'aerospike'
 
+DATE_SEG = 0
+DATE_SEPARATOR = "-"
+TIME_SEG = 1
+TIME_SEPARATOR = ":"
 
-class Command(AppCommand):
-    help = 'Generates DRF API Views and Serializers for a Django app'
+def check_time(val, date_string, segment, index=""):
+        try:
+            if segment == DATE_SEG:
+                if val.__contains__("-"):
+                    for v in range(
+                            int(val.split("-")[0]), int(val.split("-")[1]) + 1):
+                        if int(date_string.split(" ")[DATE_SEG].split(DATE_SEPARATOR)[index]) == v:
+                            return True
 
-    args = "[appname ...]"
+                elif val.__contains__(","):
+                    for v in val.split(","):
+                        if int(date_string.split(" ")[DATE_SEG].split(DATE_SEPARATOR)[index]) == int(v):
+                            return True
 
-    base_options = (
-        make_option('-f', '--format', dest='format', default='viewset',
-                    help='view format (default: viewset)'),
+                else:
+                    if int(date_string.split(" ")[DATE_SEG].split(DATE_SEPARATOR)[index]) == int(val):
+                        return True
+            elif segment == TIME_SEG:
+                if val.__contains__("-"):
+                    for v in range(
+                            int(val.split("-")[0]), int(val.split("-")[1]) + 1):
+                        if int(date_string.split(" ")[TIME_SEG].split(TIME_SEPARATOR)[index]) == v:
+                            return True
 
-        make_option('-d', '--depth', dest='depth', default=0,
-                    help='serialization depth'),
+                elif val.__contains__(","):
+                    for v in val.split(","):
+                        if int(date_string.split(" ")[TIME_SEG].split(TIME_SEPARATOR)[index]) == int(v):
+                            return True
 
-        make_option('--force', dest='force', action='store_true',
-                    help='force overwrite files'),
+                else:
+                    if int(date_string.split(" ")[TIME_SEG].split(TIME_SEPARATOR)[index]) == int(val):
+                        return True
+        except:
+            pass
 
-        make_option('--serializers', dest='serializers', action='store_true',
-                    help='generate serializers only'),
+        return False
 
-        make_option('--views', dest='views', action='store_true',
-                    help='generate views only'),
+def get_dirs(path=""):
+        try:
+            return [name for name in os.listdir(path)
+                    if os.path.isdir(os.path.join(path, name))]
+        except:
+            return []
 
-        make_option('--urls', dest='urls', action='store_true',
-                    help='generate urls only'),
-    )
+def get_all_files(dir_path=""):
+        file_list = []
+        if not dir_path:
+            return file_list
+        try:
+            for root,sub_dir,files in os.walk(dir_path):
+                for file in files:
+                    file_list.append(os.path.join(root, file))
+        except:
+            pass
 
-    option_list = AppCommand.option_list + base_options
+        return file_list
 
-    def handle_app_config(self, app_config, **options):
-        if app_config.models_module is None:
-            raise CommandError('You must provide an app to generate an API')
+def intersect_list(a, b):
+        return list(set(a) & set(b))
 
-        if django.VERSION[1] == 7:
-            force = options['force'] if 'force' in options else False
-            format = options['format'] if 'format' in options else None
-            depth = options['depth'] if 'depth' in format else 0
-            if 'serializers' in options:
-                serializers = options['serializers']
+def fetch_value_from_dic(hash, keys):
+        if not hash or not keys:
+            return "N/E"
+        temp_hash = hash
+        for key in keys:
+            if key in temp_hash:
+                temp_hash = temp_hash[key]
             else:
-                serializers = False
-            views = options['views'] if 'views' in options else False
-            urls = options['urls'] if 'urls' in options else False
-
-        elif django.VERSION[1] >= 8:
-            force = options['force']
-            format = options['format']
-            depth = options['depth']
-            serializers = options['serializers']
-            views = options['views']
-            urls = options['urls']
-        else:
-            raise CommandError('You must be using Django 1.7, 1.8 or 1.9')
-
-        if format == 'viewset':
-            generator = ViewSetGenerator(app_config, force)
-        elif format == 'apiview':
-            generator = APIViewGenerator(app_config, force)
-        elif format == 'function':
-            generator = FunctionViewGenerator(app_config, force)
-        elif format == 'modelviewset':
-            generator = ModelViewSetGenerator(app_config, force)
-        else:
-            message = '\'%s\' is not a valid format. ' % options['format']
-            message += '(viewset, modelviewset, apiview, function)'
-            raise CommandError(message)
-
-        if serializers:
-            result = generator.generate_serializers(depth)
-        elif views:
-            result = generator.generate_views()
-        elif urls:
-            result = generator.generate_urls()
-        else:
-            result = generator.generate_serializers(depth) + '\n'
-            result += generator.generate_views() + '\n'
-            result += generator.generate_urls()
-
-        print(result)
+                return "N/E"
+        return temp_hash

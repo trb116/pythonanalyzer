@@ -1,89 +1,139 @@
-# Copyright (C) 2015 UCSC Computational Genomics Lab
+# -*- coding: utf-8 -*-
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Pebl documentation build configuration file, created by
+# sphinx-quickstart on Wed Apr  2 08:36:21 2008.
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# This file is execfile()d with the current directory set to its containing dir.
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# The contents of this file are pickled, so don't put values in the namespace
+# that aren't pickleable (module imports are okay, they're removed automatically).
+#
+# All configuration values have a default value; values that are commented out
+# serve to show the default value.
 
-import nacl
-from nacl.secret import SecretBox
+import sys, os
+
+# If your extensions are in another directory, add it here.
+#sys.path.append('some/directory')
+
+# General configuration
+# ---------------------
+
+# Add any Sphinx extension module names here, as strings. They can be extensions
+# coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
+extensions = ['sphinx.ext.autodoc']
+autoclass_content = 'both'
 
 
-# 16-byte MAC plus a nonce is added to every message.
-overhead = 16 + SecretBox.NONCE_SIZE
+# Add any paths that contain templates here, relative to this directory.
+templates_path = ['.templates']
 
-def encrypt(message, keyPath):
-    """
-    Encrypts a message given a path to a local file containing a key.
+# The suffix of source filenames.
+source_suffix = '.rst'
 
-    :param message: The message to be encrypted.
-    :param keyPath: A path to a file containing a 256-bit key (and nothing else).
-    :type message: str
-    :type keyPath: str
-    :rtype: str
+# The master toctree document.
+master_doc = 'index'
 
-    A constant overhead is added to every encrypted message (for the nonce and MAC).
-    >>> import tempfile
-    >>> k = tempfile.mktemp()
-    >>> with open(k, 'w') as f:
-    ...     f.write(nacl.utils.random(SecretBox.KEY_SIZE))
-    >>> message = 'test'
-    >>> len(encrypt(message, k)) == overhead + len(message)
-    True
-    """
-    with open(keyPath) as f:
-        key = f.read()
-    if len(key) != SecretBox.KEY_SIZE:
-        raise ValueError("Key is %d bytes, but must be exactly %d bytes" % (len(key),
-                                                                            SecretBox.KEY_SIZE))
-    sb = SecretBox(key)
-    # We generate the nonce using secure random bits. For long enough
-    # nonce size, the chance of a random nonce collision becomes
-    # *much* smaller than the chance of a subtle coding error causing
-    # a nonce reuse. Currently the nonce size is 192 bits--the chance
-    # of a collision is astronomically low. (This approach is
-    # recommended in the libsodium documentation.)
-    nonce = nacl.utils.random(SecretBox.NONCE_SIZE)
-    assert len(nonce) == SecretBox.NONCE_SIZE
-    return str(sb.encrypt(message, nonce))
+# General substitutions.
+project = 'Pebl'
+copyright = '2008, Abhik Shah'
 
-def decrypt(ciphertext, keyPath):
-    """
-    Decrypts a given message that was encrypted with the encrypt() method.
+# The default replacements for |version| and |release|, also used in various
+# other places throughout the built documents.
+#
+# The short X.Y version.
+version = '1.0.1'
+# The full version, including alpha/beta/rc tags.
+release = '1.0.1'
 
-    :param ciphertext: The encrypted message (as a string).
-    :param keyPath: A path to a file containing a 256-bit key (and nothing else).
-    :type keyPath: str
-    :rtype: str
+# There are two options for replacing |today|: either, you set today to some
+# non-false value, then it is used:
+#today = ''
+# Else, today_fmt is used as the format for a strftime call.
+today_fmt = '%B %d, %Y'
 
-    Raises an error if ciphertext was modified
-    >>> import tempfile
-    >>> k = tempfile.mktemp()
-    >>> with open(k, 'w') as f:
-    ...     f.write(nacl.utils.random(SecretBox.KEY_SIZE))
-    >>> ciphertext = encrypt("testMessage", k)
-    >>> ciphertext = chr(ord(ciphertext[0]) ^ 1) + ciphertext[1:]
-    >>> decrypt(ciphertext, k)
-    Traceback (most recent call last):
-    ...
-    CryptoError: Decryption failed. Ciphertext failed verification
+# List of documents that shouldn't be included in the build.
+#unused_docs = []
 
-    Otherwise works correctly
-    >>> decrypt(encrypt("testMessage", k), k)
-    'testMessage'
-    """
-    with open(keyPath) as f:
-        key = f.read()
-    if len(key) != SecretBox.KEY_SIZE:
-        raise ValueError("Key is %d bytes, but must be exactly %d bytes" % (len(key),
-                                                                            SecretBox.KEY_SIZE))
-    sb = SecretBox(key)
-    # The nonce is kept with the message.
-    return sb.decrypt(ciphertext)
+# If true, '()' will be appended to :func: etc. cross-reference text.
+#add_function_parentheses = True
+
+# If true, the current module name will be prepended to all description
+# unit titles (such as .. function::).
+#add_module_names = True
+
+# If true, sectionauthor and moduleauthor directives will be shown in the
+# output. They are ignored by default.
+#show_authors = False
+
+# The name of the Pygments (syntax highlighting) style to use.
+pygments_style = 'sphinx'
+
+
+# Options for HTML output
+# -----------------------
+
+# The style sheet to use for HTML and HTML Help pages. A file of that name
+# must exist either in Sphinx' static/ path, or in one of the custom paths
+# given in html_static_path.
+html_style = 'default.css'
+
+# Add any paths that contain custom static files (such as style sheets) here,
+# relative to this directory. They are copied after the builtin static files,
+# so a file named "default.css" will overwrite the builtin "default.css".
+html_static_path = ['static']
+
+# If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
+# using the given strftime format.
+html_last_updated_fmt = '%b %d, %Y'
+
+# If true, SmartyPants will be used to convert quotes and dashes to
+# typographically correct entities.
+#html_use_smartypants = True
+
+# Content template for the index page.
+#html_index = ''
+
+# Custom sidebar templates, maps document names to template names.
+#html_sidebars = {}
+
+# Additional templates that should be rendered to pages, maps page names to
+# template names.
+#html_additional_pages = {}
+
+# If false, no module index is generated.
+#html_use_modindex = True
+
+# If true, the reST sources are included in the HTML build as _sources/<name>.
+#html_copy_source = True
+
+# Output file base name for HTML help builder.
+htmlhelp_basename = 'Pebldoc'
+
+
+# Options for LaTeX output
+# ------------------------
+
+# The paper size ('letter' or 'a4').
+#latex_paper_size = 'letter'
+
+# The font size ('10pt', '11pt' or '12pt').
+#latex_font_size = '10pt'
+
+# Grouping the document tree into LaTeX files. List of tuples
+# (source start file, target name, title, author, document class [howto/manual]).
+#latex_documents = []
+
+# Additional stuff for the LaTeX preamble.
+#latex_preamble = ''
+
+# Documents to append as an appendix to all manuals.
+#latex_appendices = []
+
+# If false, no module index is generated.
+#latex_use_modindex = True
+
+# Custom extension for configuration parameters
+# ---------------------------------------------
+def setup(app):
+    app.add_description_unit('confparam', 'confparam', '%s; configuration parameter')

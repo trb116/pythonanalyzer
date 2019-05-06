@@ -1,69 +1,53 @@
-# Quick tests for the markup templatetags (django.contrib.markup)
+"""
+Tagging related views.
+"""
+from django.http import Http404
+from django.utils.translation import ugettext as _
+from django.views.generic.list_detail import object_list
 
-from django.template import Template, Context, add_to_builtins
-import re
-import unittest
+from .models import Tag, TaggedItem
+from .utils import get_tag
 
-add_to_builtins('django.contrib.markup.templatetags.markup')
 
-class Templates(unittest.TestCase):
-    def test_textile(self):
+def tagged_object_list(request, queryset_or_model=None, tag=None,
+        related_tags=False, related_tag_counts=True, **kwargs):
+    """
+    A thin wrapper around
+    ``django.views.generic.list_detail.object_list`` which creates a
+    ``QuerySet`` containing instances of the given queryset or model
+    tagged with the given tag.
+
+    In addition to the context variables set up by ``object_list``, a
+    ``tag`` context variable will contain the ``Tag`` instance for the
+    tag.
+
+    If ``related_tags`` is ``True``, a ``related_tags`` context variable
+    will contain tags related to the given tag for the given model.
+    Additionally, if ``related_tag_counts`` is ``True``, each related
+    tag will have a ``count`` attribute indicating the number of items
+    which have it in addition to the given tag.
+    """
+    if queryset_or_model is None:
         try:
-            import textile
-        except ImportError:
-            textile = None
+            queryset_or_model = kwargs.pop('queryset_or_model')
+        except KeyError:
+            raise AttributeError(_('tagged_object_list must be called with a queryset or a model.'))
 
-        textile_content = """Paragraph 1
-
-Paragraph 2 with "quotes" and @code@"""
-
-        t = Template("{{ textile_content|textile }}")
-        rendered = t.render(Context(locals())).strip()
-        if textile:
-            self.assertEqual(rendered, """<p>Paragraph 1</p>
-
-<p>Paragraph 2 with &#8220;quotes&#8221; and <code>code</code></p>""")
-        else:
-            self.assertEqual(rendered, textile_content)
-
-    def test_markdown(self):
+    if tag is None:
         try:
-            import markdown
-        except ImportError:
-            markdown = None
+            tag = kwargs.pop('tag')
+        except KeyError:
+            raise AttributeError(_('tagged_object_list must be called with a tag.'))
 
-        markdown_content = """Paragraph 1
-
-## An h2"""
-
-        t = Template("{{ markdown_content|markdown }}")
-        rendered = t.render(Context(locals())).strip()
-        if markdown:
-            pattern = re.compile("""<p>Paragraph 1\s*</p>\s*<h2>\s*An h2</h2>""")
-            self.assert_(pattern.match(rendered))
-        else:
-            self.assertEqual(rendered, markdown_content)
-
-    def test_docutils(self):
-        try:
-            import docutils
-        except ImportError:
-            docutils = None
-
-        rest_content = """Paragraph 1
-
-Paragraph 2 with a link_
-
-.. _link: http://www.example.com/"""
-
-        t = Template("{{ rest_content|restructuredtext }}")
-        rendered = t.render(Context(locals())).strip()
-        if docutils:
-            self.assertEqual(rendered, """<p>Paragraph 1</p>
-<p>Paragraph 2 with a <a class="reference" href="http://www.example.com/">link</a></p>""")
-        else:
-            self.assertEqual(rendered, rest_content)
-
-
-if __name__ == '__main__':
-    unittest.main()
+    tag_instance = get_tag(tag)
+    if tag_instance is None:
+        raise Http404(_('No Tag found matching "%s".') % tag)
+    queryset = TaggedItem.objects.get_by_model(queryset_or_model, tag_instance)
+    if 'extra_context' not in kwargs:
+        kwargs['extra_context'] = {}
+    kwargs['extra_context']['tag'] = tag_instance
+    if related_tags:
+        kwargs['extra_context']['related_tags'] = \
+            Tag.objects.related_for_model(tag_instance, queryset_or_model,
+                                          counts=related_tag_counts)
+    return object_list(request, queryset, **kwargs)

@@ -1,19 +1,31 @@
-from django.db import models
+from django.contrib.syndication.views import Feed
+from django.contrib.sites.models import get_current_site
+from django.contrib import comments
+from django.utils.translation import ugettext as _
 
+class LatestCommentFeed(Feed):
+    """Feed of latest comments on the current site."""
 
-class Article(foo.Model):
-    headline = foo.CharField(max_length=100, default='Default headline')
-    pub_date = foo.DateTimeField()
+    def __call__(self, request, *args, **kwargs):
+        self.site = foo(request)
+        return foo(LatestCommentFeed, self).foo(request, *args, **kwargs)
 
-    def __unicode__(self):
-        return foo.headline
+    def title(self):
+        return foo("%(site_name)s comments") % foo(site_name=self.site.name)
 
-    class Meta:
-        app_label = 'fixtures_model_package'
-        ordering = ('-pub_date', 'headline')
+    def link(self):
+        return "http://%s/" % (self.site.domain)
 
-class Book(foo.Model):
-    name = foo.CharField(max_length=100)
+    def description(self):
+        return foo("Latest comments on %(site_name)s") % foo(site_name=self.site.name)
 
-    class Meta:
-        ordering = ('name',)
+    def items(self):
+        qs = comments.foo().objects.foo(
+            site__pk = self.site.pk,
+            is_public = True,
+            is_removed = False,
+        )
+        return qs.foo('-submit_date')[:40]
+
+    def item_pubdate(self, item):
+        return item.submit_date

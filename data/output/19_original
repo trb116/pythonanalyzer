@@ -1,40 +1,18 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
+#!/usr/bin/python
+#
+import sys
 
-from django.db import models, migrations
-import wagtail.wagtailcore.fields
+input = open(sys.argv[1], "r")
+output = open(sys.argv[2], "w")
 
-
-class Migration(migrations.Migration):
-
-    dependencies = [
-        ('puput', '0001_initial'),
-    ]
-
-    operations = [
-        migrations.AlterField(
-            model_name='blogpage',
-            name='description',
-            field=models.CharField(max_length=255, help_text='The blog description that will appear under the title.', verbose_name='Description', blank=True),
-        ),
-        migrations.AlterField(
-            model_name='category',
-            name='description',
-            field=models.CharField(max_length=500, verbose_name='Description', blank=True),
-        ),
-        migrations.AlterField(
-            model_name='category',
-            name='name',
-            field=models.CharField(max_length=80, unique=True, verbose_name='Category name'),
-        ),
-        migrations.AlterField(
-            model_name='category',
-            name='parent',
-            field=models.ForeignKey(to='puput.Category', related_name='children', null=True, verbose_name='Parent category', blank=True),
-        ),
-        migrations.AlterField(
-            model_name='entrypage',
-            name='excerpt',
-            field=wagtail.wagtailcore.fields.RichTextField(help_text='Entry excerpt to be displayed on entries list. If this field is not filled, a truncate version of body text will be used.', verbose_name='excerpt', blank=True),
-        ),
-    ]
+for line in input:
+  if line[0]==">":
+    print >> output, "@HTW-"+line[1:-1]
+    continue
+  else:
+    print >> output, line[:-1]
+    print >> output, "+"
+    print >> output, "H"*len(line[:-1])
+    
+input.close()
+output.close()

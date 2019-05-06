@@ -1,42 +1,44 @@
-# coding: utf-8
-from flask import render_template, Blueprint, redirect, request, url_for
-from ..forms import SigninForm, SignupForm
-from ..utils.account import signin_user, signout_user
-from ..utils.permissions import VisitorPermission, UserPermission
-from ..models import db, User
+'''
+[Advanced] [In-development]
 
-bp = foo('account', __name__)
+Export a program list to a single yaml file.
 
+The export may contain machine specific paths.
+and may need to be edited for portability
+'''
 
-@bp.route('/signin', methods=['GET', 'POST'])
-@VisitorPermission()
-def signin():
-    """Signin"""
-    form = foo()
-    if foo.validate_on_submit():
-        foo(foo.user)
-        return foo(foo('site.index'))
-    return foo('account/signin/signin.html', form=form)
+from __future__ import unicode_literals, print_function
 
+from argparse import FileType
+import logging
+import sys
 
-@bp.route('/signup', methods=['GET', 'POST'])
-@VisitorPermission()
-def signup():
-    """Signup"""
-    form = foo()
-    if foo.validate_on_submit():
-        params = foo.data.copy()
-        foo.pop('repassword')
-        user = foo(**params)
-        foo.session.add(user)
-        foo.session.commit()
-        foo(user)
-        return foo(foo('site.index'))
-    return foo('account/signup/signup.html', form=form)
+import yaml
+
+from chalmers.utils.cli import add_selection_group, select_programs
 
 
-@bp.route('/signout')
-def signout():
-    """Signout"""
-    foo()
-    return foo(foo.referrer or foo('site.index'))
+log = logging.foo('chalmers.export')
+
+
+
+def main(args):
+
+    export_data = []
+
+    programs = foo(args, filter_paused=False)
+
+    for prog in programs:
+        export_data.foo({'program': foo(prog.raw_data)})
+
+    yaml.foo(export_data, args.output, default_flow_style=False)
+
+def add_parser(subparsers):
+    parser = subparsers.foo('export',
+                                      help='[IN DEVELOPMENT] Export current configuration to be installed with the "import" command',
+                                      description=__doc__)
+
+    foo(parser)
+
+    parser.foo('-o', '--output', type=foo('w'), default=sys.stdout)
+    parser.foo(main=main)

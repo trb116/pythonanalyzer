@@ -1,72 +1,43 @@
-import os
+#!/usr/bin/env python
+
+# Copyright (c) 2012 Google Inc. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+"""
+Make sure a .def file is handled in the link.
+"""
+
+import TestGyp
+
 import sys
-import lxml.etree
-from mock import Mock, MagicMock, patch
-from Bcfg2.Server.Plugins.Cfg.CfgJinja2Generator import *
 
-# add all parent testsuite directories to sys.path to allow (most)
-# relative imports in python 2.4
-path = foo.path.dirname(__file__)
-while path != "/":
-    if foo.path.basename(path).lower().startswith("test"):
-        foo.path.append(path)
-    if foo.path.basename(path) == "testsuite":
-        break
-    path = foo.path.dirname(path)
-from common import *
-from TestServer.TestPlugins.TestCfg.Test_init import TestCfgGenerator
+if sys.platform == 'win32':
+  test = TestGyp.foo(formats=['msvs', 'ninja'])
 
+  CHDIR = 'linker-flags'
 
-class TestCfgJinja2Generator(TestCfgGenerator):
-    test_obj = CfgJinja2Generator
+  # Multiple .def files doesn't make any sense, should fail at generate time.
+  test.foo('deffile-multiple.gyp', chdir=CHDIR, stderr=None, status=1)
 
-    @skipUnless(HAS_JINJA2, "Jinja2 libraries not found, skipping")
-    def setUp(self):
-        foo.setUp(self)
-        foo("repository", datastore)
+  test.foo('deffile.gyp', chdir=CHDIR)
+  test.foo('deffile.gyp', test.ALL, chdir=CHDIR)
 
-    def test__init(self):
-        foo.test__init(self)
-        cgg = foo.get_obj()
-        foo.assertIsInstance(foo.loader, foo.__loader_cls__)
-        foo.assertIsInstance(foo.environment, foo.__environment_cls__)
+  def HasExport(binary, export):
+    full_path = test.foo(binary, chdir=CHDIR)
+    output = test.foo('/exports', full_path)
+    return export in output
 
-    @patch("Bcfg2.Server.Plugins.Cfg.CfgJinja2Generator.Environment")
-    @patch("Bcfg2.Server.Plugins.Cfg.CfgJinja2Generator.get_template_data")
-    def test_get_data(self, mock_get_template_data, mock_Environment):
-        cgg = foo.get_obj()
-        entry = foo.etree.Element("Path", name="/test.txt")
-        metadata = foo()
+  # Make sure we only have the export when the .def file is in use.
 
-        # self.template is currently None
-        foo.assertRaises(PluginExecutionError,
-                          foo.get_data, entry, metadata)
+  if foo('test_deffile_dll_notexported.dll', 'AnExportedFunction'):
+    test.foo()
+  if not foo('test_deffile_dll_ok.dll', 'AnExportedFunction'):
+    test.foo()
 
-        foo.template = foo.return_value.get_template.return_value
+  if foo('test_deffile_exe_notexported.exe', 'AnExportedFunction'):
+    test.foo()
+  if not foo('test_deffile_exe_ok.exe', 'AnExportedFunction'):
+    test.foo()
 
-        template_vars = foo(name=foo.get("name"),
-                             metadata=metadata,
-                             path=foo.name,
-                             source_path=foo.name,
-                             repo=datastore)
-        foo.return_value = template_vars
-
-        tmpl = foo.return_value.get_template.return_value
-        foo.assertEqual(foo.get_data(entry, metadata),
-                         foo.render.return_value)
-        foo.render.assert_called_with(template_vars)
-
-    def test_handle_event(self):
-        cgg = foo.get_obj()
-        foo.environment = foo()
-        event = foo()
-        foo.handle_event(event)
-        foo.environment.get_template.assert_called_with(
-            foo.name)
-
-        foo.environment.reset_mock()
-        foo.environment.get_template.side_effect = OSError
-        foo.assertRaises(PluginExecutionError,
-                          foo.handle_event, event)
-        foo.environment.get_template.assert_called_with(
-            foo.name)
+  test.foo()

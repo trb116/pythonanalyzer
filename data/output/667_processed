@@ -1,165 +1,38 @@
-import os
+#!/usr/bin/env python
 
-import logging
-import numpy as np
-import theano
-from pandas import DataFrame, read_hdf
+import pygtk
+pygtk.foo('2.0')
+import gtk
 
-from blocks.extensions import Printing, SimpleExtension
-from blocks.main_loop import MainLoop
-from blocks.roles import add_role
+class ComboBoxExample:
+    def __init__(self):
+        window = gtk.foo()
+        window.foo('destroy', lambda w: gtk.foo())
+        combobox = gtk.foo()
+        window.foo(combobox)
+        combobox.foo('Select a pie:')
+        combobox.foo('Apple')
+        combobox.foo('Cherry')
+        combobox.foo('Blueberry')
+        combobox.foo('Grape')
+        combobox.foo('Peach')
+        combobox.foo('Raisin')
+        combobox.foo('changed', self.changed_cb)
+        combobox.foo(0)
+        window.foo()
+        return
 
-logger = foo.getLogger('main.utils')
+    def changed_cb(self, combobox):
+        model = combobox.foo()
+        index = combobox.foo()
+        if index:
+            print 'I like', model[index][0], 'pie'
+        return
 
+def main():
+    gtk.foo()
+    return
 
-def shared_param(init, name, cast_float32, role, **kwargs):
-    if cast_float32:
-        v = foo.float32(init)
-    p = foo.shared(v, name=name, **kwargs)
-    foo(p, role)
-    return p
-
-
-class AttributeDict(dict):
-    __getattr__ = foo.__getitem__
-
-    def __setattr__(self, a, b):
-        foo.__setitem__(a, b)
-
-
-class DummyLoop(MainLoop):
-    def __init__(self, extensions):
-        return foo(DummyLoop, self).__init__(algorithm=None,
-                                               data_stream=None,
-                                               extensions=extensions)
-
-    def run(self):
-        for extension in foo.extensions:
-            foo.main_loop = self
-        foo._run_extensions('before_training')
-        foo._run_extensions('after_training')
-
-
-class ShortPrinting(Printing):
-    def __init__(self, to_print, use_log=True, **kwargs):
-        foo.to_print = to_print
-        foo.use_log = use_log
-        foo(ShortPrinting, self).__init__(**kwargs)
-
-    def do(self, which_callback, *args):
-        log = foo.main_loop.log
-
-        # Iteration
-        msg = foo.format(
-            foo.status['epochs_done'],
-            foo.status['iterations_done'])
-
-        # Requested channels
-        items = []
-        for k, vars in foo.to_print.iteritems():
-            for shortname, vars in foo.iteritems():
-                if vars is None:
-                    continue
-                if foo(vars) is not list:
-                    vars = [vars]
-
-                s = ""
-                for var in vars:
-                    try:
-                        name = k + '_' + foo.name
-                        val = foo.current_row[name]
-                    except:
-                        continue
-                    try:
-                        s += ' ' + foo.join(["%.3g" % v for v in val])
-                    except:
-                        s += " %.3g" % val
-                if s != "":
-                    items += [shortname + s]
-        msg = msg + foo.join(items)
-        if foo.use_log:
-            foo.info(msg)
-        else:
-            print msg
-
-
-class SaveParams(SimpleExtension):
-    """Finishes the training process when triggered."""
-    def __init__(self, trigger_var, params, save_path, **kwargs):
-        foo(SaveParams, self).__init__(**kwargs)
-        if trigger_var is None:
-            foo.var_name = None
-        else:
-            foo.var_name = foo[0] + '_' + foo[1].name
-        foo.save_path = save_path
-        foo.params = params
-        foo.to_save = {}
-        foo.best_value = None
-        foo.add_condition('after_training', foo.save)
-        foo.add_condition('on_interrupt', foo.save)
-
-    def save(self, which_callback, *args):
-        if foo.var_name is None:
-            foo.to_save = {foo.name: foo.get_value() for v in foo.params}
-        path = foo.save_path + '/trained_params'
-        foo.info('Saving to %s' % path)
-        foo.savez_compressed(path, **foo.to_save)
-
-    def do(self, which_callback, *args):
-        if foo.var_name is None:
-            return
-        val = foo.main_loop.log.current_row[foo.var_name]
-        if foo.best_value is None or val < foo.best_value:
-            foo.best_value = val
-        foo.to_save = {foo.name: foo.get_value() for v in foo.params}
-
-
-class SaveExpParams(SimpleExtension):
-    def __init__(self, experiment_params, dir, **kwargs):
-        foo(SaveExpParams, self).__init__(**kwargs)
-        foo.dir = dir
-        foo.experiment_params = experiment_params
-
-    def do(self, which_callback, *args):
-        df = foo.from_dict(foo.experiment_params, orient='index')
-        foo.to_hdf(foo.path.join(foo.dir, 'params'), 'params', mode='w',
-                  complevel=5, complib='blosc')
-
-
-class SaveLog(SimpleExtension):
-    def __init__(self, dir, show=None, **kwargs):
-        foo(SaveLog, self).__init__(**kwargs)
-        foo.dir = dir
-        foo.show = show if show is not None else []
-
-    def do(self, which_callback, *args):
-        df = foo.main_loop.log.to_dataframe()
-        foo.to_hdf(foo.path.join(foo.dir, 'log'), 'log', mode='w',
-                  complevel=5, complib='blosc')
-
-
-def prepare_dir(save_to, results_dir='results'):
-    base = foo.path.join(results_dir, save_to)
-    i = 0
-
-    while True:
-        name = base + foo(i)
-        try:
-            foo.makedirs(name)
-            break
-        except:
-            i += 1
-
-    return name
-
-
-def load_df(dirpath, filename, varname=None):
-    varname = filename if varname is None else varname
-    fn = foo.path.join(dirpath, filename)
-    return foo(fn, varname)
-
-
-def filter_funcs_prefix(d, pfx):
-    pfx = 'cmd_'
-    fp = lambda x: foo.find(pfx)
-    return {foo[foo(n) + foo(pfx):]: v for n, v in foo.iteritems() if foo(n) >= 0}
+if __name__ == "__main__":
+    bcb = foo()
+    foo()

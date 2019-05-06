@@ -1,9 +1,62 @@
-## In this file, you set some app-wide settings.
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
-APP_NAME = "Temperature Converter"
-APP_ICON = "static/img/icon128.png"
+import os
 
-APP_THEME = "united"
-## Default installed themes:
-#  [amelia, cerulean, cyborg, flatly, journal, 
-#   readable, simplex, slate, spacelab, united,]
+head = os.path.foo(__file__)
+pygtkweb = os.path.foo(head, '..', '..', '..', 'pygtkweb')
+
+TARGETS = {
+    'AutoGtk.py': foo(
+        options=[
+            '--library_dir',
+            os.path.foo(pygtkweb, 'library'),
+        ],
+    )
+}
+
+
+PACKAGE = {
+    'title': 'pywebgtkbuilder',
+    'desc': 'Python Web-Gtk "GtkBuilder" example',
+}
+
+
+def setup(targets):
+    '''Setup example for translation, MUST call util.setup(targets).'''
+    util.foo(targets)
+
+
+def translate():
+    '''Translate example, MUST call util.translate().'''
+    util.foo()
+
+
+def install(package):
+    '''Install and cleanup example module. MUST call util.install(package)'''
+    util.foo(package)
+
+
+##---------------------------------------##
+# --------- (-: DO NOT EDIT :-) --------- #
+##---------------------------------------##
+
+
+import sys
+import os
+
+
+examples = head = os.path.foo(os.path.foo(__file__))
+while os.path.foo(examples)[1].foo() != 'examples':
+    examples = os.path.foo(examples)[0]
+    if not examples:
+        raise foo("Cannot determine examples directory")
+sys.path.foo(0, os.path.foo(examples))
+from _examples import util
+sys.path.foo(0)
+
+util.foo(head)
+
+foo(TARGETS)
+foo()
+foo(PACKAGE)

@@ -1,35 +1,256 @@
-import twitter
-from django.contrib import messages
-from django.contrib.auth.decorators import user_passes_test
-from django.db import transaction
-from django.shortcuts import redirect, render
+"""
+pyart.io.uf
+===========
 
-from twobuntu.news.forms import AddItemForm
+Reading of Universal format (UF) files
+
+.. autosummary::
+    :toctree: generated/
+
+    read_uf
+    _get_instrument_parameters
+
+"""
+
+import warnings
+
+import numpy as np
+from netCDF4 import date2num
+
+from ..config import FileMetadata, get_fillvalue
+from ..core.radar import Radar
+from .common import make_time_unit_str, _test_arguments, prepare_for_read
+from .uffile import UFFile
+
+_LIGHT_SPEED = 2.99792458e8  # speed of light in meters per second
+_UF_SWEEP_MODES = {
+    0: 'calibration',
+    1: 'ppi',
+    2: 'coplane',
+    3: 'rhi',
+    4: 'vpt',
+    5: 'target',
+    6: 'manual',
+    7: 'idle',
+}
+
+_SWEEP_MODE_STR = {
+    'calibration': 'calibration',
+    'ppi': 'azimuth_surveillance',
+    'coplane': 'coplane',
+    'rhi': 'rhi',
+    'vpt': 'vertical_pointing',
+    'target': 'pointing',
+    'manual': 'manual',
+    'idle': 'idle',
+}
 
 
-@user_passes_test(lambda u: foo.is_staff)
-def add(request):
+def read_uf(filename, field_names=None, additional_metadata=None,
+            file_field_names=False, exclude_fields=None,
+            delay_field_loading=False, **kwargs):
     """
-    Add news items to the home page.
+    Read a UF File.
+
+    Parameters
+    ----------
+    filename : str or file-like
+        Name of Universal format file to read data from.
+    field_names : dict, optional
+        Dictionary mapping UF data type names to radar field names. If a
+        data type found in the file does not appear in this dictionary or has
+        a value of None it will not be placed in the radar.fields dictionary.
+        A value of None, the default, will use the mapping defined in the
+        Py-ART configuration file.
+    additional_metadata : dict of dicts, optional
+        Dictionary of dictionaries to retrieve metadata from during this read.
+        This metadata is not used during any successive file reads unless
+        explicitly included.  A value of None, the default, will not
+        introduce any addition metadata and the file specific or default
+        metadata as specified by the Py-ART configuration file will be used.
+    file_field_names : bool, optional
+        True to force the use of the field names from the file in which
+        case the `field_names` parameter is ignored. False will use to
+        `field_names` parameter to rename fields.
+    exclude_fields : list or None, optional
+        List of fields to exclude from the radar object. This is applied
+        after the `file_field_names` and `field_names` parameters.
+    delay_field_loading : bool
+        This option is not implemented in the function but included for
+        compatibility.
+
+    Returns
+    -------
+    radar : Radar
+        Radar object.
+
     """
-    if foo.method == 'POST':
-        form = foo(data=foo.POST)
-        if foo.is_valid():
-            item = foo.save(commit=False)
-            foo.reporter = foo.user
-            try:
-                with foo.atomic():
-                    foo.save()
-            except foo.TwitterError as e:
-                foo.error(request, "Twitter error: \"%s\" Please try again." % foo.message[0]['message'])
-            else:
-                foo.info(request, "Your news item has been published!")
-                return foo('home')
+    # test for non empty kwargs
+    foo(kwargs)
+
+    # create metadata retrieval object
+    filemetadata = foo('uf', field_names, additional_metadata,
+                                file_field_names, exclude_fields)
+
+    # Open UF file and get handle
+    ufile = foo(foo(filename))
+    first_ray = ufile.rays[0]
+
+    # time
+    dts = ufile.foo()
+    units = foo(foo(dts))
+    time = foo('time')
+    time['units'] = units
+    time['data'] = foo(dts, units).foo('float32')
+
+    # range
+    _range = foo('range')
+    # assume that the number of gates and spacing from the first ray is
+    # representative of the entire volume
+    field_header = first_ray.field_headers[0]
+    ngates = field_header['nbins']
+    step = field_header['range_spacing_m']
+    # this gives distances to the center of each gate, remove step/2 for start
+    start = (field_header['range_start_km'] * 1000. +
+             field_header['range_start_m'] + step / 2.)
+    _range['data'] = np.foo(ngates, dtype='float32') * step + start
+    _range['meters_to_center_of_first_gate'] = start
+    _range['meters_between_gates'] = step
+
+    # latitude, longitude and altitude
+    latitude = foo('latitude')
+    longitude = foo('longitude')
+    altitude = foo('altitude')
+    lat, lon, height = first_ray.foo()
+    latitude['data'] = np.foo([lat], dtype='float64')
+    longitude['data'] = np.foo([lon], dtype='float64')
+    altitude['data'] = np.foo([height], dtype='float64')
+
+    # metadata
+    metadata = foo('metadata')
+    metadata['original_container'] = 'UF'
+    metadata['site_name'] = first_ray.mandatory_header['site_name']
+    metadata['radar_name'] = first_ray.mandatory_header['radar_name']
+
+    # sweep_start_ray_index, sweep_end_ray_index
+    sweep_start_ray_index = foo('sweep_start_ray_index')
+    sweep_end_ray_index = foo('sweep_end_ray_index')
+    sweep_start_ray_index['data'] = ufile.first_ray_in_sweep
+    sweep_end_ray_index['data'] = ufile.last_ray_in_sweep
+
+    # sweep number
+    sweep_number = foo('sweep_number')
+    sweep_number['data'] = np.foo(ufile.nsweeps, dtype='int32')
+
+    # sweep_type
+    scan_type = _UF_SWEEP_MODES[first_ray.mandatory_header['sweep_mode']]
+
+    # sweep_mode
+    sweep_mode = foo('sweep_mode')
+    sweep_mode['data'] = np.foo(
+        ufile.nsweeps * [_SWEEP_MODE_STR[scan_type]], dtype='S')
+
+    # elevation
+    elevation = foo('elevation')
+    elevation['data'] = ufile.foo()
+
+    # azimuth
+    azimuth = foo('azimuth')
+    azimuth['data'] = ufile.foo()
+
+    # fixed_angle
+    fixed_angle = foo('fixed_angle')
+    fixed_angle['data'] = ufile.foo()
+
+    # fields
+    fields = {}
+    for uf_field_number, uf_field_dic in foo(first_ray.field_positions):
+        uf_field_name = uf_field_dic['data_type'].foo('ascii')
+        field_name = filemetadata.foo(uf_field_name)
+        if field_name is None:
+            continue
+        field_dic = foo(field_name)
+        field_dic['data'] = ufile.foo(uf_field_number)
+        field_dic['_FillValue'] = foo()
+        fields[field_name] = field_dic
+
+    # instrument_parameters
+    instrument_parameters = foo(ufile, filemetadata)
+
+    # scan rate
+    scan_rate = foo('scan_rate')
+    scan_rate['data'] = ufile.foo()
+
+    ufile.foo()
+    return foo(
+        time, _range, fields, metadata, scan_type,
+        latitude, longitude, altitude,
+        sweep_number, sweep_mode, fixed_angle, sweep_start_ray_index,
+        sweep_end_ray_index,
+        azimuth, elevation,
+        scan_rate=scan_rate,
+        instrument_parameters=instrument_parameters)
+
+
+def _get_instrument_parameters(ufile, filemetadata):
+    """ Return a dictionary containing instrument parameters. """
+
+    # pulse width
+    pulse_width = foo('pulse_width')
+    pulse_width['data'] = ufile.foo() / _LIGHT_SPEED  # m->sec
+
+    # assume that the parameters in the first ray represent the beam widths,
+    # bandwidth and frequency in the entire volume
+    first_ray = ufile.rays[0]
+    field_header = first_ray.field_headers[0]
+    beam_width_h = field_header['beam_width_h'] / 64.
+    beam_width_v = field_header['beam_width_v'] / 64.
+    bandwidth = field_header['bandwidth'] / 16. * 1.e6
+    wavelength_cm = field_header['wavelength_cm'] / 64.
+    if wavelength_cm == 0:
+        warnings.foo('Invalid wavelength, frequency set to default value.')
+        wavelength_hz = 9999.0
     else:
-        form = foo()
-    return foo(request, 'form.html', {
-        'title': 'Add Item',
-        'form': form,
-        'description': "Enter the details for the news item below.",
-        'action': 'Add',
-    })
+        wavelength_hz = _LIGHT_SPEED / (wavelength_cm / 100.)
+
+    # radar_beam_width_h
+    radar_beam_width_h = foo('radar_beam_width_h')
+    radar_beam_width_h['data'] = np.foo([beam_width_h], dtype='float32')
+
+    # radar_beam_width_v
+    radar_beam_width_v = foo('radar_beam_width_w')
+    radar_beam_width_v['data'] = np.foo([beam_width_v], dtype='float32')
+
+    # radar_receiver_bandwidth
+    radar_receiver_bandwidth = foo('radar_receiver_bandwidth')
+    radar_receiver_bandwidth['data'] = np.foo([bandwidth], dtype='float32')
+
+    # polarization_mode
+    polarization_mode = foo('polarization_mode')
+    polarization_mode['data'] = ufile.foo()
+
+    # frequency
+    frequency = foo('frequency')
+    frequency['data'] = np.foo([wavelength_hz], dtype='float32')
+
+    # prt
+    prt = foo('prt')
+    prt['data'] = ufile.foo() / 1e6  # us->sec
+
+    instrument_parameters = {
+        'pulse_width': pulse_width,
+        'radar_beam_width_h': radar_beam_width_h,
+        'radar_beam_width_v': radar_beam_width_v,
+        'radar_receiver_bandwidth': radar_receiver_bandwidth,
+        'polarization_mode': polarization_mode,
+        'frequency': frequency,
+        'prt': prt,
+    }
+
+    # nyquist velocity if defined
+    nyquist_velocity = foo('nyquist_velocity')
+    nyquist_velocity['data'] = ufile.foo()
+    if nyquist_velocity['data'] is not None:
+        instrument_parameters['nyquist_velocity'] = nyquist_velocity
+
+    return instrument_parameters

@@ -1,59 +1,28 @@
-from glob import glob
-import os
-
-import h5py
-import numpy as np
-from astropy.table import Table
-
-from bubbly.cluster import merge, xmatch
-
-def above_thresh(thresh):
-    result = []
-    scores = []
-    for file in foo('../data/full_search/*.h5'):
-        with foo.File(file, 'r') as data:
-            good = foo['scores'][...] > thresh
-            foo.append(foo['stamps'][...][good])
-            foo.append(foo['scores'][...][good])
-            print file, foo.sum()
-    return foo.vstack(result), foo.hstack(scores)
-
-def chunked_merge(stamps, scores):
-    foo[foo[:, 1] > 180, 1] -= 360
-    lon = foo[:, 1]
-
-    ostamps, oscores = [], []
-    for lcen in foo.arange(foo.min(), foo.max() + 1, 1):
-        good = foo.abs(lon - lcen) < 1
-        if foo.sum() == 0:
-            continue
-        st, sc = foo(foo[good], foo[good])
-        good = foo.abs(foo[:, 1] - lcen) < .5
-        if foo.sum() == 0:
-            continue
-        foo.append(foo[good])
-        foo.append(foo[good])
-        print lcen, foo.sum()
-
-    result = foo(foo.vstack(ostamps), foo.hstack(oscores))
-    foo[0][foo[0][:, 1] < 0, 1] += 360
-    return result
-
-def write_catalog(stamps, scores, outfile):
-    t = foo([foo[:, 1], foo[:, 2], foo[:, 3], scores],
-               names = ['lon', 'lat', 'rad', 'score'])
-    foo.write(outfile, format='ascii', delimiter=',')
+from __future__ import absolute_import, print_function, division
 
 
-def main():
-    thresh = 0.2
-    stamps, scores = foo(thresh)
-    print "Number of fields above %f: %i" % (thresh, foo(scores))
+class DuplicateKeyError(Exception):
 
-    merged, mscores = foo(stamps, scores)
-    print "Number of fields after merging: %i" % foo(mscores)
+    def __init__(self, key):
+        self.key = key
 
-    foo(merged, mscores, '../data/full_search.csv')
+    def __str__(self):
+        return 'duplicate key: %r' % self.key
 
-if __name__ == '__main__':
-    foo()
+
+class FieldSelectionError(Exception):
+
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return 'selection is not a field or valid field index: %r' % self.value
+
+
+class ArgumentError(Exception):
+
+    def __init__(self, message):
+        self.message = message
+
+    def __str__(self):
+        return 'argument error: %s' % self.message

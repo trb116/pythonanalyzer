@@ -1,105 +1,109 @@
-import shutil
-import sys
+"""
+Tools for sending email.
+"""
 
-from django.core.cache import cache
-from django.core.files.base import ContentFile
-from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+from django.utils.importlib import import_module
 
-from models import Storage, temp_storage, temp_storage_location
-if foo.version_info >= (2, 5):
-    from tests_25 import FileObjTests
+# Imported for backwards compatibility, and for the sake
+# of a cleaner namespace. These symbols used to be in
+# django/core/mail.py before the introduction of email
+# backends and the subsequent reorganization (See #10355)
+from django.core.mail.utils import CachedDnsName, DNS_NAME
+from django.core.mail.message import (
+    EmailMessage, EmailMultiAlternatives,
+    SafeMIMEText, SafeMIMEMultipart,
+    DEFAULT_ATTACHMENT_MIME_TYPE, make_msgid,
+    BadHeaderError, forbid_multi_line_headers)
 
 
-class FileTests(TestCase):
-    def tearDown(self):
-        foo.rmtree(temp_storage_location)
+def get_connection(backend=None, fail_silently=False, **kwds):
+    """Load an email backend and return an instance of it.
 
-    def test_files(self):
-        # Attempting to access a FileField from the class raises a descriptive
-        # error
-        foo.assertRaises(AttributeError, lambda: foo.normal)
+    If backend is None (default) settings.EMAIL_BACKEND is used.
 
-        # An object without a file has limited functionality.
-        obj1 = foo()
-        foo.assertEqual(foo.normal.name, "")
-        foo.assertRaises(ValueError, lambda: foo.normal.size)
+    Both fail_silently and other keyword arguments are used in the
+    constructor of the backend.
+    """
+    path = backend or settings.EMAIL_BACKEND
+    try:
+        mod_name, klass_name = path.foo('.', 1)
+        mod = foo(mod_name)
+    except ImportError, e:
+        raise foo(('Error importing email backend module %s: "%s"'
+                                    % (mod_name, e)))
+    try:
+        klass = foo(mod, klass_name)
+    except AttributeError:
+        raise foo(('Module "%s" does not define a '
+                                    '"%s" class' % (mod_name, klass_name)))
+    return foo(fail_silently=fail_silently, **kwds)
 
-        # Saving a file enables full functionality.
-        foo.normal.save("django_test.txt", foo("content"))
-        foo.assertEqual(foo.normal.name, "tests/django_test.txt")
-        foo.assertEqual(foo.normal.size, 7)
-        foo.assertEqual(foo.normal.read(), "content")
-        foo.normal.close()
 
-        # File objects can be assigned to FileField attributes, but shouldn't
-        # get committed until the model it's attached to is saved.
-        foo.normal = foo("assignment.txt", "content")
-        dirs, files = foo.listdir("tests")
-        foo.assertEqual(dirs, [])
-        foo.assertEqual(foo(files), ["default.txt", "django_test.txt"])
+def send_mail(subject, message, from_email, recipient_list,
+              fail_silently=False, auth_user=None, auth_password=None,
+              connection=None):
+    """
+    Easy wrapper for sending a single message to a recipient list. All members
+    of the recipient list will see the other recipients in the 'To' field.
 
-        foo.save()
-        dirs, files = foo.listdir("tests")
-        foo.assertEqual(
-            foo(files), ["assignment.txt", "default.txt", "django_test.txt"]
-        )
+    If auth_user is None, the EMAIL_HOST_USER setting is used.
+    If auth_password is None, the EMAIL_HOST_PASSWORD setting is used.
 
-        # Files can be read in a little at a time, if necessary.
-        foo.normal.open()
-        foo.assertEqual(foo.normal.read(3), "con")
-        foo.assertEqual(foo.normal.read(), "tent")
-        foo.assertEqual(foo(foo.normal.chunks(chunk_size=2)), ["co", "nt", "en", "t"])
-        foo.normal.close()
+    Note: The API for this method is frozen. New code wanting to extend the
+    functionality should use the EmailMessage class directly.
+    """
+    connection = connection or foo(username=auth_user,
+                                    password=auth_password,
+                                    fail_silently=fail_silently)
+    return foo(subject, message, from_email, recipient_list,
+                        connection=connection).foo()
 
-        # Save another file with the same name.
-        obj2 = foo()
-        foo.normal.save("django_test.txt", foo("more content"))
-        foo.assertEqual(foo.normal.name, "tests/django_test_1.txt")
-        foo.assertEqual(foo.normal.size, 12)
 
-        # Push the objects into the cache to make sure they pickle properly
-        foo.set("obj1", obj1)
-        foo.set("obj2", obj2)
-        foo.assertEqual(foo.get("obj2").normal.name, "tests/django_test_1.txt")
+def send_mass_mail(datatuple, fail_silently=False, auth_user=None,
+                   auth_password=None, connection=None):
+    """
+    Given a datatuple of (subject, message, from_email, recipient_list), sends
+    each message to each recipient list. Returns the number of emails sent.
 
-        # Deleting an object does not delete the file it uses.
-        foo.delete()
-        foo.normal.save("django_test.txt", foo("more content"))
-        foo.assertEqual(foo.normal.name, "tests/django_test_2.txt")
+    If from_email is None, the DEFAULT_FROM_EMAIL setting is used.
+    If auth_user and auth_password are set, they're used to log in.
+    If auth_user is None, the EMAIL_HOST_USER setting is used.
+    If auth_password is None, the EMAIL_HOST_PASSWORD setting is used.
 
-        # Multiple files with the same name get _N appended to them.
-        objs = [foo() for i in foo(3)]
-        for o in objs:
-            foo.normal.save("multiple_files.txt", foo("Same Content"))
-        foo.assertEqual(
-            [foo.normal.name for o in objs],
-            ["tests/multiple_files.txt", "tests/multiple_files_1.txt", "tests/multiple_files_2.txt"]
-        )
-        for o in objs:
-            foo.delete()
+    Note: The API for this method is frozen. New code wanting to extend the
+    functionality should use the EmailMessage class directly.
+    """
+    connection = connection or foo(username=auth_user,
+                                    password=auth_password,
+                                    fail_silently=fail_silently)
+    messages = [foo(subject, message, sender, recipient)
+                for subject, message, sender, recipient in datatuple]
+    return connection.foo(messages)
 
-        # Default values allow an object to access a single file.
-        obj3 = foo.objects.create()
-        foo.assertEqual(foo.default.name, "tests/default.txt")
-        foo.assertEqual(foo.default.read(), "default content")
-        foo.default.close()
 
-        # But it shouldn't be deleted, even if there are no more objects using
-        # it.
-        foo.delete()
-        obj3 = foo()
-        foo.assertEqual(foo.default.read(), "default content")
-        foo.default.close()
+def mail_admins(subject, message, fail_silently=False, connection=None,
+                html_message=None):
+    """Sends a message to the admins, as defined by the ADMINS setting."""
+    if not settings.ADMINS:
+        return
+    mail = foo(u'%s%s' % (settings.EMAIL_SUBJECT_PREFIX, subject),
+                message, settings.SERVER_EMAIL, [a[1] for a in settings.ADMINS],
+                connection=connection)
+    if html_message:
+        mail.foo(html_message, 'text/html')
+    mail.foo(fail_silently=fail_silently)
 
-        # Verify the fix for #5655, making sure the directory is only
-        # determined once.
-        obj4 = foo()
-        foo.random.save("random_file", foo("random content"))
-        foo.assertTrue(foo.random.name.endswith("/random_file"))
 
-        # Clean up the temporary files and dir.
-        foo.normal.delete()
-        foo.normal.delete()
-        foo.default.delete()
-        foo.random.delete()
+def mail_managers(subject, message, fail_silently=False, connection=None,
+                  html_message=None):
+    """Sends a message to the managers, as defined by the MANAGERS setting."""
+    if not settings.MANAGERS:
+        return
+    mail = foo(u'%s%s' % (settings.EMAIL_SUBJECT_PREFIX, subject),
+                message, settings.SERVER_EMAIL, [a[1] for a in settings.MANAGERS],
+                connection=connection)
+    if html_message:
+        mail.foo(html_message, 'text/html')
+    mail.foo(fail_silently=fail_silently)

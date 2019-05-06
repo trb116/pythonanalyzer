@@ -1,34 +1,31 @@
 """
-Decorators for views based on HTTP headers.
+Extracts the version of the PostgreSQL server.
 """
 
-from django.utils.decorators import decorator_from_middleware
-from django.middleware.http import ConditionalGetMiddleware
-from django.http import HttpResponseNotAllowed
+import re
 
-conditional_page = decorator_from_middleware(ConditionalGetMiddleware)
+# This reg-exp is intentionally fairly flexible here.
+# Needs to be able to handle stuff like:
+#   PostgreSQL 8.3.6
+#   EnterpriseDB 8.3
+#   PostgreSQL 8.3 beta4
+#   PostgreSQL 8.4beta1
+VERSION_RE = re.compile(r'\S+ (\d+)\.(\d+)\.?(\d+)?')
 
-def require_http_methods(request_method_list):
+def _parse_version(text):
+    "Internal parsing method. Factored out for testing purposes."
+    major, major2, minor = VERSION_RE.search(text).groups()
+    try:
+        return int(major), int(major2), int(minor)
+    except (ValueError, TypeError):
+        return int(major), int(major2), None
+
+def get_version(cursor):
     """
-    Decorator to make a view only accept particular request methods.  Usage::
-
-        @require_http_methods(["GET", "POST"])
-        def my_view(request):
-            # I can assume now that only GET or POST requests make it this far
-            # ...
-
-    Note that request methods should be in uppercase.
+    Returns a tuple representing the major, minor and revision number of the
+    server. For example, (7, 4, 1) or (8, 3, 4). The revision number will be
+    None in the case of initial releases (e.g., 'PostgreSQL 8.3') or in the
+    case of beta and prereleases ('PostgreSQL 8.4beta1').
     """
-    def decorator(func):
-        def inner(request, *args, **kwargs):
-            if request.method not in request_method_list:
-                return HttpResponseNotAllowed(request_method_list)
-            return func(request, *args, **kwargs)
-        return inner
-    return decorator
-
-require_GET = require_http_methods(["GET"])
-require_GET.__doc__ = "Decorator to require that a view only accept the GET method."
-
-require_POST = require_http_methods(["POST"])
-require_POST.__doc__ = "Decorator to require that a view only accept the POST method."
+    cursor.execute("SELECT version()")
+    return _parse_version(cursor.fetchone()[0])

@@ -1,141 +1,62 @@
-import xml.sax.handler
 
-import tempfile
-import getopt
-import os
-import urllib2
-import xml.etree.ElementTree as ElementTree
-import sys
-import webbrowser
-import xml
-import maya
+# vim: set ts=4 sw=4 expandtab:
 
-class Request:
-    def __init__(self):
-        pass
-    
-    
-    def setPreview(self, preview):
-        pass
-    
-    
-    def setToNativeVersion(self):
-        pass
-    
-    
-    def setVersion(self, line, release, master, build):
-        pass
-    
-    
-    def url(self):
-        pass
+import pyjamas.ui.Grid
 
+class Grid(pyjamas.ui.Grid.Grid):
 
-class ParsingErrorHandler(xml.sax.handler.ErrorHandler):
-    """
-    ErrorHandler handles the errors encountered while parsing
-    an XML from a string
-    """
-    
-    
-    
-    def __init__(self, url):
-        pass
-    
-    
-    def error(self, exception):
-        pass
-    
-    
-    def fatalError(self, exception):
-        pass
-    
-    
-    def format(self, exception):
-        pass
+    def __init__(self, topHeader = True, leftBorder=True):
+        pyjamas.ui.Grid.Grid.__init__(self)
+        self.selectedRow = 0
+        if topHeader:
+            self.top = 1
+        else:
+            self.top = 0
+        if leftBorder:
+            self.left = 1
+        else:
+            self.left = 0
 
+    def createGrid(self, rows, cols):
+        self.resize(rows+self.top, cols+self.left)
+        self.values = {}
+        self.getRowFormatter().addStyleName(0, "gwt-BorderRow")
+        for row in range(rows):
+            self.values[row] = {}
+            self.values[row][0] = row
+            self.getRowFormatter().addStyleName(row+1, "gwt-UnselectedRow")
+            self.getCellFormatter().addStyleName(row+1, 0, "gwt-BorderCell")
+            self.setHTML(row+1, 0, "<b>%s</b>" % (row+1))
+            for col in range(0,cols):
+                self.setCellValue(row, col, "")
 
-class HtmlUpdate:
-    """
-    This class will take an HTML content and modify it, replacing
-    sections with update specific information.  One can
-    specify sections that show up if there are no updates
-    and sections that show up if there are updates.  In the
-    later case, certain sections can be specified to be repeated
-    for each update, using the update information.
-    """
-    
-    
-    
-    def __init__(self, title, response):
-        pass
-    
-    
-    def process(self, html):
-        pass
+    def setColLabelValue(self, col, value):
+        self.setHTML(0, col+self.left, '<b>%s</b>'% value)
 
+    def setRowLabelValue(self, row, value):
+        self.setHTML(row+self.top, 0, '<b>%s</b>' % value)
 
-class HtmlTemplateUpdate:
-    def __init__(self):
-        pass
-    
-    
-    def process(self, html):
-        pass
-    
-    
-    def processSingle(self, html):
-        pass
-    
-    
-    def processSingleNone(self, html):
-        pass
-    
-    
-    def processSingleSome(self, html):
-        pass
+    def setCellValue(self, row, col, value):
+        self.values[row][col] = value
+        if value == "":
+            value = "&nbsp;"
+        self.setHTML(row+self.top, col+self.left, value)
 
+    def clearGrid(self):
+        for row in range(1, self.getRowCount()):
+            for col in range(1, self.getColumnCount()):
+                self.clearCell(row, col)
+        self.selectRow(-1)
 
-class Response:
-    def __init__(self, request, doRefresh=True):
-        pass
-    
-    
-    def numberOfUpdates(self, forceRefresh=False):
-        pass
-    
-    
-    def refresh(self, setTimeout=None):
-        pass
-    
-    
-    def resetRequest(self, request):
-        pass
-    
-    
-    def result(self, forceRefresh=False):
-        pass
+    def selectRow(self, row):
+        self.styleRow(self.selectedRow, False)
+        self.styleRow(row, True)
+        self.selectedRow = row
 
-
-
-def Update(response, output):
-    pass
-
-
-def downloadURL(url):
-    """
-    http://stackoverflow.com/questions/22676/how-do-i-download-a-file-over-http-using-python
-    """
-
-    pass
-
-
-def Download(response, output):
-    pass
-
-
-def usage():
-    pass
-
-
-
+    def styleRow(self, row, selected):
+        if row > 0 and row < self.getRowCount():
+            if selected:
+                self.getRowFormatter().addStyleName(row, "gwt-SelectedRow")
+            else:
+                self.getRowFormatter().removeStyleName(row, "gwt-SelectedRow")
+            

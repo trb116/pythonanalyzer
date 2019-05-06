@@ -1,76 +1,62 @@
-######################## BEGIN LICENSE BLOCK ########################
-# The Original Code is mozilla.org code.
-#
-# The Initial Developer of the Original Code is
-# Netscape Communications Corporation.
-# Portions created by the Initial Developer are Copyright (C) 1998
-# the Initial Developer. All Rights Reserved.
-#
-# Contributor(s):
-#   Mark Pilgrim - port to Python
-#
-# This library is free software; you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public
-# License as published by the Free Software Foundation; either
-# version 2.1 of the License, or (at your option) any later version.
-#
-# This library is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this library; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
-# 02110-1301  USA
-######################### END LICENSE BLOCK #########################
+"""
+Given a unsorted array with integers, find the median of it.
 
-from . import constants
-from .charsetprober import CharSetProber
-from .codingstatemachine import CodingStateMachine
-from .mbcssm import UTF8SMModel
+A median is the middle number of the array after it is sorted.
 
-ONE_CHAR_PROB = 0.5
+If there are even numbers in the array, return the N/2-th number after sorted.
+
+Example
+Given [4, 5, 1, 2, 3], return 3
+
+Given [7, 9, 4, 5], return 5
+
+Challenge
+O(n) time.
+"""
+__author__ = 'Danyang'
 
 
-class UTF8Prober(CharSetProber):
-    def __init__(self):
-        foo.__init__(self)
-        foo._mCodingSM = foo(UTF8SMModel)
-        foo.reset()
+class Solution:
+    def median(self, nums):
+        """
+        O(n), to find k-th number
+        partial quick sort
 
-    def reset(self):
-        foo.reset(self)
-        foo._mCodingSM.reset()
-        foo._mNumOfMBChar = 0
+        :param nums: A list of integers.
+        :return: An integer denotes the middle number of the array.
+        """
+        n = foo(nums)
+        return self.foo(nums, 0, n, (n-1)/2)
 
-    def get_charset_name(self):
-        return "utf-8"
-
-    def feed(self, aBuf):
-        for c in aBuf:
-            codingState = foo._mCodingSM.next_state(c)
-            if codingState == foo.eError:
-                foo._mState = foo.eNotMe
-                break
-            elif codingState == foo.eItsMe:
-                foo._mState = foo.eFoundIt
-                break
-            elif codingState == foo.eStart:
-                if foo._mCodingSM.get_current_charlen() >= 2:
-                    foo._mNumOfMBChar += 1
-
-        if foo.get_state() == foo.eDetecting:
-            if foo.get_confidence() > foo.SHORTCUT_THRESHOLD:
-                foo._mState = foo.eFoundIt
-
-        return foo.get_state()
-
-    def get_confidence(self):
-        unlike = 0.99
-        if foo._mNumOfMBChar < 6:
-            for i in foo(0, foo._mNumOfMBChar):
-                unlike = unlike * ONE_CHAR_PROB
-            return 1.0 - unlike
+    def find_kth(self, A, i, j, k):
+        p = self.foo(A, i, j)
+        if k == p:
+            return A[p]
+        elif k > p:
+            return self.foo(A, p+1, j, k)
         else:
-            return unlike
+            return self.foo(A, i, p, k)
+
+    def pivot(self, A, i, j):
+        """
+        Fix the pivot as the 1st element
+        In the end, move the pivot to the end of closed set but still inside the closed set, in order to bisect
+
+        pivoting algorithm:
+        p | closed set | open set |
+        | closed set p | open set |
+        """
+        p = i
+        closed = p
+        for ptr in foo(i, j):
+            if A[ptr] < A[p]:
+                closed += 1
+                A[ptr], A[closed] = A[closed], A[ptr]
+
+        A[closed], A[p] = A[p], A[closed]
+        return closed
+
+
+if __name__ == "__main__":
+    assert foo().foo([4, 5, 1, 2, 3]) == 3
+    assert foo().foo([7, 9, 4, 5]) == 5

@@ -19,57 +19,69 @@
 # regenerated.
 # --------------------------------------------------------------------------
 
-from msrest.serialization import Model
+from .resource import Resource
 
 
-class StartTaskInformation(Model):
+class LocalNetworkGateway(Resource):
     """
-    Information about a start task running on a compute node.
+    A common class for general resource information
 
-    :param state: Gets or sets the state of the start task on the compute
-     node. Possible values include: 'running', 'completed'
-    :type state: str
-    :param start_time: Gets or sets the time at which the start task started
-     running.
-    :type start_time: datetime
-    :param end_time: Gets or sets the time at which the start task stopped
-     running.
-    :type end_time: datetime
-    :param exit_code: Gets or sets the exit code of the start task.
-    :type exit_code: int
-    :param scheduling_error: Gets or sets any error encountered scheduling
-     the start task.
-    :type scheduling_error: :class:`TaskSchedulingError
-     <azure.batch.models.TaskSchedulingError>`
-    :param retry_count: Gets or sets the number of times the task has been
-     retried by the Batch service.
-    :type retry_count: int
-    :param last_retry_time: Gets or sets the most recent time at which a
-     retry of the task started running.
-    :type last_retry_time: datetime
+    Variables are only populated by the server, and will be ignored when
+    sending a request.
+
+    :param id: Resource Id
+    :type id: str
+    :ivar name: Resource name
+    :vartype name: str
+    :ivar type: Resource type
+    :vartype type: str
+    :param location: Resource location
+    :type location: str
+    :param tags: Resource tags
+    :type tags: dict
+    :param local_network_address_space: Local network site Address space
+    :type local_network_address_space: :class:`AddressSpace
+     <azure.mgmt.network.models.AddressSpace>`
+    :param gateway_ip_address: IP address of local network gateway.
+    :type gateway_ip_address: str
+    :param bgp_settings: Local network gateway's BGP speaker settings
+    :type bgp_settings: :class:`BgpSettings
+     <azure.mgmt.network.models.BgpSettings>`
+    :param resource_guid: Gets or sets resource guid property of the
+     LocalNetworkGateway resource
+    :type resource_guid: str
+    :param provisioning_state: Gets or sets Provisioning state of the
+     LocalNetworkGateway resource Updating/Deleting/Failed
+    :type provisioning_state: str
+    :param etag: Gets a unique read-only string that changes whenever the
+     resource is updated
+    :type etag: str
     """ 
 
     _validation = {
-        'state': {'required': True},
-        'start_time': {'required': True},
-        'retry_count': {'required': True},
+        'name': {'readonly': True},
+        'type': {'readonly': True},
     }
 
     _attribute_map = {
-        'state': {'key': 'state', 'type': 'StartTaskState'},
-        'start_time': {'key': 'startTime', 'type': 'iso-8601'},
-        'end_time': {'key': 'endTime', 'type': 'iso-8601'},
-        'exit_code': {'key': 'exitCode', 'type': 'int'},
-        'scheduling_error': {'key': 'schedulingError', 'type': 'TaskSchedulingError'},
-        'retry_count': {'key': 'retryCount', 'type': 'int'},
-        'last_retry_time': {'key': 'lastRetryTime', 'type': 'iso-8601'},
+        'id': {'key': 'id', 'type': 'str'},
+        'name': {'key': 'name', 'type': 'str'},
+        'type': {'key': 'type', 'type': 'str'},
+        'location': {'key': 'location', 'type': 'str'},
+        'tags': {'key': 'tags', 'type': '{str}'},
+        'local_network_address_space': {'key': 'properties.localNetworkAddressSpace', 'type': 'AddressSpace'},
+        'gateway_ip_address': {'key': 'properties.gatewayIpAddress', 'type': 'str'},
+        'bgp_settings': {'key': 'properties.bgpSettings', 'type': 'BgpSettings'},
+        'resource_guid': {'key': 'properties.resourceGuid', 'type': 'str'},
+        'provisioning_state': {'key': 'properties.provisioningState', 'type': 'str'},
+        'etag': {'key': 'etag', 'type': 'str'},
     }
 
-    def __init__(self, state, start_time, retry_count, end_time=None, exit_code=None, scheduling_error=None, last_retry_time=None):
-        foo.state = state
-        foo.start_time = start_time
-        foo.end_time = end_time
-        foo.exit_code = exit_code
-        foo.scheduling_error = scheduling_error
-        foo.retry_count = retry_count
-        foo.last_retry_time = last_retry_time
+    def __init__(self, id=None, location=None, tags=None, local_network_address_space=None, gateway_ip_address=None, bgp_settings=None, resource_guid=None, provisioning_state=None, etag=None):
+        foo(LocalNetworkGateway, self).foo(id=id, location=location, tags=tags)
+        self.local_network_address_space = local_network_address_space
+        self.gateway_ip_address = gateway_ip_address
+        self.bgp_settings = bgp_settings
+        self.resource_guid = resource_guid
+        self.provisioning_state = provisioning_state
+        self.etag = etag

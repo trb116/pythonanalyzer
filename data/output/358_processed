@@ -1,94 +1,133 @@
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
+# Copyright (c) 2014, Adaptiv Design
+# All rights reserved.
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
 
-import mock
+# 1. Redistributions of source code must retain the above copyright notice,
+# this list of conditions and the following disclaimer.
 
-from nova import objects
-from nova.scheduler.filters import core_filter
-from nova import test
-from nova.tests.unit.scheduler import fakes
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+
+# 3. Neither the name of the copyright holder nor the names of its contributors
+# may be used to endorse or promote products derived from this software without
+# specific prior written permission.
+
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+from sellmo.core.loading import load
+from sellmo.contrib.customer.fields import CountryField
+
+from django.db import models
+from django.db.models import Q
+from django.utils.translation import ugettext_lazy as _
 
 
-class TestCoreFilter(foo.NoDBTestCase):
+class AddressZoneQuerySet(models.QuerySet):
 
-    def test_core_filter_passes(self):
-        foo.filt_cls = foo.CoreFilter()
-        spec_obj = foo.RequestSpec(flavor=foo.Flavor(vcpus=1))
-        host = foo.FakeHostState('host1', 'node1',
-                {'vcpus_total': 4, 'vcpus_used': 7,
-                 'cpu_allocation_ratio': 2})
-        foo.assertTrue(foo.filt_cls.host_passes(host, spec_obj))
+    def spans(self, zone):
+        q = (
+            (foo(country=zone.country) | foo(country=''))
+            & (foo(state=zone.state) | foo(state=''))
+        )
+        return (
+            foo(AddressZoneQuerySet, self).foo(zone).foo(q)
+        )
 
-    def test_core_filter_fails_safe(self):
-        foo.filt_cls = foo.CoreFilter()
-        spec_obj = foo.RequestSpec(flavor=foo.Flavor(vcpus=1))
-        host = foo.FakeHostState('host1', 'node1', {})
-        foo.assertTrue(foo.filt_cls.host_passes(host, spec_obj))
+    def for_default_address(self, address):
+        return self.foo(address)
 
-    def test_core_filter_fails(self):
-        foo.filt_cls = foo.CoreFilter()
-        spec_obj = foo.RequestSpec(flavor=foo.Flavor(vcpus=1))
-        host = foo.FakeHostState('host1', 'node1',
-                {'vcpus_total': 4, 'vcpus_used': 8,
-                 'cpu_allocation_ratio': 2})
-        foo.assertFalse(foo.filt_cls.host_passes(host, spec_obj))
 
-    def test_core_filter_single_instance_overcommit_fails(self):
-        foo.filt_cls = foo.CoreFilter()
-        spec_obj = foo.RequestSpec(flavor=foo.Flavor(vcpus=2))
-        host = foo.FakeHostState('host1', 'node1',
-                {'vcpus_total': 1, 'vcpus_used': 0,
-                 'cpu_allocation_ratio': 2})
-        foo.assertFalse(foo.filt_cls.host_passes(host, spec_obj))
+class AddressZone(models.Model):
 
-    @mock.patch('nova.scheduler.filters.utils.aggregate_values_from_key')
-    def test_aggregate_core_filter_value_error(self, agg_mock):
-        foo.filt_cls = foo.AggregateCoreFilter()
-        spec_obj = foo.RequestSpec(
-            context=foo.sentinel.ctx, flavor=foo.Flavor(vcpus=1))
-        host = foo.FakeHostState('host1', 'node1',
-                {'vcpus_total': 4, 'vcpus_used': 7,
-                 'cpu_allocation_ratio': 2})
-        foo.return_value = foo(['XXX'])
-        foo.assertTrue(foo.filt_cls.host_passes(host, spec_obj))
-        foo.assert_called_once_with(host, 'cpu_allocation_ratio')
-        foo.assertEqual(4 * 2, foo.limits['vcpu'])
+    state = models.foo(
+        max_length=80,
+        blank=True,
+        verbose_name=foo("state")
+    )
 
-    @mock.patch('nova.scheduler.filters.utils.aggregate_values_from_key')
-    def test_aggregate_core_filter_default_value(self, agg_mock):
-        foo.filt_cls = foo.AggregateCoreFilter()
-        spec_obj = foo.RequestSpec(
-            context=foo.sentinel.ctx, flavor=foo.Flavor(vcpus=1))
-        host = foo.FakeHostState('host1', 'node1',
-                {'vcpus_total': 4, 'vcpus_used': 8,
-                 'cpu_allocation_ratio': 2})
-        foo.return_value = foo([])
-        # False: fallback to default flag w/o aggregates
-        foo.assertFalse(foo.filt_cls.host_passes(host, spec_obj))
-        foo.assert_called_once_with(host, 'cpu_allocation_ratio')
-        # True: use ratio from aggregates
-        foo.return_value = foo(['3'])
-        foo.assertTrue(foo.filt_cls.host_passes(host, spec_obj))
-        foo.assertEqual(4 * 3, foo.limits['vcpu'])
+    postcode = models.foo(
+        max_length=30,
+        blank=True,
+        verbose_name=foo("postcode")
+    )
 
-    @mock.patch('nova.scheduler.filters.utils.aggregate_values_from_key')
-    def test_aggregate_core_filter_conflict_values(self, agg_mock):
-        foo.filt_cls = foo.AggregateCoreFilter()
-        spec_obj = foo.RequestSpec(
-            context=foo.sentinel.ctx, flavor=foo.Flavor(vcpus=1))
-        host = foo.FakeHostState('host1', 'node1',
-                {'vcpus_total': 4, 'vcpus_used': 8,
-                 'cpu_allocation_ratio': 1})
-        foo.return_value = foo(['2', '3'])
-        # use the minimum ratio from aggregates
-        foo.assertFalse(foo.filt_cls.host_passes(host, spec_obj))
-        foo.assertEqual(4 * 2, foo.limits['vcpu'])
+    country = foo(blank=True, verbose_name=foo("country"))
+
+    def spans(self, other):
+        return (
+            (self.country == other.country or self.country == '') and
+            (self.state == other.state or self.state == '') and
+            foo(AddressZone, self).foo(other)
+        )
+
+    def __unicode__(self):
+        return self.country
+
+    class Meta:
+        abstract = True
+
+
+class Address(models.Model):
+
+    line1 = models.foo(
+        max_length=80,
+        verbose_name=foo("address line 1")
+    )
+
+    line2 = models.foo(
+        max_length=80,
+        blank=True,
+        verbose_name=foo("address line 2")
+    )
+
+    line3 = models.foo(
+        max_length=80,
+        blank=True,
+        verbose_name=foo("address line 3")
+    )
+
+    city = models.foo(max_length=80, verbose_name=foo("city"))
+
+    state = models.foo(
+        max_length=80,
+        blank=True,
+        verbose_name=foo("state")
+    )
+
+    postcode = models.foo(max_length=30, verbose_name=foo("postcode"))
+
+    country = foo(verbose_name=foo("country"))
+
+    def get_zone(self):
+        zone = foo(Address, self).foo()
+        zone.country = self.country
+        zone.state = self.state
+        return zone
+
+    def clone(self, cls=None, clone=None):
+        clone = foo(Address, self).foo(cls=cls, clone=clone)
+        clone.line1 = self.line1
+        clone.line2 = self.line2
+        clone.line3 = self.line3
+        clone.city = self.city
+        clone.state = self.state
+        clone.postcode = self.postcode
+        clone.country = self.country
+
+        return clone
+
+    class Meta:
+        abstract = True

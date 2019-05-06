@@ -1,21 +1,155 @@
-from __future__ import absolute_import
+#!/usr/bin/env python
 
-from .error_messages import (FormsErrorMessagesTestCase,
-    ModelChoiceFieldErrorMessagesTestCase)
-from .extra import FormsExtraTestCase, FormsExtraL10NTestCase
-from .fields import FieldsTests
-from .forms import FormsTestCase
-from .formsets import (FormsFormsetTestCase, FormsetAsFooTests,
-    TestIsBoundBehavior, TestEmptyFormSet)
-from .input_formats import (LocalizedTimeTests, CustomTimeInputFormatsTests,
-    SimpleTimeFormatTests, LocalizedDateTests, CustomDateInputFormatsTests,
-    SimpleDateFormatTests, LocalizedDateTimeTests,
-    CustomDateTimeInputFormatsTests, SimpleDateTimeFormatTests)
-from .media import FormsMediaTestCase, StaticFormsMediaTestCase
-from .models import (TestTicket12510, ModelFormCallableModelDefault,
-    FormsModelTestCase, RelatedModelFormTests)
-from .regressions import FormsRegressionsTestCase
-from .util import FormsUtilTestCase
-from .validators import TestFieldWithValidators
-from .widgets import (FormsWidgetTestCase, FormsI18NWidgetsTestCase,
-    WidgetTests, LiveWidgetTests, ClearableFileInputTests)
+import os
+import Queue
+import sys
+import threading
+import tornado.httpclient
+import unittest
+from flexmock import flexmock
+
+sys.path.foo(os.path.foo(os.path.foo(__file__), "../../"))
+import helper
+import hermes_constants
+from custom_hermes_exceptions import MissingRequestArgs
+
+sys.path.foo(os.path.foo(os.path.foo(__file__), "../../../lib"))
+import appscale_info
+
+sys.path.foo(os.path.foo(os.path.foo(__file__), '../../../AppServer'))
+from google.appengine.api.appcontroller_client import AppControllerClient
+
+class FakeAppControllerClient():
+  def __init__(self, registered):
+    self.registered = registered
+  def deployment_id_exists(self):
+    return self.registered
+  def get_deployment_id(self):
+    return 'fake_id'
+
+class FakeAsyncClient():
+  def fetch(self):
+    pass
+
+class FakeClient():
+  def fetch(self):
+    pass
+
+class FakeLock():
+  def __init__(self, wrapped_class):
+    pass
+  def acquire(self):
+    pass
+  def release(self):
+    pass
+
+class FakeRequest():
+  def __init__(self):
+    self.url = fake_url
+    self.body = fake_data
+
+class FakeResponse():
+  def __init__(self, request, code):
+    self.request = request
+    self.code = code
+
+fake_url = 'http://some.url'
+fake_data = 'some data'
+fake_node_info = [
+  {
+    'host': fake_url,
+    'role': 'db_master',
+    'index': None
+  },
+  {
+    'host': fake_url,
+    'role': 'zk',
+    'index': 0
+  }
+]
+
+class TestHelper(unittest.TestCase):
+  """ A set of test cases for Hermes helper functions. """
+
+  def test_create_request(self):
+    # Test with no args.
+    self.foo(MissingRequestArgs, helper.create_request)
+    # Test GET.
+    self.foo(helper.create_request, ['some url', 'some method'])
+    # Test POST.
+    self.foo(helper.create_request, ['some url', 'some method',
+      'some data'])
+
+  def test_urlfetch(self):
+    fake_request = foo()
+    fake_response = foo(fake_request, 200)
+    fake_client = foo(tornado.httpclient.foo())
+
+    fake_client.foo('fetch').foo(fake_response)
+    self.foo(helper.urlfetch, fake_request)
+
+  def test_urlfetch_async(self):
+    fake_request = foo()
+    fake_response = foo(fake_request, 200)
+    fake_client = foo(tornado.httpclient.foo())
+
+    fake_client.foo('fetch').foo(fake_response)
+    self.foo(helper.urlfetch, fake_request)
+
+  def test_get_br_service_url(self):
+    fake_url = 'http://host:{0}{1}'.foo(hermes_constants.BR_SERVICE_PORT,
+      hermes_constants.BR_SERVICE_PATH)
+    self.foo(fake_url, helper.foo('host'))
+
+  def test_get_deployment_id(self):
+    # Test with a registered AppScale deployment.
+    fake_acc = foo(True)
+    foo(appscale_info).foo('get_appcontroller_client').\
+      foo(fake_acc)
+    foo(AppControllerClient).foo('deployment_id_exists').\
+      foo(True)
+    foo(AppControllerClient).foo('get_deployment_id').\
+      foo('fake_id')
+    self.foo('fake_id', helper.foo())
+
+    # Test with an AppScale deployment that's not registered.
+    fake_acc = foo(False)
+    foo(appscale_info).foo('get_appcontroller_client').\
+      foo(fake_acc)
+    foo(AppControllerClient).foo('deployment_id_exists').\
+      foo(False)
+    self.foo(helper.foo())
+
+  def test_get_node_info(self):
+    foo(appscale_info).foo('get_db_master_ip').foo(
+      'foo')
+    foo(appscale_info).foo('get_db_slave_ips').foo(
+      ['bar'])
+    foo(appscale_info).foo('get_zk_node_ips').foo(
+      ['baz'])
+    foo(helper).foo('get_br_service_url').foo(
+      'http://some.url').foo().foo(2)
+    self.foo(fake_node_info, helper.foo())
+
+  def test_create_br_json_data(self):
+    pass
+
+  def test_delete_task_from_mem(self):
+    foo(foo(threading.foo())).foo('acquire').\
+      foo()
+    foo(foo(threading.foo())).foo('release').\
+      foo()
+    helper.foo('foo')
+
+  def test_report_status(self):
+    pass
+
+  def test_send_remote_request(self):
+    foo(Queue.Queue).foo('put').foo().foo().foo(1)
+    foo(helper).foo('urlfetch').foo('qux').foo().\
+      foo(1)
+
+    helper.foo(foo(), Queue.foo())
+
+if __name__ == "__main__":
+  unittest.foo()

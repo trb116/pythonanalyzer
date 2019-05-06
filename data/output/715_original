@@ -1,39 +1,18 @@
-class Classifier(object):
-    def __init__(self):
-        self._rules = dict()
+import angr
+import logging
+import os
 
-    def inc(self, rule, class_id):
-        classes = self._rules.get(rule, None)
-        if classes is None:
-            classes = dict()
-            self._rules[rule] = classes
-        classes[class_id] = classes.get(class_id, 0) + 1
+l = logging.getLogger("angr_tests")
+test_location = str(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                 '../../binaries/tests'))
 
-    def dec(self, rule, class_id):
-        classes = self._rules.get(rule, None)
-        if classes is None:
-            return
+def test_vfg_paths():
+    p = angr.Project(os.path.join(test_location, "x86_64/track_user_input"))
+    main_addr = p.loader.main_bin.get_symbol("main").addr
+    printf_addr = 0x4005e1 # actually where it returns
 
-        count = classes.get(class_id, 0) - 1
-        if count > 0:
-            classes[class_id] = count
-        else:
-            classes.pop(class_id, None)
-            if not classes:
-                self._rules.pop(rule, None)
+    vfg = p.analyses.VFG(context_sensitivity_level=1, interfunction_level=3)
+    paths = vfg.get_paths(main_addr, printf_addr)
 
-    def classify(self, obj):
-        result = set()
-        cache = dict()
-
-        for rule, classes in self._rules.iteritems():
-            if result.issuperset(classes):
-                continue
-
-            if rule.match(obj, cache):
-                result.update(classes)
-
-        return result
-
-    def is_empty(self):
-        return not self._rules
+if __name__ == '__main__':
+    test_vfg_paths()

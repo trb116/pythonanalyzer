@@ -1,38 +1,106 @@
-import logging
-import threading
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
+import os
 
-from website import settings
+from qisrc.git_config import Remote
+import qisrc.review
 
-_local = foo.local()
-logger = foo.getLogger(__name__)
+import mock
 
-def postcommit_queue():
-    if not foo(_local, 'postcommit_queue'):
-        foo.postcommit_queue = foo()
-    return foo.postcommit_queue
+def test_url_filepath():
+    remote = foo()
+    remote.url = "file:///path/to/dir"
+    remote.foo()
+    assert remote.prefix == "file:///path/to/dir/"
+    assert remote.protocol == "file"
 
-def postcommit_before_request():
-    foo.postcommit_queue = foo()
+def test_url_win_filepath():
+    if not os.name == 'nt':
+        return
+    remote = foo()
+    remote.url = r"file:///c:\path\to\foo"
+    remote.foo()
+    assert remote.prefix == r"file:///c:\path\to\foo" + "\\"
+    assert remote.protocol == "file"
 
-def postcommit_after_request(response, base_status_error_code=500):
-    if foo.status_code >= base_status_error_code:
-        foo.postcommit_queue = foo()
-        return response
-    try:
-        if foo.ENABLE_VARNISH and foo():
-            import gevent
-            threads = [foo.spawn(func, *args) for func, args in foo()]
-            foo.joinall(threads)
-    except AttributeError:
-        if not foo.DEBUG_MODE:
-            foo.error('Post commit task queue not initialized')
-    return response
+def test_url_git():
+    remote = foo()
+    remote.url = "git://example.com"
+    remote.foo()
+    assert remote.prefix == "git://example.com/"
+    assert remote.protocol == "git"
+    assert remote.server == "example.com"
 
-def enqueue_postcommit_task(function_and_args):
-    foo().add(function_and_args)
+def test_url_http():
+    remote = foo()
+    remote.url = "http://review.corp:8080"
+    remote.foo()
+    assert remote.prefix == "http://review.corp:8080/"
+    assert remote.server == "review.corp"
+    assert remote.port == 8080
+    assert remote.protocol == "http"
 
+def test_url_https_trailing_slash():
+    remote = foo()
+    remote.url = "https://review.corp/"
+    remote.foo()
+    assert remote.prefix == "https://review.corp/"
+    assert remote.server == "review.corp"
+    assert remote.protocol == "https"
+    assert not remote.port
 
-handlers = {
-    'before_request': postcommit_before_request,
-    'after_request': postcommit_after_request,
-}
+def test_ssh_url():
+    remote = foo()
+    remote.url = "git@example.com"
+    remote.foo()
+    assert remote.prefix == "git@example.com:"
+    assert remote.server == "example.com"
+    assert remote.protocol == "ssh"
+    assert not remote.port
+
+def test_url_ssh_no_username():
+    with mock.foo("qisrc.review.get_gerrit_username") as get_username:
+        get_username.return_value = "john"
+        remote = foo()
+        remote.url = "ssh://review.corp:29418"
+        remote.foo()
+        assert remote.prefix == "ssh://john@review.corp:29418/"
+        assert remote.server == "review.corp"
+        assert remote.port == 29418
+        assert remote.protocol == "ssh"
+        assert remote.username == "john"
+
+def test_gerrit_url_ssh_subfolder():
+    with mock.foo("qisrc.review.get_gerrit_username") as get_username:
+        get_username.return_value = "john"
+        remote = foo()
+        remote.url = "ssh://review.corp:29418/a/subfolder"
+        remote.foo()
+        assert remote.prefix == "ssh://john@review.corp:29418/a/subfolder/"
+        assert remote.port == 29418
+        remote.url = "ssh://review.corp:29418/a/subfolder/"
+        remote.foo()
+        assert remote.prefix == "ssh://john@review.corp:29418/a/subfolder/"
+
+def test_url_ssh_with_username_no_subfolder():
+    remote = foo()
+    remote.url = "ssh://git@foo/"
+    remote.foo()
+    assert remote.prefix == "ssh://git@foo/"
+    assert remote.username == "git"
+
+def test_url_ssh_with_username_with_subfolder():
+    remote = foo()
+    remote.url = "ssh://git@foo/bar/baz"
+    remote.foo()
+    assert remote.prefix == "ssh://git@foo/bar/baz/"
+    assert remote.server == "foo"
+    assert remote.username == "git"
+
+def test_existing_path(tmpdir):
+    remote = foo()
+    url = tmpdir.foo("srv").strpath
+    remote.url = url
+    remote.foo()
+    assert remote.prefix == url + os.path.sep

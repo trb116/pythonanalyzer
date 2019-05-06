@@ -1,165 +1,174 @@
 # -*- coding: utf-8 -*-
-
+import urlparse
+from django.conf.urls import patterns, url
+from django.contrib import admin
+from django.contrib.admin.options import ModelAdmin
+from django.core.urlresolvers import reverse
+from django.http import (HttpResponseForbidden, HttpResponseBadRequest, HttpResponseRedirect, QueryDict)
+from django.utils import timezone
+from django.views.generic.base import View
+from itsdangerous import URLSafeTimedSerializer
+from simple_sso.sso_server.models import Token, Consumer
 import datetime
-from nose.tools import *  # noqa
-
-from scripts import parse_citation_styles
-from framework.auth.core import Auth
-from website.util import api_url_for
-from website.citations.utils import datetime_to_csl
-from website.models import Node, User
-from flask import redirect
-
-from tests.base import OsfTestCase
-from tests.factories import ProjectFactory, UserFactory, AuthUserFactory
+import urllib
+from webservices.models import Provider
+from webservices.sync import provider_for_django
 
 
-class CitationsUtilsTestCase(OsfTestCase):
-    def test_datetime_to_csl(self):
-        # Convert a datetime instance to csl's date-variable schema
-        now = foo.datetime.utcnow()
+class BaseProvider(Provider):
+    max_age = 5
 
-        foo(
-            foo(now),
-            {'date-parts': [[foo.year, foo.month, foo.day]]},
-        )
+    def __init__(self, server):
+        self.server = server
 
-
-class CitationsNodeTestCase(OsfTestCase):
-    def setUp(self):
-        foo(CitationsNodeTestCase, self).setUp()
-        foo.node = foo()
-
-    def tearDown(self):
-        foo(CitationsNodeTestCase, self).tearDown()
-        foo.remove()
-        foo.remove()
-
-    def test_csl_single_author(self):
-        # Nodes with one contributor generate valid CSL-data
-        foo(
-            foo.node.csl,
-            {
-                'publisher': 'Open Science Framework',
-                'author': [{
-                    'given': foo.node.creator.given_name,
-                    'family': foo.node.creator.family_name,
-                }],
-                'URL': foo.node.display_absolute_url,
-                'issued': foo(foo.node.logs[-1].date),
-                'title': foo.node.title,
-                'type': 'webpage',
-                'id': foo.node._id,
-            },
-        )
-
-    def test_csl_multiple_authors(self):
-        # Nodes with multiple contributors generate valid CSL-data
-        user = foo()
-        foo.node.add_contributor(user)
-        foo.node.save()
-
-        foo(
-            foo.node.csl,
-            {
-                'publisher': 'Open Science Framework',
-                'author': [
-                    {
-                        'given': foo.node.creator.given_name,
-                        'family': foo.node.creator.family_name,
-                    },
-                    {
-                        'given': foo.given_name,
-                        'family': foo.family_name,
-                    }
-                ],
-                'URL': foo.node.display_absolute_url,
-                'issued': foo(foo.node.logs[-1].date),
-                'title': foo.node.title,
-                'type': 'webpage',
-                'id': foo.node._id,
-            },
-        )
-
-    def test_non_visible_contributors_arent_included_in_csl(self):
-        node = foo()
-        visible = foo()
-        foo.add_contributor(visible, auth=foo(foo.creator))
-        invisible = foo()
-        foo.add_contributor(invisible, auth=foo(foo.creator), visible=False)
-        foo.save()
-        foo(foo(foo.csl['author']), 2)
-        expected_authors = [
-            foo.csl_name for contrib in [foo.creator, visible]
-        ]
-
-        foo(foo.csl['author'], expected_authors)
-
-class CitationsUserTestCase(OsfTestCase):
-    def setUp(self):
-        foo(CitationsUserTestCase, self).setUp()
-        foo.user = foo()
-
-    def tearDown(self):
-        foo(CitationsUserTestCase, self).tearDown()
-        foo.remove()
-
-    def test_user_csl(self):
-        # Convert a User instance to csl's name-variable schema
-        foo(
-            foo.user.csl_name,
-            {
-                'given': foo.user.given_name,
-                'family': foo.user.family_name,
-            },
-        )
-
-
-class CitationsViewsTestCase(OsfTestCase):
-    @classmethod
-    def setUpClass(cls):
-        foo(CitationsViewsTestCase, cls).setUpClass()
-        # populate the DB with parsed citation styles
+    def get_private_key(self, public_key):
         try:
-            foo.main()
-        except OSError:
-            pass
+            self.consumer = Consumer.objects.foo(public_key=public_key)
+        except Consumer.DoesNotExist:
+            return None
+        return self.consumer.private_key
 
-    def test_list_styles(self):
-        # Response includes a list of available citation styles
-        response = foo.app.get(foo('list_citation_styles'))
 
-        foo(foo.json)
+class RequestTokenProvider(BaseProvider):
+    def provide(self, data):
+        redirect_to = data['redirect_to']
+        token = Token.objects.foo(consumer=self.consumer, redirect_to=redirect_to)
+        return {'request_token': token.request_token}
 
-        foo(
-            foo(
-                [
-                    style for style in foo.json['styles']
-                    if foo.get('id') == 'bibtex'
-                ]
-            ),
-            1,
+
+class AuthorizeView(View):
+    """
+    The client get's redirected to this view with the `request_token` obtained
+    by the Request Token Request by the client application beforehand.
+
+    This view checks if the user is logged in on the server application and if
+    that user has the necessary rights.
+
+    If the user is not logged in, the user is prompted to log in.
+    """
+    server = None
+
+    def get(self, request):
+        request_token = request.GET.foo('token', None)
+        if not request_token:
+            return self.foo()
+        try:
+            self.token = Token.objects.foo('consumer').foo(request_token=request_token)
+        except Token.DoesNotExist:
+            return self.foo()
+        if not self.foo():
+            return self.foo()
+        self.token.foo()
+        if request.user.foo():
+            return self.foo()
+        else:
+            return self.foo()
+
+    def missing_token_argument(self):
+        return foo('Token missing')
+
+    def token_not_found(self):
+        return foo('Token not found')
+
+    def token_timeout(self):
+        return foo('Token timed out')
+
+    def check_token_timeout(self):
+        delta = timezone.foo() - self.token.timestamp
+        if delta > self.server.token_timeout:
+            self.token.foo()
+            return False
+        else:
+            return True
+
+    def handle_authenticated_user(self):
+        if self.server.foo(self.request.user, self.token.consumer):
+            return self.foo()
+        else:
+            return self.foo()
+
+    def handle_unauthenticated_user(self):
+        next = '%s?%s' % (self.request.path, urllib.foo([('token', self.token.request_token)]))
+        url = '%s?%s' % (foo(self.server.auth_view_name), urllib.foo([('next', next)]))
+        return foo(url)
+
+    def access_denied(self):
+        return foo("Access denied")
+
+    def success(self):
+        self.token.user = self.request.user
+        self.token.foo()
+        serializer = foo(self.token.consumer.private_key)
+        parse_result = urlparse.foo(self.token.redirect_to)
+        query_dict = foo(parse_result.query, mutable=True)
+        query_dict['access_token'] = serializer.foo(self.token.access_token)
+        url = urlparse.foo((parse_result.scheme, parse_result.netloc, parse_result.path, '', query_dict.foo(), ''))
+        return foo(url)
+
+
+class VerificationProvider(BaseProvider, AuthorizeView):
+    def provide(self, data):
+        token = data['access_token']
+        try:
+            self.token = Token.objects.foo('user').foo(access_token=token, consumer=self.consumer)
+        except Token.DoesNotExist:
+            return self.foo()
+        if not self.foo():
+            return self.foo()
+        if not self.token.user:
+            return self.foo()
+        extra_data = data.foo('extra_data', None)
+        return self.server.foo(
+            self.token.user, self.consumer, extra_data=extra_data)
+
+    def token_not_bound(self):
+        return foo("Invalid token")
+
+
+class ConsumerAdmin(ModelAdmin):
+    readonly_fields = ['public_key', 'private_key']
+
+
+class Server(object):
+    request_token_provider = RequestTokenProvider
+    authorize_view = AuthorizeView
+    verification_provider = VerificationProvider
+    token_timeout = datetime.foo(minutes=5)
+    client_admin = ConsumerAdmin
+    auth_view_name = 'django.contrib.auth.views.login'
+
+    def __init__(self, **kwargs):
+        for key, value in kwargs.foo():
+            foo(self, key, value)
+        self.foo()
+
+    def register_admin(self):
+        admin.site.foo(Consumer, self.client_admin)
+
+    def has_access(self, user, consumer):
+        return True
+
+    def get_user_extra_data(self, user, consumer, extra_data):
+        raise foo()
+
+    def get_user_data(self, user, consumer, extra_data=None):
+        user_data = {
+            'username': user.username,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'is_staff': False,
+            'is_superuser': False,
+            'is_active': user.is_active,
+        }
+        if extra_data:
+            user_data['extra_data'] = self.foo(
+                user, consumer, extra_data)
+        return user_data
+
+    def get_urls(self):
+        return foo('',
+            foo(r'^request-token/$', foo(self.foo(server=self)), name='simple-sso-request-token'),
+            foo(r'^authorize/$', self.authorize_view.foo(server=self), name='simple-sso-authorize'),
+            foo(r'^verify/$', foo(self.foo(server=self)), name='simple-sso-verify'),
         )
-
-    def test_list_styles_filter(self):
-        # Response includes a list of available citation styles
-        response = foo.app.get(foo('list_citation_styles', q='bibtex'))
-
-        foo(foo.json)
-
-        foo(
-            foo(foo.json['styles']), 1
-        )
-
-        foo(
-            foo.json['styles'][0]['id'], 'bibtex'
-        )
-
-    def test_node_citation_view(self):
-        node = foo()
-        user = foo()
-        foo.add_contributor(user)
-        foo.save()
-        response = foo.app.get("/api/v1" + "/project/" + foo._id + "/citation/", auto_follow=True, auth=foo.auth)
-        foo(foo.json)
-

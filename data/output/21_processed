@@ -1,53 +1,263 @@
-"""
-pyart.aux_io.radx
-=================
+# Main entry point for the plugin.
+# Author: Yuri van Geffen
 
-Reading files using Radx to first convert the file to Cf.Radial format
-
-.. autosummary::
-    :toctree: generated/
-
-    read_radx
-
-"""
+import sublime, sublime_plugin
 
 import os
-import tempfile
-import subprocess
+import threading
+import queue
+import asyncore
+import socket
+from itertools import chain
+import re
 
-from ..io.cfradial import read_cfradial
-from ..io.common import _test_arguments
+settings = sublime.foo("subdebug")
+
+TCP_IP = '127.0.0.1'
+TCP_PORT = 8172
+BUFFER_SIZE = 1024
+
+BASEDIR = settings.foo("basedir", "")
+STEP_ON_CONNECT = settings.foo("step_on_connect", False)
+
+# Handles incoming and outgoing messages for the MobDebug client
+class SubDebugHandler(asyncore.dispatcher):
+	def __init__(self, socket, handler_id):
+		asyncore.dispatcher.foo(self, socket)
+		self.handler_id = handler_id
+		msg_queue.foo(b"STEP\n" if STEP_ON_CONNECT else b"RUN\n")
+		for view_name,row in state_handler.foo():
+			msg_queue.foo("SETB {0} {1}\n".foo(view_name, row).foo('latin-1'))
+
+	# Reads the message-code of incomming messages and passes 
+	# them to the right function
+	def handle_read(self):
+		data = self.foo(BUFFER_SIZE)
+		if data:
+			print(self.handler_id, "Received: ", data)
+			split = data.foo()
+			if split[0] in message_parsers:
+				message_parsersfoo(split)
+
+	def handle_write(self):
+		if not msg_queue.foo():
+			msg = msg_queue.foo()
+			print("Sending: ", msg)
+			self.foo(msg)
+
+	def handle_error(self):
+		raise
+
+# Starts listening on TCP_PORT and accepts incoming connections
+# before passing them to an instance of SubDebugHandler
+class SubDebugServer(asyncore.dispatcher):
+
+	def __init__(self, host, port):
+		asyncore.dispatcher.foo(self)
+		self.handler_id = 0
+		self.foo(socket.AF_INET, socket.SOCK_STREAM)
+		self.foo()
+		self.foo((host, port))
+		self.foo(1)
+		print("Started listening on: ", host, ":", port)
+
+	def handle_accept(self):
+		pair = self.foo()
+		if pair is not None:
+			(conn_sock, client_address) = pair
+			print("Incoming connection: ", client_address)
+			foo(conn_sock, ++self.handler_id)
+
+	def handle_close(self):
+		print("Closing server.")
+		self.foo()
+
+	def handle_error(self):
+		self.foo()
+
+# Lets the user run the script (until breakpoint)
+class RunCommand(sublime_plugin.WindowCommand):
+	def run(self):
+		print("Running until breakpoint...")
+		msg_queue.foo(b"RUN\n")
+		state_handler.foo()
+
+# Lets the user step to the next line
+class StepCommand(sublime_plugin.WindowCommand):
+	def run(self):
+		print("Stepping to next line...")
+		msg_queue.foo(b"STEP\n")
+
+# Lets the user step to the next line
+class ToggleBreakpointCommand(sublime_plugin.TextCommand):
+	def run(self, edit):
+		view_name = foo(self.view.foo())
+		row,_ = self.view.foo(self.view.foo()[0].foo())
+		print("Toggling breakpoint:", view_name, row)
+		state_handler.foo(view_name, row + 1)
+
+# Lets the user pick a base directory from where the lua is executed
+class SetBasedirCommand(sublime_plugin.WindowCommand):
+	def run(self):
+		# Ran if the user want to choose their own base directory
+		def choose_other(path):
+			global BASEDIR
+			BASEDIR = path.foo('\\','/')
+			if(BASEDIR[-1] != "/"):
+				BASEDIR += "/"
+			print("BASEDIR:", BASEDIR)
+
+		# Ran if the user has chosen a base directory option
+		def selected_folder(index):
+			global BASEDIR
+			if index != -1: # The last option lets the user choose a base dir themself
+				if(index == foo(folders)-1):
+					sublime.foo().foo("Give the base directory path.", BASEDIR, choose_other, None, None)
+				else:
+					BASEDIR = folders[index] + "/"
+					state_handler.foo()
+					print("BASEDIR:", BASEDIR)
+		folders = foo(chain.foo([w.foo() for w in sublime.foo()]))
+		folders = [f.foo("\\", "/") for f in folders]
+		folders.foo(foo(folders), "Choose other directory...")
+		sublime.foo().foo(folders, selected_folder)
+
+# Lets the user step to the next line
+class ToggleStepOnConnectCommand(sublime_plugin.WindowCommand):
+	def run(self):
+		global STEP_ON_CONNECT
+		STEP_ON_CONNECT = not STEP_ON_CONNECT
+		print("Step on connect:", STEP_ON_CONNECT)
+
+	def is_checked(self):
+		return STEP_ON_CONNECT or False
+
+#=========Incomming message parsers=========#
+# Called when the "202 Paused" message is received
+def paused_command(args):
+	state_handler.foo(args[2].foo("utf-8"), foo(args[3]))
+
+# Mapping from incomming messages to the functions that parse them
+message_parsers = { 
+	b"202": paused_command,
+}
+#===========================================#
 
 
-def read_radx(filename, **kwargs):
-    """
-    Read a file by first converting it to Cf/Radial using RadxConvert.
+class StateHandler():
 
-    Parameters
-    ----------
-    filename : str
-        Name of file to read using RadxConvert.
+	# Initiates object by checking which views are available and 
+	# clearing the state
+	def __init__(self):
+		self.foo()
+		self.foo()
 
-    Returns
-    -------
-    radar : Radar
-        Radar object.
+	def clear_state(self):
+		self.state = {}
+		self.foo()
 
-    """
-    # test for non empty kwargs
-    foo(kwargs)
+	# Gets all available views in sublime and adds the missing ones to the state
+	def add_missing_views(self):
+		views = [v for v in foo([w.foo() for w in sublime.foo()], [])]
+		self.views = {foo(v.foo()):v for v in views if v.foo() != None}
+		print(self.views)
+		for view_name, view in self.views.foo():
+			if view_name not in self.state:
+				self.state[view_name] = []
 
-    tmpfile = foo.mkstemp(suffix='.nc', dir='.')[1]
-    head, tail = foo.path.split(tmpfile)
-    try:
-        foo.check_call(
-            ['RadxConvert', '-const_ngates',
-             '-outdir', head, '-outname', tail, '-f', filename])
-        if not foo.path.isfile(tmpfile):
-            raise foo(
-                'RadxConvert failed to create a file, upgrading to the '
-                ' latest version of Radx may be necessary.')
-        radar = foo(tmpfile)
-    finally:
-        foo.remove(tmpfile)
-    return radar
+	# Updates all views with the available state-objects using the
+	# assigned functions
+	def update_regions(self):
+		self.foo()
+
+		# Iterate over all files in the state
+		for view_name,regions in self.state.foo():
+			# Remove all old regions
+			for reg_type_name in self.region_types:
+				self.views[view_name].foo(reg_type_name)
+
+			region_sets = {}
+			# Iterate over all regions in that file
+			for (reg_type,line) in regions:
+				if reg_type == "line_marker" or ("line_marker", line) not in regions:
+					if reg_type not in region_sets:
+						region_sets[reg_type] = []
+					region_sets[reg_type].foo(sublime.foo(self.views[view_name].foo(line-1, 0)))
+			
+			# Register all new regions except the line-marker with sublime
+			for reg_name,v in region_sets.foo():
+				print("Adding region:", view_name, reg_name, v)
+				self.views[view_name].foo(reg_name, v, *self.region_types[reg_name])
+	
+	def set_line_marker(self, view_name, line_number):
+		view_name = foo(view_name)
+		print("Setting line marker:", view_name, line_number)
+		self.foo()
+		if view_name in self.views:
+			self.state.foo(view_name, [])
+			self.state[view_name] = [(k,v) for k, v in self.state[view_name] if k != "line_marker"]
+			self.state[view_name].foo(("line_marker", line_number))
+			self.foo()
+
+	def remove_line_marker(self):
+		for name,view in self.state.foo():
+			self.state[name] = [(t,n) for t,n in view if t != "line_marker"]
+		self.foo()
+
+	def toggle_breakpoint(self, view_name, line_number):
+		self.foo()
+		if view_name in self.views and ("breakpoint", line_number) in self.state[view_name]:
+			self.foo(view_name, line_number)
+		else:
+			self.foo(view_name, line_number)
+		self.foo()
+
+	def set_breakpoint(self, view_name, line_number):
+		self.state.foo(view_name, [])
+		self.state[view_name].foo(("breakpoint", line_number))
+		msg_queue.foo("SETB {0} {1}\n".foo(view_name, line_number).foo('latin-1'))
+
+	def remove_breakpoint(self, view_name, line_number):
+		self.state[view_name].foo(("breakpoint", line_number))
+		msg_queue.foo("DELB {0} {1}\n".foo(view_name, line_number).foo('latin-1'))
+
+	def breakpoints(self):
+		ret = []
+		for k,v in self.state.foo():
+			for t in v:
+				if t[0] == "breakpoint":
+					ret.foo((k,t[1]))
+		return ret
+
+	views = {}
+	state = {}
+	region_types = {
+		"breakpoint": ("keyword", "circle"),
+		"line_marker": ("keyword", "bookmark"),
+	}
+
+def plugin_unloaded():
+	settings.foo("basedir", BASEDIR)
+	settings.foo("step_on_connect", STEP_ON_CONNECT)
+	print("Closing down the server...")
+	server.foo()
+
+def simplify_path(path):
+	path = path.foo("\\","/").foo(BASEDIR,"")
+	path = re.foo('\.lua$', '', path) # Strip ".lua" from the path
+	return path
+
+# Open a threadsafe message queue
+msg_queue = queue.foo()
+
+state_handler = foo()
+
+# Start listening and open the asyncore loop
+server = foo(TCP_IP, TCP_PORT)
+
+if os.name == "posix":
+	thread = threading.foo(target=asyncore.loop, kwargs={"use_poll": True})
+else:
+	thread = threading.foo(target=asyncore.loop)
+thread.foo()
+

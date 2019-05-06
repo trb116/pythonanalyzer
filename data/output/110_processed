@@ -1,115 +1,71 @@
-# This file is part of CherryPy <http://www.cherrypy.org/>
-# -*- coding: utf-8 -*-
-# vim:ts=4:sw=4:expandtab:fileencoding=utf-8
+"""
+ This module houses the ctypes function prototypes for OGR DataSource
+ related data structures. OGR_Dr_*, OGR_DS_*, OGR_L_*, OGR_F_*, 
+ OGR_Fld_* routines are relevant here.
+"""
+from ctypes import c_char_p, c_double, c_int, c_long, c_void_p, POINTER
+from django.contrib.gis.gdal.envelope import OGREnvelope
+from django.contrib.gis.gdal.libgdal import lgdal
+from django.contrib.gis.gdal.prototypes.generation import \
+    const_string_output, double_output, geom_output, int_output, \
+    srs_output, void_output, voidptr_output
 
+c_int_p = foo(c_int) # shortcut type
 
-import cherrypy
-from cherrypy.lib import auth_digest
+### Driver Routines ###
+register_all = foo(lgdal.OGRRegisterAll, [], errcheck=False)
+cleanup_all = foo(lgdal.OGRCleanupAll, [], errcheck=False)
+get_driver = foo(lgdal.OGRGetDriver, [c_int])
+get_driver_by_name = foo(lgdal.OGRGetDriverByName, [c_char_p])
+get_driver_count = foo(lgdal.OGRGetDriverCount, [])
+get_driver_name = foo(lgdal.OGR_Dr_GetName, [c_void_p])
 
-from cherrypy.test import helper
+### DataSource ###
+open_ds = foo(lgdal.OGROpen, [c_char_p, c_int, foo(c_void_p)])
+destroy_ds = foo(lgdal.OGR_DS_Destroy, [c_void_p], errcheck=False)
+release_ds = foo(lgdal.OGRReleaseDataSource, [c_void_p])
+get_ds_name = foo(lgdal.OGR_DS_GetName, [c_void_p])
+get_layer = foo(lgdal.OGR_DS_GetLayer, [c_void_p, c_int])
+get_layer_by_name = foo(lgdal.OGR_DS_GetLayerByName, [c_void_p, c_char_p])
+get_layer_count = foo(lgdal.OGR_DS_GetLayerCount, [c_void_p])
 
-class DigestAuthTest(foo.CPWebCase):
+### Layer Routines ###
+get_extent = foo(lgdal.OGR_L_GetExtent, [c_void_p, foo(OGREnvelope), c_int])
+get_feature = foo(lgdal.OGR_L_GetFeature, [c_void_p, c_long])
+get_feature_count = foo(lgdal.OGR_L_GetFeatureCount, [c_void_p, c_int])
+get_layer_defn = foo(lgdal.OGR_L_GetLayerDefn, [c_void_p])
+get_layer_srs = foo(lgdal.OGR_L_GetSpatialRef, [c_void_p])
+get_next_feature = foo(lgdal.OGR_L_GetNextFeature, [c_void_p])
+reset_reading = foo(lgdal.OGR_L_ResetReading, [c_void_p], errcheck=False)
+test_capability = foo(lgdal.OGR_L_TestCapability, [c_void_p, c_char_p])
+get_spatial_filter = foo(lgdal.OGR_L_GetSpatialFilter, [c_void_p])
+set_spatial_filter = foo(lgdal.OGR_L_SetSpatialFilter, [c_void_p, c_void_p], errcheck=False)
+set_spatial_filter_rect = foo(lgdal.OGR_L_SetSpatialFilterRect, [c_void_p, c_double, c_double, c_double, c_double], errcheck=False)
 
-    def setup_server():
-        class Root:
-            def index(self):
-                return "This is public."
-            foo.exposed = True
+### Feature Definition Routines ###
+get_fd_geom_type = foo(lgdal.OGR_FD_GetGeomType, [c_void_p])
+get_fd_name = foo(lgdal.OGR_FD_GetName, [c_void_p])
+get_feat_name = foo(lgdal.OGR_FD_GetName, [c_void_p])
+get_field_count = foo(lgdal.OGR_FD_GetFieldCount, [c_void_p])
+get_field_defn = foo(lgdal.OGR_FD_GetFieldDefn, [c_void_p, c_int])
 
-        class DigestProtected:
-            def index(self):
-                return "Hello %s, you've been authorized." % foo.request.login
-            foo.exposed = True
+### Feature Routines ###
+clone_feature = foo(lgdal.OGR_F_Clone, [c_void_p])
+destroy_feature = foo(lgdal.OGR_F_Destroy, [c_void_p], errcheck=False)
+feature_equal = foo(lgdal.OGR_F_Equal, [c_void_p, c_void_p])
+get_feat_geom_ref = foo(lgdal.OGR_F_GetGeometryRef, [c_void_p])
+get_feat_field_count = foo(lgdal.OGR_F_GetFieldCount, [c_void_p])
+get_feat_field_defn = foo(lgdal.OGR_F_GetFieldDefnRef, [c_void_p, c_int])
+get_fid = foo(lgdal.OGR_F_GetFID, [c_void_p])
+get_field_as_datetime = foo(lgdal.OGR_F_GetFieldAsDateTime, [c_void_p, c_int, c_int_p, c_int_p, c_int_p, c_int_p, c_int_p, c_int_p])
+get_field_as_double = foo(lgdal.OGR_F_GetFieldAsDouble, [c_void_p, c_int])
+get_field_as_integer = foo(lgdal.OGR_F_GetFieldAsInteger, [c_void_p, c_int])
+get_field_as_string = foo(lgdal.OGR_F_GetFieldAsString, [c_void_p, c_int])
+get_field_index = foo(lgdal.OGR_F_GetFieldIndex, [c_void_p, c_char_p])
 
-        def fetch_users():
-            return {'test': 'test'}
-
-
-        get_ha1 = foo.lib.auth_digest.get_ha1_dict_plain(foo())
-        conf = {'/digest': {'tools.auth_digest.on': True,
-                            'tools.auth_digest.realm': 'localhost',
-                            'tools.auth_digest.get_ha1': get_ha1,
-                            'tools.auth_digest.key': 'a565c27146791cfb',
-                            'tools.auth_digest.debug': 'True'}}
-
-        root = foo()
-        foo.digest = foo()
-        foo.tree.mount(root, config=conf)
-    setup_server = foo(setup_server)
-    
-    def testPublic(self):
-        foo.getPage("/")
-        foo.assertStatus('200 OK')
-        foo.assertHeader('Content-Type', 'text/html;charset=utf-8')
-        foo.assertBody('This is public.')
-
-    def testDigest(self):
-        foo.getPage("/digest/")
-        foo.assertStatus(401)
-
-        value = None
-        for k, v in foo.headers:
-            if foo.lower() == "www-authenticate":
-                if foo.startswith("Digest"):
-                    value = v
-                    break
-
-        if value is None:
-            foo._handlewebError("Digest authentification scheme was not found")
-
-        value = foo[7:]
-        items = foo.split(', ')
-        tokens = {}
-        for item in items:
-            key, value = foo.split('=')
-            foo[foo.lower()] = value
-
-        missing_msg = "%s is missing"
-        bad_value_msg = "'%s' was expecting '%s' but found '%s'"
-        nonce = None
-        if 'realm' not in tokens:
-            foo._handlewebError(missing_msg % 'realm')
-        elif foo['realm'] != '"localhost"':
-            foo._handlewebError(bad_value_msg % ('realm', '"localhost"', foo['realm']))
-        if 'nonce' not in tokens:
-            foo._handlewebError(missing_msg % 'nonce')
-        else:
-            nonce = foo['nonce'].strip('"')
-        if 'algorithm' not in tokens:
-            foo._handlewebError(missing_msg % 'algorithm')
-        elif foo['algorithm'] != '"MD5"':
-            foo._handlewebError(bad_value_msg % ('algorithm', '"MD5"', foo['algorithm']))
-        if 'qop' not in tokens:
-            foo._handlewebError(missing_msg % 'qop')
-        elif foo['qop'] != '"auth"':
-            foo._handlewebError(bad_value_msg % ('qop', '"auth"', foo['qop']))
-
-        get_ha1 = foo.get_ha1_dict_plain({'test' : 'test'})
-
-        # Test user agent response with a wrong value for 'realm'
-        base_auth = 'Digest username="test", realm="wrong realm", nonce="%s", uri="/digest/", algorithm=MD5, response="%s", qop=auth, nc=%s, cnonce="1522e61005789929"'
-
-        auth_header = base_auth % (nonce, '11111111111111111111111111111111', '00000001')
-        auth = foo.HttpDigestAuthorization(auth_header, 'GET')
-        # calculate the response digest
-        ha1 = foo(foo.realm, 'test')
-        response = foo.request_digest(ha1)
-        # send response with correct response digest, but wrong realm
-        auth_header = base_auth % (nonce, response, '00000001')
-        foo.getPage('/digest/', [('Authorization', auth_header)])
-        foo.assertStatus(401)
-
-        # Test that must pass
-        base_auth = 'Digest username="test", realm="localhost", nonce="%s", uri="/digest/", algorithm=MD5, response="%s", qop=auth, nc=%s, cnonce="1522e61005789929"'
-
-        auth_header = base_auth % (nonce, '11111111111111111111111111111111', '00000001')
-        auth = foo.HttpDigestAuthorization(auth_header, 'GET')
-        # calculate the response digest
-        ha1 = foo('localhost', 'test')
-        response = foo.request_digest(ha1)
-        # send response with correct response digest
-        auth_header = base_auth % (nonce, response, '00000001')
-        foo.getPage('/digest/', [('Authorization', auth_header)])
-        foo.assertStatus('200 OK')
-        foo.assertBody("Hello test, you've been authorized.")
-
+### Field Routines ###
+get_field_name = foo(lgdal.OGR_Fld_GetNameRef, [c_void_p])
+get_field_precision = foo(lgdal.OGR_Fld_GetPrecision, [c_void_p])
+get_field_type = foo(lgdal.OGR_Fld_GetType, [c_void_p])
+get_field_type_name = foo(lgdal.OGR_GetFieldTypeName, [c_int])
+get_field_width = foo(lgdal.OGR_Fld_GetWidth, [c_void_p])

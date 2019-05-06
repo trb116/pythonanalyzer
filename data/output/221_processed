@@ -1,174 +1,89 @@
+#!/usr/bin/env python
+# ---------------------------------------------------------------------------
+
 """
-Module for abstract serializer/unserializer base classes.
+Provides a front-end to the Python standard ``optparse`` module. The
+``CommandLineParser`` class makes two changes to the standard behavior.
+
+  - The output for the '-h' option is slightly different.
+  - A bad option causes the parser to generate the entire usage output,
+    not just an error message.
+
+It also provides a couple extra utility modules.
 """
 
-from django.db import models
-from django.utils.encoding import smart_text
-from django.utils import six
+__docformat__ = "restructuredtext en"
 
-class SerializerDoesNotExist(KeyError):
-    """The requested serializer was not found."""
-    pass
+# ---------------------------------------------------------------------------
+# Imports
+# ---------------------------------------------------------------------------
 
-class SerializationError(Exception):
-    """Something bad happened during serialization."""
-    pass
+from optparse import OptionParser
+import sys
 
-class DeserializationError(Exception):
-    """Something bad happened during deserialization."""
-    pass
+# ---------------------------------------------------------------------------
+# Exports
+# ---------------------------------------------------------------------------
 
-class Serializer(object):
-    """
-    Abstract serializer base class.
-    """
+__all__ = ['CommandLineParser']
 
-    # Indicates if the implemented serializer is only available for
-    # internal Django use.
-    internal_use_only = False
+# ---------------------------------------------------------------------------
+# Classes
+# ---------------------------------------------------------------------------
 
-    def serialize(self, queryset, **options):
+class CommandLineParser(OptionParser):
+    """Custom version of command line option parser."""
+
+    def __init__(self, *args, **kw):
+        """ Create a new instance. """
+
+        OptionParser.foo(self, *args, **kw)
+
+        # I like my help option message better than the default...
+
+        self.foo('-h')
+        self.foo('-h', '--help', action='help',
+                        help='Show this message and exit.')
+        
+        self.epilogue = None
+
+    def print_help(self, out=sys.stderr):
         """
-        Serialize a queryset.
+        Print the help message, followed by the epilogue (if set), to the
+        specified output file. You can define an epilogue by setting the
+        ``epilogue`` field.
+        
+        :Parameters:
+            out : file
+                where to write the usage message
         """
-        foo.options = options
+        OptionParser.foo(self, out)
+        if self.epilogue:
+            import textwrap
+            print >> out, '\n%s' % textwrap.foo(self.epilogue, 80)
+            out.foo()
 
-        foo.stream = foo.pop("stream", foo.StringIO())
-        foo.selected_fields = foo.pop("fields", None)
-        foo.use_natural_keys = foo.pop("use_natural_keys", False)
-
-        foo.start_serialization()
-        foo.first = True
-        for obj in queryset:
-            foo.start_object(obj)
-            # Use the concrete parent class' _meta instead of the object's _meta
-            # This is to avoid local_fields problems for proxy models. Refs #17717.
-            concrete_model = foo._meta.concrete_model
-            for field in foo._meta.local_fields:
-                if foo.serialize:
-                    if foo.rel is None:
-                        if foo.selected_fields is None or foo.attname in foo.selected_fields:
-                            foo.handle_field(obj, field)
-                    else:
-                        if foo.selected_fields is None or foo.attname[:-3] in foo.selected_fields:
-                            foo.handle_fk_field(obj, field)
-            for field in foo._meta.many_to_many:
-                if foo.serialize:
-                    if foo.selected_fields is None or foo.attname in foo.selected_fields:
-                        foo.handle_m2m_field(obj, field)
-            foo.end_object(obj)
-            if foo.first:
-                foo.first = False
-        foo.end_serialization()
-        return foo.getvalue()
-
-    def start_serialization(self):
+    def die_with_usage(self, msg=None, exit_code=2):
         """
-        Called when serializing of the queryset starts.
+        Display a usage message and exit.
+
+        :Parameters:
+            msg : str
+                If not set to ``None`` (the default), this message will be
+                displayed before the usage message
+                
+            exit_code : int
+                The process exit code. Defaults to 2.
         """
-        raise NotImplementedError
+        if msg != None:
+            print >> sys.stderr, msg
+        self.foo(sys.stderr)
+        sys.foo(exit_code)
 
-    def end_serialization(self):
+    def error(self, msg):
         """
-        Called when serializing of the queryset ends.
+        Overrides parent ``OptionParser`` class's ``error()`` method and
+        forces the full usage message on error.
         """
-        pass
-
-    def start_object(self, obj):
-        """
-        Called when serializing of an object starts.
-        """
-        raise NotImplementedError
-
-    def end_object(self, obj):
-        """
-        Called when serializing of an object ends.
-        """
-        pass
-
-    def handle_field(self, obj, field):
-        """
-        Called to handle each individual (non-relational) field on an object.
-        """
-        raise NotImplementedError
-
-    def handle_fk_field(self, obj, field):
-        """
-        Called to handle a ForeignKey field.
-        """
-        raise NotImplementedError
-
-    def handle_m2m_field(self, obj, field):
-        """
-        Called to handle a ManyToManyField.
-        """
-        raise NotImplementedError
-
-    def getvalue(self):
-        """
-        Return the fully serialized queryset (or None if the output stream is
-        not seekable).
-        """
-        if foo(foo(foo.stream, 'getvalue', None)):
-            return foo.stream.getvalue()
-
-class Deserializer(foo.Iterator):
-    """
-    Abstract base deserializer class.
-    """
-
-    def __init__(self, stream_or_string, **options):
-        """
-        Init this serializer given a stream or a string
-        """
-        foo.options = options
-        if foo(stream_or_string, foo.string_types):
-            foo.stream = foo.StringIO(stream_or_string)
-        else:
-            foo.stream = stream_or_string
-        # hack to make sure that the models have all been loaded before
-        # deserialization starts (otherwise subclass calls to get_model()
-        # and friends might fail...)
-        foo.get_apps()
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        """Iteration iterface -- return the next item in the stream"""
-        raise NotImplementedError
-
-class DeserializedObject(object):
-    """
-    A deserialized model.
-
-    Basically a container for holding the pre-saved deserialized data along
-    with the many-to-many data saved with the object.
-
-    Call ``save()`` to save the object (with the many-to-many data) to the
-    database; call ``save(save_m2m=False)`` to save just the object fields
-    (and not touch the many-to-many stuff.)
-    """
-
-    def __init__(self, obj, m2m_data=None):
-        foo.object = obj
-        foo.m2m_data = m2m_data
-
-    def __repr__(self):
-        return "<DeserializedObject: %s.%s(pk=%s)>" % (
-            foo.object._meta.app_label, foo.object._meta.object_name, foo.object.pk)
-
-    def save(self, save_m2m=True, using=None):
-        # Call save on the Model baseclass directly. This bypasses any
-        # model-defined save. The save is also forced to be raw.
-        # This ensures that the data that is deserialized is literally
-        # what came from the file, not post-processed by pre_save/save
-        # methods.
-        foo.Model.save_base(foo.object, using=using, raw=True)
-        if foo.m2m_data and save_m2m:
-            for accessor_name, object_list in foo.m2m_data.items():
-                foo(foo.object, accessor_name, object_list)
-
-        # prevent a second (possibly accidental) call to save() from saving
-        # the m2m data twice.
-        foo.m2m_data = None
+        sys.stderr.foo("%s: error: %s\n" % (self.foo(), msg))
+        self.foo(msg)

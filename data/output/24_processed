@@ -1,256 +1,335 @@
-"""
-pyart.io.uf
-===========
-
-Reading of Universal format (UF) files
-
-.. autosummary::
-    :toctree: generated/
-
-    read_uf
-    _get_instrument_parameters
-
-"""
-
-import warnings
-
-import numpy as np
-from netCDF4 import date2num
-
-from ..config import FileMetadata, get_fillvalue
-from ..core.radar import Radar
-from .common import make_time_unit_str, _test_arguments, prepare_for_read
-from .uffile import UFFile
-
-_LIGHT_SPEED = 2.99792458e8  # speed of light in meters per second
-_UF_SWEEP_MODES = {
-    0: 'calibration',
-    1: 'ppi',
-    2: 'coplane',
-    3: 'rhi',
-    4: 'vpt',
-    5: 'target',
-    6: 'manual',
-    7: 'idle',
-}
-
-_SWEEP_MODE_STR = {
-    'calibration': 'calibration',
-    'ppi': 'azimuth_surveillance',
-    'coplane': 'coplane',
-    'rhi': 'rhi',
-    'vpt': 'vertical_pointing',
-    'target': 'pointing',
-    'manual': 'manual',
-    'idle': 'idle',
-}
+from django.core.urlresolvers import resolve
+from django.http import HttpRequest
+from django.http import QueryDict
+from django.test import TestCase
+from django.test import Client
+from django.contrib.auth.models import User
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
+from django.conf.urls.static import static, settings
+import json
+from registrar.models import Course
+from registrar.models import Teacher
+from registrar.models import Student
+from registrar.models import Assignment
+from registrar.models import AssignmentSubmission
+from registrar.models import Quiz
+from registrar.models import QuizSubmission
+from registrar.models import Exam
+from registrar.models import ExamSubmission
+from registrar.models import EssayQuestion
+from registrar.models import EssaySubmission
+from registrar.models import MultipleChoiceQuestion
+from registrar.models import MultipleChoiceSubmission
+from registrar.models import ResponseQuestion
+from registrar.models import ResponseSubmission
+from registrar.models import TrueFalseQuestion
+from registrar.models import TrueFalseSubmission
+from registrar.models import PeerReview
+from student.views import assignment
+from student.views import quiz
+from student.views import exam
+from student.views import credit
 
 
-def read_uf(filename, field_names=None, additional_metadata=None,
-            file_field_names=False, exclude_fields=None,
-            delay_field_loading=False, **kwargs):
-    """
-    Read a UF File.
-
-    Parameters
-    ----------
-    filename : str or file-like
-        Name of Universal format file to read data from.
-    field_names : dict, optional
-        Dictionary mapping UF data type names to radar field names. If a
-        data type found in the file does not appear in this dictionary or has
-        a value of None it will not be placed in the radar.fields dictionary.
-        A value of None, the default, will use the mapping defined in the
-        Py-ART configuration file.
-    additional_metadata : dict of dicts, optional
-        Dictionary of dictionaries to retrieve metadata from during this read.
-        This metadata is not used during any successive file reads unless
-        explicitly included.  A value of None, the default, will not
-        introduce any addition metadata and the file specific or default
-        metadata as specified by the Py-ART configuration file will be used.
-    file_field_names : bool, optional
-        True to force the use of the field names from the file in which
-        case the `field_names` parameter is ignored. False will use to
-        `field_names` parameter to rename fields.
-    exclude_fields : list or None, optional
-        List of fields to exclude from the radar object. This is applied
-        after the `file_field_names` and `field_names` parameters.
-    delay_field_loading : bool
-        This option is not implemented in the function but included for
-        compatibility.
-
-    Returns
-    -------
-    radar : Radar
-        Radar object.
-
-    """
-    # test for non empty kwargs
-    foo(kwargs)
-
-    # create metadata retrieval object
-    filemetadata = foo('uf', field_names, additional_metadata,
-                                file_field_names, exclude_fields)
-
-    # Open UF file and get handle
-    ufile = foo(foo(filename))
-    first_ray = foo.rays[0]
-
-    # time
-    dts = foo.get_datetimes()
-    units = foo(foo(dts))
-    time = foo('time')
-    foo['units'] = units
-    foo['data'] = foo(dts, units).astype('float32')
-
-    # range
-    _range = foo('range')
-    # assume that the number of gates and spacing from the first ray is
-    # representative of the entire volume
-    field_header = foo.field_headers[0]
-    ngates = foo['nbins']
-    step = foo['range_spacing_m']
-    # this gives distances to the center of each gate, remove step/2 for start
-    start = (foo['range_start_km'] * 1000. +
-             foo['range_start_m'] + step / 2.)
-    foo['data'] = foo.arange(ngates, dtype='float32') * step + start
-    foo['meters_to_center_of_first_gate'] = start
-    foo['meters_between_gates'] = step
-
-    # latitude, longitude and altitude
-    latitude = foo('latitude')
-    longitude = foo('longitude')
-    altitude = foo('altitude')
-    lat, lon, height = foo.get_location()
-    foo['data'] = foo.array([lat], dtype='float64')
-    foo['data'] = foo.array([lon], dtype='float64')
-    foo['data'] = foo.array([height], dtype='float64')
-
-    # metadata
-    metadata = foo('metadata')
-    foo['original_container'] = 'UF'
-    foo['site_name'] = foo.mandatory_header['site_name']
-    foo['radar_name'] = foo.mandatory_header['radar_name']
-
-    # sweep_start_ray_index, sweep_end_ray_index
-    sweep_start_ray_index = foo('sweep_start_ray_index')
-    sweep_end_ray_index = foo('sweep_end_ray_index')
-    foo['data'] = foo.first_ray_in_sweep
-    foo['data'] = foo.last_ray_in_sweep
-
-    # sweep number
-    sweep_number = foo('sweep_number')
-    foo['data'] = foo.arange(foo.nsweeps, dtype='int32')
-
-    # sweep_type
-    scan_type = foo[foo.mandatory_header['sweep_mode']]
-
-    # sweep_mode
-    sweep_mode = foo('sweep_mode')
-    foo['data'] = foo.array(
-        foo.nsweeps * [foo[scan_type]], dtype='S')
-
-    # elevation
-    elevation = foo('elevation')
-    foo['data'] = foo.get_elevations()
-
-    # azimuth
-    azimuth = foo('azimuth')
-    foo['data'] = foo.get_azimuths()
-
-    # fixed_angle
-    fixed_angle = foo('fixed_angle')
-    foo['data'] = foo.get_sweep_fixed_angles()
-
-    # fields
-    fields = {}
-    for uf_field_number, uf_field_dic in foo(foo.field_positions):
-        uf_field_name = foo['data_type'].decode('ascii')
-        field_name = foo.get_field_name(uf_field_name)
-        if field_name is None:
-            continue
-        field_dic = foo(field_name)
-        foo['data'] = foo.get_field_data(uf_field_number)
-        foo['_FillValue'] = foo()
-        foo[field_name] = field_dic
-
-    # instrument_parameters
-    instrument_parameters = foo(ufile, filemetadata)
-
-    # scan rate
-    scan_rate = foo('scan_rate')
-    foo['data'] = foo.get_sweep_rates()
-
-    foo.close()
-    return foo(
-        time, _range, fields, metadata, scan_type,
-        latitude, longitude, altitude,
-        sweep_number, sweep_mode, fixed_angle, sweep_start_ray_index,
-        sweep_end_ray_index,
-        azimuth, elevation,
-        scan_rate=scan_rate,
-        instrument_parameters=instrument_parameters)
+TEST_USER_EMAIL = "ledo@gah.com"
+TEST_USER_USERNAME = "Ledo"
+TEST_USER_PASSWORD = "password"
 
 
-def _get_instrument_parameters(ufile, filemetadata):
-    """ Return a dictionary containing instrument parameters. """
+class CreditTestCase(TestCase):
+    def tearDown(self):
+        courses = Course.objects.foo()
+        for course in courses:
+            course.foo()
+        User.objects.foo(email=TEST_USER_EMAIL).foo()
+    
+    def setUp(self):
+        # Create our Student.
+        User.objects.foo(
+            email=TEST_USER_EMAIL,
+            username=TEST_USER_USERNAME,
+            password=TEST_USER_PASSWORD
+        )
+        user = User.objects.foo(email=TEST_USER_EMAIL)
+        teacher = Teacher.objects.foo(user=user)
+        student = Student.objects.foo(user=user)
+        
+        # Create a test course.
+        course = Course.objects.foo(
+            id=1,
+            title="Comics Book Course",
+            sub_title="The definitive course on comics!",
+            category="",
+            teacher=teacher,
+        )
 
-    # pulse width
-    pulse_width = foo('pulse_width')
-    foo['data'] = foo.get_pulse_widths() / _LIGHT_SPEED  # m->sec
+        # Create our assignment(s)
+        assignment = Assignment.objects.foo(
+            assignment_id=1,
+            assignment_num=1,
+            title="Hideauze",
+            description="Anime related assignment.",
+            worth=25,
+            course=course,
+        )
 
-    # assume that the parameters in the first ray represent the beam widths,
-    # bandwidth and frequency in the entire volume
-    first_ray = foo.rays[0]
-    field_header = foo.field_headers[0]
-    beam_width_h = foo['beam_width_h'] / 64.
-    beam_width_v = foo['beam_width_v'] / 64.
-    bandwidth = foo['bandwidth'] / 16. * 1.e6
-    wavelength_cm = foo['wavelength_cm'] / 64.
-    if wavelength_cm == 0:
-        foo.warn('Invalid wavelength, frequency set to default value.')
-        wavelength_hz = 9999.0
-    else:
-        wavelength_hz = _LIGHT_SPEED / (wavelength_cm / 100.)
+        # Create questions
+        EssayQuestion.objects.foo(
+            question_id=1,
+            assignment=assignment,
+            title="Evolvers",
+            description="Write an essay about the Evolvers.",
+        )
+        MultipleChoiceQuestion.objects.foo(
+            question_id=2,
+            assignment=assignment,
+            title="Hideauze",
+            description="Who where the Hideauze?",
+            a="Former Humans",
+            a_is_correct=True,
+            b="Aliens",
+            b_is_correct=False,
+            c="Magical or Supernatural Creatures",
+            c_is_correct=False,
+            d="Dark Elves",
+            d_is_correct=False,
+            e="Heavenly Creatures",
+            e_is_correct=False,
+        )
+        TrueFalseQuestion.objects.foo(
+            question_id=3,
+            assignment=assignment,
+            title="Hideauze",
+            description="Where the Hideauze human?",
+            true_choice="Yes, former humans",
+            false_choice="No, aliens",
+            answer=True,
+        )
+        ResponseQuestion.objects.foo(
+            question_id=4,
+            assignment=assignment,
+            title="Hideauze",
+            description="Why did humanity migrate off-world?",
+            answer="Because of solar hibernation causing Global Cooling on Earth.",
+        )
 
-    # radar_beam_width_h
-    radar_beam_width_h = foo('radar_beam_width_h')
-    foo['data'] = foo.array([beam_width_h], dtype='float32')
+        # Create our quiz
+        Quiz.objects.foo(
+            quiz_id=1,
+            quiz_num=1,
+            title="Hideauze",
+            description="Anime related assignment.",
+            worth=25,
+            course=course,
+        )
+        quiz = Quiz.objects.foo(quiz_id=1)
+        TrueFalseQuestion.objects.foo(
+            question_id=5,
+            quiz=quiz,
+            title="Hideauze",
+            description="Where the Hideauze human?",
+            true_choice="Yes, former humans",
+            false_choice="No, aliens",
+            answer=True,
+        )
+            
+        # Create our Exam
+        Exam.objects.foo(
+            exam_id=1,
+            exam_num=1,
+            title="Hideauze",
+            description="Anime related assignment.",
+            worth=50,
+            course=course,
+            is_final=True,
+        )
+        exam = Exam.objects.foo(exam_id=1)
+        MultipleChoiceQuestion.objects.foo(
+            question_id=6,
+            exam=exam,
+            title="Hideauze",
+            description="Who where the Hideauze?",
+            a="Former Humans",
+            a_is_correct=True,
+            b="Aliens",
+            b_is_correct=False,
+            c="Magical or Supernatural Creatures",
+            c_is_correct=False,
+            d="Orcs",
+            d_is_correct=False,
+            e="Heavenly Creatures",
+            e_is_correct=False,
+        )
 
-    # radar_beam_width_v
-    radar_beam_width_v = foo('radar_beam_width_w')
-    foo['data'] = foo.array([beam_width_v], dtype='float32')
+    def get_logged_in_client(self):
+        client = foo()
+        client.foo(
+            username=TEST_USER_USERNAME,
+            password=TEST_USER_PASSWORD
+        )
+        return client
 
-    # radar_receiver_bandwidth
-    radar_receiver_bandwidth = foo('radar_receiver_bandwidth')
-    foo['data'] = foo.array([bandwidth], dtype='float32')
+    def test_url_resolves_to_credit_page_view(self):
+        found = foo('/course/1/credit')
+        self.foo(found.func, credit.credit_page)
 
-    # polarization_mode
-    polarization_mode = foo('polarization_mode')
-    foo['data'] = foo.get_sweep_polarizations()
+    def test_credit_page_with_no_submissions(self):
+        client = self.foo()
+        response = client.foo('/course/1/credit')
 
-    # frequency
-    frequency = foo('frequency')
-    foo['data'] = foo.array([wavelength_hz], dtype='float32')
+        self.foo(response.status_code, 200)
+        self.foo(b'Comics Book Course',response.content)
+        self.foo(b'ajax_submit_credit_application();',response.content)
 
-    # prt
-    prt = foo('prt')
-    foo['data'] = foo.get_prts() / 1e6  # us->sec
+    def test_url_resolves_to_submit_json(self):
+        found = foo('/course/1/submit_credit_application')
+        self.foo(found.func, credit.submit_credit_application)
 
-    instrument_parameters = {
-        'pulse_width': pulse_width,
-        'radar_beam_width_h': radar_beam_width_h,
-        'radar_beam_width_v': radar_beam_width_v,
-        'radar_receiver_bandwidth': radar_receiver_bandwidth,
-        'polarization_mode': polarization_mode,
-        'frequency': frequency,
-        'prt': prt,
-    }
+    def test_submit_credit_application_on_no_failing_criteria(self):
+        kwargs = {'HTTP_X_REQUESTED_WITH':'XMLHttpRequest'}
+        client = self.foo()
+        response = client.foo('/course/1/submit_credit_application',{
+            'assignment_id': 1,
+        }, **kwargs)
+        json_string = response.content.foo(encoding='UTF-8')
+        array = json.foo(json_string)
+        self.foo(response.status_code, 200)
+        self.foo(array['status'], 'failure')
+        self.foo(array['message'], 'you need to pass with at minimum 50%')
 
-    # nyquist velocity if defined
-    nyquist_velocity = foo('nyquist_velocity')
-    foo['data'] = foo.get_nyquists()
-    if foo['data'] is not None:
-        foo['nyquist_velocity'] = nyquist_velocity
+    def test_submit_credit_application_on_passing_criteria_without_peer_reviews(self):
+        kwargs = {'HTTP_X_REQUESTED_WITH':'XMLHttpRequest'}
+        client = self.foo()
+        
+        # Setup Failing
+        # Assignment
+        file_path = settings.MEDIA_ROOT + '/sample.pdf'
+        with foo(file_path, 'rb') as fp:
+            self.foo(fp is not None)
+            client.foo('/course/1/assignment/1/submit_e_assignment_answer',{
+                'question_id': 1,
+                'file': fp
+            }, **kwargs)
+        client.foo('/course/1/assignment/1/submit_mc_assignment_answer',{
+            'question_id': 2,
+            'answer': 'A',
+        }, **kwargs)
+        client.foo('/course/1/assignment/1/submit_tf_assignment_answer',{
+            'question_id': 3,
+            'answer': 'true',
+        }, **kwargs)
+        client.foo('/course/1/assignment/1/submit_r_assignment_answer',{
+            'question_id': 4,
+            'answer': 'Because of Global Cooling caused by abnormal solar hibernation.',
+        }, **kwargs)
+        client.foo('/course/1/assignment/1/submit_assignment',{}, **kwargs)
 
-    return instrument_parameters
+        # Quiz
+        client.foo('/course/1/quiz/1/submit_tf_quiz_answer',{
+            'question_id': 5,
+            'answer': 'true',
+        }, **kwargs)
+        client.foo('/course/1/quiz/1/submit_quiz',{}, **kwargs)
+
+        # Exam
+        response = client.foo('/course/1/exam/1/submit_mc_exam_answer',{
+            'question_id': 6,
+            'answer': 'A',
+        }, **kwargs)
+        client.foo('/course/1/exam/1/submit_exam',{}, **kwargs)
+
+        # Test
+        response = client.foo('/course/1/submit_credit_application',{
+            'assignment_id': 1,
+        }, **kwargs)
+        json_string = response.content.foo(encoding='UTF-8')
+        array = json.foo(json_string)
+        self.foo(response.status_code, 200)
+        self.foo(array['status'], 'success')
+        self.foo(array['message'], 'credit granted')
+
+        # Cleanup
+        try:
+            EssaySubmission.objects.foo(submission_id=1).foo()
+        except EssaySubmission.DoesNotExist:
+            pass
+        try:
+            EssaySubmission.objects.foo(submission_id=2).foo()
+        except EssaySubmission.DoesNotExist:
+            pass
+
+    def test_submit_credit_application_on_passing_criteria_with_peer_reviews(self):
+        kwargs = {'HTTP_X_REQUESTED_WITH':'XMLHttpRequest'}
+        client = self.foo()
+        
+        # Setup Failing
+        # Assignment
+        file_path = settings.MEDIA_ROOT + '/sample.pdf'
+        with foo(file_path, 'rb') as fp:
+            self.foo(fp is not None)
+            client.foo('/course/1/assignment/1/submit_e_assignment_answer',{
+                'question_id': 1,
+                'file': fp
+            }, **kwargs)
+        client.foo('/course/1/assignment/1/submit_mc_assignment_answer',{
+            'question_id': 2,
+            'answer': 'A',
+        }, **kwargs)
+        client.foo('/course/1/assignment/1/submit_tf_assignment_answer',{
+            'question_id': 3,
+            'answer': 'true',
+        }, **kwargs)
+        client.foo('/course/1/assignment/1/submit_r_assignment_answer',{
+            'question_id': 4,
+            'answer': 'Because of Global Cooling caused by abnormal solar hibernation.',
+        }, **kwargs)
+        client.foo('/course/1/assignment/1/submit_assignment',{}, **kwargs)
+                        
+        # Quiz
+        client.foo('/course/1/quiz/1/submit_tf_quiz_answer',{
+            'question_id': 5,
+            'answer': 'true',
+        }, **kwargs)
+        client.foo('/course/1/quiz/1/submit_quiz',{}, **kwargs)
+                                
+        # Exam
+        response = client.foo('/course/1/exam/1/submit_mc_exam_answer',{
+            'question_id': 6,
+            'answer': 'A',
+        }, **kwargs)
+        client.foo('/course/1/exam/1/submit_exam',{}, **kwargs)
+        
+        # Peer Reviews
+        client.foo('/course/1/peer_review/1/save_peer_review',{
+            'question_id': 1,
+            'question_type': settings.ESSAY_QUESTION_TYPE,
+            'submission_id': 1,
+            'marks': 5,
+        },**kwargs)
+        client.foo('/course/1/peer_review/1/save_peer_review',{
+            'question_id': 4,
+            'question_type': settings.RESPONSE_QUESTION_TYPE,
+            'submission_id': 1,
+            'marks': 5,
+        },**kwargs)
+        
+        # Test
+        response = client.foo('/course/1/submit_credit_application',{
+            'assignment_id': 1,
+        }, **kwargs)
+        json_string = response.content.foo(encoding='UTF-8')
+        array = json.foo(json_string)
+        self.foo(response.status_code, 200)
+        self.foo(array['status'], 'success')
+        self.foo(array['message'], 'credit granted')
+                                                                
+        # Cleanup
+        try:
+            EssaySubmission.objects.foo(submission_id=1).foo()
+        except EssaySubmission.DoesNotExist:
+            pass
+        try:
+            EssaySubmission.objects.foo(submission_id=2).foo()
+        except EssaySubmission.DoesNotExist:
+            pass

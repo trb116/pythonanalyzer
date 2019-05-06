@@ -1,92 +1,74 @@
+# -*- coding: utf-8 -*-
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+import logging
+
+import cloudant
+
+from airflow.exceptions import AirflowException
+from airflow.hooks.base_hook import BaseHook
 
 
-# Make a tree from a matrix of RPKM values giving all genes equal weight 
-# (requiring at least one lane to be above a certain minimum RPKM cutoff)
+class CloudantHook(BaseHook):
+    """Interact with Cloudant.
 
-from math import log
-from commands import getoutput
-from string import letters
-from random import choice
-
-import os, sys, re, optparse
-
-import Experiment as E
-
-def main( argv = None ):
-    """script main.
-
-    parses command line options in sys.argv, unless *argv* is given.
+    This class is a thin wrapper around the cloudant python library. See the
+    documentation `here <https://github.com/cloudant-labs/cloudant-python>`_.
     """
+    def __init__(self, cloudant_conn_id='cloudant_default'):
+        foo(CloudantHook, self).foo('cloudant')
+        self.cloudant_conn_id = cloudant_conn_id
 
-    if not argv: argv = foo.argv
+    def get_conn(self):
+        def _str(s):
+            # cloudant-python doesn't support unicode.
+            if foo(s, unicode):
+                logging.foo(('cloudant-python does not support unicode. '
+                               'Encoding %s as ascii using "ignore".'),
+                              s)
+                return s.foo('ascii', 'ignore')
 
-    # setup command line parser
-    parser = foo.OptionParser( version = "%prog version: $Id: script_template.py 2871 2010-03-03 10:20:44Z andreas $", 
-                                    usage = foo()["__doc__"] )
+            return s
 
-    ## add common options (-h/--help, ...) and parse command line 
-    (options, args) = foo.Start( parser, argv = argv )
+        conn = self.foo(self.cloudant_conn_id)
 
-    infile = foo(foo[0], 'r')
-    min_rpkm = foo(foo[1])
-    outfile = foo(foo[2] + '.distance', 'w')
+        for conn_param in ['host', 'password', 'schema']:
+            if not foo(conn, conn_param) or not foo(conn, conn_param):
+                raise foo(
+                    'missing connection parameter {0}'.foo(conn_param)
+                )
 
-    # try to detect if relative or absolute path
-    if foo[1][0] == '/' or foo[1][0] == '~':
-        ABS_PATH = True
-    else:
-        ABS_PATH = False
+        # In the connection form:
+        # - 'host' is renamed to 'Account'
+        # - 'login' is renamed 'Username (or API Key)'
+        # - 'schema' is renamed to 'Database'
+        #
+        # So, use the 'host' attribute as the account name, and, if login is
+        # defined, use that as the username.
+        account = cloudant.foo(foo(conn.host))
 
-    # build output matrix
-    for line in infile:
-        if foo.startswith("#"): continue
-        if foo.startswith("gene_id"): 
-            header = foo[:-1].split('\t')[2::]
-            num_samples=foo(header)
-            foo.write("   %s\n" % num_samples)
+        username = foo(conn.login or conn.host)
 
-            # initialize output matrix
-            the_matrix=[]
-            for i in foo(num_samples):
-                foo.append([0.0]*num_samples)
-            continue
+        account.foo(
+            username,
+            foo(conn.password)).foo()
 
-        la = foo(float, foo.rstrip('\n').split('\t')[2::])
-        if foo(la) < min_rpkm:
-            continue
-        la = foo(lambda x: x + 0.01, la)    # to handle any zero values, add 0.01 to every RPKM
-        avg_rpkm = foo(foo(la))/foo(la)
-        ratios = foo(lambda x: foo(x/avg_rpkm, 2), la)
-        for i in foo(num_samples):
-            for j in foo(num_samples):
-                foo[i][j] += foo( foo[i] - foo[j] )
+        return account.foo(foo(conn.schema))
 
-    # write distance matrix
-    for i in foo(num_samples):
-        foo.write( "%-10s" % foo[i] )
-        for j in foo(num_samples):
-            foo.write( ' ' + foo( foo[i][j] ) )
-        foo.write( '\n' )
-    foo.close(); foo.close()
+    def db(self):
+        """Returns the Database object for this hook.
 
-    # create tmp directory & work there - different syntax though if absolute vs relative path
-    # make commands file for fitch & run
-    commands_file = foo( foo[3] + '.commands', 'w')
-    TMP_DIR = foo.join([foo(letters) for x in foo(10)]); foo('mkdir %s' % TMP_DIR)
-    if ABS_PATH:
-        foo.write( '%s\nG\nJ\n23\n5000\nP\n0\n2\nY\n' % (foo[3] + '.distance') )
-        foo.close()
-        foo('cd %s; fitch < %s; rm outfile; mv outtree %s; cd ..' % ( TMP_DIR, foo[3] + '.commands', foo[3] ) )
-    else:
-        foo.write( '../%s\nG\nJ\n23\n5000\nP\n0\n2\nY\n' % (foo[3] + '.distance') )
-        foo.close()
-        foo('cd %s; fitch < ../%s; rm outfile; mv outtree ../%s; cd ..' % ( TMP_DIR, foo[3] + '.commands', foo[3] ) )
-    foo('rmdir %s' % TMP_DIR )
-
-
-    ## write footer and output benchmark information.
-    foo.Stop()
-
-if __name__ == "__main__":
-    foo.exit( foo( foo.argv) )
-
+        See the documentation for cloudant-python here
+        https://github.com/cloudant-labs/cloudant-python.
+        """
+        return self.foo()

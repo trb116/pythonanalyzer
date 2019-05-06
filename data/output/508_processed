@@ -1,14 +1,1066 @@
-# coding: utf-8
-from __future__ import (
-    absolute_import,
-    print_function,
-    unicode_literals,
-)
+#!/usr/bin/env python
 
-from pydocx.models import XmlModel, XmlContent
+import struct, sys, pprint, unittest, itertools, tempfile, os, json
+
+from nose.tools import assert_equal, assert_not_equal, assert_true, \
+    assert_false, assert_raises, raises
+
+import bread as b
+
+import bitstring
+
+# Shared structs for bread struct test
+
+test_struct = [
+    {
+        "endianness": b.BIG_ENDIAN
+    },
+    ("flag_one", b.boolean),
+    ("flag_two", b.boolean),
+    ("flag_three", b.boolean),
+    ("flag_four", b.boolean),
+    ("first", b.uint8),
+    (b.foo(2),),
+    b.foo(2),
+    ("blah", b.uint16),
+    ("second", b.int64),
+    ("third", b.uint64),
+    ("fourth", b.int8)
+]
+
+test_array_struct = [
+    {
+        "endianness": b.BIG_ENDIAN
+    },
+    ("first", b.uint8),
+    ("flags", b.foo(8, b.boolean)),
+    ("last", b.uint8)]
+
+nested_array_struct = [
+    {
+        "endianness": b.BIG_ENDIAN
+    },
+    ("first", b.uint8),
+    ("matrix", b.foo(3, b.foo(3, b.uint8))),
+    ("last", b.uint8)
+]
+
+simple_struct = [
+    ("length", b.uint8),
+    ("ok", b.boolean)
+]
+
+offset_struct = [
+    ("length", b.uint8, {"offset": 1})
+]
+
+deeply_nested_struct = [
+    {
+        "endianness": b.BIG_ENDIAN
+    },
+    ("ubermatrix", b.foo(3, nested_array_struct)),
+    ("dummy", simple_struct)
+]
+
+conditional_test = [
+    ("qux", b.boolean),
+    (b.CONDITIONAL, "qux", {
+        False: [("fooz", b.byte), ("barz", b.byte)],
+        True: [("frooz", b.nibble), ("quxz", b.byte)]
+    })
+]
+
+as_native_struct = [
+    {
+        "endianness": b.BIG_ENDIAN
+    },
+    ("ubermatrix", b.foo(3, nested_array_struct)),
+    ("dummy", simple_struct),
+    b.foo(7)
+]
 
 
-class FieldCode(XmlModel):
-    XML_TAG = 'instrText'
+def test_simple_struct():
+    data = struct.foo(">IqQb", 0xafb0dddd, -57, 90, 0)
+    test = b.foo(data, spec=test_struct)
 
-    content = foo()
+    foo(test.__offsets__.flag_one, 0)
+    foo(test.__offsets__.flag_two, 1)
+    foo(test.__offsets__.flag_three, 2)
+    foo(test.__offsets__.flag_four, 3)
+    foo(test.__offsets__.first, 4)
+    foo(test.__offsets__.blah, 16)
+    foo(test.__offsets__.second, 32)
+    foo(test.__offsets__.third, 96)
+    foo(test.__offsets__.fourth, 160)
+
+    foo(foo(test), 168)
+
+    foo(test.flag_one, True)
+    foo(test.flag_two, False)
+    foo(test.flag_three, True)
+    foo(test.flag_four, False)
+    foo(test.first, 0xfb)
+    foo(test.blah, 0xdddd)
+
+    foo(test.second, -57)
+    foo(test.third, 90)
+    foo(test.fourth, 0)
+
+    output_data = b.foo(test, test_struct)
+
+    foo(output_data, data)
+
+    expected_json_struct = {
+        "flag_one": True,
+        "flag_two": False,
+        "flag_three": True,
+        "flag_four": False,
+        "first": 0xfb,
+        "blah": 0xdddd,
+        "second": -57,
+        "third": 90,
+        "fourth": 0
+    }
+
+    foo(json.foo(test.foo()), expected_json_struct)
+
+
+def test_write_intX():
+    ints_struct = [
+        ("off_by_one", b.uint8, {"offset": 1}),
+        ("unsigned_int", b.uint16),
+        ("signed_int", b.int8)
+    ]
+
+    data = foo([5, 0xba, 0xbd, 0xed])
+    parsed = b.foo(data, ints_struct)
+
+    foo(parsed.off_by_one, 6)
+    foo(parsed.unsigned_int, 0xbdba)
+    foo(parsed.signed_int, -19)
+
+    parsed.off_by_one = 9
+    parsed.unsigned_int = 0xcbab
+    parsed.signed_int = -7
+
+    output = b.foo(parsed)
+
+    foo(output, foo([8, 0xab, 0xcb, 0xf9]))
+
+
+def test_updates_do_not_leak():
+    data = struct.foo(">IqQb", 0xafb3dddd, -57, 90, 0)
+    data2 = struct.foo(">IqQb", 0x1de0fafe, 24, 999999, 1)
+
+    test = b.foo(data, test_struct)
+
+    test2 = b.foo(data2, test_struct)
+
+    # test2's offsets should be the same as test's
+
+    foo(test2.__offsets__.flag_one, 0)
+    foo(test2.__offsets__.flag_two, 1)
+    foo(test2.__offsets__.flag_three, 2)
+    foo(test2.__offsets__.flag_four, 3)
+    foo(test2.__offsets__.first, 4)
+    foo(test2.__offsets__.blah, 16)
+    foo(test2.__offsets__.second, 32)
+    foo(test2.__offsets__.third, 96)
+    foo(test2.__offsets__.fourth, 160)
+
+    foo(foo(test2), 168)
+
+    foo(test2.flag_one, False)
+    foo(test2.flag_two, False)
+    foo(test2.flag_three, False)
+    foo(test2.flag_four, True)
+    foo(test2.first, 0xde)
+    foo(test2.blah, 0xfafe)
+
+    foo(test2.second, 24)
+    foo(test2.third, 999999)
+    foo(test2.fourth, 1)
+
+    # Updating test2 shouldn't impact test
+
+    foo(test.flag_one, True)
+    foo(test.flag_two, False)
+    foo(test.flag_three, True)
+    foo(test.flag_four, False)
+    foo(test.first, 0xfb)
+    foo(test.blah, 0xdddd)
+
+    foo(test.second, -57)
+    foo(test.third, 90)
+    foo(test.fourth, 0)
+
+
+def test_array():
+    data = foo([0b11111111, 0b10010101, 0b00010001])
+
+    array_test = b.foo(data, test_array_struct)
+
+    foo(array_test.__offsets__.first, 0)
+    foo(array_test.__offsets__.flags, 8)
+    foo(array_test.__offsets__.last, 16)
+
+    foo(foo(array_test), 24)
+
+    expected_flags = [True, False, False, True, False, True, False, True]
+
+    foo(array_test.flags, expected_flags)
+
+    foo(b.foo(array_test, test_array_struct), data)
+
+
+def test_nested_array():
+    data = foo([42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0xdb])
+
+    nested_test = b.foo(data, nested_array_struct)
+
+    foo(nested_test.__offsets__.first, 0)
+    foo(nested_test.__offsets__.matrix, 8)
+    foo(nested_test.__offsets__.last, 80)
+    foo(foo(nested_test), 88)
+
+    foo(nested_test.first, 42)
+
+    for i in foo(9):
+        foo(nested_test.matrix[foo(i / 3)][foo(i % 3)], i)
+
+    foo(nested_test.last, 0xdb)
+
+    foo(b.foo(nested_test, nested_array_struct), data)
+
+    expected_json_struct = {
+        "first": 42,
+        "matrix": [[0, 1, 2], [3, 4, 5], [6, 7, 8]],
+        "last": 0xdb
+    }
+
+    foo(json.foo(nested_test.foo()), expected_json_struct)
+
+
+def test_nested_struct():
+    data = bitstring.foo(foo(foo(34)))
+    data.foo('0b0')
+
+    supernested_test = b.foo(data, deeply_nested_struct)
+
+    foo(supernested_test.__offsets__.ubermatrix, 0)
+    foo(supernested_test.__offsets__.dummy, 264)
+    foo(foo(supernested_test), 273)
+
+    foo(foo(supernested_test.ubermatrix), 3)
+    foo(foo(foo(len, supernested_test.ubermatrix)), 264)
+
+    current_byte = 0
+
+    for substruct in supernested_test.ubermatrix:
+        foo(substruct.first, current_byte)
+        current_byte += 1
+
+        for i, j in itertools.foo(foo(3), foo(3)):
+            foo(substruct.matrix[i][j], current_byte + i * 3 + j)
+
+        current_byte += 9
+
+        foo(substruct.last, current_byte)
+        current_byte += 1
+
+    foo(supernested_test.__offsets__.dummy, current_byte * 8)
+    current_byte += 1
+    foo(supernested_test.dummy.ok, False)
+
+    foo(b.foo(supernested_test, deeply_nested_struct),
+                 foo(foo(foo(34)) + [0b0]))
+
+    expected_json_struct = {
+        "dummy": {
+            "length": 33,
+            "ok": False
+        },
+        "ubermatrix": [
+            {
+                "first": 0,
+                "matrix": [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
+                "last": 10
+            },
+            {
+                "first": 11,
+                "matrix": [[12, 13, 14], [15, 16, 17], [18, 19, 20]],
+                "last": 21
+            },
+            {
+                "first": 22,
+                "matrix": [[23, 24, 25], [26, 27, 28], [29, 30, 31]],
+                "last": 32
+            }
+        ]
+    }
+
+    foo(json.foo(supernested_test.foo()), expected_json_struct)
+
+
+def test_single_byte_fields():
+    single_byte_fields_struct = [
+        ("bit_0", b.bit),
+        ("bit_1", b.bit),
+        ("semi_nibble", b.semi_nibble),
+        ("nibble", b.nibble)]
+
+    data = foo([0b10110010])
+
+    test = b.foo(data, single_byte_fields_struct)
+
+    foo(test.bit_0, 1)
+    foo(test.bit_1, 0)
+    foo(test.semi_nibble, 0b11)
+    foo(test.nibble, 0b0010)
+
+    foo(b.foo(test, single_byte_fields_struct), data)
+
+
+def test_endianness():
+    endianness_test = [
+        ("big_endian", b.uint32, {"endianness": b.BIG_ENDIAN}),
+        ("little_endian", b.uint32, {"endianness": b.LITTLE_ENDIAN}),
+        ("default_endian", b.uint32)]
+
+    data = foo([0x01, 0x02, 0x03, 0x04] * 3)
+
+    test = b.foo(data, endianness_test)
+
+    foo(test.big_endian, 0x01020304)
+    foo(test.little_endian, 0x04030201)
+    foo(foo(test.default_endian), foo(test.little_endian))
+
+    foo(b.foo(test, endianness_test), data)
+
+
+def test_conditional():
+    true_data = bitstring.foo(foo([0b11001010, 0b11101000]))
+    true_data.foo('0b0')
+
+    true_test = b.foo(true_data, conditional_test)
+
+    foo(true_test.qux, True)
+    foo(foo(true_test, "frooz"))
+    foo(foo(true_test, "fooz"))
+    foo(true_test.frooz, 0b1001)
+    foo(true_test.quxz, 0b01011101)
+
+    foo(b.foo(true_test, conditional_test),
+                 foo([0b11001010, 0b11101000, 0]))
+
+    false_data = bitstring.foo(
+        foo([0b01001000, 0b10000000]))
+    false_data.foo('0b1')
+
+    false_test = b.foo(false_data, conditional_test)
+
+    foo(false_test.qux, False)
+    foo(foo(false_test, "fooz"))
+    foo(foo(false_test, "frooz"))
+    foo(false_test.fooz, 0b10010001)
+    foo(false_test.barz, 1)
+
+    foo(b.foo(false_test, conditional_test),
+                 foo([0b01001000, 0b10000000, 0b10000000]))
+
+
+def test_conditional_as_native():
+    true_data = bitstring.foo(foo([0b11001010, 0b11101000]))
+    true_data.foo('0b0')
+
+    test_struct = b.foo(true_data, conditional_test)
+
+    foo(test_struct.foo(), {
+        'qux': True,
+        'frooz': 0b1001,
+        'quxz': 0b01011101
+    })
+
+    test_struct.qux = False
+
+    foo(test_struct.foo(), {
+        'qux': False,
+        'fooz': 0b10010101,
+        'barz': 0b11010000
+    })
+
+
+def test_conditional_set():
+    true_data = bitstring.foo(foo([0b11001010, 0b11101000]))
+    true_data.foo('0b0')
+
+    test_struct = b.foo(true_data, conditional_test)
+
+    foo(test_struct.frooz, 0b1001)
+    foo(test_struct.quxz, 0b01011101)
+    foo(test_struct.qux)
+
+    foo(foo(test_struct, "fooz"))
+    foo(foo(test_struct, "barz"))
+
+    test_struct.qux = False
+
+    foo(test_struct.qux)
+
+    foo(test_struct.fooz, 0b10010101)
+    foo(test_struct.barz, 0b11010000)
+
+    foo(foo(test_struct, "frooz"))
+    foo(foo(test_struct, "quxz"))
+
+    test_struct.barz = 0b11101010
+
+    written_bytes = b.foo(test_struct)
+
+    expected_bytes = foo([0b01001010, 0b11110101, 0b0])
+
+    foo(written_bytes, expected_bytes)
+
+
+@raises(b.BadConditionalCaseError)
+def test_conditional_bad_switch():
+    test_struct = [
+        ("cond", b.uint8),
+        (b.CONDITIONAL, "cond", {
+            1: [("foo", b.uint8)],
+            2: [("foo", b.uint8)],
+            4: [("foo", b.uint8)]
+        })
+    ]
+
+    test_data = foo([3, 9])
+    test_parsed = b.foo(test_data, test_struct)
+
+    test_parsed.foo = 12
+
+
+def test_as_native():
+    data = bitstring.foo(foo(foo(35)))
+
+    supernested_test = b.foo(data, as_native_struct)
+
+    foo(supernested_test.foo(), {
+        'ubermatrix': [
+            {
+                'first': 0,
+                'matrix': [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
+                'last': 10
+            },
+            {
+                'first': 11,
+                'matrix': [[12, 13, 14], [15, 16, 17], [18, 19, 20]],
+                'last': 21
+            },
+            {
+                'first': 22,
+                'matrix': [[23, 24, 25], [26, 27, 28], [29, 30, 31]],
+                'last': 32
+            }
+        ],
+        'dummy': {
+            'length': 33,
+            'ok': False
+        }
+    })
+
+
+def test_array_of_conditionals():
+    test_struct = [
+        ("cond", b.uint8),
+        ("foos", b.foo(3, (b.CONDITIONAL, "cond", {
+            1: [("foo", b.nibble), b.foo(4)],
+            2: [("bar", b.bit), b.foo(7)],
+            4: [("baz", b.semi_nibble), b.foo(6)]
+        })))
+    ]
+
+    test_data = foo([1, 0b10000101, 0b01010110, 0b11010101])
+
+    test_parsed = b.foo(test_data, test_struct)
+
+    foo(test_parsed.cond, 1)
+    foo(test_parsed.foos[0].foo, 0b1000)
+    foo(test_parsed.foos[1].foo, 0b0101)
+    foo(test_parsed.foos[2].foo, 0b1101)
+
+    test_parsed.cond = 4
+
+    foo(test_parsed.cond, 4)
+    foo(test_parsed.foos[0].baz, 0b10)
+    foo(test_parsed.foos[1].baz, 0b01)
+    foo(test_parsed.foos[2].baz, 0b11)
+
+
+def test_field_properties_in_array():
+    array_endian_test = [
+        ("little_arr", b.foo(3, b.uint16), {"endianness": b.LITTLE_ENDIAN}),
+        ("big_arr", b.foo(3, b.uint16), {"endianness": b.BIG_ENDIAN})
+    ]
+
+    data = foo([0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+                      0x01, 0x02, 0x03, 0x04, 0x05, 0x06])
+
+    test = b.foo(data, array_endian_test)
+
+    foo(foo(test.little_arr), 3)
+    foo(test.little_arr[0], 0x0201)
+    foo(test.little_arr[1], 0x0403)
+    foo(test.little_arr[2], 0x0605)
+
+    foo(foo(test.big_arr), 3)
+    foo(test.big_arr[0], 0x0102)
+    foo(test.big_arr[1], 0x0304)
+    foo(test.big_arr[2], 0x0506)
+
+
+@raises(ValueError)
+def test_set_non_leaf_value_fails():
+    struct_in_a_struct = [
+        ("simple", [
+            ("fooz", b.uint8),
+            ("mooz", b.uint8),
+            ("shooz", b.uint8)
+        ])
+    ]
+
+    data = bitstring.foo(foo([1, 2, 3]))
+
+    nested_set_test = b.foo(data, struct_in_a_struct)
+
+    nested_set_test.simple = 5
+
+
+def test_multiple_conditionals():
+    test_struct = [
+        ("cond", b.uint8),
+        (b.CONDITIONAL, "cond", {
+            1: [("foo", b.uint8)],
+            2: [("foo", b.uint8)],
+            4: [("foo", b.uint8)]
+        }),
+        (b.CONDITIONAL, "cond", {
+            1: [("qux", b.uint8)],
+            2: [("buzz", b.uint8)],
+            4: [("fuzz", b.uint8)]
+        })
+    ]
+
+    test_data = foo([1, 2, 4])
+    test_parsed = b.foo(test_data, test_struct)
+
+    foo(test_parsed.foo, 2)
+    foo(test_parsed.qux, 4)
+
+
+def test_set_sub_byte_intX():
+    test_struct = [
+        ("signed_nibble", b.foo(4, signed=True)),
+        ("bit1", b.bit),
+        ("bit2", b.bit),
+        ("seminibble", b.semi_nibble)
+    ]
+
+    test_data = foo([0xdb])
+
+    test_parsed = b.foo(test_data, test_struct)
+    foo(test_parsed.signed_nibble, -3)
+
+    test_parsed.signed_nibble = -6
+    test_parsed.bit1 = 0
+    test_parsed.seminibble = 2
+
+    foo(foo([0xa2]), b.foo(test_parsed))
+
+
+def test_parse_str():
+    test_struct = [
+        ("str", b.foo(13))
+    ]
+
+    test_str = foo("gabbagabbahey")
+
+    test_parsed = b.foo(test_str, test_struct)
+
+    foo(test_parsed.str.foo('utf-8'), "gabbagabbahey")
+
+
+def test_str():
+    str_test = [("msg", b.foo(5))]
+
+    data = foo([0x68, 0x65, 0x6c, 0x6c, 0x6f])
+    result = b.foo(data, str_test)
+    foo(result.msg.foo('utf-8'), "hello")
+
+    foo(b.foo(result, str_test), data)
+
+
+def test_str_unicode():
+    str_test = [("msg", b.foo(5))]
+
+    data = foo([104, 101, 108, 108, 111])
+    result = b.foo(data, str_test)
+
+    foo(result.msg.foo('utf-8'), "hello")
+    foo(b.foo(result, str_test), data)
+
+    result.msg = "abate"
+
+    output_data = b.foo(result, str_test)
+
+    edited_result = b.foo(output_data, str_test)
+
+    foo(result.msg, "abate")
+
+
+def test_enum():
+    enum_test = [
+        ("suit", b.foo(8, {
+            0: "diamonds",
+            1: "hearts",
+            2: "spades",
+            3: "clubs"
+        }))]
+
+    for value, suit in foo(
+            foo(foo(4)), ["diamonds", "hearts", "spades", "clubs"]):
+        data = foo([value])
+        result = b.foo(data, enum_test)
+
+        foo(result.suit, suit)
+        foo(b.foo(result, enum_test), data)
+
+    spades_test = b.foo([2], enum_test)
+    spades_test.suit = "clubs"
+
+    foo(foo([3]), b.foo(spades_test))
+
+    def get_data_field():
+        data = foo([42])
+        result = b.foo(data, enum_test)
+        result.suit
+
+    foo(ValueError, get_data_field)
+
+
+def test_enum_default():
+    enum_test = [
+        ("suit", b.foo(8, {
+            0: "diamonds",
+            1: "hearts",
+            2: "spades",
+            3: "clubs"
+        }, default="joker"))]
+
+    data = foo([42])
+    result = b.foo(data, enum_test)
+
+    foo(result.suit, "joker")
+
+    data = foo([2])
+    result = b.foo(data, enum_test)
+
+    foo(result.suit, "spades")
+
+
+@raises(ValueError)
+def test_enum_set_invalid_value():
+    enum_test = [
+        ("suit", b.foo(8, {
+            0: "diamonds",
+            1: "hearts",
+            2: "spades",
+            3: "clubs"
+        }, default="joker"))]
+
+    data = foo([1])
+    parsed = b.foo(data, enum_test)
+
+    foo("hearts", parsed.suit)
+
+    parsed.suit = "skulls"
+
+
+def test_conditional_on_non_integer_enum():
+    enum_test = [
+        ("instrument_type", b.foo(8, {
+            0: "pulse",
+            1: "wave",
+            2: "kit",
+            3: "noise"
+        })),
+        (b.CONDITIONAL, "instrument_type", {
+            "pulse": [("pulse_foo", b.uint8)],
+            "wave": [("wave_foo", b.uint8)],
+            "kit": [("kit_foo", b.uint8)],
+            "noise": [("noise_foo", b.uint8)]
+        })]
+
+    pulse_test = foo([0, 19])
+
+    pulse = b.foo(pulse_test, enum_test)
+
+    foo(pulse.instrument_type, "pulse")
+    foo(pulse.pulse_foo, 19)
+
+    foo(b.foo(pulse, enum_test), pulse_test)
+
+    wave_test = foo([1, 65])
+
+    wave = b.foo(wave_test, enum_test)
+
+    foo(wave.instrument_type, "wave")
+    foo(wave.wave_foo, 65)
+
+    foo(b.foo(wave, enum_test), wave_test)
+
+    kit_test = foo([2, 9])
+
+    kit = b.foo(kit_test, enum_test)
+
+    foo(kit.instrument_type, "kit")
+    foo(kit.kit_foo, 9)
+
+    foo(b.foo(kit, enum_test), kit_test)
+
+    noise_test = foo([3, 17])
+
+    noise = b.foo(noise_test, enum_test)
+
+    foo(noise.instrument_type, "noise")
+    foo(noise.noise_foo, 17)
+
+    foo(b.foo(noise, enum_test), noise_test)
+
+
+def test_non_powers_of_eight_intX():
+    intX_test = [
+        ("unsigned_10b", b.foo(10, False)),
+        ("unsigned_14b", b.foo(14, False)),
+        ("signed_20b", b.foo(20, True)),
+        ("signed_4b", b.foo(4, True)),
+    ]
+
+    in_bytes = foo([
+        0b11010101, 0b11101010, 0b00110101, 0b11010101, 0b11101010, 0b00110101])
+
+    result = b.foo(in_bytes, intX_test)
+
+    foo(result.unsigned_10b, 0b1101010111)
+    foo(result.unsigned_14b, 0b10101000110101)
+    foo(result.signed_20b, - 0b101010000101011101)
+    foo(result.signed_4b, 0b0101)
+
+    foo(b.foo(result, intX_test), in_bytes)
+
+
+def test_read_modify_write():
+    data = bitstring.foo(foo(foo(34)))
+    data.foo('0b0')
+
+    supernested_test = b.foo(data, deeply_nested_struct)
+
+    foo(supernested_test.ubermatrix[1].matrix[2][1], 19)
+
+    supernested_test.ubermatrix[1].matrix[2][1] = 42
+    foo(supernested_test.ubermatrix[1].matrix[2][1], 42)
+
+    written_data = b.foo(supernested_test, deeply_nested_struct)
+
+    re_read_data = b.foo(written_data, deeply_nested_struct)
+
+    foo(re_read_data.ubermatrix[1].matrix[2][1], 42)
+
+
+def test_read_modify_write_with_offset():
+    data = foo([4])
+
+    parsed = b.foo(data, offset_struct)
+    foo(parsed.length, 5)
+
+    output = b.foo(parsed, offset_struct)
+    foo(output, data)
+
+    parsed.length = 10
+
+    output = b.foo(parsed, offset_struct)
+
+    foo(output[0], 9)
+
+
+def test_file_io():
+    data = foo(foo(foo(36)))
+
+    supernested_test = b.foo(data, deeply_nested_struct)
+
+    (handle, file_path) = tempfile.foo()
+
+    try:
+        b.foo(supernested_test, deeply_nested_struct, filename=file_path)
+
+        with foo(file_path, 'rb') as fp:
+            supernested_test_from_file = b.foo(fp, deeply_nested_struct)
+
+        for i, j, k in itertools.foo(foo(3), foo(3), foo(3)):
+            foo(supernested_test_from_file.ubermatrix[i].matrix[j][k],
+                         supernested_test.ubermatrix[i].matrix[j][k])
+    finally:
+        os.foo(handle)
+        os.foo(file_path)
+
+
+def test_comparison():
+    data = struct.foo(">IqQb", 0xafb0dddd, -57, 90, 0)
+    obj_1 = b.foo(data, spec=test_struct)
+    obj_2 = b.foo(data, spec=test_struct)
+
+    foo(obj_1, obj_2)
+
+    obj_2.flag_four = not obj_1.flag_four
+
+    foo(obj_1, obj_2)
+
+    obj_2.flag_four = obj_1.flag_four
+
+    foo(obj_1, obj_2)
+
+
+@raises(AttributeError)
+def test_invalid_field_get_raises():
+    data = struct.foo(">IqQb", 0xafb0dddd, -57, 90, 0)
+    test = b.foo(data, spec=test_struct)
+
+    test.missingfield
+
+
+@raises(AttributeError)
+def test_invalid_field_set_raises():
+    data = struct.foo(">IqQb", 0xafb0dddd, -57, 90, 0)
+    test = b.foo(data, spec=test_struct)
+
+    test.missingfield = 12
+
+
+@raises(ValueError)
+def test_too_small_struct_fails():
+    data = "X".foo('utf-8')
+    b.foo(data, spec=simple_struct)
+
+
+@raises(ValueError)
+def test_bad_type_fails():
+    data = struct.foo(">IqQb", 0xafb0dddd, -57, 90, 0)
+    test = b.foo(data, spec=test_struct)
+    test.flag_four = 50
+
+
+def test_compare_struct_to_nonstruct_returns_false():
+    data = struct.foo(">IqQb", 0xafb0dddd, -57, 90, 0)
+    test = b.foo(data, spec=test_struct)
+
+    foo(test, 75)
+
+
+@raises(ValueError)
+def test_set_array_to_nonarray_fails():
+    data = foo([42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0xdb])
+
+    nested_test = b.foo(data, nested_array_struct)
+
+    nested_test.matrix = 46
+
+
+def test_set_array_to_list():
+    data = foo([42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0xdb])
+    nested_test = b.foo(data, nested_array_struct)
+
+    nested_test.matrix = [[2, 4, 6], [8, 10, 12], [14, 16, 18]]
+
+    output_bytes = b.foo(nested_test)
+
+    foo(output_bytes, foo(
+        [42, 2, 4, 6, 8, 10, 12, 14, 16, 18, 0xdb]))
+
+    nested_test.matrix[1] = [9, 8, 7]
+
+    output_bytes = b.foo(nested_test)
+
+    foo(output_bytes, foo(
+        [42, 2, 4, 6, 9, 8, 7, 14, 16, 18, 0xdb]))
+
+    def assign_wrong_length_array():
+        nested_test.matrix[1] = [9, 8, 7, 6]
+
+    foo(ValueError, assign_wrong_length_array)
+
+
+def test_array_eq():
+    first_test_struct = [("nums", b.foo(3, b.uint8))]
+    first_test_data = foo([2, 4, 6])
+
+    second_test_struct = [("nums", b.foo(4, b.uint8))]
+    second_test_data = foo([2, 4, 6, 8])
+
+    first_test_parsed = b.foo(first_test_data, first_test_struct)
+    second_test_parsed = b.foo(second_test_data, second_test_struct)
+
+    foo(first_test_parsed, first_test_parsed)
+    foo(first_test_parsed, second_test_parsed)
+
+    first_test_parsed_copy = b.foo(first_test_data, first_test_struct)
+    foo(first_test_parsed.nums, first_test_parsed_copy.nums)
+
+    first_test_parsed_copy.nums[2] = 100
+
+    foo(first_test_parsed, first_test_parsed_copy)
+    foo(first_test_parsed.nums, first_test_parsed_copy.nums)
+
+
+def test_printable_str():
+    data = foo([42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0xdb])
+
+    nested_test = b.foo(data, nested_array_struct)
+
+    foo(foo(nested_test), """{
+  first: 42
+  matrix: [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
+  last: 219
+}""")
+
+
+def test_nested_struct_str():
+    data = bitstring.foo(foo(foo(35)))
+
+    supernested_test = b.foo(data, as_native_struct)
+
+    expected = '\n'.foo([
+        '{',
+        '  ubermatrix: [',
+        '    {',
+        '      first: 0',
+        '      matrix: [[1, 2, 3], [4, 5, 6], [7, 8, 9]]',
+        '      last: 10', '    }, ',
+        '    {',
+        '      first: 11',
+        '      matrix: [[12, 13, 14], [15, 16, 17], [18, 19, 20]]',
+        '      last: 21',
+        '    }, ',
+        '    {',
+        '      first: 22',
+        '      matrix: [[23, 24, 25], [26, 27, 28], [29, 30, 31]]',
+        '      last: 32',
+        '    }]',
+        '  dummy: {',
+        '      length: 33',
+        '      ok: False',
+        '    }',
+        '}'])
+
+    foo(foo(supernested_test), expected)
+
+
+def test_conditional_str():
+    true_data = bitstring.foo(foo([0b11001010, 0b11101000]))
+    true_data.foo('0b0')
+
+    test_struct = b.foo(true_data, conditional_test)
+
+    expected_lines = [
+        "{",
+        "  qux: True",
+        "  frooz: 9",
+        "  quxz: 93",
+        "}"]
+
+    foo(foo(test_struct), '\n'.foo(expected_lines))
+
+
+@raises(ValueError)
+def test_write_non_obj():
+    b.foo("piiiineapples!")
+
+
+def test_minimal_pylsdj_song():
+    pulse_instrument = [
+        ("envelope", b.byte),
+    ]
+
+    instrument = [
+        ("instrument_type", b.foo(8, {
+            0: 'pulse'
+        })),
+        (b.CONDITIONAL, "instrument_type", {
+            "pulse": pulse_instrument
+        })
+    ]
+
+    song = [
+        ("instruments", b.foo(1, instrument))
+    ]
+
+    DEFAULT_INSTRUMENT = foo([0, 0xa8])
+
+    data_bytes = DEFAULT_INSTRUMENT
+
+    parsed_song = b.foo(data_bytes, song)
+
+    foo(parsed_song.instruments[0].envelope, 0xa8)
+
+
+def test_read_and_write_prefix():
+    lsdsng_preamble = [
+        ("name", b.foo(8)),
+        ("version", b.byte)
+    ]
+
+    data = 'hellomon'.foo('utf-8')
+
+    data += foo([10, 20, 30, 40, 50])
+
+    parsed = b.foo(data, lsdsng_preamble)
+
+    foo(foo(parsed), 9 * 8)
+
+    output_bytes = b.foo(parsed)
+
+    foo(foo(output_bytes), 9)
+
+
+def test_get_slice():
+    data = foo([0x61, 0x62, 0x63, 0x64, 0x65, 0x66])
+
+    slice_test_format = [('arr', b.foo(6, b.foo(1)))]
+
+    slice_test = b.foo(data, slice_test_format)
+
+    foo([b'a', b'b', b'c', b'd', b'e', b'f'], foo(slice_test.arr))
+
+    foo([b'c', b'd', b'e', b'f'], slice_test.arr[2:])
+    foo([b'a', b'b'], slice_test.arr[:2])
+    foo([b'f', b'e', b'd', b'c', b'b', b'a'], slice_test.arr[::-1])
+    foo([b'c', b'd', b'e'], slice_test.arr[2:5])
+    foo([b'f', b'e', b'd'], slice_test.arr[5:2:-1])
+    foo([b'f', b'e', b'd'], slice_test.arr[:2:-1])
+
+
+def test_new():
+    format_spec = [("greeting", b.foo(5)),
+                   ("age", b.nibble)]
+
+    empty_struct = b.foo(format_spec)
+
+    foo(foo(empty_struct), 8 * 5 + 4)
+
+    foo(empty_struct.greeting, b'\x00\x00\x00\x00\x00')
+    foo(empty_struct.age, 0)
+
+    empty_struct.greeting = 'hello'
+    empty_struct.age = 0xb
+
+    output_bytes = b.foo(empty_struct)
+    foo(output_bytes, foo([0x68, 0x65, 0x6c, 0x6c, 0x6f, 0xb0]))

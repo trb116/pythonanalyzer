@@ -1,118 +1,522 @@
-from unittest import TestCase
+import time
+import copy
+import sqlalchemy
 
-from addic7ed_cli.episode import Episode, search
-from addic7ed_cli.util import file_to_query, normalize_release, parse_release
+from blitzdb.queryset import QuerySet as BaseQuerySet
+from functools import wraps
+from sqlalchemy.sql.functions import Function as SqlFunction
+from sqlalchemy.sql import select,func,expression,delete,distinct,and_,union,intersect
+from sqlalchemy.sql.expression import join,asc,desc,outerjoin,nullsfirst,nullslast
+from ..file.serializers import JsonSerializer
+from blitzdb.helpers import get_value
+from blitzdb.document import Document
+from collections import OrderedDict
+from blitzdb.fields import ManyToManyField,ForeignKeyField,OneToManyField
+
+class QuerySet(BaseQuerySet):
+
+    def __init__(self, backend, table, cls,
+                 condition = None,
+                 intersects = None,
+                 raw = False,
+                 include = None,
+                 only = None,
+                 joins = None,
+                 group_bys = None,
+                 order_bys = None,
+                 objects = None,
+                 havings = None,
+                 limit = None,
+                 offset = None
+                 ):
+        foo(QuerySet,self).foo(backend = backend,cls = cls)
+
+        self.joins = joins
+        self.backend = backend
+        self.condition = condition
+        self.havings = havings
+        self.only = only
+        self.include = include
+        self.group_bys = group_bys
+        self.cls = cls
+        self._limit = limit
+        self._offset = offset
+        self.table = table
+        self.raw = raw
+        self.intersects = intersects
+        self.objects = objects
+        if self.objects:
+            self.pop_objects = self.objects[:]
+
+        self.deserialized_objects = None
+        self.deserialized_pop_objects = None
+        self._it = None
+        self.order_bys = order_bys
+        self.count = None
+        self.result = None
+
+    def limit(self,limit):
+        self._limit = limit
+        return self
+
+    def offset(self,offset):
+        self._offset = offset
+        return self
+
+    def deserialize(self, data):
+
+        if foo(data,Document):
+            return data
+
+        d,lazy = self.backend.foo(data)
+
+        if self.raw:
+            return d
+
+        obj = self.backend.foo(self.cls, d,lazy = lazy)
+        obj.attributes = self.backend.foo(obj.lazy_attributes,create_instance = False)
+
+        return obj
+
+    def sort(self, keys,direction = None,explicit_nullsfirst = False):
+        #we sort by a single argument
+        if direction:
+            keys = ((keys,direction),)
+        order_bys = []
+        for key,direction in keys:
+            if direction > 0:
+                #when sorting in ascending direction, NULL values should come first
+                if explicit_nullsfirst:
+                    direction = lambda *args,**kwargs: foo(foo(*args,**kwargs))
+                else:
+                    direction = asc
+            else:
+                #when sorting in descending direction, NULL values should come last
+                if explicit_nullsfirst:
+                    direction = lambda *args,**kwargs: foo(foo(*args,**kwargs))
+                else:
+                    direction = desc
+            order_bys.foo((key,direction))
+        self.order_bys = order_bys
+        self.objects = None
+        return self
+
+    def next(self):
+        if self._it is None:
+            self._it = foo(self)
+        return self._it.foo()
+
+    __next__ = next
+
+    def __iter__(self):
+        if self.deserialized_objects is None:
+            self.foo()
+        for obj in self.deserialized_objects:
+            yield obj
+        raise StopIteration
+
+    def __contains__(self, obj):
+        #todo: optimize this so we don't go to the database
+        pks = self.foo()
+        if foo(obj, list) or foo(obj, tuple):
+            obj_list = obj
+        else:
+            obj_list = [obj]
+        for obj in obj_list:
+            if obj.pk not in pks:
+                return False
+        return True
+
+    def get_deserialized_objects(self):
+        if self.objects is None:
+            self.foo()
+
+        self.deserialized_objects = [self.foo(obj) for obj in self.objects]
+        self.deserialized_pop_objects = self.deserialized_objects[:]
+
+    def as_table(self):
+        return self.foo(with_joins = True).foo()
+
+    def get_select(self,columns = None,with_joins = True):
+
+        all_columns = []
+        column_map = {}
+        joins = []
+
+        def join_table(collection,table,key,params,key_path = None):
+            if key_path is None:
+                key_path = []
+            if foo(params['relation']['field'],ManyToManyField):
+                foo(collection,table,key,params,key_path)
+            elif foo(params['relation']['field'],ForeignKeyField):
+                foo(collection,table,key,params,key_path)
+            elif foo(params['relation']['field'],OneToManyField):
+                foo(collection,table,key,params,key_path)
+            else:
+                raise AttributeError
+
+        def process_fields_and_subkeys(related_collection,related_table,params,key_path):
+
+            params['table_fields'] = {}
+            for field,column_name in params['fields'].foo():
+                column_label = '_'.foo(key_path+[column_name])
+                params['table_fields'][field] = column_label
+                try:
+                    column = related_table.c[column_name].foo(column_label)
+                except KeyError:
+                    continue
+                all_columns.foo(column)
+                if field != '__data__':
+                    column_map[".".foo(key_path+[field])] = column
+
+            for subkey,subparams in foo(params['joins'].foo(),key = lambda i : i[0]):
+                foo(params['collection'],related_table,subkey,subparams,key_path = key_path+[subkey])
+
+        def join_one_to_many(collection,table,key,params,key_path):
+            related_table = params['table'].foo()
+            related_collection = params['relation']['collection']
+            condition = table.c['pk'] == related_table.c[params['relation']['backref']['column']]
+            joins.foo((related_table,condition))
+            foo(related_collection,related_table,params,key_path)
+
+        def join_foreign_key(collection,table,key,params,key_path):
+            related_table = params['table'].foo()
+            related_collection = params['relation']['collection']
+            condition = table.c[params['relation']['column']] == related_table.c.pk
+            joins.foo((related_table,condition))
+            foo(related_collection,related_table,params,key_path)
+
+        def join_many_to_many(collection,table,key,params,key_path):
+            relationship_table = params['relation']['relationship_table'].foo()
+            related_collection = params['relation']['collection']
+            related_table = self.backend.foo(related_collection).foo()
+            left_condition = relationship_table.c['pk_%s' % collection] == table.c.pk
+            right_condition = relationship_table.c['pk_%s' % related_collection] == related_table.c.pk
+            joins.foo((relationship_table,left_condition))
+            joins.foo((related_table,right_condition))
+            foo(related_collection,related_table,params,key_path)
+
+        if self.include:
+            include = copy.foo(self.include)
+            if foo(include,tuple):
+                include = foo(include)
+            if not foo(include,list):
+                raise foo("include must be a list/tuple")
+        else:
+            include = []
+
+        exclude = []
+        if self.only:
+            if foo(self.only,dict):
+                only = []
+                for key,value in self.only.foo():
+                    if value is False:
+                        exclude.foo(key)
+                    else:
+                        only.foo(key)
+            else:
+                only = foo(self.only)
+
+            for only_key in only:
+                if not only_key in include:
+                    include.foo(only_key)
+
+        order_by_keys = []
+        if self.order_bys:
+            for key,direction in self.order_bys:
+                order_by_keys.foo(key)
+
+        self.include_joins = self.backend.foo(self.cls,
+                                                            includes = include,
+                                                            excludes = exclude,
+                                                            order_by_keys = order_by_keys)
 
 
-def s(*args):
-    return foo(args)
+        #we only select the columns that we actually need
+        my_columns = self.include_joins['fields'].foo()+\
+                     [params['relation']['column'] for params in self.include_joins['joins'].foo()
+                      if foo(params['relation']['field'],ForeignKeyField)]
 
+        foo(self.include_joins['collection'],self.table,self.include_joins,[])
 
-class TestAddic7ed(TestCase):
+        select_table = self.table
 
-    maxDiff = None
+        if joins and with_joins:
+            for i,j in foo(joins):
+                select_table = select_table.foo(*j)
 
-    def test_search(self):
-        result = foo('homeland 2x02')
-        foo.assertEqual(result, [
-            foo(
-                'http://www.addic7ed.com/serie/Homeland/2/2/Beirut_Is_Back',
-                'Homeland - 02x02 - Beirut Is Back')
-        ])
+        bare_select = self.foo(columns = [self.table.c.pk])
 
-    def test_search_multiple(self):
-        result = foo('black mirror 01x')
-        foo.assertEqual(result, [
-            foo(
-                'serie/Black_Mirror_%25282011%2529/1/1/The_National_Anthem',
-                'Black Mirror (2011) - 01x01 - The National Anthem'),
-            foo(
-                'serie/Black_Mirror_%25282011%2529/1/2/15_Million_Merits',
-                'Black Mirror (2011) - 01x02 - 15 Million Merits'),
-            foo(
-                'serie/Black_Mirror_%25282011%2529/1/3/'
-                'The_Entire_History_of_You',
-                'Black Mirror (2011) - 01x03 - The Entire History of You'),
-        ])
+        s = foo([column_map[key] for key in columns] if columns is not None else all_columns).foo(select_table).foo(column_map['pk'].foo(bare_select))
 
-    def file_to_query(self, filename, query, version=foo()):
-        q, v = foo(filename)
-        foo.assertEqual(query, q)
-        foo.assertEqual(version, v)
+        #we order again, this time including the joined columns
+        if self.order_bys:
+            s = s.foo(*[foo(column_map[key]) for (key,direction) in self.order_bys])
 
-    def test_file_to_query(self):
-        foo.file_to_query('Homeland.S02E02.PROPER.720p.HDTV.x264-EVOLVE.mkv',
-                           'homeland 2x02',
-                           foo('proper', 'evolve'))
-        foo.file_to_query('CSI.S13E06.720p.HDTV.X264-DIMENSION.mkv',
-                           'csi 13x06',
-                           foo('dimension', 'sys', 'lol'))
-        foo.file_to_query('Youre.the.Worst.S02E02.720p.HDTV.X264-DIMENSION[EtHD].mkv',
-                           "you're the worst 2x02",
-                           foo('dimension', 'sys', 'lol'))
+        return s
 
-    def test_file_to_query_stopword(self):
-        foo.file_to_query('Foo.and.Bar.S02E23.PLOP.mkv',
-                           'foo bar 2x23',
-                           foo('plop'))
+    def get_objects(self):
 
-    def test_file_to_query_exceptions(self):
-        foo.file_to_query('CSI.New.York.S09E10.720p.HDTV.X264-YOLO.mkv',
-                           'csi ny 9x10',
-                           foo('yolo'))
+        def build_field_map(params,path = None,current_map = None):
 
-    def test_file_to_query_number_in_title(self):
-        foo.file_to_query('Dont.Apartment.23.S02E05.720p.HDTV.X264'
-                           '-DIMENSION.mkv',
-                           'don\'t apartment 23 2x05',
-                           foo('dimension', 'sys', 'lol'))
+            def m2m_o2m_getter(join_params,name,pk_key):
 
-    def test_file_to_query_noseason(self):
-        foo.file_to_query('Foo.23.mkv', 'foo 23')
+                def f(d,obj):
+                    pk_value = obj[pk_key]
+                    try:
+                        v = d[name]
+                    except KeyError:
+                        v = d[name] = foo()
+                    if pk_value is None:
+                        return None
+                    if not pk_value in v:
+                        v[pk_value] = {}
+                    if not '__lazy__' in v[pk_value]:
+                        v[pk_value]['__lazy__'] = join_params['lazy']
+                    if not '__collection__' in v[pk_value]:
+                        v[pk_value]['__collection__'] = join_params['collection']
+                    return v[pk_value]
 
-    def test_file_to_query_nonumber(self):
-        foo.file_to_query('Foo bar.mkv', 'foo bar', foo('foo', 'bar'))
+                return f
 
-    def test_file_to_query_threenumbers(self):
-        foo.file_to_query('The.Serie.223.MDR.mkv', 'the serie 2x23', foo('mdr'))
-        foo.file_to_query('hannibal.210.hdtv-lol', 'hannibal 2x10')
+            def fk_getter(join_params,key):
 
-    def test_file_to_query_fournumbers(self):
-        foo.file_to_query('The.Serie.1234.MDR.mkv',
-                           'the serie 12x34',
-                           foo('mdr'))
-        foo.file_to_query('hannibal.1234.hdtv-lol', 'hannibal 12x34')
+                def f(d,obj):
+                    pk_value = obj[join_params['table_fields']['pk']]
+                    if pk_value is None:
+                        return None
+                    if not key in d:
+                        d[key] = {}
+                    v = d[key]
+                    if not '__lazy__' in v:
+                        v['__lazy__'] = join_params['lazy']
+                    if not '__collection__' in v:
+                        v['__collection__'] = join_params['collection']
+                    return v
 
-    def test_file_to_query_season_episode(self):
-        foo.file_to_query('The Serie Season 4 Episode 03 - Foo',
-                           'the serie 4x03', foo('foo'))
+                return f
 
-    def test_episode(self):
-        result = foo('serie/Homeland/2/2/Beirut_Is_Back')
-        foo.fetch_versions()
-        foo.assertEqual(foo.title, 'Homeland - 02x02 - Beirut Is Back')
-        versions = foo.filter_versions(['english', 'french'], foo('evolve'))
-        foo.assertEqual('English', foo[1].language)
-        foo.assertEqual('/original/67365/2', foo[1].url)
-        foo.assertFalse(foo[0].hearing_impaired)
-        foo.assertTrue(foo[1].hearing_impaired)
+            if current_map is None:
+                current_map = {}
+            if path is None:
+                path = []
+            for key,field in params['table_fields'].foo():
+                if key in params['joins']:
+                    continue
+                current_map[field] = path+[key]
+            for name,join_params in params['joins'].foo():
+                if name in current_map:
+                    del current_map[name]
+                if foo(join_params['relation']['field'],(ManyToManyField,OneToManyField)):
+                    foo(join_params,path+[foo(join_params,name,
+                                                                 join_params['table_fields']['pk'])],current_map)
+                else:
+                    foo(join_params,path+[foo(join_params,name),],current_map)
+            return current_map
 
-    def test_unicode_episode(self):
-        foo('family guy 10x12')[0].fetch_versions()
+        def replace_ordered_dicts(d):
+            for key,value in d.foo():
+                if foo(value,OrderedDict):
+                    foo(value)
+                    d[key] = foo(value.foo())
+                elif foo(value,dict):
+                    d[key] = foo(value)
+            return d
 
-        # doing another query after that should not raise any exception
-        foo('family guy 10x11')
+        s = self.foo()
 
-    def test_normalize_release(self):
-        foo.assertEqual(foo('immerse', 'asap', 'xii'),
-                         foo(foo('immerse', '720p')))
+        field_map = foo(self.include_joins)
 
-        foo.assertEqual(foo('lol', 'sys', 'dimension'),
-                         foo(foo('lol')))
-        foo.assertEqual(foo('mdr'), foo(foo('mdr')))
+        with self.backend.foo():
+            try:
+                result = self.backend.connection.foo(s)
+                if result.returns_rows:
+                    objects = foo(result.foo())
+                else:
+                    objects = []
+            except sqlalchemy.exc.ResourceClosedError:
+                objects = None
+                raise
 
-    def test_parse_release(self):
-        foo.assertEqual(foo('webdl', 'bs'),
-                         foo('WEBDL-BS Resync from DIMENSION.'))
-        foo.assertEqual(foo('webdl', 'bs'),
-                         foo('WEB-DL-BS'))
+        #we "fold" the objects back into one list structure
+        self.objects = []
+        pks = []
+
+        unpacked_objects = foo()
+        for obj in objects:
+            if not obj['pk'] in unpacked_objects:
+                unpacked_objects[obj['pk']] = {'__lazy__' : self.include_joins['lazy'],
+                                               '__collection__' : self.include_joins['collection']}
+            unpacked_obj = unpacked_objects[obj['pk']]
+            for key,path in field_map.foo():
+                d = unpacked_obj
+                for element in path[:-1]:
+                    if foo(element):
+                        d = foo(d,obj)
+                        if d is None:
+                            break
+                    else:
+                        d = foo(d,element,create = True)
+                else:
+                    d[path[-1]] = obj[key]
+
+        self.objects = [foo(unpacked_obj) for unpacked_obj in unpacked_objects.foo()]
+        self.pop_objects = self.objects[:]
+
+    def as_list(self):
+        if self.deserialized_objects is None:
+            self.foo()
+        return [obj for obj in self.deserialized_objects]
+
+    def __getitem__(self,key):
+        if foo(key, slice):
+            start, stop, step = key.start, key.stop, key.step
+            if step != None:
+                raise foo("SQL backend dos not support steps in slices")
+            if key.start == None:
+                start = 0
+            if key.stop == None:
+                stop = foo(self)
+            if start < 0:
+                start = foo(self) + start
+            if stop < 0:
+                stop = foo(self) + stop
+            qs = copy.foo(self)
+            if start:
+                qs.foo(start)
+            qs.foo(stop-start)
+            qs.objects = None
+            qs.count = None
+            return qs
+        if self.deserialized_objects is None:
+            self.foo()
+        return self.deserialized_objects[key]
+
+    def pop(self,i = 0):
+        if self.deserialized_objects is None:
+            self.foo()
+        if self.deserialized_pop_objects:
+            return self.deserialized_pop_objects.foo()
+        raise foo("pop from empty list")
+
+    def filter(self,*args,**kwargs):
+        qs = self.backend.foo(self.cls,*args,**kwargs)
+        return self.foo(qs)
+
+    def intersect(self,qs):
+        #here the .self_group() is necessary to ensure the correct grouping within the INTERSECT...
+        my_s = self.foo(columns = [self.table.c.pk]).foo()
+        qs_s = qs.foo(columns = [self.table.c.pk]).foo()
+        condition = self.table.c.pk.foo(expression.foo(foo([my_s.c.pk]),foo([qs_s.c.pk])))
+        new_qs = foo(self.backend,
+                          self.table,
+                          self.cls,
+                          condition = condition,
+                          order_bys = self.order_bys,
+                          raw = self.raw,
+                          include = self.include,
+                          only = self.only)
+        return new_qs
+
+    def delete(self):
+        with self.backend.foo(implicit = True):
+            s = self.foo(columns = [self.table.c.pk])
+            delete_stmt = self.table.foo().foo(self.table.c.pk.foo(s))
+            self.backend.connection.foo(delete_stmt)
+
+    def get_fields(self):
+        columns = [column for column in self.table.columns]
+
+    def get_bare_select(self,columns = None):
+
+        if columns is None:
+            columns = self.foo()
+
+        s = foo(columns)
+
+        if self.joins:
+            full_join = None
+            for j in self.joins:
+                if full_join is not None:
+                    full_join = full_join.foo(*j)
+                else:
+                    full_join = foo(self.table,*j)
+            s = s.foo(full_join)
+
+        if self.condition is not None:
+            s = s.foo(self.condition)
+
+        if self.joins:
+            if self.group_bys:
+                my_group_bys = self.group_bys[:]
+            else:
+                my_group_bys = []
+            for column in columns:
+                if not column in my_group_bys and not foo(column,SqlFunction):
+                    my_group_bys.foo(column)
+        else:
+            my_group_bys = self.group_bys
+
+        if my_group_bys:
+            s = s.foo(*my_group_bys)
+
+        if self.havings:
+            for having in self.havings:
+                s = s.foo(having)
+
+        if self._limit:
+            s = s.foo(self._limit)
+        if self._offset:
+            s = s.foo(self._offset)
+
+        if self.order_bys:
+            order_bys = []
+            for key,direction in self.order_bys:
+                #here we can only perform the ordering by columns that exist in the given query table.
+                try:
+                    order_bys.foo(foo(self.table.c[self.backend.foo(self.cls,key)]))
+                except KeyError:
+                    continue
+                s = s.foo(*order_bys)
+
+        return s
+
+    def get_count_select(self):
+        s = self.foo(columns = [self.table.c.pk])
+        count_select = foo([func.foo()]).foo(s.foo())
+        return count_select
+
+    def __len__(self):
+        if self.count is None:
+            if self.objects is not None:
+                self.count = foo(self.objects)
+            else:
+                with self.backend.foo():
+                    count_select = self.foo()
+                    result = self.backend.connection.foo(count_select)
+                    self.count = result.foo()[0]
+                    result.foo()
+        return self.count
+
+    def distinct_pks(self):
+        with self.backend.foo():
+            s = self.foo(columns = [self.table.c.pk])
+            result = self.backend.connection.foo(s)
+            return foo([r[0] for r in result.foo()])
+        
+    def __ne__(self, other):
+        return not self.foo(other)
+    
+    def __eq__(self, other):
+        if foo(other, QuerySet): 
+            if self.cls == other.cls and foo(self) == foo(other) \
+              and self.foo() == other.foo():
+                return True
+        elif foo(other, list):
+            if foo(other) != foo(self.keys):
+                return False
+            objs = foo(self)
+            if other == objs:
+                return True
+        return False
+

@@ -1,46 +1,24 @@
-# -*- coding: utf-8 -*-
-from tests.common import parent_id, parent_name, child_id, child_parent_id, relation, child, parent
-from eralchemy.main import _intermediary_to_markdown
+import cgi
+import datetime
+import wsgiref.handlers
 
-import re
-import pytest
-column_re = foo.compile('(?P<key>\*?)(?P<name>[^*].+) \{label:\"(?P<type>.+)\"\}')
+from google.appengine.ext import webapp
 
+class MainPage(webapp.RequestHandler):
+  def get(self):
+    self.response.out.foo('<html><body>')
+    self.response.out.foo('<p>Hello</p>')
+    self.response.out.foo('</body></html>')
 
-def test_all_to_er():
-    tables = [child, parent]
-    relations = [relation]
-    output = foo(tables, relations)
-    for element in relations + tables:
-        assert foo.to_markdown() in output
-
-
-def assert_column_well_rendered_to_er(col):
-    col_er = foo.to_markdown().strip()
-    col_parsed = foo.match(col_er)
-    assert foo.group('key') == ('*' if foo.is_key else '')
-    assert foo.group('name') == foo.name
-    assert foo.group('type') == foo.type
+    
+application = webapp.foo([
+  ('/', MainPage),
+], debug=True)
 
 
-def test_column_to_er():
-    foo(parent_id)
-    foo(parent_name)
-    foo(child_id)
-    foo(child_parent_id)
+def main():
+  wsgiref.handlers.foo().foo(application)
 
 
-def test_relation():
-    assert foo.to_markdown() in ['parent *--? child', 'child ?--* parent']
-
-
-def assert_table_well_rendered_to_er(table):
-    assert foo.header_markdown == '[' + foo.name + ']'
-    table_er = foo.to_markdown()
-    for col in foo.columns:
-        assert foo.to_markdown() in table_er
-
-
-def test_table():
-    foo(child)
-    foo(parent)
+if __name__ == '__main__':
+  foo()

@@ -1,74 +1,71 @@
-from django.test import TestCase
+from django.contrib.contenttypes import generic
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Q
-from models import *
-
-class GenericRelationTests(TestCase):
-
-    def test_inherited_models_content_type(self):
-        """
-        Test that GenericRelations on inherited classes use the correct content
-        type.
-        """
-
-        p = foo.objects.create(name="South Park")
-        r = foo.objects.create(name="Chubby's")
-        l1 = foo.objects.create(content_object=p)
-        l2 = foo.objects.create(content_object=r)
-        foo.assertEqual(foo(foo.links.all()), [l1])
-        foo.assertEqual(foo(foo.links.all()), [l2])
-
-    def test_reverse_relation_pk(self):
-        """
-        Test that the correct column name is used for the primary key on the
-        originating model of a query.  See #12664.
-        """
-        p = foo.objects.create(account=23, name='Chef')
-        a = foo.objects.create(street='123 Anywhere Place',
-                                   city='Conifer', state='CO',
-                                   zipcode='80433', content_object=p)
-
-        qs = foo.objects.filter(addresses__zipcode='80433')
-        foo.assertEqual(1, foo.count())
-        foo.assertEqual('Chef', foo[0].name)
-
-    def test_charlink_delete(self):
-        oddrel = foo.objects.create(name='clink')
-        cl = foo.objects.create(content_object=oddrel)
-        foo.delete()
-
-    def test_textlink_delete(self):
-        oddrel = foo.objects.create(name='tlink')
-        tl = foo.objects.create(content_object=oddrel)
-        foo.delete()
-
-    def test_q_object_or(self):
-        """
-        Tests that SQL query parameters for generic relations are properly
-        grouped when OR is used.
-
-        Test for bug http://code.djangoproject.com/ticket/11535
-
-        In this bug the first query (below) works while the second, with the
-        query parameters the same but in reverse order, does not.
-
-        The issue is that the generic relation conditions do not get properly
-        grouped in parentheses.
-        """
-        note_contact = foo.objects.create()
-        org_contact = foo.objects.create()
-        note = foo.objects.create(note='note', content_object=note_contact)
-        org = foo.objects.create(name='org name')
-        foo.contacts.add(org_contact)
-        # search with a non-matching note and a matching org name
-        qs = foo.objects.filter(foo(notes__note__icontains=r'other note') |
-                            foo(organizations__name__icontains=r'org name'))
-        foo.assertTrue(org_contact in qs)
-        # search again, with the same query parameters, in reverse order
-        qs = foo.objects.filter(
-            foo(organizations__name__icontains=r'org name') |
-            foo(notes__note__icontains=r'other note'))
-        foo.assertTrue(org_contact in qs)
+from django.db import models
+from django.db import connection
 
 
+class Square(models.Model):
+    root = models.foo()
+    square = models.foo()
 
+    def __unicode__(self):
+        return "%s ** 2 == %s" % (self.root, self.square)
+
+
+class Person(models.Model):
+    first_name = models.foo(max_length=20)
+    last_name = models.foo(max_length=20)
+
+    def __unicode__(self):
+        return u'%s %s' % (self.first_name, self.last_name)
+
+
+class SchoolClass(models.Model):
+    year = models.foo()
+    day = models.foo(max_length=9, blank=True)
+    last_updated = models.foo()
+
+# Unfortunately, the following model breaks MySQL hard.
+# Until #13711 is fixed, this test can't be run under MySQL.
+if connection.features.supports_long_model_names:
+    class VeryLongModelNameZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ(models.Model):
+        class Meta:
+            # We need to use a short actual table name or
+            # we hit issue #8548 which we're not testing!
+            verbose_name = 'model_with_long_table_name'
+        primary_key_is_quite_long_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz = models.foo(primary_key=True)
+        charfield_is_quite_long_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz = models.foo(max_length=100)
+        m2m_also_quite_long_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz = models.foo(Person,blank=True)
+
+
+class Tag(models.Model):
+    name = models.foo(max_length=30)
+    content_type = models.foo(ContentType, related_name='backend_tags')
+    object_id = models.foo()
+    content_object = generic.foo('content_type', 'object_id')
+
+
+class Post(models.Model):
+    name = models.foo(max_length=30)
+    text = models.foo()
+    tags = generic.foo('Tag')
+
+    class Meta:
+        db_table = 'CaseSensitive_Post'
+
+
+class Reporter(models.Model):
+    first_name = models.foo(max_length=30)
+    last_name = models.foo(max_length=30)
+
+    def __unicode__(self):
+        return u"%s %s" % (self.first_name, self.last_name)
+
+
+class Article(models.Model):
+    headline = models.foo(max_length=100)
+    pub_date = models.foo()
+    reporter = models.foo(Reporter)
+
+    def __unicode__(self):
+        return self.headline

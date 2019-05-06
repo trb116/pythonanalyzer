@@ -1,217 +1,196 @@
-"""
-Copyright 2015, Cisco Systems, Inc
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+#
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
-@author: Pravin Gohite, Cisco Systems, Inc.
-"""
-
+#coding=utf-8
 import os
-import logging
-import lxml.etree as ET
+import sys
 
+parent_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, parent_dir)
+from .profile import region_provider
+from .acs_exception import exceptions as exs
+from .acs_exception import error_code, error_msg
+from .http.http_response import HttpResponse
+from .request import AcsRequest
 
-class Cxml:
-    def __init__(self, filename):
-        self.filename = filename
-        self.modulename = os.path.splitext(os.path.basename(filename))[0]
-        if os.path.exists(filename):
-            logging.debug('Parsing %s' % filename)
-            try:
-                self.cxml = ET.parse(filename)
-            except:
-                self.cxml = None
-                logging.error('ET Failed to parse %s' % filename)
-        else:
-            self.cxml = None
-            logging.error('File %s does not exists' % filename)
+"""
+Acs default client module.
 
-    def toxpath(self, path):
-        path_elems = path.split('/')
-        xpath = '[@name="%s"]' % path_elems[0]
-        for elem in path_elems[1:]:
-            xpath += '/node[@name="%s"]' % elem
-        return xpath
+Created on 6/15/2015
 
-    def get_lazy_node_internal(self, cxml_element, base=''):
-        node = ET.Element('node')
-        add_placeholder = True
+@author: alex
+"""
 
-        # Add attributes from cxml node
-        for attrib in cxml_element.attrib:
-            node.set(attrib, cxml_element.attrib[attrib])
-            # Terminal nodes does not requires to lazy nodes.
-            if (attrib == 'type' and cxml_element.attrib[attrib] in \
-                ['leaf', 'leafref', 'leaf-list']):
-                add_placeholder = False
-        try:
-            desc = cxml_element.find('description')
-            if desc is not None:
-                node.set('description', desc.text.strip())
-        except:
-            pass
+class AcsClient:
+	def __init__(self, ak, secret, region_id, auto_retry=True, max_retry_time=3, user_agent=None,port = 80):
+		"""
+		constructor for AcsClient
+		:param ak: String, access key id
+		:param secret: String, access key secret
+		:param region_id: String, region id
+		:param auto_retry: Boolean
+		:param max_retry_time: Number
+		:return:
+		"""
+		self.__max_retry_num = max_retry_time
+		self.__auto_retry = auto_retry
+		self.__ak = ak
+		self.__secret = secret
+		self.__region_id = region_id
+		self.__user_agent = user_agent
+		self.__port = port
 
-        if base == '':
-            node.set('path', self.modulename)
-        else:
-            base += '/'
-            node.set('path', base + cxml_element.get('name'))
+	def get_region_id(self):
+		"""
 
-        if add_placeholder:
-            pnode = ET.Element('node')
-            pnode.set('name', 'Loading ..')
-            pnode.set('type', '__yang_placeholder')
-            node.append(pnode)
+		:return: String
+		"""
+		return self.__region_id
 
-        return node
+	def get_access_key(self):
+		"""
 
-    def get_lazy_node(self, path='', add_ns=True):
-        """
-        Returns yang explorer compatible lazy node xml. A lazy
-        node only returns a cxml node which is requested. All
-        other node along the path returned as _placeholder_
-        nodes for on-demand loading in client tree.
-        """
-        logging.debug('get_lazy_node: ' + path)
-        root = ET.Element('root')
-        if self.cxml is None:
-            return root
+		:return: String
+		"""
+		return self.__ak
 
-        cxml_root = self.cxml.getroot()
+	def get_access_secret(self):
+		"""
 
-        if path == '':
-            node = self.get_lazy_node_internal(cxml_root)
-            nslist = [c.get('prefix') + ',' + c.text for c in cxml_root if c.tag == 'namespace']
-            node.set('namespaces', '|'.join(nslist))
-            node.set('name', self.modulename)
-            root.append(node)
-            return root
+		:return: String
+		"""
+		return self.__secret
 
-        # move root node to requested node
-        elements = path.split('/')
-        for name in elements[1:]:
-            for child in cxml_root:
-                if child.get('name', '') == name:
-                    cxml_root = child
-                    break
+	def is_auto_retry(self):
+		"""
 
-        for child in cxml_root:
-            if child.tag == 'node':
-                node = self.get_lazy_node_internal(child, path)
-                root.append(node)
+		:return:Boolean
+		"""
+		return self.__auto_retry
 
-            if child.tag == 'namespace' and add_ns:
-                if cxml_root.get('prefix', '') == child.get('prefix'):
-                    child.set('default', 'true')
-                root.append(child)
-        return root
+	def get_max_retry_num(self):
+		"""
 
-    def get_lazy_tree_one(self, path, value):
-        """
-        Returns yang explorer compatible lazy tree xml. A lazy
-        tree  returns a cxml nested tree from root to requested
-        node.
+		:return: Number
+		"""
+		return self.__max_retry_num
 
-        Other node along the path returned as _placeholder_
-        nodes for on-demand loading in client tree.
-        """
+	def get_user_agent(self):
+		return self.__user_agent
 
-        tree = None
-        path_elems = path.split('/')
-        subpath = xpath = ''
+	def set_region_id(self, region):
+		self.__region_id = region
 
-        for elems in path_elems:
-            nodes = self.get_lazy_node(subpath)
-            if tree is None:
-                tree = nodes.find('node')
-                xpath = '[@name="%s"]' % elems
-                logging.info(ET.tostring(tree))
-            else:
-                subpath += '/'
+	def set_access_key(self, ak):
+		self.__ak = ak
 
-                temp = tree.find(xpath)
-                if temp is not None:
-                    tree.find(xpath).remove(tree.find(xpath)[0])
-                    for child in nodes:
-                        if child.get('path') == path:
-                            child.set('value', value)
-                        tree.find(xpath).append(child)
+	def set_access_secret(self, secret):
+		self.__secret = secret
 
-                xpath += '/node[@name="%s"]' % elems
-            subpath += elems
+	def set_max_retry_num(self, num):
+		"""
+		set auto retry number
+		:param num: Numbers
+		:return: None
+		"""
+		self.__max_retry_num = num
 
-        return tree
+	def set_auto_retry(self, flag):
+		"""
+		set whether or not the client perform auto-retry
+		:param flag: Booleans
+		:return: None
+		"""
+		self.__auto_retry = flag
 
-    def get_lazy_tree(self, pathvalues):
-        """
-        Returns yang explorer compatible lazy tree xml. A lazy
-        tree  returns a cxml nested tree from root to requested
-        node.
+	def set_user_agent(self, agent):
+		"""
+		User agent set to client will overwrite the request setting.
+		:param agent:
+		:return:
+		"""
+		self.__user_agent = agent
 
-        Other node along the path returned as _placeholder_
-        nodes for on-demand loading in client tree.
-        """
+	def do_action(self, acs_request):
+		ep = region_provider.find_product_domain(self.get_region_id(), acs_request.get_product())
+		if ep is None:
+			raise exs.ClientException(error_code.SDK_INVALID_REGION_ID, error_msg.get_msg('SDK_INVALID_REGION_ID'))
+		if not isinstance(acs_request, AcsRequest):
+			raise exs.ClientException(error_code.SDK_INVALID_REQUEST, error_msg.get_msg('SDK_INVALID_REQUEST'))
+		try:
+			# style = acs_request.get_style()
+			content = acs_request.get_content()
+			method = acs_request.get_method()
+			header = acs_request.get_signed_header(self.get_region_id(), self.get_access_key(), self.get_access_secret())
+			if self.get_user_agent() is not None:
+				header['User-Agent'] = self.get_user_agent()
+				header['x-sdk-client'] = 'python/2.0.0'
+			protocol = acs_request.get_protocol_type()
+			prefix = self.__replace_occupied_params(acs_request.get_domain_pattern(),acs_request.get_domain_params())
+			url = acs_request.get_url(self.get_region_id(),self.get_access_key(),self.get_access_secret())
+			if prefix is None:
+				response = HttpResponse(ep, url, method, {} if header is None else header, protocol,content,self.__port)
+			else:
+				response = HttpResponse(prefix + ',' + ep, url, method, {} if header is None else header, protocol,content,self.__port)
+			_header, _body = response.get_response()
+			# if _body is None:
+			# 	raise exs.ClientException(error_code.SDK_SERVER_UNREACHABLE, error_msg.get_msg('SDK_SERVER_UNREACHABLE'))
+			return _body
+		except IOError:
+			raise exs.ClientException(error_code.SDK_SERVER_UNREACHABLE, error_msg.get_msg('SDK_SERVER_UNREACHABLE'))
+		except AttributeError:
+			raise exs.ClientException(error_code.SDK_INVALID_REQUEST, error_msg.get_msg('SDK_INVALID_REQUEST'))
 
-        logging.debug('get_lazy_tree: Building lazy tree..')
+	def get_response(self, acs_request):
+		ep = region_provider.find_product_domain(self.get_region_id(), acs_request.get_product())
+		if ep is None:
+			raise exs.ClientException(error_code.SDK_INVALID_REGION_ID, error_msg.get_msg('SDK_INVALID_REGION_ID'))
+		if not isinstance(acs_request, AcsRequest):
+			raise exs.ClientException(error_code.SDK_INVALID_REQUEST, error_msg.get_msg('SDK_INVALID_REQUEST'))
+		try:
+			# style = acs_request.get_style()
+			content = acs_request.get_content()
+			method = acs_request.get_method()
+			header = acs_request.get_signed_header(self.get_region_id(), self.get_access_key(), self.get_access_secret())
+			if self.get_user_agent() is not None:
+				header['User-Agent'] = self.get_user_agent()
+				header['x-sdk-client'] = 'python/2.0.0'
+			protocol = acs_request.get_protocol_type()
+			prefix = self.__replace_occupied_params(acs_request.get_domain_pattern(),acs_request.get_domain_params())
+			url = acs_request.get_url(self.get_region_id(),self.get_access_key(),self.get_access_secret())
+			if prefix is None:
+				_response = HttpResponse(ep, url, method, {} if header is None else header, protocol, content,self.__port)
+			else:
+				_response = HttpResponse(prefix + ',' + ep, url, method, {} if header is None else header, protocol, content,self.__port)
+			return _response.get_response_object()
+			
+		except IOError:
+			raise exs.ClientException(error_code.SDK_SERVER_UNREACHABLE, error_msg.get_msg('SDK_SERVER_UNREACHABLE'))
+		except AttributeError:
+			raise exs.ClientException(error_code.SDK_INVALID_REQUEST, error_msg.get_msg('SDK_INVALID_REQUEST'))
 
-        plist = []
-        vdict = {}
-        for (path, value) in pathvalues:
-            plist.append(path.split('/'))
-            vdict[path] = value
-
-        level = 0
-        logging.info(str(plist))
-
-        tree = self.get_lazy_node()
-        tree = tree[0]
-
-        while True:
-            pending = []
-            for path_elems in plist:
-                if level >= len(path_elems):
-                    continue
-
-                cxpath = '/'.join(path_elems[:level + 1])
-                if cxpath not in pending:
-                    pending.append(cxpath)
-
-            if len(pending) == 0:
-                break
-
-            for cxpath in pending:
-                subtree = self.get_lazy_node(cxpath, False)
-                xpath = self.toxpath(cxpath)
-
-                if len(subtree) == 0:
-                    continue
-
-                tree.find(xpath).remove(tree.find(xpath)[0])
-                for child in subtree:
-                    cpath = child.get('path', '')
-                    values = vdict.get(cpath, '')
-                    if values is not None:
-                        for key in values:
-                            child.set(key, values[key])
-                    tree.find(xpath).append(child)
-            level += 1
-        # end while
-
-        return tree
-
-    def get_namespaces(self):
-        if self.cxml is None:
-            return []
-
-        return [(ns.get('prefix', ''), ns.get('module', ''), ns.text)
-                for ns in self.cxml.getroot() if ns.tag == 'namespace']
+	def __replace_occupied_params(self, pattern, params):
+		if pattern is None:
+			return None
+		if params is None:
+			return pattern
+		for (k, v) in params.items():
+			target = '[' + k + ']'
+			pattern.replace(target, v)
+		return pattern

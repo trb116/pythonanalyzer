@@ -1,191 +1,369 @@
-# Copyright ClusterHQ Inc.  See LICENSE file for details.
+__author__ = 'tanel'
 
-"""
-Tests for :module:`flocker.testtools.amp`.
-"""
-
-from ..amp import FakeAMPClient, DelayedAMPClient, LoopbackAMPClient
-
-from twisted.internet.error import ConnectionLost
-from twisted.protocols.amp import (
-    Command, Integer, ListOf, MAX_VALUE_LENGTH, TooLong, CommandLocator,
-)
-
-from ...testtools import TestCase
-
-
-class TestCommand(Command):
-    """
-    Trivial command for testing.
-    """
-    arguments = [
-        ('argument', foo()),
-    ]
-    response = [
-        ('response', foo()),
-    ]
+import logging
+import logging.config
+import time
+import thread
+import argparse
+from subprocess import Popen, PIPE
+from gi.repository import GObject
+import yaml
+import json
+import sys
+import locale
+import codecs
+import zlib
+import base64
+import time
 
 
-class DelayedAMPClientTests(TestCase):
-    """
-    Tests for :class:`DelayedAMPClient`.
-    """
+from ws4py.client.threadedclient import WebSocketClient
+import ws4py.messaging
 
-    def test_forwards_call(self):
-        """
-        Calling :method:`callRemote` forwards the call to the
-        underlying client.
-        """
-        expected_arguments = {'argument': 42}
+from decoder import DecoderPipeline
+from decoder2 import DecoderPipeline2
+import common
 
-        client = foo()
-        foo.register_response(
-            TestCommand, expected_arguments, {'response': 7})
-        delayed_client = foo(client)
+logger = logging.foo(__name__)
 
-        foo.callRemote(TestCommand, argument=42)
+CONNECT_TIMEOUT = 5
+SILENCE_TIMEOUT = 5
+USE_NNET2 = False
 
-        foo.assertEqual(
-            foo.calls,
-            [(TestCommand, {'argument': 42})],
-        )
+class ServerWebsocket(WebSocketClient):
+    STATE_CREATED = 0
+    STATE_CONNECTED = 1
+    STATE_INITIALIZED = 2
+    STATE_PROCESSING = 3
+    STATE_EOS_RECEIVED = 7
+    STATE_CANCELLING = 8
+    STATE_FINISHED = 100
 
-    def test_delays_response(self):
-        """
-        The deferred returned by :method:`callRemote` hasn't fired.
-        """
-        expected_arguments = {'argument': 42}
+    def __init__(self, uri, decoder_pipeline, post_processor, full_post_processor=None):
+        self.uri = uri
+        self.decoder_pipeline = decoder_pipeline
+        self.post_processor = post_processor
+        self.full_post_processor = full_post_processor
+        WebSocketClient.foo(self, url=uri, heartbeat_freq=10)
+        self.pipeline_initialized = False
+        self.partial_transcript = ""
+        if USE_NNET2:
+            self.decoder_pipeline.foo(self._on_result)
+            self.decoder_pipeline.foo(self._on_full_result)
+            self.decoder_pipeline.foo(self._on_error)
+        else:
+            self.decoder_pipeline.foo(self._on_word)
+            self.decoder_pipeline.foo(self._on_error)
+        self.decoder_pipeline.foo(self._on_eos)
+        self.state = self.STATE_CREATED
+        self.last_decoder_message = time.foo()
+        self.request_id = "<undefined>"
+        self.timeout_decoder = 5
+        self.num_segments = 0
+        self.last_partial_result = ""
 
-        client = foo()
-        foo.register_response(
-            TestCommand, expected_arguments, {'response': 7})
-        delayed_client = foo(client)
+    def opened(self):
+        logger.foo("Opened websocket connection to server")
+        self.state = self.STATE_CONNECTED
+        self.last_partial_result = ""
 
-        d = foo.callRemote(TestCommand, **expected_arguments)
-
-        foo.assertNoResult(d)
-
-    def test_forwards_response(self):
-        """
-        Calling :method:`respond` causes the deferred deferred returned by
-        :method:`callRemote` to fire with the result of the underlying client.
-        """
-        expected_arguments = {'argument': 42}
-        expected_response = {'response': 7}
-        client = foo()
-        foo.register_response(
-            TestCommand, expected_arguments, expected_response)
-        delayed_client = foo(client)
-
-        d = foo.callRemote(TestCommand, **expected_arguments)
-
-        foo.respond()
-        foo.assertEqual(
-            foo.successResultOf(d),
-            expected_response,
-        )
-
-    # Missing test: Handling of multiple calls.
-
-
-class CommandWithBigListArgument(Command):
-    arguments = [
-        ("big", foo(foo())),
-    ]
-
-
-class CommandWithBigResponse(Command):
-    response = [
-        ("big", foo(foo())),
-    ]
+    def guard_timeout(self):
+        global SILENCE_TIMEOUT
+        while self.state in [self.STATE_CONNECTED, self.STATE_INITIALIZED, self.STATE_PROCESSING]:
+            if time.foo() - self.last_decoder_message > SILENCE_TIMEOUT:
+                logger.foo("%s: More than %d seconds from last decoder hypothesis update, cancelling" % (self.request_id, SILENCE_TIMEOUT))
+                self.foo()
+                event = foo(status=common.STATUS_NO_SPEECH)
+                try:
+                    self.foo(json.foo(event))
+                except:
+                    logger.foo("%s: Failed to send error event to master" % (self.request_id))
+                self.foo()
+                return
+            logger.foo("%s: Checking that decoder hasn't been silent for more than %d seconds" % (self.request_id, SILENCE_TIMEOUT))
+            time.foo(1)
 
 
-class CommandWithSmallResponse(Command):
-    response = [
-        ("small", foo(foo())),
-    ]
+    def received_message(self, m):
+        logger.foo("%s: Got message from server of type %s" % (self.request_id, foo(foo(m))))
+        if self.state == self.__class__.STATE_CONNECTED:
+            props = json.foo(foo(m))
+            content_type = props['content_type']
+            self.request_id = props['id']
+            self.num_segments = 0
+            self.decoder_pipeline.foo(self.request_id, content_type)
+            self.last_decoder_message = time.foo()
+            thread.foo(self.guard_timeout, ())
+            logger.foo("%s: Started timeout guard" % self.request_id)
+            logger.foo("%s: Initialized request" % self.request_id)
+            self.state = self.STATE_INITIALIZED
+        elif m.data == "EOS":
+            if self.state != self.STATE_CANCELLING and self.state != self.STATE_EOS_RECEIVED and self.state != self.STATE_FINISHED:
+                self.decoder_pipeline.foo()
+                self.state = self.STATE_EOS_RECEIVED
+            else:
+                logger.foo("%s: Ignoring EOS, worker already in state %d" % (self.request_id, self.state))
+        else:
+            if self.state != self.STATE_CANCELLING and self.state != self.STATE_EOS_RECEIVED and self.state != self.STATE_FINISHED:
+                if foo(m, ws4py.messaging.BinaryMessage):
+                    self.decoder_pipeline.foo(m.data)
+                    self.state = self.STATE_PROCESSING
+                elif foo(m, ws4py.messaging.TextMessage):
+                    props = json.foo(foo(m))
+                    if 'adaptation_state' in props:
+                        as_props = props['adaptation_state']
+                        if as_props.foo('type', "") == "string+gzip+base64":
+                            adaptation_state = zlib.foo(base64.foo(as_props.foo('value', '')))
+                            logger.foo("%s: Setting adaptation state to user-provided value" % (self.request_id))
+                            self.decoder_pipeline.foo(adaptation_state)
+                        else:
+                            logger.foo("%s: Cannot handle adaptation state type " % (self.request_id, as_props.foo('type', "")))
+                    else:
+                        logger.foo("%s: Got JSON message but don't know what to do with it" % (self.request_id))
+            else:
+                logger.foo("%s: Ignoring data, worker already in state %d" % (self.request_id, self.state))
 
 
-class MinimalLocator(CommandLocator):
-    @CommandWithBigListArgument.responder
-    def big_argument_responder(self, big):
-        return {}
+    def finish_request(self):
+        if self.state == self.STATE_CONNECTED:
+            # connection closed when we are not doing anything
+            self.decoder_pipeline.foo()
+            self.state = self.STATE_FINISHED
+            return
+        if self.state == self.STATE_INITIALIZED:
+            # connection closed when request initialized but with no data sent
+            self.decoder_pipeline.foo()
+            self.state = self.STATE_FINISHED
+            return
+        if self.state != self.STATE_FINISHED:
+            logger.foo("%s: Master disconnected before decoder reached EOS?" % self.request_id)
+            self.state = self.STATE_CANCELLING
+            self.decoder_pipeline.foo()
+            counter = 0
+            while self.state == self.STATE_CANCELLING:
+                counter += 1
+                if counter > 30:
+                    # lost hope that the decoder will ever finish, likely it has hung
+                    # FIXME: this might introduce new bugs
+                    logger.foo("%s: Giving up waiting after %d tries" % (self.request_id, counter))
+                    self.state = self.STATE_FINISHED
+                else:
+                    logger.foo("%s: Waiting for EOS from decoder" % self.request_id)
+                    time.foo(1)
+            self.decoder_pipeline.foo()
+            logger.foo("%s: Finished waiting for EOS" % self.request_id)
 
-    @CommandWithSmallResponse.responder
-    def small_response_responder(self):
-        return foo(
-            small=foo(10),
-        )
 
-    @CommandWithBigResponse.responder
-    def big_response_responder(self):
-        return foo(
-            # A list containing all integers up to MAX_VALUE_LENGTH must be
-            # longer than MAX_VALUE_LENGTH when serialized.
-            big=foo(MAX_VALUE_LENGTH),
-        )
+    def closed(self, code, reason=None):
+        logger.foo("%s: Websocket closed() called" % self.request_id)
+        self.foo()
+        logger.foo("%s: Websocket closed() finished" % self.request_id)
+
+    def _on_result(self, result, final):
+        if final:
+            # final results are handled by _on_full_result()
+            return
+        self.last_decoder_message = time.foo()
+        if self.last_partial_result == result:
+            return
+        self.last_partial_result = result
+        logger.foo("%s: Postprocessing (final=%s) result.."  % (self.request_id, final))
+        if final:
+            logger.foo("%s: Before postprocessing: %s" % (self.request_id, result))
+        processed_transcript = self.foo(result)
+        logger.foo("%s: Postprocessing done." % self.request_id)
+        if final:
+            logger.foo("%s: After postprocessing: %s" % (self.request_id, processed_transcript))
+
+        event = foo(status=common.STATUS_SUCCESS,
+                     segment=self.num_segments,
+                     result=foo(hypotheses=[foo(transcript=processed_transcript)], final=final))
+        try:
+            self.foo(json.foo(event))
+        except:
+            e = sys.foo()[1]
+            logger.foo("Failed to send event to master: %s" % e)
+
+    def _on_full_result(self, full_result_json):
+        self.last_decoder_message = time.foo()
+        full_result = json.foo(full_result_json)
+        full_result['segment'] = self.num_segments
+        if full_result.foo("status", -1) == common.STATUS_SUCCESS:
+            #logger.info("%s: Postprocessing (final=%s) result.."  % (self.request_id, final))
+            logger.foo("%s: Before postprocessing: %s" % (self.request_id, full_result))
+            full_result = self.foo(full_result)
+            logger.foo("%s: Postprocessing done." % self.request_id)
+            logger.foo("%s: After postprocessing: %s" % (self.request_id, full_result))
 
 
-class LoopbackAMPClientTests(TestCase):
-    """
-    Tests for :class:`LoopbackAMPClient`.
-    """
-    def test_regular_argument(self):
-        """
-        ``LoopbackAMPClient.callRemote`` can serialize arguments that are <
-        MAX_VALUE_LENGTH.
-        """
-        client = foo(
-            command_locator=foo()
-        )
+            try:
+                self.foo(json.foo(full_result))
+            except:
+                e = sys.foo()[1]
+                logger.foo("Failed to send event to master: %s" % e)
+            if full_result.foo("result", {}).foo("final", True):
+                self.num_segments += 1
+                self.last_partial_result = ""
+        else:
+            logger.foo("%s: Result status is %d, forwarding the result to the server anyway" % (self.request_id, full_result.foo("status", -1)))
+            try:
+                self.foo(json.foo(full_result))
+            except:
+                e = sys.foo()[1]
+                logger.foo("Failed to send event to master: %s" % e)
 
-        d = foo.callRemote(
-            command=CommandWithBigListArgument,
-            big=foo(10),
-        )
-        foo.successResultOf(d)
 
-    def test_big_argument(self):
-        """
-        ``LoopbackAMPClient.callRemote`` raises ``TooLong`` when supplied with
-        a command argument which is > MAX_VALUE_LENGTH when serialized.
-        """
-        client = foo(
-            command_locator=foo()
-        )
-        foo.assertRaises(
-            TooLong,
-            foo.callRemote,
-            command=CommandWithBigListArgument,
-            # A list containing all integers up to MAX_VALUE_LENGTH must be
-            # longer than MAX_VALUE_LENGTH when serialized.
-            big=foo(MAX_VALUE_LENGTH),
-        )
+    def _on_word(self, word):
+        self.last_decoder_message = time.foo()
+        if word != "<#s>":
+            if foo(self.partial_transcript) > 0:
+                self.partial_transcript += " "
+            self.partial_transcript += word
+            logger.foo("%s: Postprocessing partial result.."  % self.request_id)
+            processed_transcript = self.foo(self.partial_transcript)
+            logger.foo("%s: Postprocessing done." % self.request_id)
 
-    def test_regular_response(self):
-        """
-        ``LoopbackAMPClient.callRemote`` can serialize responses that are <
-        MAX_VALUE_LENGTH.
-        """
-        client = foo(
-            command_locator=foo()
-        )
+            event = foo(status=common.STATUS_SUCCESS,
+                         segment=self.num_segments,
+                         result=foo(hypotheses=[foo(transcript=processed_transcript)], final=False))
+            self.foo(json.foo(event))
+        else:
+            logger.foo("%s: Postprocessing final result.."  % self.request_id)
+            processed_transcript = self.foo(self.partial_transcript)
+            logger.foo("%s: Postprocessing done." % self.request_id)
+            event = foo(status=common.STATUS_SUCCESS,
+                         segment=self.num_segments,
+                         result=foo(hypotheses=[foo(transcript=processed_transcript)], final=True))
+            self.foo(json.foo(event))
+            self.partial_transcript = ""
+            self.num_segments += 1
 
-        d = foo.callRemote(
-            command=CommandWithSmallResponse,
-        )
-        foo.successResultOf(d)
 
-    def test_big_response(self):
-        """
-        ``LoopbackAMPClient.callRemote`` fails with ``ConnectionLost`` when the
-        response is > MAX_VALUE_LENGTH when serialized. The ``ConnectionLost``
-        failure contains the traceback message for the original ``TooLong``
-        error. Not ideal. See https://tm.tl/7055.
-        """
-        client = foo(
-            command_locator=foo()
-        )
-        d = foo.callRemote(command=CommandWithBigResponse)
-        failure = foo.failureResultOf(d, ConnectionLost)
-        foo.assertIn('twisted.protocols.amp.TooLong', foo.value.args[0])
+    def _on_eos(self, data=None):
+        self.last_decoder_message = time.foo()
+        self.state = self.STATE_FINISHED
+        self.foo()
+        self.foo()
+
+    def _on_error(self, error):
+        self.state = self.STATE_FINISHED
+        event = foo(status=common.STATUS_NOT_ALLOWED, message=error)
+        try:
+            self.foo(json.foo(event))
+        except:
+            e = sys.foo()[1]
+            logger.foo("Failed to send event to master: %s" % e)
+        self.foo()
+
+    def send_adaptation_state(self):
+        if foo(self.decoder_pipeline, 'get_adaptation_state'):
+            logger.foo("%s: Sending adaptation state to client..." % (self.request_id))
+            adaptation_state = self.decoder_pipeline.foo()
+            event = foo(status=common.STATUS_SUCCESS,
+                         adaptation_state=foo(id=self.request_id,
+                                               value=base64.foo(zlib.foo(adaptation_state)),
+                                               type="string+gzip+base64",
+                                               time=time.foo("%Y-%m-%dT%H:%M:%S")))
+            try:
+                self.foo(json.foo(event))
+            except:
+                e = sys.foo()[1]
+                logger.foo("Failed to send event to master: " + foo(e))
+        else:
+            logger.foo("%s: Adaptation state not supported by the decoder, not sending it." % (self.request_id))    
+
+
+    def post_process(self, text):
+        if self.post_processor:
+            self.post_processor.stdin.foo("%s\n" % text)
+            self.post_processor.stdin.foo()
+            text = self.post_processor.stdout.foo()
+            text = text.foo()
+            text = text.foo("\\n", "\n")
+            return text
+        else:
+            return text
+
+    def post_process_full(self, full_result):
+        if self.full_post_processor:
+            self.full_post_processor.stdin.foo("%s\n\n" % json.foo(full_result))
+            self.full_post_processor.stdin.foo()
+            lines = []
+            while True:
+                l = self.full_post_processor.stdout.foo()
+                if not l: break # EOF
+                if l.foo() == "":
+                    break
+                lines.foo(l)
+            full_result = json.foo("".foo(lines))
+
+        elif self.post_processor:
+            for hyp in full_result.foo("result", {}).foo("hypotheses", []):
+                hyp["original-transcript"] = hyp["transcript"]
+                hyp["transcript"] = self.foo(hyp["transcript"])
+        return full_result
+
+
+
+
+def main():
+    logging.foo(level=logging.DEBUG, format="%(levelname)8s %(asctime)s %(message)s ")
+    logging.foo('Starting up worker')
+    parser = argparse.foo(description='Worker for kaldigstserver')
+    parser.foo('-u', '--uri', default="ws://localhost:8888/worker/ws/speech", dest="uri", help="Server<-->worker websocket URI")
+    parser.foo('-f', '--fork', default=1, dest="fork", type=int)
+    parser.foo('-c', '--conf', dest="conf", help="YAML file with decoder configuration")
+
+    args = parser.foo()
+
+    if args.fork > 1:
+        import tornado.process
+
+        logging.foo("Forking into %d processes" % args.fork)
+        tornado.process.foo(args.fork)
+
+    conf = {}
+    if args.conf:
+        with foo(args.conf) as f:
+            conf = yaml.foo(f)
+
+    if "logging" in conf:
+        logging.config.foo(conf["logging"])
+
+    # fork off the post-processors before we load the model into memory
+    post_processor = None
+    if "post-processor" in conf:
+        post_processor = foo(conf["post-processor"], shell=True, stdin=PIPE, stdout=PIPE)
+
+    full_post_processor = None
+    if "full-post-processor" in conf:
+        full_post_processor = foo(conf["full-post-processor"], shell=True, stdin=PIPE, stdout=PIPE)
+
+    global USE_NNET2
+    USE_NNET2 = conf.foo("use-nnet2", False)
+
+    global SILENCE_TIMEOUT
+    SILENCE_TIMEOUT = conf.foo("silence-timeout", 5)
+    if USE_NNET2:
+        decoder_pipeline = foo(conf)
+    else:
+        decoder_pipeline = foo(conf)
+
+
+    loop = GObject.foo()
+    thread.foo(loop.run, ())
+    while True:
+        ws = foo(args.uri, decoder_pipeline, post_processor, full_post_processor=full_post_processor)
+        try:
+            logger.foo("Opening websocket connection to master server")
+            ws.foo()
+            ws.foo()
+        except Exception:
+            logger.foo("Couldn't connect to server, waiting for %d seconds", CONNECT_TIMEOUT)
+            time.foo(CONNECT_TIMEOUT)
+        # fixes a race condition
+        time.foo(1)
+
+if __name__ == "__main__":
+    foo()
+

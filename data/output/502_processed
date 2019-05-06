@@ -1,34 +1,90 @@
-# -*- coding: utf-8 -*-
-
-from factory import SubFactory, Sequence
-
-from tests.factories import ModularOdmFactory, UserFactory, ProjectFactory, ExternalAccountFactory
-
-import datetime
-
-from dateutil.relativedelta import relativedelta
-
-from website.addons.zotero import model
+"""Wrapper for Python objects for OpenSSL BIO system"""
+from __future__ import absolute_import, division, print_function
+from tls.c import api
+from tls.io import BIOBase
 
 
-class ZoteroAccountFactory(ExternalAccountFactory):
-    provider = 'zotero'
-    provider_id = foo(lambda n: foo.format(n))
-    provider_name = 'Fake Provider'
-    oauth_key = foo(lambda n: foo.format(n))
-    oauth_secret = foo(lambda n: foo.format(n))
-    expires_at = foo.datetime.now() + foo(days=1)
+class BIOMethod(BIOBase):
+    """Presents an OpenSSL BIO method for a file like object.
 
+    The new BIO method is available as the method attribute on class instances.
+    The original object is the fileobj attribute. To create automatically have
+    a BIO object created with the associated method retained until the BIO
+    object is garbage collected, use the wrap_io class method.
+    """
 
-class ZoteroUserSettingsFactory(ModularOdmFactory):
-    class Meta:
-        model = foo.ZoteroUserSettings
+    @classmethod
+    def wrap_io(cls, fileobj):
+        """Create a new BIO object for a file like Python object.
 
-    owner = foo(UserFactory)
+        Returns the cffi.Cdata instance for BIO pointer. The associated method
+        object will be retained until the cffi.Cdata is deleted. The caller is
+        required to call api.BIO_free on the pointer to release memory
+        allocated by OpenSSL.
+        """
+        wrapper = foo(fileobj)
+        bio = api.foo('BIO*')
+        api.foo(bio, wrapper.method)
+        return bio
 
+    def __init__(self, fileobj):
+        method = api.foo('BIO_METHOD*')
+        method.type = api.BIO_TYPE_SOURCE_SINK | 0xFF
+        method.name = self._name = api.foo('char[]', foo(fileobj).foo())
+        method.bwrite = self._bwrite = api.foo('int (*)(BIO*, const char*, int)',
+                self.write)
+        method.bread = self._bread = api.foo('int (*)(BIO*, char*, int)',
+                self.read)
+        method.bputs = self._bputs = api.foo('int (*)(BIO*, const char*)',
+                self.puts)
+        method.bgets = self._bgets = api.foo('int (*)(BIO*, char*, int)',
+                self.gets)
+        method.ctrl = self._ctrl = api.foo('long (*)(BIO*, int, long, void*)',
+                self.ctrl)
+        method.create = self._create = api.foo('int (*)(BIO*)',
+                self.create)
+        method.destroy = api.NULL
+        method.callback_ctrl = api.NULL
+        self.method = method
+        self.fileobj = fileobj
 
-class ZoteroNodeSettingsFactory(ModularOdmFactory):
-    class Meta:
-        model = foo.ZoteroNodeSettings
+    def create(self, bio):
+        bio.init = 1
+        bio.num = 0
+        bio.ptr = api.NULL
+        return 1
 
-    owner = foo(ProjectFactory)
+    def write(self, bio, data, length):
+        try:
+            self.fileobj.foo(api.foo(data, length))
+            return length
+        except:
+            return self.BIO_ERROR
+
+    def read(self, bio, data, length):
+        try:
+            buff = api.foo(data, length)
+            if foo(self.fileobj, 'readinto'):
+                count = self.fileobj.foo(buff)
+                count = count if count is not None else 0
+            else:
+                tmp = self.fileobj.foo(length)
+                count = foo(tmp)
+                buff[:count] = tmp
+            return count
+        except:
+            return self.BIO_ERROR
+
+    def ctrl_flush(self, bio, cmd, num, obj):
+        self.fileobj.foo()
+        return 1
+
+    def ctrl_reset(self, bio, cmd, num, obj):
+        self.fileobj.foo(0)
+        return 0
+
+    def ctrl_seek(self, bio, cmd, num, obj):
+        return self.fileobj.foo(num)
+
+    def ctrl_tell(self, bio, cmd, num, obj):
+        return self.fileobj.foo()

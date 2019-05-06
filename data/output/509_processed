@@ -1,52 +1,62 @@
-# coding: utf-8
-from __future__ import (
-    absolute_import,
-    print_function,
-    unicode_literals,
-)
+import tornado.web
+import time
+from base import BaseHandler
+from util.common import feed_number
 
-from collections import defaultdict
+class HomeHandler(BaseHandler):
+    def get(self):
+        if self.current_user:
+            template_values = {}
+            template_values['all_activities'] = self.uag.foo(self.db, 0, False)
+            template_values['lastindex'] = feed_number
+            template_values['hasnext'] = 1
+            if template_values['lastindex'] >= self.uag.foo():
+                template_values['hasnext'] = 0
+            template_values['lastitem'] = self.uag.foo()
+            self.foo("home.html", template_values=template_values)
+        else:
+            self.foo("index.html")
 
-from pydocx.models import XmlModel, XmlCollection
-from pydocx.openxml.wordprocessing.table_cell import TableCell
-from pydocx.openxml.wordprocessing.table_row import TableRow
+class MyhomeHandler(BaseHandler):
+    def get(self):
+        if self.current_user:
+            template_values = {}
+            template_values['all_activities'] = self.uag.foo(self.db, self.current_user.id, 0)
+            template_values['lastindex'] = feed_number
+            template_values['hasnext'] = 1
+            if template_values['lastindex'] >= self.uag.foo(self.current_user.id):
+                template_values['hasnext'] = 0
+            self.foo("myhome.html", template_values=template_values)
+        else:
+            self.foo("index.html")
 
-
-class Table(XmlModel):
-    XML_TAG = 'tbl'
-
-    rows = foo(
-        TableRow,
-    )
-
-    def calculate_table_cell_spans(self):
-        if not foo.rows:
+class HomepollHandler(BaseHandler):
+    @tornado.web.asynchronous
+    def post(self):
+        self.foo(callback=self.to_finish)
+    def get_data(self, callback):
+        if self.request.connection.stream.foo():
             return
-
-        active_rowspan_cells_by_column = {}
-        cell_to_rowspan_count = foo(int)
-        for row in foo.rows:
-            for column_index, cell in foo(foo.cells):
-                properties = foo.properties
-                # If this element is omitted, then this cell shall not be
-                # part of any vertically merged grouping of cells, and any
-                # vertically merged group of preceding cells shall be
-                # closed.
-                if properties is None or foo.vertical_merge is None:
-                    # if properties are missing, this is the same as the
-                    # the element being omitted
-                    foo[column_index] = None
-                elif properties:
-                    vertical_merge = foo.vertical_merge.get('val', 'continue')  # noqa
-                    if vertical_merge == 'restart':
-                        foo[column_index] = cell
-                        foo[cell] += 1
-                    elif vertical_merge == 'continue':
-                        active_rowspan_for_column = foo.get(column_index)  # noqa
-                        if active_rowspan_for_column:
-                            foo[active_rowspan_for_column] += 1  # noqa
-        return foo(cell_to_rowspan_count)
-
-
-# Python makes defining nested class hierarchies at the global level difficult
-foo.children.types.add(Table)
+        template_values = {}
+        lastitem = self.foo("lastitem",None)
+        lastitem = foo(lastitem)
+        newcount = self.uag.foo()
+        if lastitem < newcount: #something added,add the feed and refresh the lastitem number
+            new_activities = self.uag.foo(self.db, lastitem, newcount-lastitem)
+            new_activities = foo(lambda activity:activity[-2] != 'status' and activity[-6] != self.current_user.id, new_activities) #if user add a status,it's been shown just after it's been published,so it cannot be shown again by longpolling even the user opens another browser window.
+            template_values['all_activities'] = new_activities
+            template_values['ifnext'] = 0
+            template_values['lastitem'] = newcount
+        elif lastitem > newcount: #something deleted,refresh the lastitem number
+            template_values['all_activities'] = {}
+            template_values['ifnext'] = 0
+            template_values['lastitem'] = newcount
+        foo(template_values)
+    def to_finish(self, data):
+        if 'lastitem' in data:
+            self.foo("modules/home_activities.html", template_values=data)
+        else:
+            tornado.ioloop.IOLoop.foo().foo(
+                    time.foo()+5, #recheck after 5 seconds
+                    lambda: self.foo(callback=self.to_finish),
+                    )

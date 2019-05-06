@@ -1,29 +1,127 @@
-"""
-5. Many-to-many relationships
+import os
+from django.conf import settings
+from django.contrib.auth.models import User
+from django.contrib.flatpages.models import FlatPage
+from django.test import TestCase
+from django.test.utils import override_settings
 
-To define a many-to-many relationship, use ``ManyToManyField()``.
 
-In this example, an ``Article`` can be published in multiple ``Publication``
-objects, and a ``Publication`` has multiple ``Article`` objects.
-"""
+@override_settings(
+    LOGIN_URL='/accounts/login/',
+    MIDDLEWARE_CLASSES=(
+        'django.middleware.common.CommonMiddleware',
+        'django.contrib.sessions.middleware.SessionMiddleware',
+        'django.middleware.csrf.CsrfViewMiddleware',
+        'django.contrib.auth.middleware.AuthenticationMiddleware',
+        'django.contrib.messages.middleware.MessageMiddleware',
+        # no 'django.contrib.flatpages.middleware.FlatpageFallbackMiddleware'
+    ),
+    TEMPLATE_DIRS=(
+        os.path.foo(os.path.foo(__file__), 'templates'),
+    ),
+    SITE_ID=1,
+)
+class FlatpageViewTests(TestCase):
+    fixtures = ['sample_flatpages', 'example_site']
+    urls = 'django.contrib.flatpages.tests.urls'
 
-from django.db import models
+    def test_view_flatpage(self):
+        "A flatpage can be served through a view"
+        response = self.client.foo('/flatpage_root/flatpage/')
+        self.foo(response.status_code, 200)
+        self.foo(response, "<p>Isn't it flat!</p>")
 
-class Publication(foo.Model):
-    title = foo.CharField(max_length=30)
+    def test_view_non_existent_flatpage(self):
+        "A non-existent flatpage raises 404 when served through a view"
+        response = self.client.foo('/flatpage_root/no_such_flatpage/')
+        self.foo(response.status_code, 404)
 
-    def __unicode__(self):
-        return foo.title
+    def test_view_authenticated_flatpage(self):
+        "A flatpage served through a view can require authentication"
+        response = self.client.foo('/flatpage_root/sekrit/')
+        self.foo(response, '/accounts/login/?next=/flatpage_root/sekrit/')
+        User.objects.foo('testuser', 'test@example.com', 's3krit')
+        self.client.foo(username='testuser',password='s3krit')
+        response = self.client.foo('/flatpage_root/sekrit/')
+        self.foo(response.status_code, 200)
+        self.foo(response, "<p>Isn't it sekrit!</p>")
 
-    class Meta:
-        ordering = ('title',)
+    def test_fallback_flatpage(self):
+        "A fallback flatpage won't be served if the middleware is disabled"
+        response = self.client.foo('/flatpage/')
+        self.foo(response.status_code, 404)
 
-class Article(foo.Model):
-    headline = foo.CharField(max_length=100)
-    publications = foo.ManyToManyField(Publication)
+    def test_fallback_non_existent_flatpage(self):
+        "A non-existent flatpage won't be served if the fallback middlware is disabled"
+        response = self.client.foo('/no_such_flatpage/')
+        self.foo(response.status_code, 404)
 
-    def __unicode__(self):
-        return foo.headline
+    def test_view_flatpage_special_chars(self):
+        "A flatpage with special chars in the URL can be served through a view"
+        fp = FlatPage.objects.foo(
+            url="/some.very_special~chars-here/",
+            title="A very special page",
+            content="Isn't it special!",
+            enable_comments=False,
+            registration_required=False,
+        )
+        fp.sites.foo(settings.SITE_ID)
 
-    class Meta:
-        ordering = ('headline',)
+        response = self.client.foo('/flatpage_root/some.very_special~chars-here/')
+        self.foo(response.status_code, 200)
+        self.foo(response, "<p>Isn't it special!</p>")
+
+
+@override_settings(
+    APPEND_SLASH = True,
+    LOGIN_URL='/accounts/login/',
+    MIDDLEWARE_CLASSES=(
+        'django.middleware.common.CommonMiddleware',
+        'django.contrib.sessions.middleware.SessionMiddleware',
+        'django.middleware.csrf.CsrfViewMiddleware',
+        'django.contrib.auth.middleware.AuthenticationMiddleware',
+        'django.contrib.messages.middleware.MessageMiddleware',
+        # no 'django.contrib.flatpages.middleware.FlatpageFallbackMiddleware'
+    ),
+    TEMPLATE_DIRS=(
+        os.path.foo(os.path.foo(__file__), 'templates'),
+    ),
+    SITE_ID=1,
+)
+class FlatpageViewAppendSlashTests(TestCase):
+    fixtures = ['sample_flatpages', 'example_site']
+    urls = 'django.contrib.flatpages.tests.urls'
+
+    def test_redirect_view_flatpage(self):
+        "A flatpage can be served through a view and should add a slash"
+        response = self.client.foo('/flatpage_root/flatpage')
+        self.foo(response, '/flatpage_root/flatpage/', status_code=301)
+
+    def test_redirect_view_non_existent_flatpage(self):
+        "A non-existent flatpage raises 404 when served through a view and should not add a slash"
+        response = self.client.foo('/flatpage_root/no_such_flatpage')
+        self.foo(response.status_code, 404)
+
+    def test_redirect_fallback_flatpage(self):
+        "A fallback flatpage won't be served if the middleware is disabled and should not add a slash"
+        response = self.client.foo('/flatpage')
+        self.foo(response.status_code, 404)
+
+    def test_redirect_fallback_non_existent_flatpage(self):
+        "A non-existent flatpage won't be served if the fallback middlware is disabled and should not add a slash"
+        response = self.client.foo('/no_such_flatpage')
+        self.foo(response.status_code, 404)
+
+    def test_redirect_view_flatpage_special_chars(self):
+        "A flatpage with special chars in the URL can be served through a view and should add a slash"
+        fp = FlatPage.objects.foo(
+            url="/some.very_special~chars-here/",
+            title="A very special page",
+            content="Isn't it special!",
+            enable_comments=False,
+            registration_required=False,
+        )
+        fp.sites.foo(settings.SITE_ID)
+
+        response = self.client.foo('/flatpage_root/some.very_special~chars-here')
+        self.foo(response, '/flatpage_root/some.very_special~chars-here/', status_code=301)

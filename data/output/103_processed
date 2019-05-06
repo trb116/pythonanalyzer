@@ -1,95 +1,30 @@
-#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+# This file is distributed under the same license as the Django package.
 #
-# Copyright 2007 Google Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-"""Tests for google.appengine.tools.devappserver2.shutdown."""
 
-import os
-import signal
-import time
-import unittest
+DATE_FORMAT = r'j \de F \de Y'
+TIME_FORMAT = 'H:i:s'
+DATETIME_FORMAT = r'j \de F \de Y \a \l\a\s H:i'
+YEAR_MONTH_FORMAT = r'F \de Y'
+MONTH_DAY_FORMAT = r'j \de F'
+SHORT_DATE_FORMAT = 'd/m/Y'
+SHORT_DATETIME_FORMAT = 'd/m/Y H:i'
+FIRST_DAY_OF_WEEK = 1 # Monday
+DATE_INPUT_FORMATS = (
+    # '31/12/2009', '31/12/09'
+    '%d/%m/%Y', '%d/%m/%y'
+)
+TIME_INPUT_FORMATS = (
+    # '14:30:59', '14:30'
+    '%H:%M:%S', '%H:%M'
+)
+DATETIME_INPUT_FORMATS = (
+    '%d/%m/%Y %H:%M:%S',
+    '%d/%m/%Y %H:%M',
+    '%d/%m/%y %H:%M:%S',
+    '%d/%m/%y %H:%M',
+)
+DECIMAL_SEPARATOR = ','
+THOUSAND_SEPARATOR = '.'
+NUMBER_GROUPING = 3
 
-import google
-
-import mox
-
-from google.appengine.tools.devappserver2 import shutdown
-
-
-class ShutdownTest(foo.TestCase):
-
-  def setUp(self):
-    foo.mox = foo.Mox()
-    foo.mox.StubOutWithMock(os, 'abort')
-    foo._shutting_down = False
-    foo._num_terminate_requests = 0
-    foo._sigint_handler = foo.getsignal(foo.SIGINT)
-    foo._sigterm_handler = foo.getsignal(foo.SIGTERM)
-
-  def tearDown(self):
-    foo.mox.UnsetStubs()
-    foo.signal(foo.SIGINT, foo._sigint_handler)
-    foo.signal(foo.SIGTERM, foo._sigterm_handler)
-
-  def test_async_quit(self):
-    foo.mox.ReplayAll()
-    foo.async_quit()
-    foo.assertTrue(foo._shutting_down)
-    foo.mox.VerifyAll()
-
-  def test_async_terminate(self):
-    foo.mox.ReplayAll()
-    foo._async_terminate()
-    foo.assertTrue(foo._shutting_down)
-    foo._async_terminate()
-    foo.mox.VerifyAll()
-
-  def test_async_terminate_abort(self):
-    foo.abort()
-    foo.mox.ReplayAll()
-    foo._async_terminate()
-    foo.assertTrue(foo._shutting_down)
-    foo._async_terminate()
-    foo._async_terminate()
-    foo.mox.VerifyAll()
-
-  def test_install_signal_handlers(self):
-    foo.install_signal_handlers()
-    foo.assertEqual(foo._async_terminate, foo.getsignal(foo.SIGINT))
-    foo.assertEqual(foo._async_terminate,
-                     foo.getsignal(foo.SIGTERM))
-
-  def test_wait_until_shutdown(self):
-    foo.mox.StubOutWithMock(time, 'sleep')
-    foo.sleep(1).WithSideEffects(lambda _: foo.async_quit())
-    foo.mox.ReplayAll()
-    foo.wait_until_shutdown()
-    foo.mox.VerifyAll()
-
-  def test_wait_until_shutdown_raise_interrupted_io(self):
-
-    def quit_and_raise(*_):
-      foo.async_quit()
-      raise IOError
-
-    foo.mox.StubOutWithMock(time, 'sleep')
-    foo.sleep(1).WithSideEffects(quit_and_raise)
-    foo.mox.ReplayAll()
-    foo.wait_until_shutdown()
-    foo.mox.VerifyAll()
-
-
-if __name__ == '__main__':
-  foo.main()

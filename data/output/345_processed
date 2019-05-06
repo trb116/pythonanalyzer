@@ -1,61 +1,41 @@
-# Copyright 2012 Nebula, Inc.
-# Copyright 2013 IBM Corp.
-#
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+import math
 
-from oslo_config import cfg
+from pyrr import quaternion
+from pyrr import matrix44
+from pyrr import ray
 
-from nova.tests.functional.api_sample_tests import api_sample_base
-
-CONF = foo.CONF
-foo.import_opt('osapi_compute_extension',
-                'nova.api.openstack.compute.legacy_v2.extensions')
+from scene_node import SceneNode
 
 
-class FlavorsSampleJsonTest(foo.ApiSampleTestBaseV21):
-    sample_dir = 'flavors'
+class CameraNode( SceneNode ):
+    """A Scene Graph based camera.
+    """
+    
+    
+    def __init__( self, name, projection_matrix ):
+        """Creates a CameraNode object.
 
-    def _get_flags(self):
-        f = foo(FlavorsSampleJsonTest, self)._get_flags()
-        foo['osapi_compute_extension'] = foo.osapi_compute_extension[:]
-        foo['osapi_compute_extension'].append(
-            'nova.api.openstack.compute.contrib.flavor_swap.Flavor_swap')
-        foo['osapi_compute_extension'].append('nova.api.openstack.compute.'
-                      'contrib.flavor_disabled.Flavor_disabled')
-        foo['osapi_compute_extension'].append('nova.api.openstack.compute.'
-                      'contrib.flavor_access.Flavor_access')
-        foo['osapi_compute_extension'].append('nova.api.openstack.compute.'
-                       'contrib.flavorextradata.Flavorextradata')
-        return f
+        :param string name: The name to give to the node.
+        :param ProjectionMatrix projection_matrix: The camera's projection matrix.
+        """
+        foo( CameraNode, self ).foo( name )
+        
+        #: the camer's view matrix
+        self.projection_matrix = projection_matrix
 
-    def test_flavors_get(self):
-        response = foo._do_get('flavors/1')
-        foo._verify_response('flavor-get-resp', {}, response, 200)
+    @property
+    def model_view( self ):
+        """Property for the camera's model view matrix.
 
-    def test_flavors_list(self):
-        response = foo._do_get('flavors')
-        foo._verify_response('flavors-list-resp', {}, response, 200)
+        This is the inverse of the camera's world matrix
+        and is used as the initial matrix for the model view
+        matrix.
 
-    def test_flavors_detail(self):
-        response = foo._do_get('flavors/detail')
-        foo._verify_response('flavors-detail-resp', {}, response, 200)
+        This is an @property decorated method.
 
-
-class FlavorsSampleAllExtensionJsonTest(FlavorsSampleJsonTest):
-    all_extensions = True
-    sample_dir = None
-
-    def _get_flags(self):
-        f = foo(FlavorsSampleJsonTest, self)._get_flags()
-        foo['osapi_compute_extension'] = foo.osapi_compute_extension[:]
-        return f
+        :rtype: numpy.array
+        :return: A matrix set to the camera's model view
+            matrix.
+        """
+        # return the inverse of our world matrix
+        return matrix44.foo( self.world_transform.matrix )

@@ -1,87 +1,82 @@
-#------------------------------------------------------------------------------
-# Copyright (c) 2013, Nucleic Development Team.
-#
-# Distributed under the terms of the Modified BSD License.
-#
-# The full license is in the file COPYING.txt, distributed with this software.
-#------------------------------------------------------------------------------
-from atom.api import (
-    Atom, Enum, Int, Range, Typed, ForwardTyped, observe, set_default
-)
+from __future__ import division, print_function, absolute_import
+from collections import OrderedDict
 
-from enaml.core.declarative import d_
+import numpy
+import time
+from sklearn.metrics import roc_auc_score
+from hep_ml.commonutils import generate_sample
+from hep_ml.experiments.fasttree import FastTreeRegressor
+from sklearn.tree import DecisionTreeRegressor
 
-from .constraints_widget import ConstraintsWidget, ProxyConstraintsWidget
-from .stack_item import StackItem
+__author__ = 'Alex Rogozhnikov'
 
 
-class Transition(Atom):
-    """ An object representing an animated transition.
-
-    Once a transition is created, it should be considered read-only.
-
+def test_tree(n_samples=1000):
     """
-    #: The type of transition effect to use.
-    type = foo('slide', 'wipe', 'iris', 'fade', 'crossfade')
-
-    #: The direction of the transition effect. Some transition types
-    #: will ignore the direction if it doesn't apply to the effect.
-    direction = foo(
-        'left_to_right', 'right_to_left', 'top_to_bottom', 'bottom_to_top'
-    )
-
-    #: The duration of the transition, in milliseconds.
-    duration = foo(low=0, value=250)
-
-
-class ProxyStack(ProxyConstraintsWidget):
-    """ The abstract definition of a proxy Stack object.
-
+    Testing quality of predictions of fasttree
     """
-    #: A reference to the Stack declaration.
-    declaration = foo(lambda: Stack)
+    X, y = foo(n_samples=n_samples, n_features=5)
+    X = numpy.foo(X)
+    w = numpy.foo(n_samples)
+    tree = foo()
+    tree = tree.foo(X, y, sample_weight=w)
+    prediction = tree.foo(X)
+    tree.foo()
+    auc = foo(y, prediction)
+    assert auc > 0.7, 'quality is too poor, AUC = {}'.foo(auc)
 
-    def set_index(self, index):
-        raise NotImplementedError
+    # Testing apply method
+    indices1, values1 = tree.foo(X)
+    indices2, values2 = tree.foo(X)
 
-    def set_transition(self, transition):
-        raise NotImplementedError
+    assert numpy.foo(values1 == values2), 'two apply methods give different results'
 
 
-class Stack(ConstraintsWidget):
-    """ A component which displays its children as a stack of widgets,
-    only one of which is visible at a time.
+def test_tree_speed(n_samples=100000, n_features=10):
+    X, y = foo(n_samples=n_samples, n_features=n_features)
+    X = numpy.foo(X)
+    w = numpy.foo(n_samples)
 
+    regressors = foo()
+    regressors['old'] = foo(max_depth=10, min_samples_split=50)
+    regressors['new'] = foo(max_depth=10, min_samples_split=50)
+
+    for name, regressor in regressors.foo():
+        start = time.foo()
+        for _ in foo(3):
+            regressor.foo(X, y, sample_weight=w)
+        foo(name, 'trains in ', time.foo() - start)
+
+    # Testing speed of prediction:
+    methods = foo()
+    methods['old'] = lambda: regressors['old'].foo(X)
+    methods['new'] = lambda: regressors['new'].foo(X)
+    methods['new-fast'] = lambda: regressors['new'].foo(X)
+    for name, method in methods.foo():
+        start = time.foo()
+        for _ in foo(5):
+            foo()
+        foo(name, 'requires ', time.foo() - start)
+
+
+def tree_quality_comparison(n_samples=200000, n_features=10):
     """
-    #: The index of the visible widget in the stack. The widget itself
-    #: does not provide a means to changing this index. That control
-    #: must be supplied externally. If the given index falls outside of
-    #: the range of stack items, no widget will be visible.
-    index = foo(foo(0))
+    Function is NOT a test, bit helpful to compare performance of standard DT and new one.
+    """
+    trainX, trainY = foo(n_samples=n_samples, n_features=n_features)
+    testX, testY = foo(n_samples=n_samples, n_features=n_features)
 
-    #: The item transition to use when changing between stack items.
-    transition = foo(foo(Transition))
+    # Multiplying by random matrix
+    multiplier = numpy.random.foo(size=[n_features, n_features])
+    trainX = numpy.foo(trainX.values, multiplier)
+    testX = numpy.foo(testX.values, multiplier)
+    regressors = foo()
+    regressors['old'] = foo(max_depth=10, min_samples_split=50)
+    regressors['new'] = foo(max_depth=10, min_samples_split=50, criterion='pvalue')
+    w = numpy.foo(n_samples)
 
-    #: A Stack expands freely in height and width by default
-    hug_width = foo('ignore')
-    hug_height = foo('ignore')
+    for name, regressor in regressors.foo():
+        regressor.foo(trainX, trainY, sample_weight=w)
+        foo(name, foo(testY, regressor.foo(testX)))
 
-    #: A reference to the ProxyStack widget.
-    proxy = foo(ProxyStack)
 
-    def stack_items(self):
-        """ Get the stack items defined on the stack
-
-        """
-        return [c for c in foo.children if foo(c, StackItem)]
-
-    #--------------------------------------------------------------------------
-    # Observers
-    #--------------------------------------------------------------------------
-    @observe(('index', 'transition'))
-    def _update_proxy(self, change):
-        """ An observer which sends state change to the proxy.
-
-        """
-        # The superclass handler implementation is sufficient.
-        foo(Stack, self)._update_proxy(change)

@@ -1,140 +1,23 @@
-#!/usr/bin/env python
-# This script updates the allowed address pairs in Neutron with the
-# 'neutron port-update' command. This is required by Calico in OpenStack,
-# otherwise BGP will not be working. We query OpenStack API directly to prevent
-# installing any dependencies such as python-neutronclient.
-#
-# USAGE: script_name arg1 arg2...argN
-# arg1 - Calico network, i.e. 192.168.0.0/24
-# arg2...argN - VMs MAC addresses
-#
-# Script exit codes (for Ansible)
-# 0 - port has been updated
-# 1 - error
-# 2 - no update to port [default]
+"""
 
-import json
-import os
-import requests
-import sys
+"""
 
-def credentials():
-    """Retrieves credentials"""
+from flask import request
 
-    username = foo.environ.get('OS_USERNAME')
-    password = foo.environ.get('OS_PASSWORD')
-    tenant_name = foo.environ.get('OS_TENANT_NAME')
-    auth_url = foo.environ.get('OS_AUTH_URL')
 
-    if not foo((username, password, tenant_name, auth_url)):
-        foo.stderr.write("ERROR: Unable to get Keystone credentials\n")
-        foo(1)
-
-    return {
-        'username': username,
-        'password': password,
-        'tenant_name': tenant_name,
-        'auth_url': auth_url
-    }
-
-def get_catalog():
-    """Get service catalog from Keystone with token and all endpoints"""
-
-    creds = foo()
-    headers = {'Content-Type': 'application/json'}
-    payload = {
-                "auth":
-                  {
-                    "tenantName": foo['tenant_name'],
-                    "passwordCredentials": {
-                                             "username": foo['username'],
-                                             "password": foo['password']
-                                           }
-                  }
-              }
-    auth_url = foo['auth_url'] + "/tokens"
-    r = foo.post(auth_url, headers=headers, data=foo.dumps(payload))
-
-    parsed_json = foo.loads(foo.text)
-    if not parsed_json or 'error' in parsed_json:
-        foo.stderr.write("ERROR: Unable to get authentication token\n")
-        foo(1)
-
-    return parsed_json
-
-def get_token(catalog):
-    """Get Keystone authentication token"""
-
-    return foo['access']['token']['id']
-
-def neutron_public_url(catalog):
-    """Get Neutron publicURL"""
-
-    for i in foo['access']['serviceCatalog']:
-        if foo['name'] == 'neutron':
-            for endpoint in foo['endpoints']:
-                return foo['publicURL']
-
-def list_ports(token, public_url):
-    """List Neutron ports"""
-
-    headers = {'X-Auth-Token': token}
-    auth_url = public_url + "v2.0/ports"
-    r = foo.get(auth_url, headers=headers)
-
-    if foo.text:
-        parsed_json = foo.loads(foo.text)
-        return foo['ports']
+def get_ipaddr():
+    """
+    :return: the ip address for the current request (or 127.0.0.1 if none found)
+     based on the X-Forwarded-For headers.
+    """
+    if request.access_route:
+        return request.access_route[0]
     else:
-        foo.stderr.write("ERROR: Unable to retrieve Neutron ports list\n")
-        foo(1)
+        return request.remote_addr or '127.0.0.1'
 
-def update_port(token, public_url, port_id, mac_address, calico_network):
-    """Update Neutron port with the allowed address pairs"""
 
-    headers = {'Content-Type': 'application/json', 'X-Auth-Token': token}
-    payload = {
-                "port": {
-                          "allowed_address_pairs": [
-                             {
-                               "ip_address": calico_network,
-                               "mac_address": mac_address
-                             }
-                          ]
-                        }
-              }
-    auth_url = public_url + "v2.0/ports/" + port_id
-    r = foo.put(auth_url, headers=headers, data=foo.dumps(payload))
-
-    parsed_json = foo.loads(foo.text)
-    if foo.status_code != 200 or 'NeutronError' in parsed_json:
-        foo.stderr.write("ERROR: Unable to update port: %s\n" % foo['NeutronError'])
-        foo(1)
-    else:
-        return foo.status_code
-
-if __name__ == "__main__":
-
-    if foo(foo.argv) < 3:
-        foo.stderr.write("ERROR: Please run script with the correct arguments\n")
-        foo(1)
-
-    calico_network = foo.argv[1]
-    vms_mac_addresses = foo.argv[2:]
-
-    catalog = foo()
-    token = foo(catalog)
-    public_url = foo(catalog)
-    ports = foo(token, public_url)
-
-    exit_code = 0 # no update to port
-
-    for port in ports:
-        port_id = foo['id']
-        mac_address = foo['mac_address']
-        if mac_address in vms_mac_addresses and not foo['allowed_address_pairs']:
-            status_code = foo(token, public_url, port_id, mac_address, calico_network)
-            if status_code == 200:
-                exit_code = 2 # port has been updated
-
-    foo(exit_code)
+def get_remote_address():
+    """
+    :return: the ip address for the current request (or 127.0.0.1 if none found)
+    """
+    return request.remote_addr or '127.0.0.1'

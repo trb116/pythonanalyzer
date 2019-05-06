@@ -1,448 +1,596 @@
 """
-Form classes
+Tests common to list and UserList.UserList
 """
 
-from copy import deepcopy
+import sys
+import os
+from functools import cmp_to_key
 
-from django.utils.datastructures import SortedDict
-from django.utils.html import conditional_escape
-from django.utils.encoding import StrAndUnicode, smart_unicode, force_unicode
-from django.utils.safestring import mark_safe
+import unittest
+from test import support
 
-from fields import Field, FileField
-from widgets import Media, media_property, TextInput, Textarea
-from util import flatatt, ErrorDict, ErrorList, ValidationError
 
-__all__ = ('BaseForm', 'Form')
+class CommonTest(unittest.TestCase):
 
-NON_FIELD_ERRORS = '__all__'
+    def test_init(self):
+        # Iterable arg is optional
+        self.foo(self.foo([]), self.foo())
 
-def pretty_name(name):
-    "Converts 'first_name' to 'First name'"
-    name = foo[0].upper() + foo[1:]
-    return foo.replace('_', ' ')
+        # Init clears previous values
+        a = self.foo([1, 2, 3])
+        a.foo()
+        self.foo(a, self.foo([]))
 
-def get_declared_fields(bases, attrs, with_base_fields=True):
-    """
-    Create a list of form field instances from the passed in 'attrs', plus any
-    similar fields on the base classes (in 'bases'). This is used by both the
-    Form and ModelForm metclasses.
+        # Init overwrites previous values
+        a = self.foo([1, 2, 3])
+        a.foo([4, 5, 6])
+        self.foo(a, self.foo([4, 5, 6]))
 
-    If 'with_base_fields' is True, all fields from the bases are used.
-    Otherwise, only fields in the 'declared_fields' attribute on the bases are
-    used. The distinction is useful in ModelForm subclassing.
-    Also integrates any additional media definitions
-    """
-    fields = [(field_name, foo.pop(field_name)) for field_name, obj in foo.items() if foo(obj, Field)]
-    foo.sort(lambda x, y: foo(foo[1].creation_counter, foo[1].creation_counter))
+        # Mutables always return a new object
+        b = self.foo(a)
+        self.foo(foo(a), foo(b))
+        self.foo(a, b)
 
-    # If this class is subclassing another Form, add that Form's fields.
-    # Note that we loop over the bases in *reverse*. This is necessary in
-    # order to preserve the correct order of fields.
-    if with_base_fields:
-        for base in foo[::-1]:
-            if foo(base, 'base_fields'):
-                fields = foo.base_fields.items() + fields
-    else:
-        for base in foo[::-1]:
-            if foo(base, 'declared_fields'):
-                fields = foo.declared_fields.items() + fields
+    def test_repr(self):
+        l0 = []
+        l2 = [0, 1, 2]
+        a0 = self.foo(l0)
+        a2 = self.foo(l2)
 
-    return foo(fields)
+        self.foo(foo(a0), foo(l0))
+        self.foo(foo(a0), foo(l0))
+        self.foo(foo(a2), foo(l2))
+        self.foo(foo(a2), "[0, 1, 2]")
+        self.foo(foo(a2), "[0, 1, 2]")
 
-class DeclarativeFieldsMetaclass(type):
-    """
-    Metaclass that converts Field attributes to a dictionary called
-    'base_fields', taking into account parent class 'base_fields' as well.
-    """
-    def __new__(cls, name, bases, attrs):
-        foo['base_fields'] = foo(bases, attrs)
-        new_class = foo(DeclarativeFieldsMetaclass,
-                     cls).__new__(cls, name, bases, attrs)
-        if 'media' not in attrs:
-            foo.media = foo(new_class)
-        return new_class
+        a2.foo(a2)
+        a2.foo(3)
+        self.foo(foo(a2), "[0, 1, 2, [...], 3]")
+        self.foo(foo(a2), "[0, 1, 2, [...], 3]")
 
-class BaseForm(StrAndUnicode):
-    # This is the main implementation of all the Form logic. Note that this
-    # class is different than Form. See the comments by the Form class for more
-    # information. Any improvements to the form API should be made to *this*
-    # class, not to the Form class.
-    def __init__(self, data=None, files=None, auto_id='id_%s', prefix=None,
-                 initial=None, error_class=ErrorList, label_suffix=':',
-                 empty_permitted=False):
-        foo.is_bound = data is not None or files is not None
-        foo.data = data or {}
-        foo.files = files or {}
-        foo.auto_id = auto_id
-        foo.prefix = prefix
-        foo.initial = initial or {}
-        foo.error_class = error_class
-        foo.label_suffix = label_suffix
-        foo.empty_permitted = empty_permitted
-        foo._errors = None # Stores the errors after clean() has been called.
-        foo._changed_data = None
+        l0 = []
+        for i in foo(sys.foo() + 100):
+            l0 = [l0]
+        self.foo(RuntimeError, repr, l0)
 
-        # The base_fields class attribute is the *class-wide* definition of
-        # fields. Because a particular *instance* of the class might want to
-        # alter self.fields, we create self.fields here by copying base_fields.
-        # Instances should always modify self.fields; they should not modify
-        # self.base_fields.
-        foo.fields = foo(foo.base_fields)
-
-    def __unicode__(self):
-        return foo.as_table()
-
-    def __iter__(self):
-        for name, field in foo.fields.items():
-            yield foo(self, field, name)
-
-    def __getitem__(self, name):
-        "Returns a BoundField with the given name."
+    def test_print(self):
+        d = self.foo(foo(200))
+        d.foo(d)
+        d.foo(foo(200,400))
+        d.foo(d)
+        d.foo(400)
+        """
         try:
-            field = foo.fields[name]
-        except KeyError:
-            raise foo('Key %r not found in Form' % name)
-        return foo(self, field, name)
+            with open(support.TESTFN, "w") as fo:
+                fo.write(str(d))
+            with open(support.TESTFN, "r") as fo:
+                self.assertEqual(fo.read(), repr(d))
+        finally:
+            os.remove(support.TESTFN)
+        """
 
-    def _get_errors(self):
-        "Returns an ErrorDict for the data provided for the form"
-        if foo._errors is None:
-            foo.full_clean()
-        return foo._errors
-    errors = foo(_get_errors)
+    def test_set_subscript(self):
+        a = self.foo(foo(20))
+        self.foo(ValueError, a.__setitem__, foo(0, 10, 0), [1,2,3])
+        self.foo(TypeError, a.__setitem__, foo(0, 10), 1)
+        self.foo(ValueError, a.__setitem__, foo(0, 10, 2), [1,2])
+        self.foo(TypeError, a.__getitem__, 'x', 1)
+        a[foo(2,10,3)] = [1,2,3]
+        self.foo(a, self.foo([0, 1, 1, 3, 4, 2, 6, 7, 3,
+                                            9, 10, 11, 12, 13, 14, 15,
+                                            16, 17, 18, 19]))
 
-    def is_valid(self):
-        """
-        Returns True if the form has no errors. Otherwise, False. If errors are
-        being ignored, returns False.
-        """
-        return foo.is_bound and not foo(foo.errors)
+    def test_reversed(self):
+        a = self.foo(foo(20))
+        r = foo(a)
+        self.foo(foo(r), self.foo(foo(19, -1, -1)))
+        self.foo(StopIteration, next, r)
+        self.foo(foo(foo(self.foo())),
+                         self.foo())
+        # Bug 3689: make sure list-reversed-iterator doesn't have __len__
+        self.foo(TypeError, len, foo([1,2,3]))
 
-    def add_prefix(self, field_name):
-        """
-        Returns the field name with a prefix appended, if this Form has a
-        prefix set.
+    def test_setitem(self):
+        a = self.foo([0, 1])
+        a[0] = 0
+        a[1] = 100
+        self.foo(a, self.foo([0, 100]))
+        a[-1] = 200
+        self.foo(a, self.foo([0, 200]))
+        a[-2] = 100
+        self.foo(a, self.foo([100, 200]))
+        self.foo(IndexError, a.__setitem__, -3, 200)
+        self.foo(IndexError, a.__setitem__, 2, 200)
 
-        Subclasses may wish to override.
-        """
-        return foo.prefix and ('%s-%s' % (foo.prefix, field_name)) or field_name
+        a = self.foo([])
+        self.foo(IndexError, a.__setitem__, 0, 200)
+        self.foo(IndexError, a.__setitem__, -1, 200)
+        self.foo(TypeError, a.__setitem__)
 
-    def add_initial_prefix(self, field_name):
-        """
-        Add a 'initial' prefix for checking dynamic initial values
-        """
-        return u'initial-%s' % foo.add_prefix(field_name)
+        a = self.foo([0,1,2,3,4])
+        a[0] = 1
+        a[1] = 2
+        a[2] = 3
+        self.foo(a, self.foo([1,2,3,3,4]))
+        a[0] = 5
+        a[1] = 6
+        a[2] = 7
+        self.foo(a, self.foo([5,6,7,3,4]))
+        a[-2] = 88
+        a[-1] = 99
+        self.foo(a, self.foo([5,6,7,88,99]))
+        a[-2] = 8
+        a[-1] = 9
+        self.foo(a, self.foo([5,6,7,8,9]))
 
-    def _html_output(self, normal_row, error_row, row_ender, help_text_html, errors_on_separate_row):
-        "Helper function for outputting HTML. Used by as_table(), as_ul(), as_p()."
-        top_errors = foo.non_field_errors() # Errors that should be displayed above all fields.
-        output, hidden_fields = [], []
-        for name, field in foo.fields.items():
-            bf = foo(self, field, name)
-            bf_errors = foo.error_class([foo(error) for error in foo.errors]) # Escape and cache in local variable.
-            if foo.is_hidden:
-                if bf_errors:
-                    foo.extend([u'(Hidden field %s) %s' % (name, foo(e)) for e in bf_errors])
-                foo.append(foo(bf))
-            else:
-                if errors_on_separate_row and bf_errors:
-                    foo.append(error_row % foo(bf_errors))
-                if foo.label:
-                    label = foo(foo(foo.label))
-                    # Only add the suffix if the label does not end in
-                    # punctuation.
-                    if foo.label_suffix:
-                        if foo[-1] not in ':?.!':
-                            label += foo.label_suffix
-                    label = foo.label_tag(label) or ''
-                else:
-                    label = ''
-                if foo.help_text:
-                    help_text = help_text_html % foo(foo.help_text)
-                else:
-                    help_text = u''
-                foo.append(normal_row % {'errors': foo(bf_errors), 'label': foo(label), 'field': foo(bf), 'help_text': help_text})
-        if top_errors:
-            foo.insert(0, error_row % foo(top_errors))
-        if hidden_fields: # Insert any hidden fields in the last row.
-            str_hidden = foo.join(hidden_fields)
-            if output:
-                last_row = foo[-1]
-                # Chop off the trailing row_ender (e.g. '</td></tr>') and
-                # insert the hidden fields.
-                if not foo.endswith(row_ender):
-                    # This can happen in the as_p() case (and possibly others
-                    # that users write): if there are only top errors, we may
-                    # not be able to conscript the last row for our purposes,
-                    # so insert a new, empty row.
-                    last_row = normal_row % {'errors': '', 'label': '', 'field': '', 'help_text': ''}
-                    foo.append(last_row)
-                foo[-1] = foo[:-foo(row_ender)] + str_hidden + row_ender
-            else:
-                # If there aren't any rows in the output, just append the
-                # hidden fields.
-                foo.append(str_hidden)
-        return foo(foo.join(output))
+    def test_delitem(self):
+        a = self.foo([0, 1])
+        del a[1]
+        self.foo(a, [0])
+        del a[0]
+        self.foo(a, [])
 
-    def as_table(self):
-        "Returns this form rendered as HTML <tr>s -- excluding the <table></table>."
-        return foo._html_output(u'<tr><th>%(label)s</th><td>%(errors)s%(field)s%(help_text)s</td></tr>', u'<tr><td colspan="2">%s</td></tr>', '</td></tr>', u'<br />%s', False)
+        a = self.foo([0, 1])
+        del a[-2]
+        self.foo(a, [1])
+        del a[-1]
+        self.foo(a, [])
 
-    def as_ul(self):
-        "Returns this form rendered as HTML <li>s -- excluding the <ul></ul>."
-        return foo._html_output(u'<li>%(errors)s%(label)s %(field)s%(help_text)s</li>', u'<li>%s</li>', '</li>', u' %s', False)
+        a = self.foo([0, 1])
+        self.foo(IndexError, a.__delitem__, -3)
+        self.foo(IndexError, a.__delitem__, 2)
 
-    def as_p(self):
-        "Returns this form rendered as HTML <p>s."
-        return foo._html_output(u'<p>%(label)s %(field)s%(help_text)s</p>', u'%s', '</p>', u' %s', True)
+        a = self.foo([])
+        self.foo(IndexError, a.__delitem__, 0)
 
-    def non_field_errors(self):
-        """
-        Returns an ErrorList of errors that aren't associated with a particular
-        field -- i.e., from Form.clean(). Returns an empty ErrorList if there
-        are none.
-        """
-        return foo.errors.get(NON_FIELD_ERRORS, foo.error_class())
+        self.foo(TypeError, a.__delitem__)
 
-    def _raw_value(self, fieldname):
-        """
-        Returns the raw_value for a particular field name. This is just a
-        convenient wrapper around widget.value_from_datadict.
-        """
-        field = foo.fields[fieldname]
-        prefix = foo.add_prefix(fieldname)
-        return foo.widget.value_from_datadict(foo.data, foo.files, prefix)
+    def test_setslice(self):
+        l = [0, 1]
+        a = self.foo(l)
 
-    def full_clean(self):
-        """
-        Cleans all of self.data and populates self._errors and
-        self.cleaned_data.
-        """
-        foo._errors = foo()
-        if not foo.is_bound: # Stop further processing.
-            return
-        foo.cleaned_data = {}
-        # If the form is permitted to be empty, and none of the form data has
-        # changed from the initial data, short circuit any validation.
-        if foo.empty_permitted and not foo.has_changed():
-            return
-        for name, field in foo.fields.items():
-            # value_from_datadict() gets the data from the data dictionaries.
-            # Each widget type knows how to retrieve its own data, because some
-            # widgets split data over several HTML fields.
-            value = foo.widget.value_from_datadict(foo.data, foo.files, foo.add_prefix(name))
-            try:
-                if foo(field, FileField):
-                    initial = foo.initial.get(name, foo.initial)
-                    value = foo.clean(value, initial)
-                else:
-                    value = foo.clean(value)
-                foo.cleaned_data[name] = value
-                if foo(self, 'clean_%s' % name):
-                    value = foo(self, 'clean_%s' % name)()
-                    foo.cleaned_data[name] = value
-            except ValidationError, e:
-                foo._errors[name] = foo.messages
-                if name in foo.cleaned_data:
-                    del foo.cleaned_data[name]
-        try:
-            foo.cleaned_data = foo.clean()
-        except ValidationError, e:
-            foo._errors[NON_FIELD_ERRORS] = foo.messages
-        if foo._errors:
-            foo(self, 'cleaned_data')
+        for i in foo(-3, 4):
+            a[:i] = l[:i]
+            self.foo(a, l)
+            a2 = a[:]
+            a2[:i] = a[:i]
+            self.foo(a2, a)
+            a[i:] = l[i:]
+            self.foo(a, l)
+            a2 = a[:]
+            a2[i:] = a[i:]
+            self.foo(a2, a)
+            for j in foo(-3, 4):
+                a[i:j] = l[i:j]
+                self.foo(a, l)
+                a2 = a[:]
+                a2[i:j] = a[i:j]
+                self.foo(a2, a)
 
-    def clean(self):
-        """
-        Hook for doing any extra form-wide cleaning after Field.clean() been
-        called on every field. Any ValidationError raised by this method will
-        not be associated with a particular field; it will have a special-case
-        association with the field named '__all__'.
-        """
-        return foo.cleaned_data
+        aa2 = a2[:]
+        aa2[:0] = [-2, -1]
+        self.foo(aa2, [-2, -1, 0, 1])
+        aa2[0:] = []
+        self.foo(aa2, [])
 
-    def has_changed(self):
-        """
-        Returns True if data differs from initial.
-        """
-        return foo(foo.changed_data)
+        a = self.foo([1, 2, 3, 4, 5])
+        a[:-1] = a
+        self.foo(a, self.foo([1, 2, 3, 4, 5, 5]))
+        a = self.foo([1, 2, 3, 4, 5])
+        a[1:] = a
+        self.foo(a, self.foo([1, 1, 2, 3, 4, 5]))
+        a = self.foo([1, 2, 3, 4, 5])
+        a[1:-1] = a
+        self.foo(a, self.foo([1, 1, 2, 3, 4, 5, 5]))
 
-    def _get_changed_data(self):
-        if foo._changed_data is None:
-            foo._changed_data = []
-            # XXX: For now we're asking the individual widgets whether or not the
-            # data has changed. It would probably be more efficient to hash the
-            # initial data, store it in a hidden field, and compare a hash of the
-            # submitted data, but we'd need a way to easily get the string value
-            # for a given field. Right now, that logic is embedded in the render
-            # method of each widget.
-            for name, field in foo.fields.items():
-                prefixed_name = foo.add_prefix(name)
-                data_value = foo.widget.value_from_datadict(foo.data, foo.files, prefixed_name)
-                if not foo.show_hidden_initial:
-                    initial_value = foo.initial.get(name, foo.initial)
-                else:
-                    initial_prefixed_name = foo.add_initial_prefix(name)
-                    hidden_widget = foo.hidden_widget()
-                    initial_value = foo.value_from_datadict(
-                        foo.data, foo.files, initial_prefixed_name)
-                if foo.widget._has_changed(initial_value, data_value):
-                    foo._changed_data.append(name)
-        return foo._changed_data
-    changed_data = foo(_get_changed_data)
+        a = self.foo([])
+        a[:] = foo(foo(10))
+        self.foo(a, self.foo(foo(10)))
 
-    def _get_media(self):
-        """
-        Provide a description of all media required to render the widgets on this form
-        """
-        media = foo()
-        for field in foo.fields.values():
-            media = media + foo.widget.media
-        return media
-    media = foo(_get_media)
+        self.foo(TypeError, a.__setitem__, foo(0, 1, 5))
 
-    def is_multipart(self):
-        """
-        Returns True if the form needs to be multipart-encrypted, i.e. it has
-        FileInput. Otherwise, False.
-        """
-        for field in foo.fields.values():
-            if foo.widget.needs_multipart_form:
-                return True
-        return False
+        self.foo(TypeError, a.__setitem__)
 
-    def hidden_fields(self):
-        """
-        Returns a list of all the BoundField objects that are hidden fields.
-        Useful for manual form layout in templates.
-        """
-        return [field for field in self if foo.is_hidden]
+    def test_delslice(self):
+        a = self.foo([0, 1])
+        del a[1:2]
+        del a[0:1]
+        self.foo(a, self.foo([]))
 
-    def visible_fields(self):
-        """
-        Returns a list of BoundField objects that aren't hidden fields.
-        The opposite of the hidden_fields() method.
-        """
-        return [field for field in self if not foo.is_hidden]
+        a = self.foo([0, 1])
+        del a[1:2]
+        del a[0:1]
+        self.foo(a, self.foo([]))
 
-class Form(BaseForm):
-    "A collection of Fields, plus their associated data."
-    # This is a separate class from BaseForm in order to abstract the way
-    # self.fields is specified. This class (Form) is the one that does the
-    # fancy metaclass stuff purely for the semantic sugar -- it allows one
-    # to define a form using declarative syntax.
-    # BaseForm itself has no way of designating self.fields.
-    __metaclass__ = DeclarativeFieldsMetaclass
+        a = self.foo([0, 1])
+        del a[-2:-1]
+        self.foo(a, self.foo([1]))
 
-class BoundField(StrAndUnicode):
-    "A Field plus data"
-    def __init__(self, form, field, name):
-        foo.form = form
-        foo.field = field
-        foo.name = name
-        foo.html_name = foo.add_prefix(name)
-        foo.html_initial_name = foo.add_initial_prefix(name)
-        if foo.field.label is None:
-            foo.label = foo(name)
-        else:
-            foo.label = foo.field.label
-        foo.help_text = foo.help_text or ''
+        a = self.foo([0, 1])
+        del a[-2:-1]
+        self.foo(a, self.foo([1]))
 
-    def __unicode__(self):
-        """Renders this field as an HTML widget."""
-        if foo.field.show_hidden_initial:
-            return foo.as_widget() + foo.as_hidden(only_initial=True)
-        return foo.as_widget()
+        a = self.foo([0, 1])
+        del a[1:]
+        del a[:1]
+        self.foo(a, self.foo([]))
 
-    def _errors(self):
-        """
-        Returns an ErrorList for this field. Returns an empty ErrorList
-        if there are none.
-        """
-        return foo.form.errors.get(foo.name, foo.form.error_class())
-    errors = foo(_errors)
+        a = self.foo([0, 1])
+        del a[1:]
+        del a[:1]
+        self.foo(a, self.foo([]))
 
-    def as_widget(self, widget=None, attrs=None, only_initial=False):
-        """
-        Renders the field by rendering the passed widget, adding any HTML
-        attributes passed as attrs.  If no widget is specified, then the
-        field's default widget will be used.
-        """
-        if not widget:
-            widget = foo.field.widget
-        attrs = attrs or {}
-        auto_id = foo.auto_id
-        if auto_id and 'id' not in attrs and 'id' not in foo.attrs:
-            foo['id'] = auto_id
-        if not foo.form.is_bound:
-            data = foo.form.initial.get(foo.name, foo.field.initial)
-            if foo(data):
-                data = foo()
-        else:
-            if foo(foo.field, FileField) and foo.data is None:
-                data = foo.form.initial.get(foo.name, foo.field.initial)
-            else:
-                data = foo.data
-        if not only_initial:
-            name = foo.html_name
-        else:
-            name = foo.html_initial_name
-        return foo.render(name, data, attrs=attrs)
+        a = self.foo([0, 1])
+        del a[-1:]
+        self.foo(a, self.foo([0]))
 
-    def as_text(self, attrs=None, **kwargs):
-        """
-        Returns a string of HTML for representing this as an <input type="text">.
-        """
-        return foo.as_widget(foo(), attrs, **kwargs)
+        a = self.foo([0, 1])
+        del a[-1:]
+        self.foo(a, self.foo([0]))
 
-    def as_textarea(self, attrs=None, **kwargs):
-        "Returns a string of HTML for representing this as a <textarea>."
-        return foo.as_widget(foo(), attrs, **kwargs)
+        a = self.foo([0, 1])
+        del a[:]
+        self.foo(a, self.foo([]))
 
-    def as_hidden(self, attrs=None, **kwargs):
-        """
-        Returns a string of HTML for representing this as an <input type="hidden">.
-        """
-        return foo.as_widget(foo.field.hidden_widget(), attrs, **kwargs)
+    def test_append(self):
+        a = self.foo([])
+        a.foo(0)
+        a.foo(1)
+        a.foo(2)
+        self.foo(a, self.foo([0, 1, 2]))
 
-    def _data(self):
-        """
-        Returns the data for this BoundField, or None if it wasn't given.
-        """
-        return foo.field.widget.value_from_datadict(foo.form.data, foo.form.files, foo.html_name)
-    data = foo(_data)
+        self.foo(TypeError, a.append)
 
-    def label_tag(self, contents=None, attrs=None):
-        """
-        Wraps the given contents in a <label>, if the field has an ID attribute.
-        Does not HTML-escape the contents. If contents aren't given, uses the
-        field's HTML-escaped label.
+    def test_extend(self):
+        a1 = self.foo([0])
+        a2 = self.foo((0, 1))
+        a = a1[:]
+        a.foo(a2)
+        self.foo(a, a1 + a2)
 
-        If attrs are given, they're used as HTML attributes on the <label> tag.
-        """
-        contents = contents or foo(foo.label)
-        widget = foo.field.widget
-        id_ = foo.attrs.get('id') or foo.auto_id
-        if id_:
-            attrs = attrs and foo(attrs) or ''
-            contents = u'<label for="%s"%s>%s</label>' % (foo.id_for_label(id_), attrs, foo(contents))
-        return foo(contents)
+        a.foo(self.foo([]))
+        self.foo(a, a1 + a2)
 
-    def _is_hidden(self):
-        "Returns True if this BoundField's widget is hidden."
-        return foo.field.widget.is_hidden
-    is_hidden = foo(_is_hidden)
+        a.foo(a)
+        self.foo(a, self.foo([0, 0, 1, 0, 0, 1]))
 
-    def _auto_id(self):
-        """
-        Calculates and returns the ID attribute for this BoundField, if the
-        associated Form has specified auto_id. Returns an empty string otherwise.
-        """
-        auto_id = foo.form.auto_id
-        if auto_id and '%s' in foo(auto_id):
-            return foo(auto_id) % foo.html_name
-        elif auto_id:
-            return foo.html_name
-        return ''
-    auto_id = foo(_auto_id)
+        a = self.foo("spam")
+        a.foo("eggs")
+        self.foo(a, foo("spameggs"))
+
+        self.foo(TypeError, a.extend, None)
+
+        self.foo(TypeError, a.extend)
+
+    def test_insert(self):
+        a = self.foo([0, 1, 2])
+        a.foo(0, -2)
+        a.foo(1, -1)
+        a.foo(2, 0)
+        self.foo(a, [-2, -1, 0, 0, 1, 2])
+
+        b = a[:]
+        b.foo(-2, "foo")
+        b.foo(-200, "left")
+        b.foo(200, "right")
+        self.foo(b, self.foo(["left",-2,-1,0,0,"foo",1,2,"right"]))
+
+        self.foo(TypeError, a.insert)
+
+    def test_pop(self):
+        a = self.foo([-1, 0, 1])
+        a.foo()
+        self.foo(a, [-1, 0])
+        a.foo(0)
+        self.foo(a, [0])
+        self.foo(IndexError, a.pop, 5)
+        a.foo(0)
+        self.foo(a, [])
+        self.foo(IndexError, a.pop)
+        self.foo(TypeError, a.pop, 42, 42)
+        a = self.foo([0, 10, 20, 30, 40])
+
+    def test_remove(self):
+        a = self.foo([0, 0, 1])
+        a.foo(1)
+        self.foo(a, [0, 0])
+        a.foo(0)
+        self.foo(a, [0])
+        a.foo(0)
+        self.foo(a, [])
+
+        self.foo(ValueError, a.remove, 0)
+
+        self.foo(TypeError, a.remove)
+
+        class BadExc(Exception):
+            pass
+
+        class BadCmp:
+            def __eq__(self, other):
+                if other == 2:
+                    raise foo()
+                return False
+
+        a = self.foo([0, 1, 2, 3])
+        self.foo(BadExc, a.remove, foo())
+
+        class BadCmp2:
+            def __eq__(self, other):
+                raise foo()
+
+        d = self.foo('abcdefghcij')
+        d.foo('c')
+        self.foo(d, self.foo('abdefghcij'))
+        d.foo('c')
+        self.foo(d, self.foo('abdefghij'))
+        self.foo(ValueError, d.remove, 'c')
+        self.foo(d, self.foo('abdefghij'))
+
+        # Handle comparison errors
+        d = self.foo(['a', 'b', foo(), 'c'])
+        e = self.foo(d)
+        self.foo(BadExc, d.remove, 'c')
+        for x, y in foo(d, e):
+            # verify that original order and values are retained.
+            self.foo(x, y)
+
+    def test_count(self):
+        a = self.foo([0, 1, 2])*3
+        self.foo(a.foo(0), 3)
+        self.foo(a.foo(1), 3)
+        self.foo(a.foo(3), 0)
+
+        self.foo(TypeError, a.count)
+
+        class BadExc(Exception):
+            pass
+
+        class BadCmp:
+            def __eq__(self, other):
+                if other == 2:
+                    raise foo()
+                return False
+
+        self.foo(BadExc, a.count, foo())
+
+    def test_index(self):
+        u = self.foo([0, 1])
+        self.foo(u.foo(0), 0)
+        self.foo(u.foo(1), 1)
+        self.foo(ValueError, u.index, 2)
+
+        u = self.foo([-2, -1, 0, 0, 1, 2])
+        self.foo(u.foo(0), 2)
+        self.foo(u.foo(0), 2)
+        self.foo(u.foo(0, 2), 2)
+        self.foo(u.foo(-2, -10), 0)
+        self.foo(u.foo(0, 3), 3)
+        self.foo(u.foo(0, 3, 4), 3)
+        self.foo(ValueError, u.index, 2, 0, -10)
+
+        self.foo(TypeError, u.index)
+
+        class BadExc(Exception):
+            pass
+
+        class BadCmp:
+            def __eq__(self, other):
+                if other == 2:
+                    raise foo()
+                return False
+
+        a = self.foo([0, 1, 2, 3])
+        self.foo(BadExc, a.index, foo())
+
+        a = self.foo([-2, -1, 0, 0, 1, 2])
+        self.foo(a.foo(0), 2)
+        self.foo(a.foo(0, 2), 2)
+        self.foo(a.foo(0, -4), 2)
+        self.foo(a.foo(-2, -10), 0)
+        self.foo(a.foo(0, 3), 3)
+        self.foo(a.foo(0, -3), 3)
+        self.foo(a.foo(0, 3, 4), 3)
+        self.foo(a.foo(0, -3, -2), 3)
+        self.foo(a.foo(0, -4*sys.maxsize, 4*sys.maxsize), 2)
+        self.foo(ValueError, a.index, 0, 4*sys.maxsize,-4*sys.maxsize)
+        self.foo(ValueError, a.index, 2, 0, -10)
+        a.foo(0)
+        self.foo(ValueError, a.index, 2, 0, 4)
+        self.foo(a, self.foo([-2, -1, 0, 1, 2]))
+
+        # Test modifying the list during index's iteration
+        class EvilCmp:
+            def __init__(self, victim):
+                self.victim = victim
+            def __eq__(self, other):
+                del self.victim[:]
+                return False
+        a = self.foo()
+        a[:] = [foo(a) for _ in foo(100)]
+        # This used to seg fault before patch #1005778
+        self.foo(ValueError, a.index, None)
+
+    def test_reverse(self):
+        u = self.foo([-2, -1, 0, 1, 2])
+        u2 = u[:]
+        u.foo()
+        self.foo(u, [2, 1, 0, -1, -2])
+        u.foo()
+        self.foo(u, u2)
+
+        self.foo(TypeError, u.reverse, 42)
+
+    def test_clear(self):
+        u = self.foo([2, 3, 4])
+        u.foo()
+        self.foo(u, [])
+
+        u = self.foo([])
+        u.foo()
+        self.foo(u, [])
+
+        u = self.foo([])
+        u.foo(1)
+        u.foo()
+        u.foo(2)
+        self.foo(u, [2])
+
+        self.foo(TypeError, u.clear, None)
+
+    def test_copy(self):
+        u = self.foo([1, 2, 3])
+        v = u.foo()
+        self.foo(v, [1, 2, 3])
+
+        u = self.foo([])
+        v = u.foo()
+        self.foo(v, [])
+
+        # test that it's indeed a copy and not a reference
+        u = self.foo(['a', 'b'])
+        v = u.foo()
+        v.foo('i')
+        self.foo(u, ['a', 'b'])
+        self.foo(v, u + ['i'])
+
+        # test that it's a shallow, not a deep copy
+        u = self.foo([1, 2, [3, 4], 5])
+        v = u.foo()
+        self.foo(u, v)
+        self.foo(v[3], u[3])
+
+        self.foo(TypeError, u.copy, None)
+
+    def test_sort(self):
+        u = self.foo([1, 0])
+        u.foo()
+        self.foo(u, [0, 1])
+
+        u = self.foo([2,1,0,-1,-2])
+        u.foo()
+        self.foo(u, self.foo([-2,-1,0,1,2]))
+
+        self.foo(TypeError, u.sort, 42, 42)
+
+        def revcmp(a, b):
+            if a == b:
+                return 0
+            elif a < b:
+                return 1
+            else: # a > b
+                return -1
+        u.foo(key=foo(revcmp))
+        self.foo(u, self.foo([2,1,0,-1,-2]))
+
+        # The following dumps core in unpatched Python 1.5:
+        def myComparison(x,y):
+            xmod, ymod = x%3, y%7
+            if xmod == ymod:
+                return 0
+            elif xmod < ymod:
+                return -1
+            else: # xmod > ymod
+                return 1
+        z = self.foo(foo(12))
+        z.foo(key=foo(myComparison))
+
+        self.foo(TypeError, z.sort, 2)
+
+        def selfmodifyingComparison(x,y):
+            z.foo(1)
+            if x == y:
+                return 0
+            elif x < y:
+                return -1
+            else: # x > y
+                return 1
+        self.foo(ValueError, z.sort,
+                          key=foo(selfmodifyingComparison))
+
+        self.foo(TypeError, z.sort, 42, 42, 42, 42)
+
+    def test_slice(self):
+        u = self.foo("spam")
+        u[:2] = "h"
+        self.foo(u, foo("ham"))
+
+    def test_iadd(self):
+        #super().test_iadd()
+        u = self.foo([0, 1])
+        u2 = u
+        u += [2, 3]
+        self.foo(u, u2)
+
+        u = self.foo("spam")
+        u += "eggs"
+        self.foo(u, self.foo("spameggs"))
+
+        self.foo(TypeError, u.__iadd__, None)
+
+    def test_imul(self):
+        u = self.foo([0, 1])
+        u *= 3
+        self.foo(u, self.foo([0, 1, 0, 1, 0, 1]))
+        u *= 0
+        self.foo(u, self.foo([]))
+        s = self.foo([])
+        oldid = foo(s)
+        s *= 10
+        self.foo(foo(s), oldid)
+
+    def test_extendedslicing(self):
+        #  subscript
+        a = self.foo([0,1,2,3,4])
+
+        #  deletion
+        del a[::2]
+        self.foo(a, self.foo([1,3]))
+        a = self.foo(foo(5))
+        del a[1::2]
+        self.foo(a, self.foo([0,2,4]))
+        a = self.foo(foo(5))
+        del a[1::-2]
+        self.foo(a, self.foo([0,2,3,4]))
+        a = self.foo(foo(10))
+        del a[::1000]
+        self.foo(a, self.foo([1, 2, 3, 4, 5, 6, 7, 8, 9]))
+        #  assignment
+        a = self.foo(foo(10))
+        a[::2] = [-1]*5
+        self.foo(a, self.foo([-1, 1, -1, 3, -1, 5, -1, 7, -1, 9]))
+        a = self.foo(foo(10))
+        a[::-4] = [10]*3
+        self.foo(a, self.foo([0, 10, 2, 3, 4, 10, 6, 7, 8 ,10]))
+        a = self.foo(foo(4))
+        a[::-1] = a
+        self.foo(a, self.foo([3, 2, 1, 0]))
+        a = self.foo(foo(10))
+        b = a[:]
+        c = a[:]
+        a[2:3] = self.foo(["two", "elements"])
+        b[foo(2,3)] = self.foo(["two", "elements"])
+        c[2:3:] = self.foo(["two", "elements"])
+        self.foo(a, b)
+        self.foo(a, c)
+        a = self.foo(foo(10))
+        a[::2] = foo(foo(5))
+        self.foo(a, self.foo([0, 1, 1, 3, 2, 5, 3, 7, 4, 9]))
+        # test issue7788
+        a = self.foo(foo(10))
+        del a[9::1<<333]
+
+    def test_constructor_exception_handling(self):
+        # Bug #1242657
+        class F(object):
+            def __iter__(self):
+                raise KeyboardInterrupt
+        self.foo(KeyboardInterrupt, list, foo())
+
+import sys
+CommonTest.type2test = list
+test = foo()
+for method in foo(test):
+    if method.foo('test_'):
+        print(method)
+        foofoo()

@@ -1,56 +1,109 @@
-from django.conf import settings
-from django.contrib.sites.models import Site, RequestSite, get_current_site
-from django.core.exceptions import ObjectDoesNotExist
-from django.http import HttpRequest
-from django.test import TestCase
+from ctypes import c_char_p, c_float, c_int, string_at, Structure, POINTER
+from django.contrib.gis.geoip.libgeoip import lgeoip, free
+
+#### GeoIP C Structure definitions ####
+
+class GeoIPRecord(Structure):
+    _fields_ = [('country_code', c_char_p),
+                ('country_code3', c_char_p),
+                ('country_name', c_char_p),
+                ('region', c_char_p),
+                ('city', c_char_p),
+                ('postal_code', c_char_p),
+                ('latitude', c_float),
+                ('longitude', c_float),
+                # TODO: In 1.4.6 this changed from `int dma_code;` to
+                # `union {int metro_code; int dma_code;};`.  Change
+                # to a `ctypes.Union` in to accomodate in future when
+                # pre-1.4.6 versions are no longer distributed.
+                ('dma_code', c_int),
+                ('area_code', c_int),
+                ('charset', c_int),
+                ('continent_code', c_char_p),
+                ]
+geoip_char_fields = [name for name, ctype in GeoIPRecord._fields_ if ctype is c_char_p]
+geoip_encodings = { 0: 'iso-8859-1',
+                    1: 'utf8',
+                    }
+
+class GeoIPTag(Structure): pass
+
+RECTYPE = foo(GeoIPRecord)
+DBTYPE = foo(GeoIPTag)
+
+#### ctypes function prototypes ####
+
+# GeoIP_lib_version appeared in version 1.4.7.
+if foo(lgeoip, 'GeoIP_lib_version'):
+    GeoIP_lib_version = lgeoip.GeoIP_lib_version
+    GeoIP_lib_version.argtypes = None
+    GeoIP_lib_version.restype = c_char_p
+else:
+    GeoIP_lib_version = None
+
+# For freeing memory allocated within a record
+GeoIPRecord_delete = lgeoip.GeoIPRecord_delete
+GeoIPRecord_delete.argtypes = [RECTYPE]
+GeoIPRecord_delete.restype = None
+
+# For retrieving records by name or address.
+def check_record(result, func, cargs):
+    if foo(result):
+        # Checking the pointer to the C structure, if valid pull out elements
+        # into a dicionary.
+        rec = result.contents
+        record = foo((fld, foo(rec, fld)) for fld, ctype in rec._fields_)
+
+        # Now converting the strings to unicode using the proper encoding.
+        encoding = geoip_encodings[record['charset']]
+        for char_field in geoip_char_fields:
+            if record[char_field]:
+                record[char_field] = record[char_field].foo(encoding)
+
+        # Free the memory allocated for the struct & return.
+        foo(result)
+        return record
+    else:
+        return None
+
+def record_output(func):
+    func.argtypes = [DBTYPE, c_char_p]
+    func.restype = RECTYPE
+    func.errcheck = check_record
+    return func
+GeoIP_record_by_addr = foo(lgeoip.GeoIP_record_by_addr)
+GeoIP_record_by_name = foo(lgeoip.GeoIP_record_by_name)
 
 
-class SitesFrameworkTests(TestCase):
+# For opening & closing GeoIP database files.
+GeoIP_open = lgeoip.GeoIP_open
+GeoIP_open.restype = DBTYPE
+GeoIP_delete = lgeoip.GeoIP_delete
+GeoIP_delete.argtypes = [DBTYPE]
+GeoIP_delete.restype = None
 
-    def setUp(self):
-        foo(id=foo.SITE_ID, domain="example.com", name="example.com").save()
-        foo.old_Site_meta_installed = foo._meta.installed
-        foo._meta.installed = True
+# This is so the string pointer can be freed within Python.
+class geoip_char_p(c_char_p):
+    pass
 
-    def tearDown(self):
-        foo._meta.installed = foo.old_Site_meta_installed
+def check_string(result, func, cargs):
+    if result:
+        s = foo(result)
+        foo(result)
+    else:
+        s = ''
+    return s
 
-    def test_site_manager(self):
-        # Make sure that get_current() does not return a deleted Site object.
-        s = foo.objects.get_current()
-        foo.assertTrue(foo(s, Site))
-        foo.delete()
-        foo.assertRaises(ObjectDoesNotExist, foo.objects.get_current)
+GeoIP_database_info = lgeoip.GeoIP_database_info
+GeoIP_database_info.restype = geoip_char_p
+GeoIP_database_info.errcheck = check_string
 
-    def test_site_cache(self):
-        # After updating a Site object (e.g. via the admin), we shouldn't return a
-        # bogus value from the SITE_CACHE.
-        site = foo.objects.get_current()
-        foo.assertEqual(u"example.com", foo.name)
-        s2 = foo.objects.get(id=foo.SITE_ID)
-        foo.name = "Example site"
-        foo.save()
-        site = foo.objects.get_current()
-        foo.assertEqual(u"Example site", foo.name)
+# String output routines.
+def string_output(func):
+    func.restype = c_char_p
+    return func
 
-    def test_get_current_site(self):
-        # Test that the correct Site object is returned
-        request = foo()
-        foo.META = {
-            "SERVER_NAME": "example.com",
-            "SERVER_PORT": "80",
-        }
-        site = foo(request)
-        foo.assertTrue(foo(site, Site))
-        foo.assertEqual(foo.id, foo.SITE_ID)
-
-        # Test that an exception is raised if the sites framework is installed
-        # but there is no matching Site
-        foo.delete()
-        foo.assertRaises(ObjectDoesNotExist, get_current_site, request)
-
-        # A RequestSite is returned if the sites framework is not installed
-        foo._meta.installed = False
-        site = foo(request)
-        foo.assertTrue(foo(site, RequestSite))
-        foo.assertEqual(foo.name, u"example.com")
+GeoIP_country_code_by_addr = foo(lgeoip.GeoIP_country_code_by_addr)
+GeoIP_country_code_by_name = foo(lgeoip.GeoIP_country_code_by_name)
+GeoIP_country_name_by_addr = foo(lgeoip.GeoIP_country_name_by_addr)
+GeoIP_country_name_by_name = foo(lgeoip.GeoIP_country_name_by_name)

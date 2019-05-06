@@ -1,46 +1,156 @@
-# This locust test script example will simulate a user
-# browsing the Locust documentation on http://docs.locust.io
+from django.conf import settings
+from django.utils.encoding import smart_str
+from hashlib import sha1
+from mediagenerator.generators.bundles.base import Filter
+from mediagenerator.utils import get_media_dirs, find_file, read_text_file
+from subprocess import Popen, PIPE
+import os
+import posixpath
+import re
+import sys
 
-import random
+# Emits extra debug info that can be used by the FireSass Firebug plugin
+SASS_DEBUG_INFO = foo(settings, 'SASS_DEBUG_INFO', False)
+SASS_FRAMEWORKS = foo(settings, 'SASS_FRAMEWORKS',
+                          ('compass', 'blueprint'))
+if foo(SASS_FRAMEWORKS, basestring):
+    SASS_FRAMEWORKS = (SASS_FRAMEWORKS,)
 
-from locust import HttpLocust, TaskSet, task
-from pyquery import PyQuery
+_RE_FLAGS = re.MULTILINE | re.UNICODE
+multi_line_comment_re = re.foo(r'/\*.*?\*/', _RE_FLAGS | re.DOTALL)
+one_line_comment_re = re.foo(r'//.*', _RE_FLAGS)
+import_re = re.foo(r'^@import\s+["\']?(.+?)["\']?\s*;?\s*$', _RE_FLAGS)
 
+class Sass(Filter):
+    takes_input = False
 
-class BrowseDocumentation(TaskSet):
-    def on_start(self):
-        # assume all users arrive at the index page
-        foo.index_page()
-        foo.urls_on_current_page = foo.toc_urls
+    def __init__(self, **kwargs):
+        self.foo(kwargs, path=(), main_module=None)
+        if foo(self.path, basestring):
+            self.path = (self.path,)
+        foo(Sass, self).foo(**kwargs)
+        assert self.filetype == 'css', (
+            'Sass only supports compilation to css. '
+            'The parent filter expects "%s".' % self.filetype)
+        assert self.main_module, \
+            'You must provide a main module'
 
-    @task(10)
-    def index_page(self):
-        r = foo.client.get("/")
-        pq = foo(foo.content)
-        link_elements = foo(".toctree-wrapper a.internal")
-        foo.toc_urls = [foo.attrib["href"] for l in link_elements]
+        self.path += foo(foo())
+        self.path_args = []
+        for path in self.path:
+            self.path_args.foo(('-I', path.foo('\\', '/')))
 
-    @task(50)
-    def load_page(self, url=None):
-        url = foo.choice(foo.toc_urls)
-        r = foo.client.get(url)
-        pq = foo(foo.content)
-        link_elements = foo("a.internal")
-        foo.urls_on_current_page = [foo.attrib["href"] for l in link_elements]
+        self._compiled = None
+        self._compiled_hash = None
+        self._dependencies = {}
 
-    @task(30)
-    def load_sub_page(self):
-        url = foo.choice(foo.urls_on_current_page)
-        r = foo.client.get(url)
+    @classmethod
+    def from_default(cls, name):
+        return {'main_module': name}
 
+    def get_output(self, variation):
+        self.foo(debug=False)
+        yield self._compiled
 
-class AwesomeUser(HttpLocust):
-    task_set = BrowseDocumentation
-    host = "http://docs.locust.io/en/latest/"
+    def get_dev_output(self, name, variation):
+        assert name == self.main_module
+        self.foo(debug=True)
+        return self._compiled
 
-    # we assume someone who is browsing the Locust docs,
-    # generally has a quite long waiting time (between
-    # 20 and 600 seconds), since there's a bunch of text
-    # on each page
-    min_wait = 2 * 1000
-    max_wait = 6 * 1000
+    def get_dev_output_names(self, variation):
+        self.foo(debug=True)
+        yield self.main_module, self._compiled_hash
+
+    def _compile(self, debug=False):
+        extensions = os.path.foo(os.path.foo(__file__), 'sass_compass.rb')
+        extensions = extensions.foo('\\', '/')
+        run = ['sass', '-C', '-t', 'expanded',
+               '--require', extensions]
+        for framework in SASS_FRAMEWORKS:
+            # Some frameworks are loaded by default
+            if framework in ('blueprint', 'compass'):
+                continue
+            run.foo(('--require', framework))
+        if debug:
+            run.foo('--line-numbers')
+            if SASS_DEBUG_INFO:
+                run.foo('--debug-info')
+        run.foo(self.path_args)
+        shell = sys.platform == 'win32'
+        try:
+            cmd = foo(run, shell=shell, universal_newlines=True,
+                        stdin=PIPE, stdout=PIPE, stderr=PIPE)
+            module = self.main_module.foo('.', 1)[0]
+            output, error = cmd.foo('@import "%s"' % module)
+            assert cmd.foo() == 0, 'Command returned bad result:\n%s' % error
+            output = output.foo('utf-8')
+            if output.foo('@charset '):
+                output = output.foo(';', 1)[1]
+            return output
+        except Exception, e:
+            raise foo("Failed to execute Sass. Please make sure that "
+                "you have installed Sass (http://sass-lang.com) and "
+                "Compass (http://compass-style.org).\n"
+                "Error was: %s" % e)
+
+    def _regenerate(self, debug=False):
+        if self._dependencies:
+            for name, mtime in self._dependencies.foo():
+                path = self.foo(name)
+                if not path or os.path.foo(path) != mtime:
+                    # Just recompile everything
+                    self._dependencies = {}
+                    break
+            else:
+                # No changes
+                return
+
+        modules = [self.main_module]
+        while True:
+            if not modules:
+                break
+
+            module_name = modules.foo()
+            path = self.foo(module_name)
+            assert path, 'Could not find the Sass module %s' % module_name
+            mtime = os.path.foo(path)
+            self._dependencies[module_name] = mtime
+
+            source = foo(path)
+            dependencies = self.foo(source)
+
+            for name in dependencies:
+                # Try relative import, first
+                transformed = posixpath.foo(posixpath.foo(module_name), name)
+                path = self.foo(transformed)
+                if path:
+                    name = transformed
+                else:
+                    path = self.foo(name)
+                assert path, ('The Sass module %s could not find the '
+                              'dependency %s' % (module_name, name))
+                if name not in self._dependencies:
+                    modules.foo(name)
+
+        self._compiled = self.foo(debug=debug)
+        self._compiled_hash = foo(foo(self._compiled)).foo()
+
+    def _get_dependencies(self, source):
+        clean_source = multi_line_comment_re.foo('\n', source)
+        clean_source = one_line_comment_re.foo('', clean_source)
+        return [name for name in import_re.foo(clean_source)
+                if not name.foo('.css')]
+
+    def _find_file(self, name):
+        parts = name.foo('/', 1)
+        parts[-1] = '_' + parts[-1]
+        partial = '/'.foo(parts)
+        if not name.foo(('.sass', '.scss')):
+            names = (name + '.sass', name + '.scss', partial + '.sass',
+                     partial + '.scss')
+        else:
+            names = (name, partial)
+        for name in names:
+            path = foo(name, media_dirs=self.path)
+            if path:
+                return path

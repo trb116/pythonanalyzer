@@ -1,43 +1,57 @@
 """
-==================================
-Map two radars to a Cartesian grid
-==================================
+Verbose demonstration of how to set up a server and run a remote game.
 
-Map the reflectivity field of two nearby ARM XSARP radars from antenna
-coordinates to a Cartesian grid.
-
+For all practical needs, using the simplesetup module should be sufficient.
 """
-print(__doc__)
 
-# Author: Jonathan J. Helmus (jhelmus@anl.gov)
-# License: BSD 3 clause
+import sys
+import subprocess
 
-import matplotlib.pyplot as plt
-import pyart
+from pelita.simplesetup import SimpleServer, SimplePublisher, SimpleController
+import logging
+from pelita.ui.tk_viewer import TkViewer
 
-# read in the data from both XSAPR radars
-XSAPR_SW_FILE = 'swx_20120520_0641.nc'
-XSAPR_SE_FILE = 'sex_20120520_0641.nc'
-radar_sw = pyart.io.read_cfradial(XSAPR_SW_FILE)
-radar_se = pyart.io.read_cfradial(XSAPR_SE_FILE)
+try:
+    import colorama
+    MAGENTA = colorama.Fore.MAGENTA
+    RESET = colorama.Fore.RESET
+except ImportError:
+    MAGENTA = ""
+    RESET = ""
 
-# filter out gates with reflectivity > 100 from both radars
-gatefilter_se = pyart.filters.GateFilter(radar_se)
-gatefilter_se.exclude_above('corrected_reflectivity_horizontal', 100)
-gatefilter_sw = pyart.filters.GateFilter(radar_sw)
-gatefilter_sw.exclude_above('corrected_reflectivity_horizontal', 100)
+def get_python_process():
+    py_proc = sys.executable
+    if not py_proc:
+        raise RuntimeError("Cannot retrieve current Python executable.")
+    return py_proc
 
-# perform Cartesian mapping, limit to the reflectivity field.
-grid = pyart.map.grid_from_radars(
-    (radar_se, radar_sw), gatefilters=(gatefilter_se, gatefilter_sw),
-    grid_shape=(1, 201, 201),
-    grid_limits=((1000, 1000), (-50000, 40000), (-60000, 40000)),
-    grid_origin = (36.57861, -97.363611),
-    fields=['corrected_reflectivity_horizontal'])
+FORMAT = '[%(asctime)s,%(msecs)03d][%(name)s][%(levelname)s][%(funcName)s]' + MAGENTA + ' %(message)s' + RESET
+logging.basicConfig(format=FORMAT, datefmt="%H:%M:%S", level=logging.INFO)
 
-# create the plot
-fig = plt.figure()
-ax = fig.add_subplot(111)
-ax.imshow(grid.fields['corrected_reflectivity_horizontal']['data'][0],
-          origin='lower', extent=(-60, 40, -50, 40), vmin=0, vmax=48)
-plt.show()
+layout = (
+        """ ##################
+            #0#.  . 2# .   3 #
+            # #####    ##### #
+            #     . #  .  .#1#
+            ################## """)
+
+server = SimpleServer(layout_string=layout, rounds=200, bind_addrs=("tcp://*:50007", "tcp://*:50008"))
+
+publisher = SimplePublisher("tcp://*:50012")
+server.game_master.register_viewer(publisher)
+
+subscribe_sock = server
+tk_open = "TkViewer(%r, %r).run()" % ("tcp://localhost:50012", "tcp://localhost:50013")
+tkprocess = subprocess.Popen([get_python_process(),
+                              "-c",
+                              "from pelita.ui.tk_viewer import TkViewer\n" + tk_open])
+
+try:
+    print(server.bind_addresses)
+    server.register_teams()
+    controller = SimpleController(server.game_master, "tcp://*:50013")
+    controller.run()
+    server.exit_teams()
+except KeyboardInterrupt:
+    tkprocess.kill()
+

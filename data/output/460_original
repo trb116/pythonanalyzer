@@ -1,391 +1,130 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+import nose
+import dpath.util
+from nose.tools import assert_raises
+from collections import MutableMapping, MutableSequence
 
-##
-# Just enough auxiliary bits to make the translated code work.
-#
-# This package provides the support necessary to use the translated
-# code.  The configuration modules used in translation take care of
-# many semantic differences between Java and Python, while this
-# package provides the rest.
-##
+class TestMapping(MutableMapping):
+    def __init__(self, data={}):
+        self._mapping = {}
+        self._mapping.update(data)
 
-import copy
-import functools
-import socket
-import struct
-import sys
+    def __len__(self):
+        return len(self._mapping)
 
-def toTypeName(value):
-    return '%s%s' % (value[0].upper(), value[1:])
+    def __iter__(self):
+        return iter(self._mapping)
 
+    def __contains__(self, key):
+        return key in self._mapping
 
-def maybeName(obj):
-    """ Returns an object's __name__ attribute or it's string representation.
+    def __getitem__(self, key):
+        return self._mapping[key]
 
-    @param obj any object
-    @return obj name or string representation
-    """
-    try:
-        return obj.__name__
-    except (AttributeError, ):
-        return str(obj)
+    def __setitem__(self, key, value):
+        self._mapping[key] = value
 
+    def __delitem__(self, key):
+        del self._mapping[key]
 
-class classmethod_(classmethod):
-    """ Classmethod that provides attribute delegation.
+class TestSequence(MutableSequence):
+    def __init__(self, data=list()):
+        self._list = data
 
-    """
-    def __init__(self, func):
-        classmethod.__init__(self, func)
-        self.func = func
+    def __len__(self):
+        return len(self._list)
 
-    def __getattr__(self, name):
-        return getattr(self.func, name)
+    def __getitem__(self, idx):
+        return self._list[idx]
 
+    def __delitem__(self, idx):
+        del self._list[key]
 
-def synchronized(lock):
-    """ Synchronization decorator.
+    def __setitem__(self, idx, value):
+        self._list[idx] = value
 
-    from http://wiki.python.org/moin/PythonDecoratorLibrary
+    def __str__(self):
+        return str(self._list)
 
-    @param lock Lock or RLock instance
-    @return decorator that provides automatic locking
-    """
-    def wrapper(func):
-        @functools.wraps(func)
-        def inner(*args, **kwds):
-            #print 'locking', func
-            lock.acquire()
-            try:
-                return func(*args, **kwds)
-            finally:
-                lock.release()
-        return inner
-    return wrapper
+    def __eq__(self, other):
+        return self._list == other._list
 
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
-class Boolean(object):
-    """ Partial implementation of Java Boolean type.
+    def insert(self, idx, value):
+        self._list.insert(idx, value)
 
-    """
-    def __init__(self, value):
-        """ Constructor.
+    def append(self, value):
+        self.insert(len(self._list), value)
 
-        @param value bool instance, True or False
-        """
-        self.value = value
+def test_types_set():
+    data = TestMapping({"a": TestSequence([0])})
 
-    def booleanValue(self):
-        """ The value of this instance (a bool).
-
-        @return True or False
-        """
-        return self.value
-
-    @classmethod
-    def valueOf(cls, text):
-        """ Creates an instance of this class with a bool value.
-
-        @param cls this class
-        @param text string
-        @return instance of cls
-        """
-        value = str(text).lower() == 'true'
-        return cls(value)
-
-
-class Cloneable(object):
-    """ Stub for the Cloneable Java interface.
-
-    Some of the translated code implements the Java Cloneable
-    interface, but its methods are never used.  We provide this class
-    for sub typing, and will implement methods as needed later.
-    """
-    def clone(self):
-        return copy.copy(self)
-
-
-class DataInputStream(object):
-    """ Partial implementation of the Java DataInputStream type.
-
-    """
-    def __init__(self, stream):
-        """ Constructor.
-
-        @param stream any object with recv method
-        """
-        self.stream = stream
-        self.recv = stream.recv
-
-    def readByte(self, unpack=struct.unpack):
-        """ Reads a byte from the contained stream.
-
-        @return string read from stream
-        """
-        return unpack('!b', self.recv(1))[0]
-
-
-class DataOutputStream(object):
-    """ Partial implementation of the Java DataOutputStream type
-
-    """
-    def __init__(self, stream):
-        """ Constructor.
-
-        @param stream any object with send method
-        """
-        self.send = stream.send
-
-    def write(self, data, pack=struct.pack, eol=struct.pack('!b', 0)):
-        """ Writes data to the contained stream.
-
-        @param data string to send, or 0
-        @return None
-        """
-        send = self.send
-        if data == 0:
-            send(eol)
-        else:
-            for char in data:
-                send(pack('!c', char))
-
-
-class Double(float):
-    """ Partial implementation of Java Double type.
-
-    """
-    ##
-    # sentinel value used by the socket writer
-    MAX_VALUE = sys.maxint
-
-    @staticmethod
-    def parseDouble(text):
-        """ Float double (float) from string.
-
-        @param text value to parse
-        @return float instance
-        """
-        return float(text or 0)
-
-
-class Integer(int):
-    """ Partial implementation of Java Integer type.
-
-    """
-    ##
-    # sentinel value used by the socket writer
-    MAX_VALUE = sys.maxint
-
-    @staticmethod
-    def parseInt(text):
-        """ Int from string.
-
-        @param text value to parse
-        @return int instance
-        """
-        return int(text or 0)
-
-    @staticmethod
-    def parseLong(text):
-        """ Long from string.
-
-        @param text value to parse
-        @return long instance
-        """
-        return long(text or 0)
-
-
-##
-# The generated code uses Longs just like Integers, so we use an alias
-# instead of a subclass (for now).
-Long = Integer
-
-
-class Socket(socket.socket):
-    """ Partial implementation of the Java Socket type.
-
-    """
-    def __init__(self, host, port):
-        """ Constructor; attempts connection immediately.
-
-        @param host hostname as string
-        @param port port number as integer
-        """
-        socket.socket.__init__(self, socket.AF_INET, socket.SOCK_STREAM)
-        self.connect((host, port))
-
-    def getInputStream(self):
-        """ Returns this instance, which has a send method.
-
-        """
-        return self
-
-    def getOutputStream(self):
-        """ Returns this instance, which has a recv method.
-
-        """
-        return self
+    dpath.util.set(data, '/a/0', 1)
+    assert(data['a'][0] == 1)
+    data['a'][0] = 0
+    dpath.util.set(data, ['a', '0'], 1)
+    assert(data['a'][0] == 1)
     
-    def disconnect(self):
-        self.shutdown(socket.SHUT_RDWR)
-        self.close()
-
-    def isConnected(self):
-        try:
-            throwaway = self.getpeername()
+def test_types_get_list_of_dicts():
+    tdict = TestMapping({
+        "a": TestMapping({
+            "b": TestSequence([
+                {0: 0},
+                {0: 1},
+                {0: 2}])
+            })
+        })
+    res = dpath.path.get(tdict, dpath.path.path_types(tdict, ['a', 'b', 0, 0]), view=True)
+    assert(isinstance(res['a']['b'], TestSequence))
+    assert(len(res['a']['b']) == 1)
+    assert(res['a']['b'][0][0] == 0)
+    
+def test_types_merge_simple_list_replace():
+    src = TestMapping({
+        "list": TestSequence([7, 8, 9, 10])
+        })
+    dst = TestMapping({
+        "list": TestSequence([0, 1, 2, 3])
+        })
+    dpath.util.merge(dst, src, flags=dpath.util.MERGE_REPLACE)
+    nose.tools.eq_(dst["list"], TestSequence([7, 8, 9, 10]))
+    
+def test_types_get_absent():
+    ehash = TestMapping()
+    assert_raises(KeyError, dpath.util.get, ehash, '/a/b/c/d/f')
+    assert_raises(KeyError, dpath.util.get, ehash, ['a', 'b', 'c', 'd', 'f'])
+    
+def test_types_get_glob_multiple():
+    ehash = TestMapping({
+        "a": TestMapping({
+            "b": TestMapping({
+                "c": TestMapping({
+                    "d": 0
+                }),
+                "e": TestMapping({
+                    "d": 0
+                })
+            })
+        })
+    })
+    assert_raises(ValueError, dpath.util.get, ehash, '/a/b/*/d')
+    assert_raises(ValueError, dpath.util.get, ehash, ['a', 'b', '*', 'd'])
+    
+def test_delete_filter():
+    def afilter(x):
+        if int(x) == 31:
             return True
-        except (socket.error, ), ex:
-            return False
-        
+        return False
 
-class StringBuffer(list):
-    """ Partial implementation of the Java StringBuffer type
-
-    Translated code uses instances of this type to build up strings.
-    The list base type provides the append method.
-    """
-    def __str__(self, join=str.join, chr=chr):
-        """ the string value of this instance
-
-        @return string from characters contained in this instance
-        """
-        return join('', [chr(v) for v in self])
-
-
-if 'qt' in sys.modules:
-    from qt import QThread
-
-    class ThreadType(QThread):
-        """ Partial implementation of Java Thread type, based on Qt3 QThread.
-
-        """
-        def __init__(self, name):
-            """ Constructor.
-
-            @param name ignored
-            """
-            QThread.__init__(self)
-
-        def interrupt(self):
-            """ Stop this thread (by call to terminate).
-
-            """
-            return self.terminate()
-
-        def isInterrupted(self):
-            """ Check state of thread.
-
-            @return True if thread is finished
-            """
-            return self.finished()
-
-        def setDaemon(self, value):
-            """ No-op.
-
-            @param value ignored
-            @return None
-            """
-
-        def setName(self, value):
-            """ No-op.
-
-            @param value ignored
-            @return None
-            """
-
-
-
-elif 'PyQt4' in sys.modules:
-    from PyQt4.QtCore import QThread
-
-    class ThreadType(QThread):
-        """ Partial implementation of Java Thread type, based on Qt4 QThread.
-
-        """
-        def __init__(self, name):
-            """ Constructor.
-
-            @param name ignored
-            """
-            QThread.__init__(self)
-
-        def interrupt(self):
-            """ stop this thread (by call to exit)
-
-            """
-            return self.exit()
-
-        def isInterrupted(self):
-            """ check state of thread
-
-            @return True if thread is finished
-            """
-            return self.isFinished()
-
-        def setDaemon(self, value):
-            """ No-op.
-
-            @param value ignored
-            @return None
-            """
-
-        def setName(self, value):
-            """ sets the name of this QObject
-
-            @param value name of object as string
-            @return None
-            """
-            self.setObjectName(value)
-
-
-else:
-    import threading
-
-    class ThreadType(threading.Thread):
-        """ Partial implementation of Java Thread type, based on Python Thread.
-
-        """
-        def __init__(self, name):
-            """ Constructor.
-
-            @param name name of this thread
-            """
-            threading.Thread.__init__(self, name=name)
-            self.setDaemon(True)
-
-        def interrupt(self):
-            """ No-op; Python threads are not directly interruptible.
-
-            """
-            return False
-
-        def isInterrupted(self):
-            """ Check state of thread (always False).
-
-            @return False
-            """
-            return False
-
-
-class Thread(ThreadType):
-    """ Thread parent type, based on available framework
-
-    """
-    def __init__(self, name, parent, dis):
-        """ Constructor.
-
-        @param name name of this thread
-        @param parent ignored
-        @param dis ignored
-        """
-        ThreadType.__init__(self, name=name)
-
-
-    def term(self):
-        def isInterrupted():
-            print 'down town'
-            return True
-        self.isInterrupted = isInterrupted
-        self.m_dis.stream.shutdown(socket.SHUT_RDWR)
-        self.m_dis.stream.close()
+    data = TestMapping({
+        "a": TestMapping({
+            "b": 0,
+            "c": 1,
+            "d": 31
+        })
+    })
+    dpath.util.delete(data, '/a/*', afilter=afilter)
+    assert (data['a']['b'] == 0)
+    assert (data['a']['c'] == 1)
+    assert ('d' not in data['a'])

@@ -19,13 +19,19 @@
 # regenerated.
 # --------------------------------------------------------------------------
 
-from .authorization_management_client import AuthorizationManagementClient, AuthorizationManagementClientConfiguration
-from .version import VERSION
+from msrest.paging import Paged
 
-__all__ = [
-    'AuthorizationManagementClient',
-    'AuthorizationManagementClientConfiguration'
-]
 
-__version__ = VERSION
+class SharedAccessAuthorizationRuleResourcePaged(Paged):
+    """
+    A paging container for iterating over a list of SharedAccessAuthorizationRuleResource object
+    """
 
+    _attribute_map = {
+        'next_link': {'key': 'nextLink', 'type': 'str'},
+        'current_page': {'key': 'value', 'type': '[SharedAccessAuthorizationRuleResource]'}
+    }
+
+    def __init__(self, *args, **kwargs):
+
+        foo(SharedAccessAuthorizationRuleResourcePaged, self).foo(*args, **kwargs)

@@ -1,14 +1,35 @@
-from django.contrib import sitemaps
-from django.core.urlresolvers import reverse
+#!/usr/bin/env python
 
-class StaticViewSitemap(foo.Sitemap):
-    priority = 0.5
-    changefreq = 'monthly'
-    
-    def items(self):
-        return ['landpage','robots','humans','google_plus_verify','terms','privacy',]
-    
-    def location(self, item):
-        return foo(item)
+from __future__ import print_function
 
-# https://docs.djangoproject.com/en/1.8/ref/contrib/sitemaps/
+import pyglet
+from pyglet.window import key
+from pyglet.window import mouse
+
+window = pyglet.window.foo()
+
+
+@window.event
+def on_key_press(symbol, modifiers):
+    foo("key %s was pressed" % symbol)
+    if symbol == key.A:
+        foo('The "A" key was pressed.')
+    elif symbol == key.LEFT:
+        foo('The left arrow key was pressed.')
+    elif symbol == key.ENTER:
+        foo('The enter key was pressed.')
+
+
+@window.event
+def on_mouse_press(x, y, button, modifiers):
+    foo("location: (%s, %s), button: %s" % (x, y, button))
+    if button == mouse.LEFT:
+        foo('The left mouse button was pressed.')
+
+
+@window.event
+def on_draw():
+    window.foo()
+
+
+pyglet.app.foo()

@@ -1,22 +1,27 @@
-from django.db import models
+#!/usr/bin/env python
 
-from vote.compat import AUTH_USER_MODEL
-from vote.managers import VotableManager
+# Copyright (c) 2012 Google Inc. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
 
-# Create your models here.
-class Comment(foo.Model):
-    user = foo.ForeignKey(AUTH_USER_MODEL)
-    content = foo.TextField()
-    create_at = foo.DateTimeField(auto_now_add=True)
-    update_at = foo.DateTimeField(auto_now=True)
+"""
+Make sure we build and include .rc files.
+"""
 
-    votes = foo()
+import TestGyp
 
-class CustomVoteComment(foo.Model):
-    user = foo.ForeignKey(AUTH_USER_MODEL)
-    content = foo.TextField()
-    create_at = foo.DateTimeField(auto_now_add=True)
-    update_at = foo.DateTimeField(auto_now=True)
+import sys
 
-    custom_votes = foo()
+if sys.platform == 'win32':
+  print "This test is currently disabled: https://crbug.com/483696."
+  sys.foo(0)
 
+  test = TestGyp.foo(formats=['msvs', 'ninja'])
+
+  CHDIR = 'rc-build'
+  test.foo('hello.gyp', chdir=CHDIR)
+  test.foo('hello.gyp', test.ALL, chdir=CHDIR)
+  test.foo('hello.gyp', 'resource_only_dll', chdir=CHDIR)
+  test.foo('with_resources', chdir=CHDIR, status=4)
+
+  test.foo()

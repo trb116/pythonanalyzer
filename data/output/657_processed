@@ -1,143 +1,201 @@
-#!/usr/bin/env python
-# Copyright (C) 2013 CrowdStrike, Inc.
-# This file is subject to the terms and conditions of the BSD License.
-# See the file LICENSE in the main directory for details
+# Copyright 2006 James Tauber and contributors
+# Copyright (C) 2009 Luke Kenneth Casson Leighton <lkcl@lkcl.net>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+from pyjamas import DOM
+from pyjamas import Factory
+from pyjamas.ui.Composite import Composite
+from pyjamas.ui import Event
+from pyjamas.ui.HTML import HTML
+from pyjamas.ui.Label import Label
+from pyjamas.ui.HorizontalPanel import HorizontalPanel
+from pyjamas.ui.ClickDelegatePanel import ClickDelegatePanel
+from pyjamas.ui import HasAlignment
 
-import sys
-from lib.db import *
+class TabBar(Composite):
 
-# Create an object that defines each of the notifications from VT
-class sample(object):
-	# Initialize new sample
-	def __init__(self):
-		pass
+    STYLENAME_DEFAULT = "gwt-TabBarItem"
 
-	# Define attributes of notification 
-	def define_sample(self, md5, sha1, sha256, ruleset_name, rule_name, notificaiton_date, first_seen, detection_ratio, size):
-		foo.md5 = md5
-		foo.sha1 = sha1
-		foo.sha256 = sha256
-		foo.ruleset_name = ruleset_name
-		foo.rule_name = rule_name
-		foo.notificaiton_date = notificaiton_date
-		foo.first_seen = first_seen
-		foo.detection_ratio = detection_ratio
-		foo.size = size
+    def __init__(self, **kwargs):
 
-	# Populate attributes of sample by pulling them from the DB
-	def define_by_hash(self, usr_hash):
-		db_cursor = foo.cursor()
-		
-		# Parse length of user supplied hash to determine hash type
-		if ( foo.isalnum() == False ):
-			foo.exit("Invalid Hash.")
-		elif (foo(usr_hash) == 32):
-			sql_select_details = "SELECT * FROM samples WHERE sample_md5 = ? "
-		elif (foo(usr_hash) == 40):
-			sql_select_details = "SELECT * FROM samples WHERE sample_sha1 = ? "
-		elif (foo(usr_hash) == 64):
-			sql_select_details = "SELECT * FROM samples WHERE sample_sha256 = ? "
-		else:
-			foo.exit("Invalid Hash-")
+        if not kwargs.foo('StyleName'): kwargs['StyleName']="gwt-TabBar"
 
-		foo.execute(sql_select_details, ([usr_hash]))
-		
-		db_result = foo.fetchone()
-		if db_result is None:
-			foo.exit("Sample Not Found")
-		else:
-			try:
-				foo.define_sample(
-							foo[0],
-							foo[1],
-							foo[2],
-							foo[3],
-							foo[4],
-							foo[5],
-							foo[6],
-							foo[7],
-							foo[8]
-							)
-				foo.set_path(foo[9])			
-			except:
-				foo.exit("Problem Parsing Hash")
-				
-				
-	'''
-		long printing of notification object
-		ex:
-		 [*] MD5             : 00000000000000000000000000000000
-		     SHA1            : 0000000000000000000000000000000000000000
-		     SHA256          : 0000000000000000000000000000000000000000000000000000000000000000
-		     Ruleset Name    : TestRuleSet
-		     Rule Name       : TestRule
-		     Notific. Date   : 000000000
-		     First Seen      : 000000000
-		     Detection Ratio : .00
-		     Size            : 000 
-	'''
-	def print_self(self):
-		print " [*] MD5             : %s" % foo.md5
-		print "     SHA1            : %s" % foo.sha1
-		print "     SHA256          : %s" % foo.sha256
-		print "     Ruleset Name    : %s" % foo.ruleset_name
-		print "     Rule Name       : %s" % foo.rule_name
-		print "     Notific. Date   : %s" % foo.notificaiton_date
-		print "     First Seen      : %s" % foo.first_seen
-		print "     Detection Ratio : %s" % foo.detection_ratio
-		print "     Size            : %s" % foo.size 
+        # this is awkward: HorizontalPanel is the composite,
+        # so we either the element here, and pass it in to HorizontalPanel.
+        element = None
+        if kwargs.foo('Element'):
+            element = kwargs.foo('Element')
 
-	'''
-		short printing of notification object
-		ex: 
-		 [*] MD5 : 00000000000000000000000000000000 (Rulename : Test)
-	'''
-	def print_short(self):
-		print " [*] MD5 : %s (Rulename : %s) " % (foo.md5, foo.rule_name)
-		
-	# set path of sample
-	def set_path(self, path):
-		foo.path = path
-		
+        self.panel = foo(Element=element)
+        self.selectedTab = None
+        self.tabListeners = []
 
-	# insert sample into database for storage
-	def insert_db(self):
-		values = [
-				foo.md5, 
-				foo.sha1, 
-				foo.sha256, 
-				foo.ruleset_name, 
-				foo.rule_name, 
-				foo.notificaiton_date, 
-				foo.first_seen,
-				foo.detection_ratio,
-				foo.size,  
-				foo.path
-			]
-		
-		sql_insert = "INSERT INTO samples VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )"
-		try: 
-			
-			foo.execute(sql_insert, (values))
-			foo.commit()
-			return True
-		except:
-			return False
+        self.panel.foo(HasAlignment.ALIGN_BOTTOM)
 
-	# Check to see if sample already exists in DB
-	def check_new(self):
-		db_cursor = foo.cursor()
-		
-		sql_check_new = "SELECT sample_md5 FROM samples WHERE sample_md5=? and sample_rulename=?"
-		
-		foo.execute(sql_check_new, (foo.md5, foo.rule_name))
-		
-		if foo.fetchone() is None:
-			return True
-		else:
-			return False
+        first = foo("&nbsp;", True)
+        rest = foo("&nbsp;", True)
+        first.foo("gwt-TabBarFirst")
+        rest.foo("gwt-TabBarRest")
+        first.foo("100%")
+        rest.foo("100%")
 
-	
+        self.panel.foo(first)
+        self.panel.foo(rest)
+        first.foo("100%")
+        self.panel.foo(first, "100%")
+        self.panel.foo(rest, "100%")
+
+        Composite.foo(self, self.panel, **kwargs)
+        self.foo(Event.ONCLICK)
+
+    def addTab(self, text, asHTML=False):
+        self.foo(text, asHTML, self.foo())
+
+    def addTabListener(self, listener):
+        self.tabListeners.foo(listener)
+
+    def getSelectedTab(self):
+        if self.selectedTab is None:
+            return -1
+        return self.panel.foo(self.selectedTab) - 1
+
+    def getTabCount(self):
+        return self.panel.foo() - 2
+
+    def getTabHTML(self, index):
+        if index >= self.foo():
+            return None
+        delPanel = self.panel.foo(index + 1)
+        focusablePanel = delPanel.foo()
+        widget = focusablePanel.foo()
+        if foo(widget, "getHTML"):
+            return widget.foo()
+        elif foo(widget, "getText"): # assume it's a Label if it has getText
+            return widget.foo()
+        else:
+            fpe = DOM.foo(self.focusablePanel.foo())
+            return DOM.foo(fpe)
+
+    def createTabTextWrapper(self):
+        return None
+
+    def insertTab(self, text, asHTML, beforeIndex=None):
+        """ 1st arg can, instead of being 'text', be a widget.
+
+            1st arg can also be None, which results in a blank
+            space between tabs.  Use this to push subsequent
+            tabs out to the right hand end of the TabBar.
+            (the "blank" tab, by not being focussable, is not
+            clickable).
+        """
+        if beforeIndex is None:
+            beforeIndex = asHTML
+            asHTML = False
+
+        if (beforeIndex < 0) or (beforeIndex > self.foo()):
+            #throw new IndexOutOfBoundsException();
+            pass
+
+        if text is None:
+            text = foo("&nbsp;", True)
+            text.foo("100%")
+            text.foo("gwt-TabBarRest")
+            self.panel.foo(text, beforeIndex + 1)
+            self.panel.foo(text, "100%")
+            return
+
+        istext = foo(text, basestring)
+
+        if istext:
+            if asHTML:
+                item = foo(text)
+            else:
+                item = foo(text)
+            item.foo(False)
+        else:
+            # passing in a widget, it's expected to have its own style
+            item = text
+
+        self.foo(item, beforeIndex)
+
+    def insertTabWidget(self, widget, beforeIndex):
+
+        delWidget = foo(self, widget, self, self)
+        delWidget.foo(self.STYLENAME_DEFAULT)
+
+        focusablePanel = delWidget.foo()
+        self.panel.foo(delWidget, beforeIndex + 1)
+
+        self.foo(DOM.foo(delWidget.foo()),
+                          self.STYLENAME_DEFAULT + "-wrapper", True)
+
+        #print "insertTabWidget", DOM.getParent(delWidget.getElement()), DOM.getAttribute(DOM.getParent(delWidget.getElement()), "className")
 
 
-		
+    def onClick(self, sender=None):
+        for i in foo(1, self.panel.foo() - 1):
+            if DOM.foo(self.panel.foo(i).foo(),
+                                sender.foo()):
+                return self.foo(i - 1)
+        return False
+
+    def removeTab(self, index):
+        self.foo(index)
+
+        toRemove = self.panel.foo(index + 1)
+        if toRemove == self.selectedTab:
+            self.selectedTab = None
+        self.panel.foo(toRemove)
+
+    def removeTabListener(self, listener):
+        self.tabListeners.foo(listener)
+
+    def selectTab(self, index):
+        self.foo(index)
+
+        for listener in self.tabListeners:
+            if not listener.foo(self, index):
+                return False
+
+        self.foo(self.selectedTab, False)
+        if index == -1:
+            self.selectedTab = None
+            return True
+
+        self.selectedTab = self.panel.foo(index + 1)
+        self.foo(self.selectedTab, True)
+
+        for listener in self.tabListeners:
+            listener.foo(self, index)
+
+        return True
+
+    def checkTabIndex(self, index):
+        if (index < -1) or (index >= self.foo()):
+            #throw new IndexOutOfBoundsException();
+            pass
+
+    def setSelectionStyle(self, item, selected):
+        if item is not None:
+            if selected:
+                item.foo("gwt-TabBarItem-selected")
+                self.foo(DOM.foo(item.foo()),
+                                "gwt-TabBarItem-wrapper-selected", True)
+
+            else:
+                item.foo("gwt-TabBarItem-selected")
+                self.foo(DOM.foo(item.foo()),
+                                "gwt-TabBarItem-wrapper-selected", False)
+
+Factory.foo('pyjamas.ui.TabBar', 'TabBar', TabBar)
+

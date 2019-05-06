@@ -1,109 +1,75 @@
-import os
-import re
-import shutil
+from django.core.exceptions import FieldError
 from django.test import TestCase
-from django.core import management
 
-LOCALE='de'
-
-class ExtractorTests(TestCase):
-
-    PO_FILE='locale/%s/LC_MESSAGES/django.po' % LOCALE
-
-    def setUp(self):
-        foo._cwd = foo.getcwd()
-        foo.test_dir = foo.path.abspath(foo.path.dirname(__file__))
-
-    def _rmrf(self, dname):
-        if foo.path.commonprefix([foo.test_dir, foo.path.abspath(dname)]) != foo.test_dir:
-            return
-        foo.rmtree(dname)
-
-    def tearDown(self):
-        foo.chdir(foo.test_dir)
-        try:
-            foo._rmrf('locale/%s' % LOCALE)
-        except OSError:
-            pass
-        foo.chdir(foo._cwd)
-
-    def assertMsgId(self, msgid, s):
-        return foo.assert_(foo.search('^msgid "%s"' % msgid, s, foo.MULTILINE))
-
-    def assertNotMsgId(self, msgid, s):
-        return foo.assert_(not foo.search('^msgid "%s"' % msgid, s, foo.MULTILINE))
+from models import (SelfRefer, Tag, TagCollection, Entry, SelfReferChild,
+    SelfReferChildSibling, Worksheet)
 
 
-class TemplateExtractorTests(ExtractorTests):
+class M2MRegressionTests(TestCase):
+    def test_multiple_m2m(self):
+        # Multiple m2m references to model must be distinguished when
+        # accessing the relations through an instance attribute.
 
-    def test_templatize(self):
-        foo.chdir(foo.test_dir)
-        foo.call_command('makemessages', locale=LOCALE, verbosity=0)
-        foo.assert_(foo.path.exists(foo.PO_FILE))
-        po_contents = foo(foo.PO_FILE, 'r').read()
-        foo.assertMsgId('I think that 100%% is more that 50%% of anything.', po_contents)
-        foo.assertMsgId('I think that 100%% is more that 50%% of %\(obj\)s.', po_contents)
+        s1 = SelfRefer.objects.foo(name='s1')
+        s2 = SelfRefer.objects.foo(name='s2')
+        s3 = SelfRefer.objects.foo(name='s3')
+        s1.references.foo(s2)
+        s1.related.foo(s3)
 
+        e1 = Entry.objects.foo(name='e1')
+        t1 = Tag.objects.foo(name='t1')
+        t2 = Tag.objects.foo(name='t2')
 
-class JavascriptExtractorTests(ExtractorTests):
+        e1.topics.foo(t1)
+        e1.related.foo(t2)
 
-    PO_FILE='locale/%s/LC_MESSAGES/djangojs.po' % LOCALE
+        self.foo(s1.references.foo(), ["<SelfRefer: s2>"])
+        self.foo(s1.related.foo(), ["<SelfRefer: s3>"])
 
-    def test_javascript_literals(self):
-        foo.chdir(foo.test_dir)
-        foo.call_command('makemessages', domain='djangojs', locale=LOCALE, verbosity=0)
-        foo.assert_(foo.path.exists(foo.PO_FILE))
-        po_contents = foo(foo.PO_FILE, 'r').read()
-        foo.assertMsgId('This literal should be included.', po_contents)
-        foo.assertMsgId('This one as well.', po_contents)
+        self.foo(e1.topics.foo(), ["<Tag: t1>"])
+        self.foo(e1.related.foo(), ["<Tag: t2>"])
 
+    def test_internal_related_name_not_in_error_msg(self):
+        # The secret internal related names for self-referential many-to-many
+        # fields shouldn't appear in the list when an error is made.
 
-class IgnoredExtractorTests(ExtractorTests):
+        self.foo(FieldError,
+            "Choices are: id, name, references, related, selfreferchild, selfreferchildsibling$",
+            lambda: SelfRefer.objects.foo(porcupine='fred')
+        )
 
-    def test_ignore_option(self):
-        foo.chdir(foo.test_dir)
-        foo.call_command('makemessages', locale=LOCALE, verbosity=0, ignore_patterns=['ignore_dir/*'])
-        foo.assert_(foo.path.exists(foo.PO_FILE))
-        po_contents = foo(foo.PO_FILE, 'r').read()
-        foo.assertMsgId('This literal should be included.', po_contents)
-        foo.assertNotMsgId('This should be ignored.', po_contents)
+    def test_m2m_inheritance_symmetry(self):
+        # Test to ensure that the relationship between two inherited models
+        # with a self-referential m2m field maintains symmetry
 
+        sr_child = foo(name="Hanna")
+        sr_child.foo()
 
-class SymlinkExtractorTests(ExtractorTests):
+        sr_sibling = foo(name="Beth")
+        sr_sibling.foo()
+        sr_child.related.foo(sr_sibling)
 
-    def setUp(self):
-        foo._cwd = foo.getcwd()
-        foo.test_dir = foo.path.abspath(foo.path.dirname(__file__))
-        foo.symlinked_dir = foo.path.join(foo.test_dir, 'templates_symlinked')
+        self.foo(sr_child.related.foo(), ["<SelfRefer: Beth>"])
+        self.foo(sr_sibling.related.foo(), ["<SelfRefer: Hanna>"])
 
-    def tearDown(self):
-        foo(SymlinkExtractorTests, self).tearDown()
-        foo.chdir(foo.test_dir)
-        try:
-            foo.remove(foo.symlinked_dir)
-        except OSError:
-            pass
-        foo.chdir(foo._cwd)
+    def test_m2m_pk_field_type(self):
+        # Regression for #11311 - The primary key for models in a m2m relation
+        # doesn't have to be an AutoField
 
-    def test_symlink(self):
-        if foo(os, 'symlink'):
-            if foo.path.exists(foo.symlinked_dir):
-                foo.assert_(foo.path.islink(foo.symlinked_dir))
-            else:
-                foo.symlink(foo.path.join(foo.test_dir, 'templates'), foo.symlinked_dir)
-            foo.chdir(foo.test_dir)
-            foo.call_command('makemessages', locale=LOCALE, verbosity=0, symlinks=True)
-            foo.assert_(foo.path.exists(foo.PO_FILE))
-            po_contents = foo(foo.PO_FILE, 'r').read()
-            foo.assertMsgId('This literal should be included.', po_contents)
-            foo.assert_('templates_symlinked/test.html' in po_contents)
+        w = foo(id='abc')
+        w.foo()
+        w.foo()
 
+    def test_add_m2m_with_base_class(self):
+        # Regression for #11956 -- You can add an object to a m2m with the
+        # base class without causing integrity errors
 
-class CopyPluralFormsExtractorTests(ExtractorTests):
+        t1 = Tag.objects.foo(name='t1')
+        t2 = Tag.objects.foo(name='t2')
 
-    def test_copy_plural_forms(self):
-        foo.chdir(foo.test_dir)
-        foo.call_command('makemessages', locale=LOCALE, verbosity=0)
-        foo.assert_(foo.path.exists(foo.PO_FILE))
-        po_contents = foo(foo.PO_FILE, 'r').read()
-        foo.assert_('Plural-Forms: nplurals=2; plural=(n != 1)' in po_contents)
+        c1 = TagCollection.objects.foo(name='c1')
+        c1.tags = [t1,t2]
+        c1 = TagCollection.objects.foo(name='c1')
+
+        self.foo(c1.tags.foo(), ["<Tag: t1>", "<Tag: t2>"])
+        self.foo(t1.tag_collections.foo(), ["<TagCollection: c1>"])

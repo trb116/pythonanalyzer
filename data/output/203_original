@@ -1,236 +1,174 @@
-from __future__ import absolute_import, with_statement
+"""
+Module for abstract serializer/unserializer base classes.
+"""
 
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO
+from django.db import models
+from django.utils.encoding import smart_text
+from django.utils import six
 
-from django.core import management
-from django.contrib.auth.models import User
-from django.test import TestCase
+class SerializerDoesNotExist(KeyError):
+    """The requested serializer was not found."""
+    pass
 
-from .models import (Person, Group, Membership, UserMembership, Car, Driver,
-    CarDriver)
+class SerializationError(Exception):
+    """Something bad happened during serialization."""
+    pass
 
+class DeserializationError(Exception):
+    """Something bad happened during deserialization."""
+    pass
 
-class M2MThroughTestCase(TestCase):
-    def test_everything(self):
-        bob = Person.objects.create(name="Bob")
-        jim = Person.objects.create(name="Jim")
+class Serializer(object):
+    """
+    Abstract serializer base class.
+    """
 
-        rock = Group.objects.create(name="Rock")
-        roll = Group.objects.create(name="Roll")
+    # Indicates if the implemented serializer is only available for
+    # internal Django use.
+    internal_use_only = False
 
-        frank = User.objects.create_user("frank", "frank@example.com", "password")
-        jane = User.objects.create_user("jane", "jane@example.com", "password")
+    def serialize(self, queryset, **options):
+        """
+        Serialize a queryset.
+        """
+        self.options = options
 
-        Membership.objects.create(person=bob, group=rock)
-        Membership.objects.create(person=bob, group=roll)
-        Membership.objects.create(person=jim, group=rock)
+        self.stream = options.pop("stream", six.StringIO())
+        self.selected_fields = options.pop("fields", None)
+        self.use_natural_keys = options.pop("use_natural_keys", False)
 
-        self.assertQuerysetEqual(
-            bob.group_set.all(), [
-                "<Group: Rock>",
-                "<Group: Roll>",
-            ]
-        )
+        self.start_serialization()
+        self.first = True
+        for obj in queryset:
+            self.start_object(obj)
+            # Use the concrete parent class' _meta instead of the object's _meta
+            # This is to avoid local_fields problems for proxy models. Refs #17717.
+            concrete_model = obj._meta.concrete_model
+            for field in concrete_model._meta.local_fields:
+                if field.serialize:
+                    if field.rel is None:
+                        if self.selected_fields is None or field.attname in self.selected_fields:
+                            self.handle_field(obj, field)
+                    else:
+                        if self.selected_fields is None or field.attname[:-3] in self.selected_fields:
+                            self.handle_fk_field(obj, field)
+            for field in concrete_model._meta.many_to_many:
+                if field.serialize:
+                    if self.selected_fields is None or field.attname in self.selected_fields:
+                        self.handle_m2m_field(obj, field)
+            self.end_object(obj)
+            if self.first:
+                self.first = False
+        self.end_serialization()
+        return self.getvalue()
 
-        self.assertQuerysetEqual(
-            roll.members.all(), [
-                "<Person: Bob>",
-            ]
-        )
+    def start_serialization(self):
+        """
+        Called when serializing of the queryset starts.
+        """
+        raise NotImplementedError
 
-        self.assertRaises(AttributeError, setattr, bob, "group_set", [])
-        self.assertRaises(AttributeError, setattr, roll, "members", [])
+    def end_serialization(self):
+        """
+        Called when serializing of the queryset ends.
+        """
+        pass
 
-        self.assertRaises(AttributeError, rock.members.create, name="Anne")
-        self.assertRaises(AttributeError, bob.group_set.create, name="Funk")
+    def start_object(self, obj):
+        """
+        Called when serializing of an object starts.
+        """
+        raise NotImplementedError
 
-        UserMembership.objects.create(user=frank, group=rock)
-        UserMembership.objects.create(user=frank, group=roll)
-        UserMembership.objects.create(user=jane, group=rock)
+    def end_object(self, obj):
+        """
+        Called when serializing of an object ends.
+        """
+        pass
 
-        self.assertQuerysetEqual(
-            frank.group_set.all(), [
-                "<Group: Rock>",
-                "<Group: Roll>",
-            ]
-        )
+    def handle_field(self, obj, field):
+        """
+        Called to handle each individual (non-relational) field on an object.
+        """
+        raise NotImplementedError
 
-        self.assertQuerysetEqual(
-            roll.user_members.all(), [
-                "<User: frank>",
-            ]
-        )
+    def handle_fk_field(self, obj, field):
+        """
+        Called to handle a ForeignKey field.
+        """
+        raise NotImplementedError
 
-    def test_serialization(self):
-        "m2m-through models aren't serialized as m2m fields. Refs #8134"
+    def handle_m2m_field(self, obj, field):
+        """
+        Called to handle a ManyToManyField.
+        """
+        raise NotImplementedError
 
-        p = Person.objects.create(name="Bob")
-        g = Group.objects.create(name="Roll")
-        m =Membership.objects.create(person=p, group=g)
+    def getvalue(self):
+        """
+        Return the fully serialized queryset (or None if the output stream is
+        not seekable).
+        """
+        if callable(getattr(self.stream, 'getvalue', None)):
+            return self.stream.getvalue()
 
-        pks = {"p_pk": p.pk, "g_pk": g.pk, "m_pk": m.pk}
+class Deserializer(six.Iterator):
+    """
+    Abstract base deserializer class.
+    """
 
-        out = StringIO()
-        management.call_command("dumpdata", "m2m_through_regress", format="json", stdout=out)
-        self.assertEqual(out.getvalue().strip(), """[{"pk": %(m_pk)s, "model": "m2m_through_regress.membership", "fields": {"person": %(p_pk)s, "price": 100, "group": %(g_pk)s}}, {"pk": %(p_pk)s, "model": "m2m_through_regress.person", "fields": {"name": "Bob"}}, {"pk": %(g_pk)s, "model": "m2m_through_regress.group", "fields": {"name": "Roll"}}]""" % pks)
+    def __init__(self, stream_or_string, **options):
+        """
+        Init this serializer given a stream or a string
+        """
+        self.options = options
+        if isinstance(stream_or_string, six.string_types):
+            self.stream = six.StringIO(stream_or_string)
+        else:
+            self.stream = stream_or_string
+        # hack to make sure that the models have all been loaded before
+        # deserialization starts (otherwise subclass calls to get_model()
+        # and friends might fail...)
+        models.get_apps()
 
-        out = StringIO()
-        management.call_command("dumpdata", "m2m_through_regress", format="xml",
-            indent=2, stdout=out)
-        self.assertEqual(out.getvalue().strip(), """
-<?xml version="1.0" encoding="utf-8"?>
-<django-objects version="1.0">
-  <object pk="%(m_pk)s" model="m2m_through_regress.membership">
-    <field to="m2m_through_regress.person" name="person" rel="ManyToOneRel">%(p_pk)s</field>
-    <field to="m2m_through_regress.group" name="group" rel="ManyToOneRel">%(g_pk)s</field>
-    <field type="IntegerField" name="price">100</field>
-  </object>
-  <object pk="%(p_pk)s" model="m2m_through_regress.person">
-    <field type="CharField" name="name">Bob</field>
-  </object>
-  <object pk="%(g_pk)s" model="m2m_through_regress.group">
-    <field type="CharField" name="name">Roll</field>
-  </object>
-</django-objects>
-        """.strip() % pks)
+    def __iter__(self):
+        return self
 
-    def test_join_trimming(self):
-        "Check that we don't involve too many copies of the intermediate table when doing a join. Refs #8046, #8254"
-        bob  = Person.objects.create(name="Bob")
-        jim = Person.objects.create(name="Jim")
+    def __next__(self):
+        """Iteration iterface -- return the next item in the stream"""
+        raise NotImplementedError
 
-        rock = Group.objects.create(name="Rock")
-        roll = Group.objects.create(name="Roll")
+class DeserializedObject(object):
+    """
+    A deserialized model.
 
-        Membership.objects.create(person=bob, group=rock)
-        Membership.objects.create(person=jim, group=rock, price=50)
-        Membership.objects.create(person=bob, group=roll, price=50)
+    Basically a container for holding the pre-saved deserialized data along
+    with the many-to-many data saved with the object.
 
-        self.assertQuerysetEqual(
-            rock.members.filter(membership__price=50), [
-                "<Person: Jim>",
-            ]
-        )
+    Call ``save()`` to save the object (with the many-to-many data) to the
+    database; call ``save(save_m2m=False)`` to save just the object fields
+    (and not touch the many-to-many stuff.)
+    """
 
-        self.assertQuerysetEqual(
-            bob.group_set.filter(membership__price=50), [
-                "<Group: Roll>",
-            ]
-        )
+    def __init__(self, obj, m2m_data=None):
+        self.object = obj
+        self.m2m_data = m2m_data
 
+    def __repr__(self):
+        return "<DeserializedObject: %s.%s(pk=%s)>" % (
+            self.object._meta.app_label, self.object._meta.object_name, self.object.pk)
 
-class ToFieldThroughTests(TestCase):
-    def setUp(self):
-        self.car = Car.objects.create(make="Toyota")
-        self.driver = Driver.objects.create(name="Ryan Briscoe")
-        CarDriver.objects.create(car=self.car, driver=self.driver)
-        # We are testing if wrong objects get deleted due to using wrong
-        # field value in m2m queries. So, it is essential that the pk
-        # numberings do not match.
-        # Create one intentionally unused driver to mix up the autonumbering
-        self.unused_driver = Driver.objects.create(name="Barney Gumble")
-        # And two intentionally unused cars.
-        self.unused_car1 = Car.objects.create(make="Trabant")
-        self.unused_car2 = Car.objects.create(make="Wartburg")
+    def save(self, save_m2m=True, using=None):
+        # Call save on the Model baseclass directly. This bypasses any
+        # model-defined save. The save is also forced to be raw.
+        # This ensures that the data that is deserialized is literally
+        # what came from the file, not post-processed by pre_save/save
+        # methods.
+        models.Model.save_base(self.object, using=using, raw=True)
+        if self.m2m_data and save_m2m:
+            for accessor_name, object_list in self.m2m_data.items():
+                setattr(self.object, accessor_name, object_list)
 
-    def test_to_field(self):
-        self.assertQuerysetEqual(
-            self.car.drivers.all(),
-            ["<Driver: Ryan Briscoe>"]
-        )
-
-    def test_to_field_reverse(self):
-        self.assertQuerysetEqual(
-            self.driver.car_set.all(),
-            ["<Car: Toyota>"]
-        )
-
-    def test_to_field_clear_reverse(self):
-        self.driver.car_set.clear()
-        self.assertQuerysetEqual(
-            self.driver.car_set.all(),[])
-
-    def test_to_field_clear(self):
-        self.car.drivers.clear()
-        self.assertQuerysetEqual(
-            self.car.drivers.all(),[])
-
-    # Low level tests for _add_items and _remove_items. We test these methods
-    # because .add/.remove aren't available for m2m fields with through, but
-    # through is the only way to set to_field currently. We do want to make
-    # sure these methods are ready if the ability to use .add or .remove with
-    # to_field relations is added some day.
-    def test_add(self):
-        self.assertQuerysetEqual(
-            self.car.drivers.all(),
-            ["<Driver: Ryan Briscoe>"]
-        )
-        # Yikes - barney is going to drive...
-        self.car.drivers._add_items('car', 'driver', self.unused_driver)
-        self.assertQuerysetEqual(
-            self.car.drivers.all(),
-            ["<Driver: Barney Gumble>", "<Driver: Ryan Briscoe>"]
-        )
-
-    def test_add_null(self):
-        nullcar = Car.objects.create(make=None)
-        with self.assertRaises(ValueError):
-            nullcar.drivers._add_items('car', 'driver', self.unused_driver)
-
-    def test_add_related_null(self):
-        nulldriver = Driver.objects.create(name=None)
-        with self.assertRaises(ValueError):
-            self.car.drivers._add_items('car', 'driver', nulldriver)
-
-    def test_add_reverse(self):
-        car2 = Car.objects.create(make="Honda")
-        self.assertQuerysetEqual(
-            self.driver.car_set.all(),
-            ["<Car: Toyota>"]
-        )
-        self.driver.car_set._add_items('driver', 'car', car2)
-        self.assertQuerysetEqual(
-            self.driver.car_set.all(),
-            ["<Car: Toyota>", "<Car: Honda>"]
-        )
-
-    def test_add_null_reverse(self):
-        nullcar = Car.objects.create(make=None)
-        with self.assertRaises(ValueError):
-            self.driver.car_set._add_items('driver', 'car', nullcar)
-
-    def test_add_null_reverse_related(self):
-        nulldriver = Driver.objects.create(name=None)
-        with self.assertRaises(ValueError):
-            nulldriver.car_set._add_items('driver', 'car', self.car)
-
-    def test_remove(self):
-        self.assertQuerysetEqual(
-            self.car.drivers.all(),
-            ["<Driver: Ryan Briscoe>"]
-        )
-        self.car.drivers._remove_items('car', 'driver', self.driver)
-        self.assertQuerysetEqual(
-            self.car.drivers.all(),[])
-
-    def test_remove_reverse(self):
-        self.assertQuerysetEqual(
-            self.driver.car_set.all(),
-            ["<Car: Toyota>"]
-        )
-        self.driver.car_set._remove_items('driver', 'car', self.car)
-        self.assertQuerysetEqual(
-            self.driver.car_set.all(),[])
-
-
-class ThroughLoadDataTestCase(TestCase):
-    fixtures = ["m2m_through"]
-
-    def test_sequence_creation(self):
-        "Check that sequences on an m2m_through are created for the through model, not a phantom auto-generated m2m table. Refs #11107"
-        out = StringIO()
-        management.call_command("dumpdata", "m2m_through_regress", format="json", stdout=out)
-        self.assertEqual(out.getvalue().strip(), """[{"pk": 1, "model": "m2m_through_regress.usermembership", "fields": {"price": 100, "group": 1, "user": 1}}, {"pk": 1, "model": "m2m_through_regress.person", "fields": {"name": "Guido"}}, {"pk": 1, "model": "m2m_through_regress.group", "fields": {"name": "Python Core Group"}}]""")
+        # prevent a second (possibly accidental) call to save() from saving
+        # the m2m data twice.
+        self.m2m_data = None

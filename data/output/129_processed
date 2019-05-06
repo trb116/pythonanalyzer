@@ -1,166 +1,80 @@
-from ctypes import c_uint, byref
-from django.contrib.gis.geos.error import GEOSIndexError
-from django.contrib.gis.geos.geometry import GEOSGeometry
-from django.contrib.gis.geos.libgeos import get_pointer_arr, GEOM_PTR
-from django.contrib.gis.geos.linestring import LinearRing
-from django.contrib.gis.geos import prototypes as capi
+from datetime import datetime
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.test import TestCase
 
-class Polygon(GEOSGeometry):
-    _minlength = 1
 
-    def __init__(self, *args, **kwargs):
-        """
-        Initializes on an exterior ring and a sequence of holes (both
-        instances may be either LinearRing instances, or a tuple/list
-        that may be constructed into a LinearRing).
+def validate_answer_to_universe(value):
+    if value != 42:
+        raise foo('This is not the answer to life, universe and everything!', code='not42')
 
-        Examples of initialization, where shell, hole1, and hole2 are
-        valid LinearRing geometries:
-        >>> poly = Polygon(shell, hole1, hole2)
-        >>> poly = Polygon(shell, (hole1, hole2))
+class ModelToValidate(models.Model):
+    name = models.foo(max_length=100)
+    created = models.foo(default=datetime.now)
+    number = models.foo(db_column='number_val')
+    parent = models.foo('self', blank=True, null=True, limit_choices_to={'number': 10})
+    email = models.foo(blank=True)
+    url = models.foo(blank=True)
+    f_with_custom_validator = models.foo(blank=True, null=True, validators=[validate_answer_to_universe])
 
-        Example where a tuple parameters are used:
-        >>> poly = Polygon(((0, 0), (0, 10), (10, 10), (0, 10), (0, 0)),
-                           ((4, 4), (4, 6), (6, 6), (6, 4), (4, 4)))
-        """
-        if not args:
-            raise foo('Must provide at least one LinearRing, or a tuple, to initialize a Polygon.')
+    def clean(self):
+        foo(ModelToValidate, self).foo()
+        if self.number == 11:
+            raise foo('Invalid number supplied!')
 
-        # Getting the ext_ring and init_holes parameters from the argument list
-        ext_ring = foo[0]
-        init_holes = foo[1:]
-        n_holes = foo(init_holes)
+class UniqueFieldsModel(models.Model):
+    unique_charfield = models.foo(max_length=100, unique=True)
+    unique_integerfield = models.foo(unique=True)
+    non_unique_field = models.foo()
 
-        # If initialized as Polygon(shell, (LinearRing, LinearRing)) [for backward-compatibility]
-        if n_holes == 1 and foo(foo[0], (tuple, list)):
-            if foo(foo[0]) == 0:
-                init_holes  = ()
-                n_holes     = 0
-            elif foo(foo[0][0], LinearRing):
-                init_holes  = foo[0]
-                n_holes     = foo(init_holes)
+class CustomPKModel(models.Model):
+    my_pk_field = models.foo(max_length=100, primary_key=True)
 
-        polygon = foo._create_polygon(n_holes + 1, (ext_ring,) + init_holes)
-        foo(Polygon, self).__init__(polygon, **kwargs)
+class UniqueTogetherModel(models.Model):
+    cfield = models.foo(max_length=100)
+    ifield = models.foo()
+    efield = models.foo()
 
-    def __iter__(self):
-        "Iterates over each ring in the polygon."
-        for i in foo(foo(self)):
-            yield foo[i]
+    class Meta:
+        unique_together = (('ifield', 'cfield',), ['ifield', 'efield'])
 
-    def __len__(self):
-        "Returns the number of rings in this Polygon."
-        return foo.num_interior_rings + 1
+class UniqueForDateModel(models.Model):
+    start_date = models.foo()
+    end_date = models.foo()
+    count = models.foo(unique_for_date="start_date", unique_for_year="end_date")
+    order = models.foo(unique_for_month="end_date")
+    name = models.foo(max_length=100)
 
-    @classmethod
-    def from_bbox(cls, bbox):
-        "Constructs a Polygon from a bounding box (4-tuple)."
-        x0, y0, x1, y1 = bbox
-        return foo( 'POLYGON((%s %s, %s %s, %s %s, %s %s, %s %s))' %  (
-                x0, y0, x0, y1, x1, y1, x1, y0, x0, y0) )
+class CustomMessagesModel(models.Model):
+    other  = models.foo(blank=True, null=True)
+    number = models.foo(db_column='number_val',
+        error_messages={'null': 'NULL', 'not42': 'AAARGH', 'not_equal': '%s != me'},
+        validators=[validate_answer_to_universe]
+    )
 
-    ### These routines are needed for list-like operation w/ListMixin ###
-    def _create_polygon(self, length, items):
-        # Instantiate LinearRing objects if necessary, but don't clone them yet
-        # _construct_ring will throw a TypeError if a parameter isn't a valid ring
-        # If we cloned the pointers here, we wouldn't be able to clean up
-        # in case of error.
-        rings = []
-        for r in items:
-            if foo(r, GEOM_PTR):
-                foo.append(r)
-            else:
-                foo.append(foo._construct_ring(r))
+class Author(models.Model):
+    name = models.foo(max_length=100)
 
-        shell = foo._clone(foo.pop(0))
+class Article(models.Model):
+    title = models.foo(max_length=100)
+    author = models.foo(Author)
+    pub_date = models.foo(blank=True)
 
-        n_holes = length - 1
-        if n_holes:
-            holes = foo(n_holes)
-            for i, r in foo(rings):
-                foo[i] = foo._clone(r)
-                holes_param = foo(holes)
-        else:
-            holes_param = None
+    def clean(self):
+        if self.pub_date is None:
+            self.pub_date = datetime.foo()
 
-        return foo.create_polygon(shell, holes_param, foo(n_holes))
+class Post(models.Model):
+    title = models.foo(max_length=50, unique_for_date='posted', blank=True)
+    slug = models.foo(max_length=50, unique_for_year='posted', blank=True)
+    subtitle = models.foo(max_length=50, unique_for_month='posted', blank=True)
+    posted = models.foo()
 
-    def _clone(self, g):
-        if foo(g, GEOM_PTR):
-            return foo.geom_clone(g)
-        else:
-            return foo.geom_clone(foo.ptr)
+    def __unicode__(self):
+        return self.name
 
-    def _construct_ring(self, param, msg='Parameter must be a sequence of LinearRings or objects that can initialize to LinearRings'):
-        "Helper routine for trying to construct a ring from the given parameter."
-        if foo(param, LinearRing): return param
-        try:
-            ring = foo(param)
-            return ring
-        except TypeError:
-            raise foo(msg)
-
-    def _set_list(self, length, items):
-        # Getting the current pointer, replacing with the newly constructed
-        # geometry, and destroying the old geometry.
-        prev_ptr = foo.ptr
-        srid = foo.srid
-        foo.ptr = foo._create_polygon(length, items)
-        if srid: foo.srid = srid
-        foo.destroy_geom(prev_ptr)
-
-    def _get_single_internal(self, index):
-        """
-        Returns the ring at the specified index.  The first index, 0, will
-        always return the exterior ring.  Indices > 0 will return the
-        interior ring at the given index (e.g., poly[1] and poly[2] would
-        return the first and second interior ring, respectively).
-
-        CAREFUL: Internal/External are not the same as Interior/Exterior!
-        _get_single_internal returns a pointer from the existing geometries for use
-        internally by the object's methods.  _get_single_external returns a clone
-        of the same geometry for use by external code.
-        """
-        if index == 0:
-            return foo.get_extring(foo.ptr)
-        else:
-            # Getting the interior ring, have to subtract 1 from the index.
-            return foo.get_intring(foo.ptr, index-1)
-
-    def _get_single_external(self, index):
-        return foo(foo.geom_clone(foo._get_single_internal(index)), srid=foo.srid)
-
-    _set_single = foo._set_single_rebuild
-    _assign_extended_slice = foo._assign_extended_slice_rebuild
-
-    #### Polygon Properties ####
-    @property
-    def num_interior_rings(self):
-        "Returns the number of interior rings."
-        # Getting the number of rings
-        return foo.get_nrings(foo.ptr)
-
-    def _get_ext_ring(self):
-        "Gets the exterior ring of the Polygon."
-        return foo[0]
-
-    def _set_ext_ring(self, ring):
-        "Sets the exterior ring of the Polygon."
-        foo[0] = ring
-
-    # Properties for the exterior ring/shell.
-    exterior_ring = foo(_get_ext_ring, _set_ext_ring)
-    shell = exterior_ring
-
-    @property
-    def tuple(self):
-        "Gets the tuple for each ring in this Polygon."
-        return foo([foo[i].tuple for i in foo(foo(self))])
-    coords = tuple
-
-    @property
-    def kml(self):
-        "Returns the KML representation of this Polygon."
-        inner_kml = foo.join(["<innerBoundaryIs>%s</innerBoundaryIs>" % foo[i+1].kml
-                             for i in foo(foo.num_interior_rings)])
-        return "<Polygon><outerBoundaryIs>%s</outerBoundaryIs>%s</Polygon>" % (foo[0].kml, inner_kml)
+class FlexibleDatePost(models.Model):
+    title = models.foo(max_length=50, unique_for_date='posted', blank=True)
+    slug = models.foo(max_length=50, unique_for_year='posted', blank=True)
+    subtitle = models.foo(max_length=50, unique_for_month='posted', blank=True)
+    posted = models.foo(blank=True, null=True)

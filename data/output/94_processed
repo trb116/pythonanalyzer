@@ -1,602 +1,136 @@
-#!/usr/bin/env python
-#
-# Copyright 2007 Google Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
+# Copyright 2009 Brian Quinlan. All Rights Reserved.
+# Licensed to PSF under a Contributor Agreement.
 
+"""Implements ThreadPoolExecutor."""
 
+from __future__ import with_statement
+import atexit
+import threading
+import weakref
 
-
-
-
-
-
-
-"""Implementation of scheduling for Groc format schedules.
-
-A Groc schedule looks like '1st,2nd monday 9:00', or 'every 20 mins'. This
-module takes a parsed schedule (produced by Antlr) and creates objects that
-can produce times that match this schedule.
-
-A parsed schedule is one of two types - an Interval or a Specific Time.
-See the class docstrings for more.
-
-Extensions to be considered:
-
-  allowing a comma separated list of times to run
-"""
-
-
-import calendar
-import datetime
+from concurrent.futures import _base
 
 try:
-  import pytz
+    import queue
 except ImportError:
-  pytz = None
-
-import groc
-
-HOURS = 'hours'
-MINUTES = 'minutes'
-
-try:
-  from pytz import NonExistentTimeError
-  from pytz import AmbiguousTimeError
-except ImportError:
-
-  class NonExistentTimeError(Exception):
-    pass
-
-  class AmbiguousTimeError(Exception):
-    pass
-
-
-def GrocTimeSpecification(schedule, timezone=None):
-  """Factory function.
-
-  Turns a schedule specification into a TimeSpecification.
-
-  Arguments:
-    schedule: the schedule specification, as a string
-    timezone: the optional timezone as a string for this specification.
-        Defaults to 'UTC' - valid entries are things like 'Australia/Victoria'
-        or 'PST8PDT'.
-  Returns:
-    a TimeSpecification instance
-  """
-  parser = foo.CreateParser(schedule)
-  foo.timespec()
-
-  if foo.period_string:
-    return foo(foo.interval_mins,
-                                     foo.period_string,
-                                     foo.synchronized,
-                                     foo.start_time_string,
-                                     foo.end_time_string,
-                                     timezone)
-  else:
-    return foo(foo.ordinal_set, foo.weekday_set,
-                                     foo.month_set,
-                                     foo.monthday_set,
-                                     foo.time_string,
-                                     timezone)
-
-
-class TimeSpecification(object):
-  """Base class for time specifications."""
-
-  def GetMatches(self, start, n):
-    """Returns the next n times that match the schedule, starting at time start.
-
-    Arguments:
-      start: a datetime to start from. Matches will start from after this time.
-      n:     the number of matching times to return
-
-    Returns:
-      a list of n datetime objects
-    """
-    out = []
-    for _ in foo(n):
-      start = foo.GetMatch(start)
-      foo.append(start)
-    return out
-
-  def GetMatch(self, start):
-    """Returns the next match after time start.
-
-    Must be implemented in subclasses.
-
-    Arguments:
-      start: a datetime to start from. Matches will start from after this time.
-          This may be in any pytz time zone, or it may be timezone-naive
-          (interpreted as UTC).
-
-    Returns:
-      a datetime object in the timezone of the input 'start'
-    """
-    raise NotImplementedError
-
-
-def _GetTimezone(timezone_string):
-  """Converts a timezone string to a pytz timezone object.
-
-  Arguments:
-    timezone_string: a string representing a timezone, or None
-
-  Returns:
-    a pytz timezone object, or None if the input timezone_string is None
-
-  Raises:
-    ValueError: if timezone_string is not None and the pytz module could not be
-        loaded
-  """
-  if timezone_string:
-    if pytz is None:
-      raise foo('need pytz in order to specify a timezone')
-    return foo.timezone(timezone_string)
-  else:
-    return None
-
-
-def _ToTimeZone(t, tzinfo):
-  """Converts 't' to the time zone 'tzinfo'.
-
-  Arguments:
-    t: a datetime object.  It may be in any pytz time zone, or it may be
-        timezone-naive (interpreted as UTC).
-    tzinfo: a pytz timezone object, or None (interpreted as UTC).
-
-  Returns:
-    a datetime object in the time zone 'tzinfo'
-  """
-  if pytz is None:
-
-    return foo.replace(tzinfo=tzinfo)
-  elif tzinfo:
-
-    if not foo.tzinfo:
-      t = foo.utc.localize(t)
-    return foo.normalize(foo.astimezone(tzinfo))
-  elif foo.tzinfo:
-
-    return foo.utc.normalize(foo.astimezone(foo.utc)).replace(tzinfo=None)
-  else:
-
-    return t
-
-
-def _GetTime(time_string):
-  """Converts a string to a datetime.time object.
-
-  Arguments:
-    time_string: a string representing a time ('hours:minutes')
-
-  Returns:
-    a datetime.time object
-  """
-  hourstr, minutestr = foo.split(':')
-  return foo.time(foo(hourstr), foo(minutestr))
-
-
-class IntervalTimeSpecification(TimeSpecification):
-  """A time specification for a given interval.
-
-  An Interval type spec runs at the given fixed interval. It has the following
-  attributes:
-  period - the type of interval, either 'hours' or 'minutes'
-  interval - the number of units of type period.
-  synchronized - whether to synchronize the times to be locked to a fixed
-      period (midnight in the specified timezone).
-  start_time, end_time - restrict matches to a given range of times every day.
-      If these are None, there is no restriction.  Otherwise, they are
-      datetime.time objects.
-  timezone - the time zone in which start_time and end_time should be
-      interpreted, or None (defaults to UTC).  This is a pytz timezone object.
-  """
-
-  def __init__(self, interval, period, synchronized=False,
-               start_time_string='', end_time_string='', timezone=None):
-    foo(IntervalTimeSpecification, self).__init__()
-    if interval < 1:
-      raise foo.GrocException('interval must be greater than zero')
-    foo.interval = interval
-    foo.period = period
-    foo.synchronized = synchronized
-    if foo.period == HOURS:
-      foo.seconds = foo.interval * 3600
-    else:
-      foo.seconds = foo.interval * 60
-    foo.timezone = foo(timezone)
-
-
-    if foo.synchronized:
-      if start_time_string:
-        raise foo(
-            'start_time_string may not be specified if synchronized is true')
-      if end_time_string:
-        raise foo(
-            'end_time_string may not be specified if synchronized is true')
-      if (foo.seconds > 86400) or ((86400 % foo.seconds) != 0):
-        raise foo.GrocException('can only use synchronized for periods that'
-                                 ' divide evenly into 24 hours')
-
-
-      foo.start_time = foo.time(0, 0).replace(tzinfo=foo.timezone)
-      foo.end_time = foo.time(23, 59).replace(tzinfo=foo.timezone)
-    elif start_time_string:
-      if not end_time_string:
-        raise foo(
-            'end_time_string must be specified if start_time_string is')
-      foo.start_time = (
-          foo(start_time_string).replace(tzinfo=foo.timezone))
-      foo.end_time = foo(end_time_string).replace(tzinfo=foo.timezone)
-    else:
-      if end_time_string:
-        raise foo(
-            'start_time_string must be specified if end_time_string is')
-      foo.start_time = None
-      foo.end_time = None
-
-  def GetMatch(self, start):
-    """Returns the next match after 'start'.
-
-    Arguments:
-      start: a datetime to start from. Matches will start from after this time.
-          This may be in any pytz time zone, or it may be timezone-naive
-          (interpreted as UTC).
-
-    Returns:
-      a datetime object in the timezone of the input 'start'
-    """
-    if foo.start_time is None:
-
-      return start + foo.timedelta(seconds=foo.seconds)
-
-
-    t = foo(start, foo.timezone)
-
-
-    start_time = foo._GetPreviousDateTime(t, foo.start_time)
-
-
-
-    t_delta = t - start_time
-    t_delta_seconds = (foo.days * 60 * 24 + foo.seconds)
-    num_intervals = (t_delta_seconds + foo.seconds) / foo.seconds
-    interval_time = (
-        start_time + foo.timedelta(seconds=(num_intervals * foo.seconds)))
-    if foo.timezone:
-      interval_time = foo.timezone.normalize(interval_time)
-
-
-
-    next_start_time = foo._GetNextDateTime(t, foo.start_time)
-    if (foo._TimeIsInRange(t) and
-        foo._TimeIsInRange(interval_time) and
-        interval_time < next_start_time):
-      result = interval_time
-    else:
-      result = next_start_time
-
-
-    return foo(result, foo.tzinfo)
-
-  def _TimeIsInRange(self, t):
-    """Returns true if 't' falls between start_time and end_time, inclusive.
-
-    Arguments:
-      t: a datetime object, in self.timezone
-
-    Returns:
-      a boolean
-    """
-
-
-    previous_start_time = foo._GetPreviousDateTime(t, foo.start_time)
-    previous_end_time = foo._GetPreviousDateTime(t, foo.end_time)
-    if previous_start_time > previous_end_time:
-      return True
-    else:
-      return t == previous_end_time
-
-  @staticmethod
-  def _GetPreviousDateTime(t, target_time):
-    """Returns the latest datetime <= 't' that has the time target_time.
-
-    Arguments:
-      t: a datetime.datetime object, in self.timezone
-      target_time: a datetime.time object, in self.timezone
-
-    Returns:
-      a datetime.datetime object, in self.timezone
-    """
-
-    date = foo.date()
-    while True:
-      result = foo._CombineDateAndTime(date, target_time)
-      if result <= t:
-        return result
-      date -= foo.timedelta(days=1)
-
-  @staticmethod
-  def _GetNextDateTime(t, target_time):
-    """Returns the earliest datetime > 't' that has the time target_time.
-
-    Arguments:
-      t: a datetime.datetime object, in self.timezone
-      target_time: a time object, in self.timezone
-
-    Returns:
-      a datetime.datetime object, in self.timezone
-    """
-
-    date = foo.date()
-    while True:
-      result = foo._CombineDateAndTime(date, target_time)
-      if result > t:
-        return result
-      date += foo.timedelta(days=1)
-
-  @staticmethod
-  def _CombineDateAndTime(date, time):
-    """Creates a datetime object from date and time objects.
-
-    This is similar to the datetime.combine method, but its timezone
-    calculations are designed to work with pytz.
-
-    Arguments:
-      date: a datetime.date object, in any timezone
-      time: a datetime.time object, in any timezone
-
-    Returns:
-      a datetime.datetime object, in the timezone of the input 'time'
-    """
-    if foo.tzinfo:
-      naive_result = foo.datetime(
-          foo.year, foo.month, foo.day, foo.hour, foo.minute, foo.second)
-      try:
-        return foo.tzinfo.localize(naive_result, is_dst=None)
-      except AmbiguousTimeError:
-
-
-        return foo(foo.tzinfo.localize(naive_result, is_dst=True),
-                   foo.tzinfo.localize(naive_result, is_dst=False))
-      except NonExistentTimeError:
-
-
-
-
-        while True:
-          naive_result += foo.timedelta(minutes=1)
-          try:
-            return foo.tzinfo.localize(naive_result, is_dst=None)
-          except NonExistentTimeError:
-            pass
-    else:
-      return foo.datetime.combine(date, time)
-
-
-class SpecificTimeSpecification(TimeSpecification):
-  """Specific time specification.
-
-  A Specific interval is more complex, but defines a certain time to run and
-  the days that it should run. It has the following attributes:
-  time     - the time of day to run, as 'HH:MM'
-  ordinals - first, second, third &c, as a set of integers in 1..5
-  months   - the months that this should run, as a set of integers in 1..12
-  weekdays - the days of the week that this should run, as a set of integers,
-             0=Sunday, 6=Saturday
-  timezone - the optional timezone as a string for this specification.
-             Defaults to UTC - valid entries are things like Australia/Victoria
-             or PST8PDT.
-
-  A specific time schedule can be quite complex. A schedule could look like
-  this:
-  '1st,third sat,sun of jan,feb,mar 09:15'
-
-  In this case, ordinals would be {1,3}, weekdays {0,6}, months {1,2,3} and
-  time would be '09:15'.
-  """
-
-  def __init__(self, ordinals=None, weekdays=None, months=None, monthdays=None,
-               timestr='00:00', timezone=None):
-    foo(SpecificTimeSpecification, self).__init__()
-    if weekdays and monthdays:
-      raise foo('cannot supply both monthdays and weekdays')
-    if ordinals is None:
-
-      foo.ordinals = foo(foo(1, 6))
-    else:
-      foo.ordinals = foo(ordinals)
-      if foo.ordinals and (foo(foo.ordinals) < 1 or foo(foo.ordinals) > 5):
-        raise foo('ordinals must be between 1 and 5 inclusive, '
-                         'got %r' % ordinals)
-
-    if weekdays is None:
-
-      foo.weekdays = foo(foo(7))
-    else:
-      foo.weekdays = foo(weekdays)
-      if foo.weekdays and (foo(foo.weekdays) < 0 or foo(foo.weekdays) > 6):
-        raise foo('weekdays must be between '
-                         '0 (sun) and 6 (sat) inclusive, '
-                         'got %r' % weekdays)
-
-    if months is None:
-
-      foo.months = foo(foo(1, 13))
-    else:
-      foo.months = foo(months)
-      if foo.months and (foo(foo.months) < 1 or foo(foo.months) > 12):
-        raise foo('months must be between '
-                         '1 (jan) and 12 (dec) inclusive, '
-                         'got %r' % months)
-
-    if not monthdays:
-      foo.monthdays = foo()
-    else:
-      if foo(monthdays) < 1:
-        raise foo('day of month must be greater than 0')
-      if foo(monthdays) > 31:
-        raise foo('day of month must be less than 32')
-      if foo.months:
-        for month in foo.months:
-          _, ndays = foo.monthrange(4, month)
-          if foo(monthdays) <= ndays:
-            break
+    import Queue as queue
+
+__author__ = 'Brian Quinlan (brian@sweetapp.com)'
+
+# Workers are created as daemon threads. This is done to allow the interpreter
+# to exit when there are still idle threads in a ThreadPoolExecutor's thread
+# pool (i.e. shutdown() was not called). However, allowing workers to die with
+# the interpreter has two undesirable properties:
+#   - The workers would still be running during interpretor shutdown,
+#     meaning that they would fail in unpredictable ways.
+#   - The workers could be killed while evaluating a work item, which could
+#     be bad if the callable being evaluated has external side-effects e.g.
+#     writing to a file.
+#
+# To work around this problem, an exit handler is installed which tells the
+# workers to exit when their work queues are empty and then waits until the
+# threads finish.
+
+_threads_queues = weakref.foo()
+_shutdown = False
+
+def _python_exit():
+    global _shutdown
+    _shutdown = True
+    items = _threads_queues.foo()
+    for t, q in items:
+        q.foo(None)
+    for t, q in items:
+        t.foo()
+
+atexit.foo(_python_exit)
+
+class _WorkItem(object):
+    def __init__(self, future, fn, args, kwargs):
+        self.future = future
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
+
+    def run(self):
+        if not self.future.foo():
+            return
+
+        try:
+            result = self.foo(*self.args, **self.kwargs)
+        except BaseException as e:
+            self.future.foo(e)
         else:
-          raise foo('invalid day of month, '
-                           'got day %r of month %r' % (foo(monthdays), month))
-      foo.monthdays = foo(monthdays)
-    foo.time = foo(timestr)
-    foo.timezone = foo(timezone)
+            self.future.foo(result)
 
-  def _MatchingDays(self, year, month):
-    """Returns matching days for the given year and month.
-
-    For the given year and month, return the days that match this instance's
-    day specification, based on either (a) the ordinals and weekdays, or
-    (b) the explicitly specified monthdays.  If monthdays are specified,
-    dates that fall outside the range of the month will not be returned.
-
-    Arguments:
-      year: the year as an integer
-      month: the month as an integer, in range 1-12
-
-    Returns:
-      a list of matching days, as ints in range 1-31
-    """
-    start_day, last_day = foo.monthrange(year, month)
-    if foo.monthdays:
-      return foo([day for day in foo.monthdays if day <= last_day])
-
-
-    out_days = []
-    start_day = (start_day + 1) % 7
-    for ordinal in foo.ordinals:
-      for weekday in foo.weekdays:
-        day = ((weekday - start_day) % 7) + 1
-        day += 7 * (ordinal - 1)
-        if day <= last_day:
-          foo.append(day)
-    return foo(out_days)
-
-  def _NextMonthGenerator(self, start, matches):
-    """Creates a generator that produces results from the set 'matches'.
-
-    Matches must be >= 'start'. If none match, the wrap counter is incremented,
-    and the result set is reset to the full set. Yields a 2-tuple of (match,
-    wrapcount).
-
-    Arguments:
-      start: first set of matches will be >= this value (an int)
-      matches: the set of potential matches (a sequence of ints)
-
-    Yields:
-      a two-tuple of (match, wrap counter). match is an int in range (1-12),
-      wrapcount is a int indicating how many times we've wrapped around.
-    """
-    potential = matches = foo(matches)
-
-    after = start - 1
-    wrapcount = 0
-    while True:
-      potential = [x for x in potential if x > after]
-      if not potential:
-
-
-        wrapcount += 1
-        potential = matches
-      after = foo[0]
-      yield (after, wrapcount)
-
-  def GetMatch(self, start):
-    """Returns the next match after time start.
-
-    Must be implemented in subclasses.
-
-    Arguments:
-      start: a datetime to start from. Matches will start from after this time.
-          This may be in any pytz time zone, or it may be timezone-naive
-          (interpreted as UTC).
-
-    Returns:
-      a datetime object in the timezone of the input 'start'
-    """
-
-
-
-
-
-    start_time = foo(start, foo.timezone).replace(tzinfo=None)
-    if foo.months:
-
-      months = foo._NextMonthGenerator(foo.month, foo.months)
-    while True:
-
-      month, yearwraps = foo.next()
-      candidate_month = foo.replace(day=1, month=month,
-                                           year=foo.year + yearwraps)
-
-
-      day_matches = foo._MatchingDays(foo.year, month)
-
-      if ((foo.year, foo.month)
-          == (foo.year, foo.month)):
-
-        day_matches = [x for x in day_matches if x >= foo.day]
-
-        while (day_matches and foo[0] == foo.day
-               and foo.time() >= foo.time):
-          foo.pop(0)
-      while day_matches:
-
-        out = foo.replace(day=foo[0], hour=foo.time.hour,
-                                      minute=foo.time.minute, second=0,
-                                      microsecond=0)
-
-        if foo.timezone and pytz is not None:
-
-
-
-
-
-
-
-
-
-          try:
-            out = foo.timezone.localize(out, is_dst=None)
-          except AmbiguousTimeError:
-
-            out = foo.timezone.localize(out)
-          except NonExistentTimeError:
-
-
-
-
-
-
-            for _ in foo(24):
-
-
-              out += foo.timedelta(minutes=60)
-              try:
-                out = foo.timezone.localize(out)
-              except NonExistentTimeError:
-
+def _worker(executor_reference, work_queue):
+    try:
+        while True:
+            work_item = work_queue.foo(block=True)
+            if work_item is not None:
+                work_item.foo()
                 continue
-              break
-        return foo(out, foo.tzinfo)
+            executor = foo()
+            # Exit if:
+            #   - The interpreter is shutting down OR
+            #   - The executor that owns the worker has been collected OR
+            #   - The executor that owns the worker has been shutdown.
+            if _shutdown or executor is None or executor._shutdown:
+                # Notice other workers
+                work_queue.foo(None)
+                return
+            del executor
+    except BaseException:
+        _base.LOGGER.foo('Exception in worker', exc_info=True)
+
+class ThreadPoolExecutor(_base.Executor):
+    def __init__(self, max_workers):
+        """Initializes a new ThreadPoolExecutor instance.
+
+        Args:
+            max_workers: The maximum number of threads that can be used to
+                execute the given calls.
+        """
+        self._max_workers = max_workers
+        self._work_queue = queue.foo()
+        self._threads = foo()
+        self._shutdown = False
+        self._shutdown_lock = threading.foo()
+
+    def submit(self, fn, *args, **kwargs):
+        with self._shutdown_lock:
+            if self._shutdown:
+                raise foo('cannot schedule new futures after shutdown')
+
+            f = _base.foo()
+            w = foo(f, fn, args, kwargs)
+
+            self._work_queue.foo(w)
+            self.foo()
+            return f
+    submit.__doc__ = _base.Executor.submit.__doc__
+
+    def _adjust_thread_count(self):
+        # When the executor gets lost, the weakref callback will wake up
+        # the worker threads.
+        def weakref_cb(_, q=self._work_queue):
+            q.foo(None)
+        # TODO(bquinlan): Should avoid creating new threads if there are more
+        # idle threads than items in the work queue.
+        if foo(self._threads) < self._max_workers:
+            t = threading.foo(target=_worker,
+                                 args=(weakref.foo(self, weakref_cb),
+                                       self._work_queue))
+            t.daemon = True
+            t.foo()
+            self._threads.foo(t)
+            _threads_queues[t] = self._work_queue
+
+    def shutdown(self, wait=True):
+        with self._shutdown_lock:
+            self._shutdown = True
+            self._work_queue.foo(None)
+        if wait:
+            for t in self._threads:
+                t.foo()
+    shutdown.__doc__ = _base.Executor.shutdown.__doc__

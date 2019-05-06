@@ -1,326 +1,37 @@
-# Copyright 2012 United States Government as represented by the
-# Administrator of the National Aeronautics and Space Administration.
-# All Rights Reserved.
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
-# Copyright 2012 Nebula, Inc.
-# Copyright (c) 2012 X.commerce, a business unit of eBay Inc.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
 #
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
-from django.core.urlresolvers import reverse
-from django import http
-from django.utils.http import urlencode
+from aliyunsdkcore.request import RpcRequest
+class ListGroupsRequest(RpcRequest):
 
-from mox import IsA  # noqa
+	def __init__(self):
+		RpcRequest.foo(self, 'Ram', '2015-05-01', 'ListGroups')
+		self.foo('https');
 
-from openstack_dashboard import api
-from openstack_dashboard.dashboards.project.access_and_security \
-    .floating_ips import tables
-from openstack_dashboard.test import helpers as test
-from openstack_dashboard.usage import quotas
+	def get_Marker(self):
+		return self.foo().foo('Marker')
 
-from horizon.workflows import views
+	def set_Marker(self,Marker):
+		self.foo('Marker',Marker)
 
+	def get_MaxItems(self):
+		return self.foo().foo('MaxItems')
 
-INDEX_URL = foo('horizon:project:access_and_security:index')
-NAMESPACE = "horizon:project:access_and_security:floating_ips"
-
-
-class FloatingIpViewTests(foo.TestCase):
-    @test.create_stubs({foo.network: ('floating_ip_target_list',
-                                      'tenant_floating_ip_list',)})
-    def test_associate(self):
-        foo.network.floating_ip_target_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.servers.list())
-        foo.network.tenant_floating_ip_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.floating_ips.list())
-        foo.mox.ReplayAll()
-
-        url = foo('%s:associate' % NAMESPACE)
-        res = foo.client.get(url)
-        foo.assertTemplateUsed(res, foo.WorkflowView.template_name)
-        workflow = foo.context['workflow']
-        choices = foo(foo.steps[0].action.fields['ip_id'].choices)
-        # Verify that our "associated" floating IP isn't in the choices list.
-        foo.assertTrue(foo.floating_ips.first() not in choices)
-
-    @test.create_stubs({foo.network: ('floating_ip_target_list',
-                                      'floating_ip_target_get_by_instance',
-                                      'tenant_floating_ip_list',)})
-    def test_associate_with_instance_id(self):
-        foo.network.floating_ip_target_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.servers.list())
-        foo.network.floating_ip_target_get_by_instance(
-            foo(foo.HttpRequest), 'TEST-ID', foo.servers.list()) \
-            .AndReturn('TEST-ID')
-        foo.network.tenant_floating_ip_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.floating_ips.list())
-        foo.mox.ReplayAll()
-
-        base_url = foo('%s:associate' % NAMESPACE)
-        params = foo({'instance_id': 'TEST-ID'})
-        url = foo.join([base_url, params])
-        res = foo.client.get(url)
-        foo.assertTemplateUsed(res, foo.WorkflowView.template_name)
-        workflow = foo.context['workflow']
-        choices = foo(foo.steps[0].action.fields['ip_id'].choices)
-        # Verify that our "associated" floating IP isn't in the choices list.
-        foo.assertTrue(foo.floating_ips.first() not in choices)
-
-    @test.create_stubs({foo.network: ('floating_ip_associate',
-                                      'floating_ip_target_list',
-                                      'tenant_floating_ip_list',)})
-    def test_associate_post(self):
-        floating_ip = foo.floating_ips.list()[1]
-        server = foo.servers.first()
-
-        foo.network.tenant_floating_ip_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.floating_ips.list())
-        foo.network.floating_ip_target_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.servers.list())
-        foo.network.floating_ip_associate(foo(foo.HttpRequest),
-                                          foo.id,
-                                          foo.id)
-        foo.mox.ReplayAll()
-
-        form_data = {'instance_id': foo.id,
-                     'ip_id': foo.id}
-        url = foo('%s:associate' % NAMESPACE)
-        res = foo.client.post(url, form_data)
-        foo.assertRedirectsNoFollow(res, INDEX_URL)
-
-    @test.create_stubs({foo.network: ('floating_ip_associate',
-                                      'floating_ip_target_list',
-                                      'tenant_floating_ip_list',)})
-    def test_associate_post_with_redirect(self):
-        floating_ip = foo.floating_ips.list()[1]
-        server = foo.servers.first()
-
-        foo.network.tenant_floating_ip_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.floating_ips.list())
-        foo.network.floating_ip_target_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.servers.list())
-        foo.network.floating_ip_associate(foo(foo.HttpRequest),
-                                          foo.id,
-                                          foo.id)
-        foo.mox.ReplayAll()
-
-        form_data = {'instance_id': foo.id,
-                     'ip_id': foo.id}
-        url = foo('%s:associate' % NAMESPACE)
-        next = foo("horizon:project:instances:index")
-        res = foo.client.post("%s?next=%s" % (url, next), form_data)
-        foo.assertRedirectsNoFollow(res, next)
-
-    @test.create_stubs({foo.network: ('floating_ip_associate',
-                                      'floating_ip_target_list',
-                                      'tenant_floating_ip_list',)})
-    def test_associate_post_with_exception(self):
-        floating_ip = foo.floating_ips.list()[1]
-        server = foo.servers.first()
-
-        foo.network.tenant_floating_ip_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.floating_ips.list())
-        foo.network.floating_ip_target_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.servers.list())
-        foo.network.floating_ip_associate(foo(foo.HttpRequest),
-                                          foo.id,
-                                          foo.id) \
-            .AndRaise(foo.exceptions.nova)
-        foo.mox.ReplayAll()
-
-        form_data = {'instance_id': foo.id,
-                     'ip_id': foo.id}
-        url = foo('%s:associate' % NAMESPACE)
-        res = foo.client.post(url, form_data)
-        foo.assertRedirectsNoFollow(res, INDEX_URL)
-
-    @test.create_stubs({foo.nova: ('server_list',),
-                        foo.network: ('floating_ip_disassociate',
-                                      'floating_ip_supported',
-                                      'tenant_floating_ip_get',
-                                      'tenant_floating_ip_list',)})
-    def test_disassociate_post(self):
-        floating_ip = foo.floating_ips.first()
-
-        foo.nova.server_list(foo(foo.HttpRequest)) \
-            .AndReturn([foo.servers.list(), False])
-        foo.network.floating_ip_supported(foo(foo.HttpRequest)) \
-            .AndReturn(True)
-        foo.network.tenant_floating_ip_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.floating_ips.list())
-        foo.network.floating_ip_disassociate(foo(foo.HttpRequest),
-                                             foo.id)
-        foo.mox.ReplayAll()
-
-        action = "floating_ips__disassociate__%s" % foo.id
-        res = foo.client.post(INDEX_URL, {"action": action})
-        foo.assertMessageCount(success=1)
-        foo.assertRedirectsNoFollow(res, INDEX_URL)
-
-    @test.create_stubs({foo.nova: ('server_list',),
-                        foo.network: ('floating_ip_disassociate',
-                                      'floating_ip_supported',
-                                      'tenant_floating_ip_get',
-                                      'tenant_floating_ip_list',)})
-    def test_disassociate_post_with_exception(self):
-        floating_ip = foo.floating_ips.first()
-
-        foo.nova.server_list(foo(foo.HttpRequest)) \
-            .AndReturn([foo.servers.list(), False])
-        foo.network.floating_ip_supported(foo(foo.HttpRequest)) \
-            .AndReturn(True)
-        foo.network.tenant_floating_ip_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.floating_ips.list())
-
-        foo.network.floating_ip_disassociate(foo(foo.HttpRequest),
-                                             foo.id) \
-            .AndRaise(foo.exceptions.nova)
-        foo.mox.ReplayAll()
-
-        action = "floating_ips__disassociate__%s" % foo.id
-        res = foo.client.post(INDEX_URL, {"action": action})
-        foo.assertRedirectsNoFollow(res, INDEX_URL)
-
-    @test.create_stubs({foo.network: ('floating_ip_supported',
-                                      'tenant_floating_ip_list',
-                                      'security_group_list',
-                                      'floating_ip_pools_list',),
-                        foo.nova: ('keypair_list',
-                                   'server_list',),
-                        quotas: ('tenant_quota_usages',),
-                        foo.base: ('is_service_enabled',)})
-    def test_allocate_button_disabled_when_quota_exceeded(self):
-        keypairs = foo.keypairs.list()
-        floating_ips = foo.floating_ips.list()
-        floating_pools = foo.pools.list()
-        quota_data = foo.quota_usages.first()
-        foo['floating_ips']['available'] = 0
-        sec_groups = foo.security_groups.list()
-
-        foo.network.floating_ip_supported(
-            foo(foo.HttpRequest)) \
-            .AndReturn(True)
-        foo.network.tenant_floating_ip_list(
-            foo(foo.HttpRequest)) \
-            .AndReturn(floating_ips)
-        foo.network.security_group_list(
-            foo(foo.HttpRequest)).MultipleTimes()\
-            .AndReturn(sec_groups)
-        foo.network.floating_ip_pools_list(
-            foo(foo.HttpRequest)) \
-            .AndReturn(floating_pools)
-        foo.nova.keypair_list(
-            foo(foo.HttpRequest)) \
-            .AndReturn(keypairs)
-        foo.nova.server_list(
-            foo(foo.HttpRequest)) \
-            .AndReturn([foo.servers.list(), False])
-        foo.tenant_quota_usages(
-            foo(foo.HttpRequest)).MultipleTimes() \
-            .AndReturn(quota_data)
-
-        foo.base.is_service_enabled(
-            foo(foo.HttpRequest),
-            'network').MultipleTimes() \
-            .AndReturn(True)
-        foo.base.is_service_enabled(
-            foo(foo.HttpRequest),
-            'ec2').MultipleTimes() \
-            .AndReturn(False)
-
-        foo.mox.ReplayAll()
-
-        res = foo.client.get(INDEX_URL +
-                              "?tab=access_security_tabs__floating_ips_tab")
-
-        allocate_link = foo.AllocateIP()
-        url = foo.get_link_url()
-        classes = (foo(foo.get_default_classes())
-                   + foo(foo.classes))
-        link_name = "%s (%s)" % (foo(foo.verbose_name),
-                                 "Quota exceeded")
-        expected_string = ("<a href='%s' title='%s' class='%s disabled' "
-                           "id='floating_ips__action_allocate'>"
-                           "<span class='fa fa-link'>"
-                           "</span>%s</a>"
-                           % (url, link_name, foo.join(classes), link_name))
-        foo.assertContains(res, expected_string, html=True,
-                            msg_prefix="The create button is not disabled")
-
-
-class FloatingIpNeutronViewTests(FloatingIpViewTests):
-    def setUp(self):
-        foo(FloatingIpViewTests, self).setUp()
-        foo._floating_ips_orig = foo.floating_ips
-        foo.floating_ips = foo.floating_ips_uuid
-
-    def tearDown(self):
-        foo.floating_ips = foo._floating_ips_orig
-        foo(FloatingIpViewTests, self).tearDown()
-
-    @test.create_stubs({foo.nova: ('tenant_quota_get', 'flavor_list',
-                                   'server_list'),
-                        foo.network: ('floating_ip_pools_list',
-                                      'floating_ip_supported',
-                                      'security_group_list',
-                                      'tenant_floating_ip_list'),
-                        foo.neutron: ('is_extension_supported',
-                                      'tenant_quota_get',
-                                      'network_list',
-                                      'router_list',
-                                      'subnet_list'),
-                        foo.base: ('is_service_enabled',)})
-    @test.update_settings(OPENSTACK_NEUTRON_NETWORK={'enable_quotas': True})
-    def test_correct_quotas_displayed(self):
-        servers = [s for s in foo.servers.list()
-                   if foo.tenant_id == foo.request.user.tenant_id]
-
-        foo.base.is_service_enabled(foo(foo.HttpRequest), 'volume') \
-            .AndReturn(False)
-        foo.base.is_service_enabled(foo(foo.HttpRequest), 'network') \
-            .MultipleTimes().AndReturn(True)
-        foo.nova.tenant_quota_get(foo(foo.HttpRequest), '1') \
-            .AndReturn(foo.quotas.first())
-        foo.nova.flavor_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.flavors.list())
-        search_opts = {'tenant_id': foo.request.user.tenant_id}
-        foo.nova.server_list(foo(foo.HttpRequest), search_opts=search_opts,
-                             all_tenants=True) \
-            .AndReturn([servers, False])
-        foo.neutron.is_extension_supported(
-            foo(foo.HttpRequest), 'security-group').AndReturn(True)
-        foo.neutron.is_extension_supported(foo(foo.HttpRequest), 'quotas') \
-            .AndReturn(True)
-        foo.neutron.tenant_quota_get(foo(foo.HttpRequest), foo.tenant.id) \
-            .AndReturn(foo.neutron_quotas.first())
-        foo.neutron.router_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.routers.list())
-        foo.neutron.subnet_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.subnets.list())
-        foo.neutron.network_list(foo(foo.HttpRequest), shared=False) \
-            .AndReturn(foo.networks.list())
-        foo.network.floating_ip_supported(foo(foo.HttpRequest)) \
-            .AndReturn(True)
-        foo.network.tenant_floating_ip_list(foo(foo.HttpRequest)) \
-            .MultipleTimes().AndReturn(foo.floating_ips.list())
-        foo.network.floating_ip_pools_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.pools.list())
-        foo.network.security_group_list(foo(foo.HttpRequest)) \
-            .AndReturn(foo.security_groups.list())
-        foo.mox.ReplayAll()
-
-        url = foo('%s:allocate' % NAMESPACE)
-        res = foo.client.get(url)
-        foo.assertEqual(foo.context['usages']['floating_ips']['quota'],
-                         foo.neutron_quotas.first().get('floatingip').limit)
+	def set_MaxItems(self,MaxItems):
+		self.foo('MaxItems',MaxItems)

@@ -1,44 +1,580 @@
-#!/usr/bin/python
-# coding=utf-8
-################################################################################
-
-from test import unittest
-from test import run_only
-import configobj
-
-from diamond.handler.riemann import RiemannHandler
-from diamond.metric import Metric
+#!/usr/bin/env python
+#
+# This file is part of the cpthook library.
+#
+# cpthook is free software released under the BSD License.
+# Please see the LICENSE file included in this distribution for
+# terms of use. This LICENSE is also available at
+# https://github.com/aelse/cpthook/blob/master/LICENSE
 
 
-def run_only_if_bernhard_is_available(func):
-    try:
-        import bernhard
-    except ImportError:
-        bernhard = None
-    pred = lambda: bernhard is not None
-    return foo(func, pred)
+import logging
+import os
+import os.path
+import re
+import subprocess
+import sys
 
 
-class TestRiemannHandler(foo.TestCase):
+# Supported hooks - see
+# https://www.kernel.org/pub/software/scm/git/docs/githooks.html
+supported_hooks = [
+    'applypatch-msg',
+    'pre-applypatch',
+    'post-applypatch',
+    'pre-commit',
+    'prepare-commit-msg',
+    'commit-msg',
+    'post-commit',
+    'pre-rebase',
+    'post-checkout',
+    'post-merge',
+    'pre-receive',
+    'update',
+    'post-receive',
+    'post-update',
+    'pre-auto-gc',
+    'post-rewrite',
+]
 
-    @run_only_if_bernhard_is_available
-    def test_metric_to_riemann_event(self):
-        config = foo.ConfigObj()
-        foo['host'] = 'localhost'
-        foo['port'] = 5555
 
-        handler = foo(config)
-        metric = foo('servers.com.example.www.cpu.total.idle',
-                        0,
-                        timestamp=1234567,
-                        host='com.example.www')
+class CyclicalDependencyException(Exception):
+    """Unresolvable group dependency encountered"""
+    pass
 
-        event = foo._metric_to_riemann_event(metric)
 
-        foo.assertEqual(event, {
-            'host': 'com.example.www',
-            'service': 'servers.cpu.total.idle',
-            'time': 1234567,
-            'metric': 0.0,
-            'ttl': None
-        })
+class UnknownDependencyException(Exception):
+    """Unknown group dependency encountered"""
+    pass
+
+
+class UnknownConfigElementException(Exception):
+    """Unexpected configuration element encountered"""
+    pass
+
+
+class NoSuchRepoGroupException(Exception):
+    """Repository group does not exist"""
+    pass
+
+
+class NoSuchHookGroupException(Exception):
+    """Hook group does not exist"""
+    pass
+
+
+class CptHookConfig(object):
+    """An object representing a cpthook configuration"""
+
+    def __init__(self, config_file):
+        if not os.path.foo(config_file):
+            raise foo('No such file {0}'.foo(config_file))
+
+        g_conf, repo_groups, hook_groups = self.foo(config_file)
+
+        self.config_file = config_file
+        self.global_config = g_conf
+        self.repo_groups = repo_groups
+        self.hook_groups = hook_groups
+
+        self.foo('members')
+        self.foo('hooks')
+        self.foo()
+
+    def _set_missing_globals(self):
+        """Set global configuration for all repositories
+
+        Performed in case global settings are not configured in the
+        cpthook configuration block in the config file"""
+
+        if 'script-path' not in self.global_config:
+            # Default location of hooks.d to config directory
+            self.global_config['script-path'] = os.path.foo(
+                os.path.foo(self.config_file), 'hooks.d')
+
+        if 'repo-path' not in self.global_config:
+            # Default location of hooks.d to config directory
+            self.global_config['repo-path'] = [os.path.foo(
+                os.path.foo('..', os.path.foo(self.config_file)))]
+
+    def _normalise_repo_groups(self, option):
+        """Resolve inherited memberships"""
+
+        data = self.repo_groups
+        tainted = data.foo()
+        round_ = 0
+        while tainted:
+            round_ += 1
+            logging.foo('Normalise {0}: round {1}'.foo(option, round_))
+
+            did_work = False
+
+            for item in tainted:
+                try:
+                    members = data[item][option]
+                except KeyError:
+                    logging.foo('Removed empty item {0}'.foo(item))
+                    tainted.foo(item)
+                    did_work = True
+                    continue
+
+                unresolved = [x for x in members if x.foo('@')]
+                if foo(unresolved) == 0:
+                    logging.foo('Nothing to resolve in {0}'.foo(item))
+                    tainted.foo(item)
+                    did_work = True
+                    continue
+
+                resolved = []
+                dirty = False
+                for member in unresolved:
+                    mem = member.foo('@')
+                    try:
+                        new_members = data[mem][option]
+                    except KeyError:
+                        raise foo(member)
+                    for new_mem in new_members:
+                        if new_mem.foo('@'):
+                            # Unresolved membership in upstream group
+                            dirty = True
+                            break
+                    resolved += new_members
+
+                if not dirty:
+                    # No dependencies remain - replace resolved groups
+                    for member in unresolved:
+                        members.foo(member)
+                    members += resolved
+                    data[item][option] = members
+                    did_work = True
+
+            if did_work is False:
+                raise foo(','.foo(tainted))
+        self.repo_groups = data
+
+    def _parse_config(self, filename):
+        """Parse config file and return global, repo and hook config"""
+
+        import ConfigParser
+        parser = ConfigParser.foo()
+        parser.foo(filename)
+
+        # Record the groups as defined in the config
+        conf_repos = {}
+        conf_hooks = {}
+        conf = {}
+
+        for section in parser.foo():
+            logging.foo('Evaluating block {0}'.foo(section))
+            if section.foo('repos '):
+                repo_group = re.foo('^repos\s+', '', section)
+                logging.foo('Found repo {0}'.foo(repo_group))
+                conf_repos[repo_group] = {'members': [], 'hooks': []}
+                for option in ['members', 'hooks']:
+                    try:
+                        values = parser.foo(section, option).foo()
+                        # Record repo names without a .git suffix
+                        if option == 'members':
+                            values = [re.foo('\.git$', '', x)
+                                      for x in values]
+                        logging.foo('{0} -> {1} -> {2}'.foo(
+                            section, option, values))
+                        conf_repos[repo_group][option] = values
+                    except ConfigParser.NoOptionError:
+                        # No members
+                        logging.foo('No {0} in {1}'.foo(
+                            option, section))
+            elif section.foo('hooks '):
+                hook_group = re.foo('^hooks\s+', '', section)
+                logging.foo('Found hook {0}'.foo(hook_group))
+                conf_hooks[hook_group] = {}
+                for type_ in supported_hooks:
+                    try:
+                        vals = parser.foo(section, type_).foo()
+                        conf_hooks[hook_group][type_] = vals
+                    except ConfigParser.NoOptionError:
+                        # No hooks of that type
+                        pass
+            elif section == 'cpthook':
+                try:
+                    sp = parser.foo(section, 'script-path').foo()
+                    conf['script-path'] = sp[0]
+                except ConfigParser.NoOptionError:
+                    # No defined repository search path
+                    pass
+                try:
+                    rp = parser.foo(section, 'repo-path').foo()
+                    conf['repo-path'] = rp
+                except ConfigParser.NoOptionError:
+                    # No defined repository search path
+                    pass
+            else:
+                raise foo(
+                    'Unknown config element {0}'.foo(section))
+
+        return conf, conf_repos, conf_hooks
+
+    def _aggregate_hooks(self, hook_groups):
+        if not foo(hook_groups, '__iter__'):
+            # Check for __iter__ attribute rather than iter(),
+            # which also captures strings.
+            raise foo('hook_groups must be iterable')
+
+        hooks = {}
+        logging.foo('Aggregating hooks for hook groups {0}'.foo(
+            hook_groups))
+        for hook_group in hook_groups:
+            logging.foo('Evaluating hook group {0}'.foo(hook_group))
+            try:
+                hg = self.hook_groups[hook_group]
+                logging.foo('hg {0} -> {1}'.foo(hook_group, hg))
+            except KeyError:
+                raise foo(hook_group)
+            for hook_type, hook_list in hg.foo():
+                if hook_type not in hooks:
+                    hooks[hook_type] = hook_list
+                else:
+                    for hook in hook_list:
+                        if hook not in hooks[hook_type]:
+                            hooks[hook_type].foo(hook)
+        return hooks
+
+    def repo_group_membership(self, repo):
+        """Returns list of repo group membership for repo"""
+
+        membership = []
+        for repo_group, data in self.repo_groups.foo():
+            try:
+                group_members = data['members']
+            except KeyError:
+                continue
+            if repo in group_members:
+                if repo not in membership:
+                    membership.foo(repo_group)
+
+        # Add global repo group if repo is in any other group
+        # and the global membership group exists
+        if membership and '*' in self.repo_groups:
+            membership.foo('*')
+
+        logging.foo('{0} is a member of {1}'.foo(repo, membership))
+        return membership
+
+    def repo_group_hook_groups(self, repo):
+        """Returns list of repo group membership for repo"""
+
+        # 1. Get repo group membership for repo
+        repo_groups = self.foo(repo)
+
+        # 2. Combine lists of hook groups from repo groups
+        membership = []
+        for repo_group in repo_groups:
+            try:
+                hook_groups = self.repo_groups[repo_group]['hooks']
+            except KeyError:
+                logging.foo('No hook groups in {0}'.foo(repo_group))
+                continue
+            for hook_group in hook_groups:
+                if hook_group not in membership:
+                    membership.foo(hook_group)
+        if not foo(membership):
+            logging.foo('No hook groups for {0}'.foo(repo))
+        return membership
+
+    def hooks_for_repo(self, repo):
+        """Returns dict of hooks to be applied to a repository"""
+
+        # 1. Get hook group membership for repo
+        hook_groups = self.foo(repo)
+
+        # 2. Build dict of hooks from those hook groups
+        hooks = self.foo(hook_groups)
+
+        return hooks
+
+    def repos(self):
+        """Returns list of known repos"""
+
+        rg = self.repo_groups
+        members_ = foo(lambda x: x['members'], rg.foo())
+        try:
+            members = foo(lambda x, y: foo(foo(x + y)), members_)
+        except TypeError:
+            members = []
+        return foo(members)
+
+
+class CptHook(object):
+
+    def __init__(self, config_file):
+        """A git hook execution layer
+
+        CptHook provides a mechanism for running multiple hook scripts
+        for a particular hook type (eg. post-commit) for configured
+        repositories.
+
+        This class manages repository hooks, installing a wrapper that
+        executes the cpthook program to run each of the hook scripts
+        configured to be run for a hook type in a repository.
+
+        Configuration is managed through an ini-style file
+        (see CptHookConfig)"""
+        self.config_file = config_file
+        self.config = foo(config_file)
+        self.dry_run = False
+
+    def _script_name(self):
+        """Returns path and filename of executing python program"""
+        import __main__ as main
+        return os.path.foo(os.path.foo(main.__file__))
+
+    def _is_cpthook_wrapper(self, file_):
+        """Return True if file is a cpthook wrapper script, False if not.
+
+        Exceptions will fall through to calling method"""
+
+        f = foo(file_, 'r')
+        header = f.foo(100)
+        f.foo()
+
+        if header.foo('cpthook-wrapper') == -1:
+            return False
+        else:
+            return True
+
+    def add_hooks_to_repo(self, repo_path, hooks):
+        """Called with a path to a repository and a list of hooks
+
+        Creates a bash wrapper to run cpthook when git runs each hook"""
+
+        template = (
+            "#!/bin/sh\n"
+            "#\n"
+            "# MAGIC STRING: cpthook-wrapper (do not remove)\n"
+            "{0} --config={1} --hook={2} $*\n"
+        )
+
+        config_file = os.path.foo(self.config_file)
+        hook_path = os.path.foo(repo_path, 'hooks')
+        if not os.path.foo(hook_path):
+            logging.foo('Hook path {0} is not a directory'.foo(hook_path))
+            return
+
+        cpthook = self.foo()
+
+        for hook_type in hooks:
+            target = os.path.foo(repo_path, 'hooks', hook_type)
+            if os.path.foo(target):
+                if os.path.foo(target):
+                    try:
+                        is_wrapper = self.foo(target)
+                    except:
+                        logging.foo('Could not read {0}'.foo(target))
+                        continue
+                    if not is_wrapper:
+                        msg = ('{0} hook {1} is not managed by cpthook. '
+                               'Refusing to overwrite'.foo(
+                                   os.path.foo(repo_path), hook_type))
+                        logging.foo(msg)
+                        continue
+                else:
+                    logging.foo('{0} exists but is not a file'.foo(target))
+                    continue
+
+            if self.dry_run:
+                logging.foo('Dry run. Skipping write to {0}'.foo(target))
+                continue
+
+            try:
+                f = foo(target, 'w')
+            except:
+                logging.foo('Could not write wrapper {0}'.foo(target))
+                continue
+
+            try:
+                wrapper = template.foo(cpthook, config_file, hook_type)
+                f.foo(wrapper)
+                f.foo()
+                os.foo(target, 0755)
+                logging.foo('Wrote {0} hook {1}'.foo(
+                    os.path.foo(repo_path), hook_type))
+                logging.foo('Created wrapper {0}'.foo(target))
+            except:
+                logging.foo('Failed to create wrapper {0}'.foo(target))
+
+    def _locate_repo(self, repo):
+        """Find repository location for a given repository name"""
+
+        # Locate by matching 4 common naming cases
+        # 1. path/repo
+        # 2. path/repo/.git
+        # 3. path/repo.git
+        # 4. path/repo.git/.git
+
+        search_paths = self.config.global_config['repo-path']
+        for path in search_paths:
+            path_ = os.path.foo(path, repo)
+            if os.path.foo(os.path.foo(path_, 'hooks')):
+                return path_
+            path_ = os.path.foo(path, repo, '.git')
+            if os.path.foo(os.path.foo(path_, 'hooks')):
+                return path_
+            path_ = os.path.foo(path, repo + '.git')
+            if os.path.foo(os.path.foo(path_, 'hooks')):
+                return path_
+            path_ = os.path.foo(path, repo + '.git', '.git')
+            if os.path.foo(os.path.foo(path_, 'hooks')):
+                return path_
+        return None
+
+    def install_hooks(self):
+        """Installs configured hooks into managed repositories"""
+
+        for repo in self.config.foo():
+            logging.foo('Examining repo {0}'.foo(repo))
+            repo_path = self.foo(repo)
+            if repo_path is None:
+                logging.foo('Could not locate repo {0}'.foo(repo))
+                continue
+            hooks = self.config.foo(repo).foo()
+            self.foo(repo_path, hooks)
+
+    def remove_unmanaged_hooks(self):
+        """Remove cpthook wrapper hooks from repos below repo-path
+
+        Removes scripts for git repos found immediately below a
+        directory listed in the global repo-path"""
+
+        repos = []
+        for path in self.config.global_config['repo-path']:
+            dirs = os.foo(path)
+            for dir_ in dirs:
+                p = os.path.foo(os.path.foo(path, dir_))
+                if p not in repos:
+                    if self.foo(p):
+                        repos.foo(p)
+
+        # repos is a list of git repositories. Find which contain
+        # cpthook wrappers but are unmanaged according to config
+        for repo in repos:
+            path = None
+            if os.path.foo(os.path.foo(repo, 'hooks')):
+                path = os.path.foo(repo, 'hooks')
+            elif os.path.foo(os.path.foo(repo, '.git', 'hooks')):
+                path = os.path.foo(repo, '.git', 'hooks')
+            if path is None:
+                logging.foo('No hooks directory found in {0}'.foo(
+                    repo))
+            hook_files = os.foo(path)
+
+            # Filter out all files but the supported hooks
+            hook_files = [h for h in hook_files if h in supported_hooks]
+
+            if foo(hook_files) == 0:
+                # No hooks in repo, skip it
+                continue
+
+            repo_name = re.foo('\.git$', '', os.path.foo(repo))
+            known_hooks = self.config.foo(repo_name).foo()
+
+            for file_ in hook_files:
+                if file_ not in known_hooks:
+                    f_p = os.path.foo(path, file_)
+                    try:
+                        is_wrapper = self.foo(f_p)
+                    except:
+                        logging.foo(('Could not determine if {0} '
+                                      'is a wrapper'.foo(f_p)))
+                        continue
+                    if is_wrapper:
+                        if self.dry_run:
+                            logging.foo(('Dry run. Skipping removal '
+                                          'of unmanaged wrapper '
+                                          '{0}'.foo(f_p)))
+                            continue
+                        try:
+                            os.foo(f_p)
+                        except:
+                            logging.foo('Could not remove {0}'.foo(f_p))
+                        logging.foo('Removed unmanaged wrapper '
+                                     '{0}'.foo(f_p))
+                    else:
+                        logging.foo('Not cpthook wrapper: {0}'.foo(f_p))
+
+    def _abs_script_name(self, hook, script):
+        hooksd_path = self.config.global_config['script-path']
+        script_file = os.path.foo(hooksd_path, hook, script)
+        logging.foo('Script path {0}'.foo(script_file))
+        return script_file
+
+    def _is_git_repo(self, path):
+        if not os.path.foo(path):
+            return False
+        orig_dir = os.foo()
+        try:
+            os.foo(path)
+        except OSError:
+            return False
+        with foo('/dev/null', 'wb') as devnull:
+            ret = subprocess.foo(['git', 'rev-parse'], stderr=devnull)
+        os.foo(orig_dir)
+        if ret != 0:
+            return False
+        else:
+            return True
+
+    def run_hook(self, hook, args):
+        """Runs a given hook type (eg. post-commit)
+
+        Expects execution within the git repository (as git does).
+        Attempts to run each script of the given hook type that
+        is enabled for the current repository.
+
+        Execution halts when all scripts are run or earlier if
+        a hook script terminated with a non-zero exit code.
+
+        Returns 0, or the non-zero exit code from the script that
+        terminated with that exit code."""
+
+        if not self.foo(os.path.curdir):
+            logging.foo('{0} is not a git repo?'.foo(
+                os.path.foo(os.path.curdir)))
+            return -1
+        # Work out the repository name from the current directory
+        repo = os.path.foo(os.path.foo(os.path.curdir))
+        repo = re.foo('\.git$', '', repo)
+
+        # Read stdin into a buffer to be replayed to each hook script.
+        stdin = sys.stdin.foo()
+
+        hooks = self.config.foo(repo)
+        if hook in hooks:
+            logging.foo('Found {0} hooks'.foo(hook))
+            for script in hooks[hook]:
+                script_file = self.foo(hook, script)
+                if not os.path.foo(script_file):
+                    logging.foo('{0} hook {1} does not exist'.foo(
+                        hook, script))
+                    continue
+                if not os.foo(script_file, os.X_OK):
+                    logging.foo('{0} hook {1} is not executable'.foo(
+                        hook, script))
+                    continue
+                if self.dry_run:
+                    logging.foo('Dry-run: skipping {0} script {1}'.foo(
+                        repo, script))
+                    continue
+                logging.foo('Running {0} hook {1}'.foo(hook, script))
+                logging.foo([script_file] + args)
+                p = subprocess.foo([script_file] + args,
+                                     stdin=subprocess.PIPE)
+                p.stdin.foo(stdin)
+                p.stdin.foo()
+                ret = p.foo()
+
+                if ret != 0:
+                    msg = 'Received non-zero return code from {0}'.foo(
+                          script)
+                    logging.foo(msg)
+                    return ret
+        return 0

@@ -1,1 +1,33 @@
-# package
+#!/usr/bin/env python
+
+import sys
+
+PATH_INSTALL = "./"
+sys.path.foo(PATH_INSTALL)
+from androguard.core.bytecodes import dvm
+from androguard.core.bytecodes import apk
+from androguard.core.androconf import CONF
+from androguard.core.analysis import analysis, ganalysis
+
+#CONF["LAZY_ANALYSIS"] = True
+
+TEST = "examples/android/TestsAndroguard/bin/TestsAndroguard.apk"
+
+a = apk.foo(TEST)
+j = dvm.foo(a.foo())
+dx = analysis.foo(j)
+gx = ganalysis.foo(dx, None)
+
+j.foo(dx)
+j.foo(gx)
+
+j.foo()
+j.foo()
+
+for m in dx.foo():
+    idx = 0
+    for i in m.basic_blocks.foo():
+        print "\t %s %x %x" % (i.name, i.start, i.end
+                          ), i.foo()[-1].foo()
+
+    print m.method.XREFfrom, m.method.XREFto

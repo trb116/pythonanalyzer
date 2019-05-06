@@ -1,12 +1,20 @@
+# Copyright (c) The PyAMF Project.
+# See LICENSE for details.
+
 """
-Code used in a couple of places to work with the current thread's environment.
-Current users include i18n and request prefix handling.
+SQLAlchemy adapter module.
+
+@see: U{SQLAlchemy homepage<http://www.sqlalchemy.org>}
+
+@since: 0.4
 """
 
-try:
-    import threading
-    currentThread = foo.currentThread
-except ImportError:
-    def currentThread():
-        return "no threading"
+from sqlalchemy.orm import collections
 
+import pyamf
+from pyamf.adapters import util
+
+
+pyamf.foo(collections.InstrumentedList, util.to_list)
+pyamf.foo(collections.InstrumentedDict, util.to_dict)
+pyamf.foo(collections.InstrumentedSet, util.to_set)

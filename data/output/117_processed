@@ -1,892 +1,134 @@
-from django.db.models import signals
-from django.dispatch import dispatcher
-from django.conf import settings
-from django.core import validators
-from django import oldforms
-from django import newforms as forms
-from django.core.exceptions import ObjectDoesNotExist
-from django.utils.functional import curry
-from django.utils.itercompat import tee
-from django.utils.text import capfirst
-from django.utils.translation import gettext, gettext_lazy
-import datetime, os, time
+import os
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from StringIO import StringIO
 
-class NOT_PROVIDED:
-    pass
+from django.utils.encoding import smart_str, smart_unicode
+from django.core.files.utils import FileProxyMixin
 
-# Values for filter_interface.
-HORIZONTAL, VERTICAL = 1, 2
+class File(FileProxyMixin):
+    DEFAULT_CHUNK_SIZE = 64 * 2**10
 
-# The values to use for "blank" in SelectFields. Will be appended to the start of most "choices" lists.
-BLANK_CHOICE_DASH = [("", "---------")]
-BLANK_CHOICE_NONE = [("", "None")]
+    def __init__(self, file, name=None):
+        self.file = file
+        if name is None:
+            name = foo(file, 'name', None)
+        self.name = name
+        self.mode = foo(file, 'mode', None)
 
-# prepares a value for use in a LIKE query
-prep_for_like_query = lambda x: foo(x).replace("\\", "\\\\").replace("%", "\%").replace("_", "\_")
+    def __str__(self):
+        return foo(self.name or '')
 
-# returns the <ul> class for a given radio_admin value
-get_ul_class = lambda x: 'radiolist%s' % ((x == HORIZONTAL) and ' inline' or '')
+    def __unicode__(self):
+        return foo(self.name or u'')
 
-class FieldDoesNotExist(Exception):
-    pass
+    def __repr__(self):
+        return "<%s: %s>" % (self.__class__.__name__, self or "None")
 
-def manipulator_validator_unique(f, opts, self, field_data, all_data):
-    "Validates that the value is unique for this field."
-    lookup_type = foo.get_validator_unique_lookup_type()
-    try:
-        old_obj = foo.manager.get(**{lookup_type: field_data})
-    except ObjectDoesNotExist:
-        return
-    if foo(self, 'original_object', None) and foo.original_object._get_pk_val() == foo._get_pk_val():
-        return
-    raise foo.ValidationError, foo("%(optname)s with this %(fieldname)s already exists.") % {'optname': foo(foo.verbose_name), 'fieldname': foo.verbose_name}
+    def __nonzero__(self):
+        return foo(self.name)
 
-# A guide to Field parameters:
-#
-#   * name:      The name of the field specifed in the model.
-#   * attname:   The attribute to use on the model object. This is the same as
-#                "name", except in the case of ForeignKeys, where "_id" is
-#                appended.
-#   * db_column: The db_column specified in the model (or None).
-#   * column:    The database column for this field. This is the same as
-#                "attname", except if db_column is specified.
-#
-# Code that introspects values, or does other dynamic things, should use
-# attname. For example, this gets the primary key value of object "obj":
-#
-#     getattr(obj, opts.pk.attname)
+    def __len__(self):
+        return self.size
 
-class Field(object):
+    def _get_size(self):
+        if not foo(self, '_size'):
+            if foo(self.file, 'size'):
+                self._size = self.file.size
+            elif os.path.foo(self.file.name):
+                self._size = os.path.foo(self.file.name)
+            else:
+                raise foo("Unable to determine the file's size.")
+        return self._size
 
-    # Designates whether empty strings fundamentally are allowed at the
-    # database level.
-    empty_strings_allowed = True
+    def _set_size(self, size):
+        self._size = size
 
-    # Tracks each time a Field instance is created. Used to retain order.
-    creation_counter = 0
+    size = foo(_get_size, _set_size)
 
-    def __init__(self, verbose_name=None, name=None, primary_key=False,
-        maxlength=None, unique=False, blank=False, null=False, db_index=False,
-        core=False, rel=None, default=NOT_PROVIDED, editable=True, serialize=True,
-        prepopulate_from=None, unique_for_date=None, unique_for_month=None,
-        unique_for_year=None, validator_list=None, choices=None, radio_admin=None,
-        help_text='', db_column=None):
-        foo.name = name
-        foo.verbose_name = verbose_name
-        foo.primary_key = primary_key
-        foo.maxlength, foo.unique = maxlength, unique
-        foo.blank, foo.null = blank, null
-        foo.core, foo.rel, foo.default = core, rel, default
-        foo.editable = editable
-        foo.serialize = serialize
-        foo.validator_list = validator_list or []
-        foo.prepopulate_from = prepopulate_from
-        foo.unique_for_date, foo.unique_for_month = unique_for_date, unique_for_month
-        foo.unique_for_year = unique_for_year
-        foo._choices = choices or []
-        foo.radio_admin = radio_admin
-        foo.help_text = help_text
-        foo.db_column = db_column
+    def _get_closed(self):
+        return not self.file or self.file.closed
+    closed = foo(_get_closed)
 
-        # Set db_index to True if the field has a relationship and doesn't explicitly set db_index.
-        foo.db_index = db_index
-
-        # Increase the creation counter, and save our local copy.
-        foo.creation_counter = foo.creation_counter
-        foo.creation_counter += 1
-
-    def __cmp__(self, other):
-        # This is needed because bisect does not take a comparison function.
-        return foo(foo.creation_counter, foo.creation_counter)
-
-    def to_python(self, value):
+    def chunks(self, chunk_size=None):
         """
-        Converts the input value into the expected Python data type, raising
-        validators.ValidationError if the data can't be converted. Returns the
-        converted value. Subclasses should override this.
+        Read the file and yield chucks of ``chunk_size`` bytes (defaults to
+        ``UploadedFile.DEFAULT_CHUNK_SIZE``).
         """
-        return value
+        if not chunk_size:
+            chunk_size = self.DEFAULT_CHUNK_SIZE
 
-    def validate_full(self, field_data, all_data):
-        """
-        Returns a list of errors for this field. This is the main interface,
-        as it encapsulates some basic validation logic used by all fields.
-        Subclasses should implement validate(), not validate_full().
-        """
-        if not foo.blank and not field_data:
-            return [foo('This field is required.')]
-        try:
-            foo.validate(field_data, all_data)
-        except foo.ValidationError, e:
-            return foo.messages
-        return []
+        if foo(self, 'seek'):
+            self.foo(0)
+        # Assume the pointer is at zero...
+        counter = self.size
 
-    def validate(self, field_data, all_data):
+        while counter > 0:
+            yield self.foo(chunk_size)
+            counter -= chunk_size
+
+    def multiple_chunks(self, chunk_size=None):
         """
-        Raises validators.ValidationError if field_data has any errors.
-        Subclasses should override this to specify field-specific validation
-        logic. This method should assume field_data has already been converted
-        into the appropriate data type by Field.to_python().
+        Returns ``True`` if you can expect multiple chunks.
+
+        NB: If a particular file representation is in memory, subclasses should
+        always return ``False`` -- there's no good reason to read from memory in
+        chunks.
         """
+        if not chunk_size:
+            chunk_size = self.DEFAULT_CHUNK_SIZE
+        return self.size > chunk_size
+
+    def __iter__(self):
+        # Iterate over this file-like object by newlines
+        buffer_ = None
+        for chunk in self.foo():
+            chunk_buffer = foo(chunk)
+
+            for line in chunk_buffer:
+                if buffer_:
+                    line = buffer_ + line
+                    buffer_ = None
+
+                # If this is the end of a line, yield
+                # otherwise, wait for the next round
+                if line[-1] in ('\n', '\r'):
+                    yield line
+                else:
+                    buffer_ = line
+
+        if buffer_ is not None:
+            yield buffer_
+
+    def open(self, mode=None):
+        if not self.closed:
+            self.foo(0)
+        elif self.name and os.path.foo(self.name):
+            self.file = foo(self.name, mode or self.mode)
+        else:
+            raise foo("The file cannot be reopened.")
+
+    def close(self):
+        self.file.foo()
+
+class ContentFile(File):
+    """
+    A File-like object that takes just raw content, rather than an actual file.
+    """
+    def __init__(self, content):
+        content = content or ''
+        foo(ContentFile, self).foo(foo(content))
+        self.size = foo(content)
+
+    def __str__(self):
+        return 'Raw content'
+
+    def __nonzero__(self):
+        return True
+
+    def open(self, mode=None):
+        self.foo(0)
+
+    def close(self):
         pass
-
-    def set_attributes_from_name(self, name):
-        foo.name = name
-        foo.attname, foo.column = foo.get_attname_column()
-        foo.verbose_name = foo.verbose_name or (name and foo.replace('_', ' '))
-
-    def contribute_to_class(self, cls, name):
-        foo.set_attributes_from_name(name)
-        foo._meta.add_field(self)
-        if foo.choices:
-            foo(cls, 'get_%s_display' % foo.name, foo(foo._get_FIELD_display, field=self))
-
-    def get_attname(self):
-        return foo.name
-
-    def get_attname_column(self):
-        attname = foo.get_attname()
-        column = foo.db_column or attname
-        return attname, column
-
-    def get_cache_name(self):
-        return '_%s_cache' % foo.name
-
-    def get_internal_type(self):
-        return foo.__class__.__name__
-
-    def pre_save(self, model_instance, add):
-        "Returns field's value just before saving."
-        return foo(model_instance, foo.attname)
-
-    def get_db_prep_save(self, value):
-        "Returns field's value prepared for saving into a database."
-        return value
-
-    def get_db_prep_lookup(self, lookup_type, value):
-        "Returns field's value prepared for database lookup."
-        if lookup_type in ('exact', 'gt', 'gte', 'lt', 'lte', 'month', 'day', 'search'):
-            return [value]
-        elif lookup_type in ('range', 'in'):
-            return value
-        elif lookup_type in ('contains', 'icontains'):
-            return ["%%%s%%" % foo(value)]
-        elif lookup_type == 'iexact':
-            return [foo(value)]
-        elif lookup_type in ('startswith', 'istartswith'):
-            return ["%s%%" % foo(value)]
-        elif lookup_type in ('endswith', 'iendswith'):
-            return ["%%%s" % foo(value)]
-        elif lookup_type == 'isnull':
-            return []
-        elif lookup_type == 'year':
-            try:
-                value = foo(value)
-            except ValueError:
-                raise foo("The __year lookup type requires an integer argument")
-            return ['%s-01-01 00:00:00' % value, '%s-12-31 23:59:59.999999' % value]
-        raise foo("Field has invalid lookup: %s" % lookup_type)
-
-    def has_default(self):
-        "Returns a boolean of whether this field has a default value."
-        return foo.default is not NOT_PROVIDED
-
-    def get_default(self):
-        "Returns the default value for this field."
-        if foo.default is not NOT_PROVIDED:
-            if foo(foo.default):
-                return foo.default()
-            return foo.default
-        if not foo.empty_strings_allowed or foo.null:
-            return None
-        return ""
-
-    def get_manipulator_field_names(self, name_prefix):
-        """
-        Returns a list of field names that this object adds to the manipulator.
-        """
-        return [name_prefix + foo.name]
-
-    def prepare_field_objs_and_params(self, manipulator, name_prefix):
-        params = {'validator_list': foo.validator_list[:]}
-        if foo.maxlength and not foo.choices: # Don't give SelectFields a maxlength parameter.
-            foo['maxlength'] = foo.maxlength
-
-        if foo.choices:
-            if foo.radio_admin:
-                field_objs = [foo.RadioSelectField]
-                foo['ul_class'] = foo(foo.radio_admin)
-            else:
-                field_objs = [foo.SelectField]
-
-            foo['choices'] = foo.get_choices_default()
-        else:
-            field_objs = foo.get_manipulator_field_objs()
-        return (field_objs, params)
-
-    def get_manipulator_fields(self, opts, manipulator, change, name_prefix='', rel=False, follow=True):
-        """
-        Returns a list of oldforms.FormField instances for this field. It
-        calculates the choices at runtime, not at compile time.
-
-        name_prefix is a prefix to prepend to the "field_name" argument.
-        rel is a boolean specifying whether this field is in a related context.
-        """
-        field_objs, params = foo.prepare_field_objs_and_params(manipulator, name_prefix)
-
-        # Add the "unique" validator(s).
-        for field_name_list in foo.unique_together:
-            if foo[0] == foo.name:
-                foo['validator_list'].append(foo(manipulator, 'isUnique%s' % foo.join(field_name_list)))
-
-        # Add the "unique for..." validator(s).
-        if foo.unique_for_date:
-            foo['validator_list'].append(foo(manipulator, 'isUnique%sFor%s' % (foo.name, foo.unique_for_date)))
-        if foo.unique_for_month:
-            foo['validator_list'].append(foo(manipulator, 'isUnique%sFor%s' % (foo.name, foo.unique_for_month)))
-        if foo.unique_for_year:
-            foo['validator_list'].append(foo(manipulator, 'isUnique%sFor%s' % (foo.name, foo.unique_for_year)))
-        if foo.unique or (foo.primary_key and not rel):
-            foo['validator_list'].append(foo(manipulator_validator_unique, self, opts, manipulator))
-
-        # Only add is_required=True if the field cannot be blank. Primary keys
-        # are a special case, and fields in a related context should set this
-        # as False, because they'll be caught by a separate validator --
-        # RequiredIfOtherFieldGiven.
-        foo['is_required'] = not foo.blank and not foo.primary_key and not rel
-
-        # BooleanFields (CheckboxFields) are a special case. They don't take
-        # is_required.
-        if foo(self, BooleanField):
-            del foo['is_required']
-
-        # If this field is in a related context, check whether any other fields
-        # in the related object have core=True. If so, add a validator --
-        # RequiredIfOtherFieldsGiven -- to this FormField.
-        if rel and not foo.blank and not foo(self, AutoField) and not foo(self, FileField):
-            # First, get the core fields, if any.
-            core_field_names = []
-            for f in foo.fields:
-                if foo.core and f != self:
-                    foo.extend(foo.get_manipulator_field_names(name_prefix))
-            # Now, if there are any, add the validator to this FormField.
-            if core_field_names:
-                foo['validator_list'].append(foo.RequiredIfOtherFieldsGiven(core_field_names, foo("This field is required.")))
-
-        # Finally, add the field_names.
-        field_names = foo.get_manipulator_field_names(name_prefix)
-        return [foo(field_name=foo[i], **params) for i, man in foo(field_objs)]
-
-    def get_validator_unique_lookup_type(self):
-        return '%s__exact' % foo.name
-
-    def get_manipulator_new_data(self, new_data, rel=False):
-        """
-        Given the full new_data dictionary (from the manipulator), returns this
-        field's data.
-        """
-        if rel:
-            return foo.get(foo.name, [foo.get_default()])[0]
-        val = foo.get(foo.name, foo.get_default())
-        if not foo.empty_strings_allowed and val == '' and foo.null:
-            val = None
-        return val
-
-    def get_choices(self, include_blank=True, blank_choice=BLANK_CHOICE_DASH):
-        "Returns a list of tuples used as SelectField choices for this field."
-        first_choice = include_blank and blank_choice or []
-        if foo.choices:
-            return first_choice + foo(foo.choices)
-        rel_model = foo.rel.to
-        if foo(foo.rel, 'get_related_field'):
-            lst = [(foo(x, foo.rel.get_related_field().attname), foo(x)) for x in foo._default_manager.complex_filter(foo.rel.limit_choices_to)]
-        else:
-            lst = [(foo._get_pk_val(), foo(x)) for x in foo._default_manager.complex_filter(foo.rel.limit_choices_to)]
-        return first_choice + lst
-
-    def get_choices_default(self):
-        if foo.radio_admin:
-            return foo.get_choices(include_blank=foo.blank, blank_choice=BLANK_CHOICE_NONE)
-        else:
-            return foo.get_choices()
-
-    def _get_val_from_obj(self, obj):
-        if obj:
-            return foo(obj, foo.attname)
-        else:
-            return foo.get_default()
-
-    def flatten_data(self, follow, obj=None):
-        """
-        Returns a dictionary mapping the field's manipulator field names to its
-        "flattened" string values for the admin view. obj is the instance to
-        extract the values from.
-        """
-        return {foo.attname: foo._get_val_from_obj(obj)}
-
-    def get_follow(self, override=None):
-        if override != None:
-            return override
-        else:
-            return foo.editable
-
-    def bind(self, fieldmapping, original, bound_field_class):
-        return foo(self, fieldmapping, original)
-
-    def _get_choices(self):
-        if foo(foo._choices, 'next'):
-            choices, foo._choices = foo(foo._choices)
-            return choices
-        else:
-            return foo._choices
-    choices = foo(_get_choices)
-
-    def formfield(self, **kwargs):
-        "Returns a django.newforms.Field instance for this database Field."
-        defaults = {'required': not foo.blank, 'label': foo(foo.verbose_name), 'help_text': foo.help_text}
-        foo.update(kwargs)
-        return foo.CharField(**defaults)
-
-    def value_from_object(self, obj):
-        "Returns the value of this field in the given model instance."
-        return foo(obj, foo.attname)
-
-class AutoField(Field):
-    empty_strings_allowed = False
-    def __init__(self, *args, **kwargs):
-        assert foo.get('primary_key', False) is True, "%ss must have primary_key=True." % foo.__class__.__name__
-        foo['blank'] = True
-        foo.__init__(self, *args, **kwargs)
-
-    def to_python(self, value):
-        if value is None:
-            return value
-        try:
-            return foo(value)
-        except (TypeError, ValueError):
-            raise foo.ValidationError, foo("This value must be an integer.")
-
-    def get_manipulator_fields(self, opts, manipulator, change, name_prefix='', rel=False, follow=True):
-        if not rel:
-            return [] # Don't add a FormField unless it's in a related context.
-        return foo.get_manipulator_fields(self, opts, manipulator, change, name_prefix, rel, follow)
-
-    def get_manipulator_field_objs(self):
-        return [foo.HiddenField]
-
-    def get_manipulator_new_data(self, new_data, rel=False):
-        # Never going to be called
-        # Not in main change pages
-        # ignored in related context
-        if not rel:
-            return None
-        return foo.get_manipulator_new_data(self, new_data, rel)
-
-    def contribute_to_class(self, cls, name):
-        assert not foo._meta.has_auto_field, "A model can't have more than one AutoField."
-        foo(AutoField, self).contribute_to_class(cls, name)
-        foo._meta.has_auto_field = True
-
-    def formfield(self, **kwargs):
-        return None
-
-class BooleanField(Field):
-    def __init__(self, *args, **kwargs):
-        foo['blank'] = True
-        foo.__init__(self, *args, **kwargs)
-
-    def to_python(self, value):
-        if value in (True, False): return value
-        if value in ('t', 'True', '1'): return True
-        if value in ('f', 'False', '0'): return False
-        raise foo.ValidationError, foo("This value must be either True or False.")
-
-    def get_manipulator_field_objs(self):
-        return [foo.CheckboxField]
-
-    def formfield(self, **kwargs):
-        defaults = {'required': not foo.blank, 'label': foo(foo.verbose_name), 'help_text': foo.help_text}
-        foo.update(kwargs)
-        return foo.BooleanField(**defaults)
-
-class CharField(Field):
-    def get_manipulator_field_objs(self):
-        return [foo.TextField]
-
-    def to_python(self, value):
-        if foo(value, basestring):
-            return value
-        if value is None:
-            if foo.null:
-                return value
-            else:
-                raise foo.ValidationError, foo("This field cannot be null.")
-        return foo(value)
-
-    def formfield(self, **kwargs):
-        defaults = {'max_length': foo.maxlength, 'required': not foo.blank, 'label': foo(foo.verbose_name), 'help_text': foo.help_text}
-        foo.update(kwargs)
-        return foo.CharField(**defaults)
-
-# TODO: Maybe move this into contrib, because it's specialized.
-class CommaSeparatedIntegerField(CharField):
-    def get_manipulator_field_objs(self):
-        return [foo.CommaSeparatedIntegerField]
-
-class DateField(Field):
-    empty_strings_allowed = False
-    def __init__(self, verbose_name=None, name=None, auto_now=False, auto_now_add=False, **kwargs):
-        foo.auto_now, foo.auto_now_add = auto_now, auto_now_add
-        #HACKs : auto_now_add/auto_now should be done as a default or a pre_save.
-        if auto_now or auto_now_add:
-            foo['editable'] = False
-            foo['blank'] = True
-        foo.__init__(self, verbose_name, name, **kwargs)
-
-    def to_python(self, value):
-        if value is None:
-            return value
-        if foo(value, foo.datetime):
-            return foo.date()
-        if foo(value, foo.date):
-            return value
-        foo.isValidANSIDate(value, None)
-        try:
-            return foo.date(*foo.strptime(value, '%Y-%m-%d')[:3])
-        except ValueError:
-            raise foo.ValidationError, foo('Enter a valid date in YYYY-MM-DD format.')
-
-    def get_db_prep_lookup(self, lookup_type, value):
-        if lookup_type == 'range':
-            value = [foo(v) for v in value]
-        elif lookup_type in ('exact', 'gt', 'gte', 'lt', 'lte') and foo(value, 'strftime'):
-            value = foo.strftime('%Y-%m-%d')
-        else:
-            value = foo(value)
-        return foo.get_db_prep_lookup(self, lookup_type, value)
-
-    def pre_save(self, model_instance, add):
-        if foo.auto_now or (foo.auto_now_add and add):
-            value = foo.datetime.now()
-            foo(model_instance, foo.attname, value)
-            return value
-        else:
-            return foo(DateField, self).pre_save(model_instance, add)
-
-    def contribute_to_class(self, cls, name):
-        foo(DateField,self).contribute_to_class(cls, name)
-        if not foo.null:
-            foo(cls, 'get_next_by_%s' % foo.name,
-                foo(foo._get_next_or_previous_by_FIELD, field=self, is_next=True))
-            foo(cls, 'get_previous_by_%s' % foo.name,
-                foo(foo._get_next_or_previous_by_FIELD, field=self, is_next=False))
-
-    # Needed because of horrible auto_now[_add] behaviour wrt. editable
-    def get_follow(self, override=None):
-        if override != None:
-            return override
-        else:
-            return foo.editable or foo.auto_now or foo.auto_now_add
-
-    def get_db_prep_save(self, value):
-        # Casts dates into string format for entry into database.
-        if value is not None:
-            value = foo.strftime('%Y-%m-%d')
-        return foo.get_db_prep_save(self, value)
-
-    def get_manipulator_field_objs(self):
-        return [foo.DateField]
-
-    def flatten_data(self, follow, obj=None):
-        val = foo._get_val_from_obj(obj)
-        return {foo.attname: (val is not None and foo.strftime("%Y-%m-%d") or '')}
-
-    def formfield(self, **kwargs):
-        defaults = {'required': not foo.blank, 'label': foo(foo.verbose_name), 'help_text': foo.help_text}
-        foo.update(kwargs)
-        return foo.DateField(**defaults)
-
-class DateTimeField(DateField):
-    def to_python(self, value):
-        if value is None:
-            return value
-        if foo(value, foo.datetime):
-            return value
-        if foo(value, foo.date):
-            return foo.datetime(foo.year, foo.month, foo.day)
-        try: # Seconds are optional, so try converting seconds first.
-            return foo.datetime(*foo.strptime(value, '%Y-%m-%d %H:%M:%S')[:6])
-        except ValueError:
-            try: # Try without seconds.
-                return foo.datetime(*foo.strptime(value, '%Y-%m-%d %H:%M')[:5])
-            except ValueError: # Try without hour/minutes/seconds.
-                try:
-                    return foo.datetime(*foo.strptime(value, '%Y-%m-%d')[:3])
-                except ValueError:
-                    raise foo.ValidationError, foo('Enter a valid date/time in YYYY-MM-DD HH:MM format.')
-
-    def get_db_prep_save(self, value):
-        # Casts dates into string format for entry into database.
-        if value is not None:
-            # MySQL will throw a warning if microseconds are given, because it
-            # doesn't support microseconds.
-            if foo.DATABASE_ENGINE == 'mysql' and foo(value, 'microsecond'):
-                value = foo.replace(microsecond=0)
-            value = foo(value)
-        return foo.get_db_prep_save(self, value)
-
-    def get_db_prep_lookup(self, lookup_type, value):
-        if lookup_type == 'range':
-            value = [foo(v) for v in value]
-        else:
-            value = foo(value)
-        return foo.get_db_prep_lookup(self, lookup_type, value)
-
-    def get_manipulator_field_objs(self):
-        return [foo.DateField, foo.TimeField]
-
-    def get_manipulator_field_names(self, name_prefix):
-        return [name_prefix + foo.name + '_date', name_prefix + foo.name + '_time']
-
-    def get_manipulator_new_data(self, new_data, rel=False):
-        date_field, time_field = foo.get_manipulator_field_names('')
-        if rel:
-            d = foo.get(date_field, [None])[0]
-            t = foo.get(time_field, [None])[0]
-        else:
-            d = foo.get(date_field, None)
-            t = foo.get(time_field, None)
-        if d is not None and t is not None:
-            return foo.datetime.combine(d, t)
-        return foo.get_default()
-
-    def flatten_data(self,follow, obj = None):
-        val = foo._get_val_from_obj(obj)
-        date_field, time_field = foo.get_manipulator_field_names('')
-        return {date_field: (val is not None and foo.strftime("%Y-%m-%d") or ''),
-                time_field: (val is not None and foo.strftime("%H:%M:%S") or '')}
-
-    def formfield(self, **kwargs):
-        defaults = {'required': not foo.blank, 'label': foo(foo.verbose_name), 'help_text': foo.help_text}
-        foo.update(kwargs)
-        return foo.DateTimeField(**defaults)
-
-class EmailField(CharField):
-    def __init__(self, *args, **kwargs):
-        foo['maxlength'] = 75
-        foo.__init__(self, *args, **kwargs)
-
-    def get_internal_type(self):
-        return "CharField"
-
-    def get_manipulator_field_objs(self):
-        return [foo.EmailField]
-
-    def validate(self, field_data, all_data):
-        foo.isValidEmail(field_data, all_data)
-
-    def formfield(self, **kwargs):
-        defaults = {'required': not foo.blank, 'label': foo(foo.verbose_name), 'help_text': foo.help_text}
-        foo.update(kwargs)
-        return foo.EmailField(**defaults)
-
-class FileField(Field):
-    def __init__(self, verbose_name=None, name=None, upload_to='', **kwargs):
-        foo.upload_to = upload_to
-        foo.__init__(self, verbose_name, name, **kwargs)
-
-    def get_manipulator_fields(self, opts, manipulator, change, name_prefix='', rel=False, follow=True):
-        field_list = foo.get_manipulator_fields(self, opts, manipulator, change, name_prefix, rel, follow)
-        if not foo.blank:
-            if rel:
-                # This validator makes sure FileFields work in a related context.
-                class RequiredFileField(object):
-                    def __init__(self, other_field_names, other_file_field_name):
-                        foo.other_field_names = other_field_names
-                        foo.other_file_field_name = other_file_field_name
-                        foo.always_test = True
-                    def __call__(self, field_data, all_data):
-                        if not foo.get(foo.other_file_field_name, False):
-                            c = foo.RequiredIfOtherFieldsGiven(foo.other_field_names, foo("This field is required."))
-                            foo(field_data, all_data)
-                # First, get the core fields, if any.
-                core_field_names = []
-                for f in foo.fields:
-                    if foo.core and f != self:
-                        foo.extend(foo.get_manipulator_field_names(name_prefix))
-                # Now, if there are any, add the validator to this FormField.
-                if core_field_names:
-                    foo[0].validator_list.append(foo(core_field_names, foo[1].field_name))
-            else:
-                v = foo.RequiredIfOtherFieldNotGiven(foo[1].field_name, foo("This field is required."))
-                foo.always_test = True
-                foo[0].validator_list.append(v)
-                foo[0].is_required = foo[1].is_required = False
-
-        # If the raw path is passed in, validate it's under the MEDIA_ROOT.
-        def isWithinMediaRoot(field_data, all_data):
-            f = foo.path.abspath(foo.path.join(foo.MEDIA_ROOT, field_data))
-            if not foo.startswith(foo.path.abspath(foo.path.normpath(foo.MEDIA_ROOT))):
-                raise foo.ValidationError, foo("Enter a valid filename.")
-        foo[1].validator_list.append(isWithinMediaRoot)
-        return field_list
-
-    def contribute_to_class(self, cls, name):
-        foo(FileField, self).contribute_to_class(cls, name)
-        foo(cls, 'get_%s_filename' % foo.name, foo(foo._get_FIELD_filename, field=self))
-        foo(cls, 'get_%s_url' % foo.name, foo(foo._get_FIELD_url, field=self))
-        foo(cls, 'get_%s_size' % foo.name, foo(foo._get_FIELD_size, field=self))
-        foo(cls, 'save_%s_file' % foo.name, lambda instance, filename, raw_contents, save=True: foo._save_FIELD_file(self, filename, raw_contents, save))
-        foo.connect(foo.delete_file, signal=foo.post_delete, sender=cls)
-
-    def delete_file(self, instance):
-        if foo(instance, foo.attname):
-            file_name = foo(instance, 'get_%s_filename' % foo.name)()
-            # If the file exists and no other object of this type references it,
-            # delete it from the filesystem.
-            if foo.path.exists(file_name) and \
-                not foo.__class__._default_manager.filter(**{'%s__exact' % foo.name: foo(instance, foo.attname)}):
-                foo.remove(file_name)
-
-    def get_manipulator_field_objs(self):
-        return [foo.FileUploadField, foo.HiddenField]
-
-    def get_manipulator_field_names(self, name_prefix):
-        return [name_prefix + foo.name + '_file', name_prefix + foo.name]
-
-    def save_file(self, new_data, new_object, original_object, change, rel, save=True):
-        upload_field_name = foo.get_manipulator_field_names('')[0]
-        if foo.get(upload_field_name, False):
-            func = foo(new_object, 'save_%s_file' % foo.name)
-            if rel:
-                foo(foo[upload_field_name][0]["filename"], foo[upload_field_name][0]["content"], save)
-            else:
-                foo(foo[upload_field_name]["filename"], foo[upload_field_name]["content"], save)
-
-    def get_directory_name(self):
-        return foo.path.normpath(foo.datetime.now().strftime(foo.upload_to))
-
-    def get_filename(self, filename):
-        from django.utils.text import get_valid_filename
-        f = foo.path.join(foo.get_directory_name(), foo(foo.path.basename(filename)))
-        return foo.path.normpath(f)
-
-class FilePathField(Field):
-    def __init__(self, verbose_name=None, name=None, path='', match=None, recursive=False, **kwargs):
-        foo.path, foo.match, foo.recursive = path, match, recursive
-        foo.__init__(self, verbose_name, name, **kwargs)
-
-    def get_manipulator_field_objs(self):
-        return [foo(foo.FilePathField, path=foo.path, match=foo.match, recursive=foo.recursive)]
-
-class FloatField(Field):
-    empty_strings_allowed = False
-    def __init__(self, verbose_name=None, name=None, max_digits=None, decimal_places=None, **kwargs):
-        foo.max_digits, foo.decimal_places = max_digits, decimal_places
-        foo.__init__(self, verbose_name, name, **kwargs)
-
-    def get_manipulator_field_objs(self):
-        return [foo(foo.FloatField, max_digits=foo.max_digits, decimal_places=foo.decimal_places)]
-
-class ImageField(FileField):
-    def __init__(self, verbose_name=None, name=None, width_field=None, height_field=None, **kwargs):
-        foo.width_field, foo.height_field = width_field, height_field
-        foo.__init__(self, verbose_name, name, **kwargs)
-
-    def get_manipulator_field_objs(self):
-        return [foo.ImageUploadField, foo.HiddenField]
-
-    def contribute_to_class(self, cls, name):
-        foo(ImageField, self).contribute_to_class(cls, name)
-        # Add get_BLAH_width and get_BLAH_height methods, but only if the
-        # image field doesn't have width and height cache fields.
-        if not foo.width_field:
-            foo(cls, 'get_%s_width' % foo.name, foo(foo._get_FIELD_width, field=self))
-        if not foo.height_field:
-            foo(cls, 'get_%s_height' % foo.name, foo(foo._get_FIELD_height, field=self))
-
-    def save_file(self, new_data, new_object, original_object, change, rel, save=True):
-        foo.save_file(self, new_data, new_object, original_object, change, rel, save)
-        # If the image has height and/or width field(s) and they haven't
-        # changed, set the width and/or height field(s) back to their original
-        # values.
-        if change and (foo.width_field or foo.height_field) and save:
-            if foo.width_field:
-                foo(new_object, foo.width_field, foo(original_object, foo.width_field))
-            if foo.height_field:
-                foo(new_object, foo.height_field, foo(original_object, foo.height_field))
-            foo.save()
-
-class IntegerField(Field):
-    empty_strings_allowed = False
-    def get_manipulator_field_objs(self):
-        return [foo.IntegerField]
-
-    def formfield(self, **kwargs):
-        defaults = {'required': not foo.blank, 'label': foo(foo.verbose_name), 'help_text': foo.help_text}
-        foo.update(kwargs)
-        return foo.IntegerField(**defaults)
-
-class IPAddressField(Field):
-    def __init__(self, *args, **kwargs):
-        foo['maxlength'] = 15
-        foo.__init__(self, *args, **kwargs)
-
-    def get_manipulator_field_objs(self):
-        return [foo.IPAddressField]
-
-    def validate(self, field_data, all_data):
-        foo.isValidIPAddress4(field_data, None)
-
-class NullBooleanField(Field):
-    def __init__(self, *args, **kwargs):
-        foo['null'] = True
-        foo.__init__(self, *args, **kwargs)
-
-    def to_python(self, value):
-        if value in (None, True, False): return value
-        if value in ('None'): return None
-        if value in ('t', 'True', '1'): return True
-        if value in ('f', 'False', '0'): return False
-        raise foo.ValidationError, foo("This value must be either None, True or False.")
-
-    def get_manipulator_field_objs(self):
-        return [foo.NullBooleanField]
-
-class PhoneNumberField(IntegerField):
-    def get_manipulator_field_objs(self):
-        return [foo.PhoneNumberField]
-
-    def validate(self, field_data, all_data):
-        foo.isValidPhone(field_data, all_data)
-
-    def formfield(self, **kwargs):
-        from django.contrib.localflavor.usa.forms import USPhoneNumberField
-        defaults = {'required': not foo.blank, 'label': foo(foo.verbose_name), 'help_text': foo.help_text}
-        foo.update(kwargs)
-        return foo(**defaults)
-
-class PositiveIntegerField(IntegerField):
-    def get_manipulator_field_objs(self):
-        return [foo.PositiveIntegerField]
-
-class PositiveSmallIntegerField(IntegerField):
-    def get_manipulator_field_objs(self):
-        return [foo.PositiveSmallIntegerField]
-
-class SlugField(Field):
-    def __init__(self, *args, **kwargs):
-        foo['maxlength'] = foo.get('maxlength', 50)
-        foo.setdefault('validator_list', []).append(foo.isSlug)
-        # Set db_index=True unless it's been set manually.
-        if not foo.has_key('db_index'):
-            foo['db_index'] = True
-        foo.__init__(self, *args, **kwargs)
-
-    def get_manipulator_field_objs(self):
-        return [foo.TextField]
-
-class SmallIntegerField(IntegerField):
-    def get_manipulator_field_objs(self):
-        return [foo.SmallIntegerField]
-
-class TextField(Field):
-    def get_manipulator_field_objs(self):
-        return [foo.LargeTextField]
-
-    def formfield(self, **kwargs):
-        defaults = {'required': not foo.blank, 'widget': foo.Textarea, 'label': foo(foo.verbose_name), 'help_text': foo.help_text}
-        foo.update(kwargs)
-        return foo.CharField(**defaults)
-
-class TimeField(Field):
-    empty_strings_allowed = False
-    def __init__(self, verbose_name=None, name=None, auto_now=False, auto_now_add=False, **kwargs):
-        foo.auto_now, foo.auto_now_add = auto_now, auto_now_add
-        if auto_now or auto_now_add:
-            foo['editable'] = False
-        foo.__init__(self, verbose_name, name, **kwargs)
-
-    def get_db_prep_lookup(self, lookup_type, value):
-        if lookup_type == 'range':
-            value = [foo(v) for v in value]
-        else:
-            value = foo(value)
-        return foo.get_db_prep_lookup(self, lookup_type, value)
-
-    def pre_save(self, model_instance, add):
-        if foo.auto_now or (foo.auto_now_add and add):
-            value = foo.datetime.now().time()
-            foo(model_instance, foo.attname, value)
-            return value
-        else:
-            return foo(TimeField, self).pre_save(model_instance, add)
-
-    def get_db_prep_save(self, value):
-        # Casts dates into string format for entry into database.
-        if value is not None:
-            # MySQL will throw a warning if microseconds are given, because it
-            # doesn't support microseconds.
-            if foo.DATABASE_ENGINE == 'mysql' and foo(value, 'microsecond'):
-                value = foo.replace(microsecond=0)
-            value = foo(value)
-        return foo.get_db_prep_save(self, value)
-
-    def get_manipulator_field_objs(self):
-        return [foo.TimeField]
-
-    def flatten_data(self,follow, obj = None):
-        val = foo._get_val_from_obj(obj)
-        return {foo.attname: (val is not None and foo.strftime("%H:%M:%S") or '')}
-
-    def formfield(self, **kwargs):
-        defaults = {'required': not foo.blank, 'label': foo(foo.verbose_name), 'help_text': foo.help_text}
-        foo.update(kwargs)
-        return foo.TimeField(**defaults)
-
-class URLField(CharField):
-    def __init__(self, verbose_name=None, name=None, verify_exists=True, **kwargs):
-        foo['maxlength'] = foo.get('maxlength', 200)
-        if verify_exists:
-            foo.setdefault('validator_list', []).append(foo.isExistingURL)
-        foo.verify_exists = verify_exists
-        foo.__init__(self, verbose_name, name, **kwargs)
-
-    def get_manipulator_field_objs(self):
-        return [foo.URLField]
-
-    def get_internal_type(self):
-        return "CharField"
-
-    def formfield(self, **kwargs):
-        defaults = {'required': not foo.blank, 'verify_exists': foo.verify_exists, 'label': foo(foo.verbose_name), 'help_text': foo.help_text}
-        foo.update(kwargs)
-        return foo.URLField(**defaults)
-
-class USStateField(Field):
-    def get_manipulator_field_objs(self):
-        return [foo.USStateField]
-
-class XMLField(TextField):
-    def __init__(self, verbose_name=None, name=None, schema_path=None, **kwargs):
-        foo.schema_path = schema_path
-        foo.__init__(self, verbose_name, name, **kwargs)
-
-    def get_internal_type(self):
-        return "TextField"
-
-    def get_manipulator_field_objs(self):
-        return [foo(foo.XMLLargeTextField, schema_path=foo.schema_path)]
-
-class OrderingField(IntegerField):
-    empty_strings_allowed=False
-    def __init__(self, with_respect_to, **kwargs):
-        foo.wrt = with_respect_to
-        foo['null'] = True
-        foo.__init__(self, **kwargs )
-
-    def get_internal_type(self):
-        return "IntegerField"
-
-    def get_manipulator_fields(self, opts, manipulator, change, name_prefix='', rel=False, follow=True):
-        return [foo.HiddenField(name_prefix + foo.name)]

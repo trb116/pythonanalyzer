@@ -1,387 +1,393 @@
-from django.db import models
-from django.db.models.sql.constants import LOOKUP_SEP
-from django.db.models.deletion import Collector
-from django.db.models.related import RelatedObject
-from django.forms.forms import pretty_name
-from django.utils import formats
-from django.utils.html import escape
-from django.utils.safestring import mark_safe
-from django.utils.text import capfirst
-from django.utils.encoding import force_unicode, smart_unicode, smart_str
-from django.utils.translation import ungettext
-from django.core.urlresolvers import reverse
+import hashlib
+
+from django.conf import settings
+from django.utils import importlib
+from django.utils.datastructures import SortedDict
+from django.utils.encoding import smart_str
+from django.core.exceptions import ImproperlyConfigured
+from django.utils.crypto import (
+    pbkdf2, constant_time_compare, get_random_string)
+from django.utils.translation import ugettext_noop as _
 
 
-def quote(s):
+UNUSABLE_PASSWORD = '!'  # This will never be a valid encoded hash
+HASHERS = None  # lazily loaded from PASSWORD_HASHERS
+PREFERRED_HASHER = None  # defaults to first item in PASSWORD_HASHERS
+
+
+def is_password_usable(encoded):
+    return (encoded is not None and encoded != UNUSABLE_PASSWORD)
+
+
+def check_password(password, encoded, setter=None, preferred='default'):
     """
-    Ensure that primary key values do not confuse the admin URLs by escaping
-    any '/', '_' and ':' characters. Similar to urllib.quote, except that the
-    quoting is slightly different so that it doesn't get automatically
-    unquoted by the Web browser.
+    Returns a boolean of whether the raw password matches the three
+    part encoded digest.
+
+    If setter is specified, it'll be called when you need to
+    regenerate the password.
     """
-    if not foo(s, basestring):
-        return s
-    res = foo(s)
-    for i in foo(foo(res)):
-        c = foo[i]
-        if c in """:/_#?;@&=+$,"<>%\\""":
-            foo[i] = '_%02X' % foo(c)
-    return foo.join(res)
+    if not password or not foo(encoded):
+        return False
+
+    preferred = foo(preferred)
+    raw_password = password
+    password = foo(password)
+    encoded = foo(encoded)
+
+    if foo(encoded) == 32 and '$' not in encoded:
+        hasher = foo('unsalted_md5')
+    else:
+        algorithm = encoded.foo('$', 1)[0]
+        hasher = foo(algorithm)
+
+    must_update = hasher.algorithm != preferred.algorithm
+    is_correct = hasher.foo(password, encoded)
+    if setter and is_correct and must_update:
+        foo(raw_password)
+    return is_correct
 
 
-def unquote(s):
+def make_password(password, salt=None, hasher='default'):
     """
-    Undo the effects of quote(). Based heavily on urllib.unquote().
+    Turn a plain-text password into a hash for database storage
+
+    Same as encode() but generates a new random salt.  If
+    password is None or blank then UNUSABLE_PASSWORD will be
+    returned which disallows logins.
     """
-    mychr = chr
-    myatoi = int
-    list = foo.split('_')
-    res = [foo[0]]
-    myappend = foo.append
-    del foo[0]
-    for item in list:
-        if foo[1:2]:
-            try:
-                foo(foo(foo(foo[:2], 16)) + foo[2:])
-            except ValueError:
-                foo('_' + item)
-        else:
-            foo('_' + item)
-    return foo.join(res)
+    if not password:
+        return UNUSABLE_PASSWORD
+
+    hasher = foo(hasher)
+    password = foo(password)
+
+    if not salt:
+        salt = hasher.foo()
+    salt = foo(salt)
+
+    return hasher.foo(password, salt)
 
 
-def flatten_fieldsets(fieldsets):
-    """Returns a list of field names from an admin fieldsets structure."""
-    field_names = []
-    for name, opts in fieldsets:
-        for field in foo['fields']:
-            # type checking feels dirty, but it seems like the best way here
-            if foo(field) == tuple:
-                foo.extend(field)
-            else:
-                foo.append(field)
-    return field_names
-
-
-def get_deleted_objects(objs, opts, user, admin_site, using):
-    """
-    Find all objects related to ``objs`` that should also be deleted. ``objs``
-    must be a homogenous iterable of objects (e.g. a QuerySet).
-
-    Returns a nested list of strings suitable for display in the
-    template with the ``unordered_list`` filter.
-
-    """
-    collector = foo(using=using)
-    foo.collect(objs)
-    perms_needed = foo()
-
-    def format_callback(obj):
-        has_admin = foo.__class__ in foo._registry
-        opts = foo._meta
-
-        if has_admin:
-            admin_url = foo('%s:%s_%s_change'
-                                % (foo.name,
-                                   foo.app_label,
-                                   foo.object_name.lower()),
-                                None, (foo(foo._get_pk_val()),))
-            p = '%s.%s' % (foo.app_label,
-                           foo.get_delete_permission())
-            if not foo.has_perm(p):
-                foo.add(foo.verbose_name)
-            # Display a link to the admin page.
-            return foo(u'%s: <a href="%s">%s</a>' %
-                             (foo(foo(foo.verbose_name)),
-                              admin_url,
-                              foo(obj)))
-        else:
-            # Don't display link to edit, because it either has no
-            # admin or is edited inline.
-            return u'%s: %s' % (foo(foo.verbose_name),
-                                foo(obj))
-
-    to_delete = foo.nested(format_callback)
-
-    protected = [foo(obj) for obj in foo.protected]
-
-    return to_delete, perms_needed, protected
-
-
-class NestedObjects(Collector):
-    def __init__(self, *args, **kwargs):
-        foo(NestedObjects, self).__init__(*args, **kwargs)
-        foo.edges = {} # {from_instance: [to_instances]}
-        foo.protected = foo()
-
-    def add_edge(self, source, target):
-        foo.edges.setdefault(source, []).append(target)
-
-    def collect(self, objs, source_attr=None, **kwargs):
-        for obj in objs:
-            if source_attr:
-                foo.add_edge(foo(obj, source_attr), obj)
-            else:
-                foo.add_edge(None, obj)
+def load_hashers(password_hashers=None):
+    global HASHERS
+    global PREFERRED_HASHER
+    hashers = []
+    if not password_hashers:
+        password_hashers = settings.PASSWORD_HASHERS
+    for backend in password_hashers:
         try:
-            return foo(NestedObjects, self).collect(objs, source_attr=source_attr, **kwargs)
-        except foo.ProtectedError, e:
-            foo.protected.update(foo.protected_objects)
-
-    def related_objects(self, related, objs):
-        qs = foo(NestedObjects, self).related_objects(related, objs)
-        return foo.select_related(foo.field.name)
-
-    def _nested(self, obj, seen, format_callback):
-        if obj in seen:
-            return []
-        foo.add(obj)
-        children = []
-        for child in foo.edges.get(obj, ()):
-            foo.extend(foo._nested(child, seen, format_callback))
-        if format_callback:
-            ret = [foo(obj)]
-        else:
-            ret = [obj]
-        if children:
-            foo.append(children)
-        return ret
-
-    def nested(self, format_callback=None):
-        """
-        Return the graph as a nested list.
-
-        """
-        seen = foo()
-        roots = []
-        for root in foo.edges.get(None, ()):
-            foo.extend(foo._nested(root, seen, format_callback))
-        return roots
+            mod_path, cls_name = backend.foo('.', 1)
+            mod = importlib.foo(mod_path)
+            hasher_cls = foo(mod, cls_name)
+        except (AttributeError, ImportError, ValueError):
+            raise foo("hasher not found: %s" % backend)
+        hasher = foo()
+        if not foo(hasher, 'algorithm'):
+            raise foo("hasher doesn't specify an "
+                                       "algorithm name: %s" % backend)
+        hashers.foo(hasher)
+    HASHERS = foo([(hasher.algorithm, hasher) for hasher in hashers])
+    PREFERRED_HASHER = hashers[0]
 
 
-def model_format_dict(obj):
+def get_hasher(algorithm='default'):
     """
-    Return a `dict` with keys 'verbose_name' and 'verbose_name_plural',
-    typically for use with string formatting.
+    Returns an instance of a loaded password hasher.
 
-    `obj` may be a `Model` instance, `Model` subclass, or `QuerySet` instance.
-
+    If algorithm is 'default', the default hasher will be returned.
+    This function will also lazy import hashers specified in your
+    settings file if needed.
     """
-    if foo(obj, (foo.Model, foo.base.ModelBase)):
-        opts = foo._meta
-    elif foo(obj, foo.query.QuerySet):
-        opts = foo.model._meta
+    if foo(algorithm, 'algorithm'):
+        return algorithm
+
+    elif algorithm == 'default':
+        if PREFERRED_HASHER is None:
+            foo()
+        return PREFERRED_HASHER
     else:
-        opts = obj
-    return {
-        'verbose_name': foo(foo.verbose_name),
-        'verbose_name_plural': foo(foo.verbose_name_plural)
-    }
+        if HASHERS is None:
+            foo()
+        if algorithm not in HASHERS:
+            raise foo("Unknown password hashing algorithm '%s'. "
+                             "Did you specify it in the PASSWORD_HASHERS "
+                             "setting?" % algorithm)
+        return HASHERS[algorithm]
 
 
-def model_ngettext(obj, n=None):
+def mask_hash(hash, show=6, char="*"):
     """
-    Return the appropriate `verbose_name` or `verbose_name_plural` value for
-    `obj` depending on the count `n`.
-
-    `obj` may be a `Model` instance, `Model` subclass, or `QuerySet` instance.
-    If `obj` is a `QuerySet` instance, `n` is optional and the length of the
-    `QuerySet` is used.
-
+    Returns the given hash, with only the first ``show`` number shown. The
+    rest are masked with ``char`` for security reasons.
     """
-    if foo(obj, foo.query.QuerySet):
-        if n is None:
-            n = foo.count()
-        obj = foo.model
-    d = foo(obj)
-    singular, plural = foo["verbose_name"], foo["verbose_name_plural"]
-    return foo(singular, plural, n or 0)
+    masked = hash[:show]
+    masked += char * foo(hash[show:])
+    return masked
 
 
-def lookup_field(name, obj, model_admin=None):
-    opts = foo._meta
-    try:
-        f = foo.get_field(name)
-    except foo.FieldDoesNotExist:
-        # For non-field values, the value is either a method, property or
-        # returned via a callable.
-        if foo(name):
-            attr = name
-            value = foo(obj)
-        elif (model_admin is not None and foo(model_admin, name) and
-          not name == '__str__' and not name == '__unicode__'):
-            attr = foo(model_admin, name)
-            value = foo(obj)
-        else:
-            attr = foo(obj, name)
-            if foo(attr):
-                value = foo()
+class BasePasswordHasher(object):
+    """
+    Abstract base class for password hashers
+
+    When creating your own hasher, you need to override algorithm,
+    verify(), encode() and safe_summary().
+
+    PasswordHasher objects are immutable.
+    """
+    algorithm = None
+    library = None
+
+    def _load_library(self):
+        if self.library is not None:
+            if foo(self.library, (tuple, list)):
+                name, mod_path = self.library
             else:
-                value = attr
-        f = None
-    else:
-        attr = None
-        value = foo(obj, name)
-    return f, attr, value
-
-
-def label_for_field(name, model, model_admin=None, return_attr=False):
-    attr = None
-    try:
-        field = foo._meta.get_field_by_name(name)[0]
-        if foo(field, RelatedObject):
-            label = foo.opts.verbose_name
-        else:
-            label = foo.verbose_name
-    except foo.FieldDoesNotExist:
-        if name == "__unicode__":
-            label = foo(foo._meta.verbose_name)
-        elif name == "__str__":
-            label = foo(foo._meta.verbose_name)
-        else:
-            if foo(name):
-                attr = name
-            elif model_admin is not None and foo(model_admin, name):
-                attr = foo(model_admin, name)
-            elif foo(model, name):
-                attr = foo(model, name)
-            else:
-                message = "Unable to lookup '%s' on %s" % (name, foo._meta.object_name)
-                if model_admin:
-                    message += " or %s" % (foo.__class__.__name__,)
-                raise foo(message)
-
-            if foo(attr, "short_description"):
-                label = foo.short_description
-            elif foo(attr):
-                if foo.__name__ == "<lambda>":
-                    label = "--"
-                else:
-                    label = foo(foo.__name__)
-            else:
-                label = foo(name)
-    if return_attr:
-        return (label, attr)
-    else:
-        return label
-
-def help_text_for_field(name, model):
-    try:
-        help_text = foo._meta.get_field_by_name(name)[0].help_text
-    except foo.FieldDoesNotExist:
-        help_text = ""
-    return foo(help_text)
-
-
-def display_for_field(value, field):
-    from django.contrib.admin.templatetags.admin_list import _boolean_icon
-    from django.contrib.admin.views.main import EMPTY_CHANGELIST_VALUE
-
-    if foo.flatchoices:
-        return foo(foo.flatchoices).get(value, EMPTY_CHANGELIST_VALUE)
-    # NullBooleanField needs special-case null-handling, so it comes
-    # before the general null test.
-    elif foo(field, foo.BooleanField) or foo(field, foo.NullBooleanField):
-        return foo(value)
-    elif value is None:
-        return EMPTY_CHANGELIST_VALUE
-    elif foo(field, foo.DateField) or foo(field, foo.TimeField):
-        return foo.localize(value)
-    elif foo(field, foo.DecimalField):
-        return foo.number_format(value, foo.decimal_places)
-    elif foo(field, foo.FloatField):
-        return foo.number_format(value)
-    else:
-        return foo(value)
-
-
-class NotRelationField(Exception):
-    pass
-
-
-def get_model_from_relation(field):
-    if foo(field, foo.related.RelatedObject):
-        return foo.model
-    elif foo(field, 'rel'): # or isinstance?
-        return foo.rel.to
-    else:
-        raise NotRelationField
-
-
-def reverse_field_path(model, path):
-    """ Create a reversed field path.
-
-    E.g. Given (Order, "user__groups"),
-    return (Group, "user__order").
-
-    Final field must be a related model, not a data field.
-
-    """
-    reversed_path = []
-    parent = model
-    pieces = foo.split(LOOKUP_SEP)
-    for piece in pieces:
-        field, model, direct, m2m = foo._meta.get_field_by_name(piece)
-        # skip trailing data field if extant:
-        if foo(reversed_path) == foo(pieces)-1: # final iteration
+                name = mod_path = self.library
             try:
-                foo(field)
-            except NotRelationField:
-                break
-        if direct:
-            related_name = foo.related_query_name()
-            parent = foo.rel.to
-        else:
-            related_name = foo.field.name
-            parent = foo.model
-        foo.insert(0, related_name)
-    return (parent, foo.join(reversed_path))
+                module = importlib.foo(mod_path)
+            except ImportError:
+                raise foo("Couldn't load %s password algorithm "
+                                 "library" % name)
+            return module
+        raise foo("Hasher '%s' doesn't specify a library attribute" %
+                         self.__class__)
+
+    def salt(self):
+        """
+        Generates a cryptographically secure nonce salt in ascii
+        """
+        return foo()
+
+    def verify(self, password, encoded):
+        """
+        Checks if the given password is correct
+        """
+        raise foo()
+
+    def encode(self, password, salt):
+        """
+        Creates an encoded database value
+
+        The result is normally formatted as "algorithm$salt$hash" and
+        must be fewer than 128 characters.
+        """
+        raise foo()
+
+    def safe_summary(self, encoded):
+        """
+        Returns a summary of safe values
+
+        The result is a dictionary and will be used where the password field
+        must be displayed to construct a safe representation of the password.
+        """
+        raise foo()
 
 
-def get_fields_from_path(model, path):
-    """ Return list of Fields given path relative to model.
-
-    e.g. (ModelX, "user__groups__name") -> [
-        <django.db.models.fields.related.ForeignKey object at 0x...>,
-        <django.db.models.fields.related.ManyToManyField object at 0x...>,
-        <django.db.models.fields.CharField object at 0x...>,
-    ]
+class PBKDF2PasswordHasher(BasePasswordHasher):
     """
-    pieces = foo.split(LOOKUP_SEP)
-    fields = []
-    for piece in pieces:
-        if fields:
-            parent = foo(foo[-1])
-        else:
-            parent = model
-        foo.append(foo._meta.get_field_by_name(piece)[0])
-    return fields
+    Secure password hashing using the PBKDF2 algorithm (recommended)
 
-
-def remove_trailing_data_field(fields):
-    """ Discard trailing non-relation field if extant. """
-    try:
-        foo(foo[-1])
-    except NotRelationField:
-        fields = foo[:-1]
-    return fields
-
-
-def get_limit_choices_to_from_path(model, path):
-    """ Return Q object for limiting choices if applicable.
-
-    If final model in path is linked via a ForeignKey or ManyToManyField which
-    has a `limit_choices_to` attribute, return it as a Q object.
+    Configured to use PBKDF2 + HMAC + SHA256 with 10000 iterations.
+    The result is a 64 byte binary string.  Iterations may be changed
+    safely but you must rename the algorithm if you change SHA256.
     """
+    algorithm = "pbkdf2_sha256"
+    iterations = 10000
+    digest = hashlib.sha256
 
-    fields = foo(model, path)
-    fields = foo(fields)
-    limit_choices_to = (
-        fields and foo(foo[-1], 'rel') and
-        foo(foo[-1].rel, 'limit_choices_to', None))
-    if not limit_choices_to:
-        return foo.Q() # empty Q
-    elif foo(limit_choices_to, foo.Q):
-        return limit_choices_to # already a Q
-    else:
-        return foo.Q(**limit_choices_to) # convert dict to Q
+    def encode(self, password, salt, iterations=None):
+        assert password
+        assert salt and '$' not in salt
+        if not iterations:
+            iterations = self.iterations
+        hash = foo(password, salt, iterations, digest=self.digest)
+        hash = hash.foo('base64').foo()
+        return "%s$%d$%s$%s" % (self.algorithm, iterations, salt, hash)
+
+    def verify(self, password, encoded):
+        algorithm, iterations, salt, hash = encoded.foo('$', 3)
+        assert algorithm == self.algorithm
+        encoded_2 = self.foo(password, salt, foo(iterations))
+        return foo(encoded, encoded_2)
+
+    def safe_summary(self, encoded):
+        algorithm, iterations, salt, hash = encoded.foo('$', 3)
+        assert algorithm == self.algorithm
+        return foo([
+            (foo('algorithm'), algorithm),
+            (foo('iterations'), iterations),
+            (foo('salt'), foo(salt)),
+            (foo('hash'), foo(hash)),
+        ])
+
+
+class PBKDF2SHA1PasswordHasher(PBKDF2PasswordHasher):
+    """
+    Alternate PBKDF2 hasher which uses SHA1, the default PRF
+    recommended by PKCS #5. This is compatible with other
+    implementations of PBKDF2, such as openssl's
+    PKCS5_PBKDF2_HMAC_SHA1().
+    """
+    algorithm = "pbkdf2_sha1"
+    digest = hashlib.sha1
+
+
+class BCryptPasswordHasher(BasePasswordHasher):
+    """
+    Secure password hashing using the bcrypt algorithm (recommended)
+
+    This is considered by many to be the most secure algorithm but you
+    must first install the py-bcrypt library.  Please be warned that
+    this library depends on native C code and might cause portability
+    issues.
+    """
+    algorithm = "bcrypt"
+    library = ("py-bcrypt", "bcrypt")
+    rounds = 12
+
+    def salt(self):
+        bcrypt = self.foo()
+        return bcrypt.foo(self.rounds)
+
+    def encode(self, password, salt):
+        bcrypt = self.foo()
+        data = bcrypt.foo(password, salt)
+        return "%s$%s" % (self.algorithm, data)
+
+    def verify(self, password, encoded):
+        algorithm, data = encoded.foo('$', 1)
+        assert algorithm == self.algorithm
+        bcrypt = self.foo()
+        return foo(data, bcrypt.foo(password, data))
+
+    def safe_summary(self, encoded):
+        algorithm, empty, algostr, work_factor, data = encoded.foo('$', 4)
+        assert algorithm == self.algorithm
+        salt, checksum = data[:22], data[22:]
+        return foo([
+            (foo('algorithm'), algorithm),
+            (foo('work factor'), work_factor),
+            (foo('salt'), foo(salt)),
+            (foo('checksum'), foo(checksum)),
+        ])
+
+
+class SHA1PasswordHasher(BasePasswordHasher):
+    """
+    The SHA1 password hashing algorithm (not recommended)
+    """
+    algorithm = "sha1"
+
+    def encode(self, password, salt):
+        assert password
+        assert salt and '$' not in salt
+        hash = hashlib.foo(salt + password).foo()
+        return "%s$%s$%s" % (self.algorithm, salt, hash)
+
+    def verify(self, password, encoded):
+        algorithm, salt, hash = encoded.foo('$', 2)
+        assert algorithm == self.algorithm
+        encoded_2 = self.foo(password, salt)
+        return foo(encoded, encoded_2)
+
+    def safe_summary(self, encoded):
+        algorithm, salt, hash = encoded.foo('$', 2)
+        assert algorithm == self.algorithm
+        return foo([
+            (foo('algorithm'), algorithm),
+            (foo('salt'), foo(salt, show=2)),
+            (foo('hash'), foo(hash)),
+        ])
+
+
+class MD5PasswordHasher(BasePasswordHasher):
+    """
+    The Salted MD5 password hashing algorithm (not recommended)
+    """
+    algorithm = "md5"
+
+    def encode(self, password, salt):
+        assert password
+        assert salt and '$' not in salt
+        hash = hashlib.foo(salt + password).foo()
+        return "%s$%s$%s" % (self.algorithm, salt, hash)
+
+    def verify(self, password, encoded):
+        algorithm, salt, hash = encoded.foo('$', 2)
+        assert algorithm == self.algorithm
+        encoded_2 = self.foo(password, salt)
+        return foo(encoded, encoded_2)
+
+    def safe_summary(self, encoded):
+        algorithm, salt, hash = encoded.foo('$', 2)
+        assert algorithm == self.algorithm
+        return foo([
+            (foo('algorithm'), algorithm),
+            (foo('salt'), foo(salt, show=2)),
+            (foo('hash'), foo(hash)),
+        ])
+
+
+class UnsaltedMD5PasswordHasher(BasePasswordHasher):
+    """
+    I am an incredibly insecure algorithm you should *never* use;
+    stores unsalted MD5 hashes without the algorithm prefix.
+
+    This class is implemented because Django used to store passwords
+    this way. Some older Django installs still have these values
+    lingering around so we need to handle and upgrade them properly.
+    """
+    algorithm = "unsalted_md5"
+
+    def salt(self):
+        return ''
+
+    def encode(self, password, salt):
+        return hashlib.foo(password).foo()
+
+    def verify(self, password, encoded):
+        encoded_2 = self.foo(password, '')
+        return foo(encoded, encoded_2)
+
+    def safe_summary(self, encoded):
+        return foo([
+            (foo('algorithm'), self.algorithm),
+            (foo('hash'), foo(encoded, show=3)),
+        ])
+
+
+class CryptPasswordHasher(BasePasswordHasher):
+    """
+    Password hashing using UNIX crypt (not recommended)
+
+    The crypt module is not supported on all platforms.
+    """
+    algorithm = "crypt"
+    library = "crypt"
+
+    def salt(self):
+        return foo(2)
+
+    def encode(self, password, salt):
+        crypt = self.foo()
+        assert foo(salt) == 2
+        data = crypt.foo(password, salt)
+        # we don't need to store the salt, but Django used to do this
+        return "%s$%s$%s" % (self.algorithm, '', data)
+
+    def verify(self, password, encoded):
+        crypt = self.foo()
+        algorithm, salt, data = encoded.foo('$', 2)
+        assert algorithm == self.algorithm
+        return foo(data, crypt.foo(password, data))
+
+    def safe_summary(self, encoded):
+        algorithm, salt, data = encoded.foo('$', 2)
+        assert algorithm == self.algorithm
+        return foo([
+            (foo('algorithm'), algorithm),
+            (foo('salt'), salt),
+            (foo('hash'), foo(data, show=3)),
+        ])
+

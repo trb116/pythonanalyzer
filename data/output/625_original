@@ -1,1020 +1,680 @@
-#------------------------------------------------------------------------------
-# Copyright (c) 2013, Nucleic Development Team.
-#
-# Distributed under the terms of the Modified BSD License.
-#
-# The full license is in the file COPYING.txt, distributed with this software.
-#------------------------------------------------------------------------------
-from collections import deque
+from test import support
+import time
+import unittest
+import locale
+import sysconfig
 import sys
-import warnings
+import platform
+try:
+    import threading
+except ImportError:
+    threading = None
 
-from atom.api import Atom, Int, Bool, Coerced, Enum, List, Unicode
-
-from enaml.nodevisitor import NodeVisitor
-
-from .geometry import Rect
-
-
-def _coerce_rect(value):
-    """ Coerce a value to a Rect object.
-
-    This function is a private implementation detail.
-
-    """
-    if isinstance(value, (list, tuple)):
-        return Rect(*value)
-    msg = "cannot coerce '%s' to a 'Rect'"
-    raise TypeError(msg % type(value).__name__)
+# Max year is only limited by the size of C int.
+SIZEOF_INT = sysconfig.get_config_var('SIZEOF_INT') or 4
+TIME_MAXYEAR = (1 << 8 * SIZEOF_INT - 1) - 1
+TIME_MINYEAR = -TIME_MAXYEAR - 1
 
 
-class LayoutNode(Atom):
-    """ A base class for defining layout nodes.
+class TimeTestCase(unittest.TestCase):
 
-    This class provides basic traversal functionality.
+    def setUp(self):
+        self.t = time.time()
 
-    """
-    def children(self):
-        """ Get the children of the node.
+    def test_data_attributes(self):
+        time.altzone
+        time.daylight
+        time.timezone
+        time.tzname
 
-        Returns
-        -------
-        result : list
-            The list of LayoutNode children of the node. The default
-            implementation returns an empty list.
+    def test_time(self):
+        time.time()
+        info = time.get_clock_info('time')
+        self.assertFalse(info.monotonic)
+        self.assertTrue(info.adjustable)
 
-        """
-        return []
+    def test_clock(self):
+        time.clock()
 
-    def traverse(self, depth_first=False):
-        """ Yield all of the nodes in the layout, from this node down.
+        info = time.get_clock_info('clock')
+        self.assertTrue(info.monotonic)
+        self.assertFalse(info.adjustable)
 
-        Parameters
-        ----------
-        depth_first : bool, optional
-            If True, yield the nodes in depth first order. If False,
-            yield the nodes in breadth first order. Defaults to False.
+    @unittest.skipUnless(hasattr(time, 'clock_gettime'),
+                         'need time.clock_gettime()')
+    def test_clock_realtime(self):
+        time.clock_gettime(time.CLOCK_REALTIME)
 
-        Returns
-        -------
-        result : generator
-            A generator which yields 2-tuples of (parent, node) for all
-            nodes in the layout.
+    @unittest.skipUnless(hasattr(time, 'clock_gettime'),
+                         'need time.clock_gettime()')
+    @unittest.skipUnless(hasattr(time, 'CLOCK_MONOTONIC'),
+                         'need time.CLOCK_MONOTONIC')
+    def test_clock_monotonic(self):
+        a = time.clock_gettime(time.CLOCK_MONOTONIC)
+        b = time.clock_gettime(time.CLOCK_MONOTONIC)
+        self.assertLessEqual(a, b)
 
-        """
-        if depth_first:
-            stack = [(None, self)]
-            stack_pop = stack.pop
-            stack_extend = stack.extend
+    @unittest.skipUnless(hasattr(time, 'clock_getres'),
+                         'need time.clock_getres()')
+    def test_clock_getres(self):
+        res = time.clock_getres(time.CLOCK_REALTIME)
+        self.assertGreater(res, 0.0)
+        self.assertLessEqual(res, 1.0)
+
+    @unittest.skipUnless(hasattr(time, 'clock_settime'),
+                         'need time.clock_settime()')
+    def test_clock_settime(self):
+        t = time.clock_gettime(time.CLOCK_REALTIME)
+        try:
+            time.clock_settime(time.CLOCK_REALTIME, t)
+        except PermissionError:
+            pass
+
+        if hasattr(time, 'CLOCK_MONOTONIC'):
+            self.assertRaises(OSError,
+                              time.clock_settime, time.CLOCK_MONOTONIC, 0)
+
+    def test_conversions(self):
+        self.assertEqual(time.ctime(self.t),
+                         time.asctime(time.localtime(self.t)))
+        self.assertEqual(int(time.mktime(time.localtime(self.t))),
+                         int(self.t))
+
+    def test_sleep(self):
+        self.assertRaises(ValueError, time.sleep, -2)
+        self.assertRaises(ValueError, time.sleep, -1)
+        time.sleep(1.2)
+
+    def test_strftime(self):
+        tt = time.gmtime(self.t)
+        for directive in ('a', 'A', 'b', 'B', 'c', 'd', 'H', 'I',
+                          'j', 'm', 'M', 'p', 'S',
+                          'U', 'w', 'W', 'x', 'X', 'y', 'Y', 'Z', '%'):
+            format = ' %' + directive
+            try:
+                time.strftime(format, tt)
+            except ValueError:
+                self.fail('conversion specifier: %r failed.' % format)
+
+        # Issue #10762: Guard against invalid/non-supported format string
+        # so that Python don't crash (Windows crashes when the format string
+        # input to [w]strftime is not kosher.
+        if sys.platform.startswith('win'):
+            with self.assertRaises(ValueError):
+                time.strftime('%f')
+
+    def _bounds_checking(self, func):
+        # Make sure that strftime() checks the bounds of the various parts
+        # of the time tuple (0 is valid for *all* values).
+
+        # The year field is tested by other test cases above
+
+        # Check month [1, 12] + zero support
+        func((1900, 0, 1, 0, 0, 0, 0, 1, -1))
+        func((1900, 12, 1, 0, 0, 0, 0, 1, -1))
+        self.assertRaises(ValueError, func,
+                            (1900, -1, 1, 0, 0, 0, 0, 1, -1))
+        self.assertRaises(ValueError, func,
+                            (1900, 13, 1, 0, 0, 0, 0, 1, -1))
+        # Check day of month [1, 31] + zero support
+        func((1900, 1, 0, 0, 0, 0, 0, 1, -1))
+        func((1900, 1, 31, 0, 0, 0, 0, 1, -1))
+        self.assertRaises(ValueError, func,
+                            (1900, 1, -1, 0, 0, 0, 0, 1, -1))
+        self.assertRaises(ValueError, func,
+                            (1900, 1, 32, 0, 0, 0, 0, 1, -1))
+        # Check hour [0, 23]
+        func((1900, 1, 1, 23, 0, 0, 0, 1, -1))
+        self.assertRaises(ValueError, func,
+                            (1900, 1, 1, -1, 0, 0, 0, 1, -1))
+        self.assertRaises(ValueError, func,
+                            (1900, 1, 1, 24, 0, 0, 0, 1, -1))
+        # Check minute [0, 59]
+        func((1900, 1, 1, 0, 59, 0, 0, 1, -1))
+        self.assertRaises(ValueError, func,
+                            (1900, 1, 1, 0, -1, 0, 0, 1, -1))
+        self.assertRaises(ValueError, func,
+                            (1900, 1, 1, 0, 60, 0, 0, 1, -1))
+        # Check second [0, 61]
+        self.assertRaises(ValueError, func,
+                            (1900, 1, 1, 0, 0, -1, 0, 1, -1))
+        # C99 only requires allowing for one leap second, but Python's docs say
+        # allow two leap seconds (0..61)
+        func((1900, 1, 1, 0, 0, 60, 0, 1, -1))
+        func((1900, 1, 1, 0, 0, 61, 0, 1, -1))
+        self.assertRaises(ValueError, func,
+                            (1900, 1, 1, 0, 0, 62, 0, 1, -1))
+        # No check for upper-bound day of week;
+        #  value forced into range by a ``% 7`` calculation.
+        # Start check at -2 since gettmarg() increments value before taking
+        #  modulo.
+        self.assertEqual(func((1900, 1, 1, 0, 0, 0, -1, 1, -1)),
+                         func((1900, 1, 1, 0, 0, 0, +6, 1, -1)))
+        self.assertRaises(ValueError, func,
+                            (1900, 1, 1, 0, 0, 0, -2, 1, -1))
+        # Check day of the year [1, 366] + zero support
+        func((1900, 1, 1, 0, 0, 0, 0, 0, -1))
+        func((1900, 1, 1, 0, 0, 0, 0, 366, -1))
+        self.assertRaises(ValueError, func,
+                            (1900, 1, 1, 0, 0, 0, 0, -1, -1))
+        self.assertRaises(ValueError, func,
+                            (1900, 1, 1, 0, 0, 0, 0, 367, -1))
+
+    def test_strftime_bounding_check(self):
+        self._bounds_checking(lambda tup: time.strftime('', tup))
+
+    def test_default_values_for_zero(self):
+        # Make sure that using all zeros uses the proper default
+        # values.  No test for daylight savings since strftime() does
+        # not change output based on its value and no test for year
+        # because systems vary in their support for year 0.
+        expected = "2000 01 01 00 00 00 1 001"
+        with support.check_warnings():
+            result = time.strftime("%Y %m %d %H %M %S %w %j", (2000,)+(0,)*8)
+        self.assertEqual(expected, result)
+
+    def test_strptime(self):
+        # Should be able to go round-trip from strftime to strptime without
+        # raising an exception.
+        tt = time.gmtime(self.t)
+        for directive in ('a', 'A', 'b', 'B', 'c', 'd', 'H', 'I',
+                          'j', 'm', 'M', 'p', 'S',
+                          'U', 'w', 'W', 'x', 'X', 'y', 'Y', 'Z', '%'):
+            format = '%' + directive
+            strf_output = time.strftime(format, tt)
+            try:
+                time.strptime(strf_output, format)
+            except ValueError:
+                self.fail("conversion specifier %r failed with '%s' input." %
+                          (format, strf_output))
+
+    def test_strptime_bytes(self):
+        # Make sure only strings are accepted as arguments to strptime.
+        self.assertRaises(TypeError, time.strptime, b'2009', "%Y")
+        self.assertRaises(TypeError, time.strptime, '2009', b'%Y')
+
+    def test_strptime_exception_context(self):
+        # check that this doesn't chain exceptions needlessly (see #17572)
+        with self.assertRaises(ValueError) as e:
+            time.strptime('', '%D')
+        self.assertIs(e.exception.__suppress_context__, True)
+
+    def test_asctime(self):
+        time.asctime(time.gmtime(self.t))
+
+        # Max year is only limited by the size of C int.
+        for bigyear in TIME_MAXYEAR, TIME_MINYEAR:
+            asc = time.asctime((bigyear, 6, 1) + (0,) * 6)
+            self.assertEqual(asc[-len(str(bigyear)):], str(bigyear))
+        self.assertRaises(OverflowError, time.asctime,
+                          (TIME_MAXYEAR + 1,) + (0,) * 8)
+        self.assertRaises(OverflowError, time.asctime,
+                          (TIME_MINYEAR - 1,) + (0,) * 8)
+        self.assertRaises(TypeError, time.asctime, 0)
+        self.assertRaises(TypeError, time.asctime, ())
+        self.assertRaises(TypeError, time.asctime, (0,) * 10)
+
+    def test_asctime_bounding_check(self):
+        self._bounds_checking(time.asctime)
+
+    def test_ctime(self):
+        t = time.mktime((1973, 9, 16, 1, 3, 52, 0, 0, -1))
+        self.assertEqual(time.ctime(t), 'Sun Sep 16 01:03:52 1973')
+        t = time.mktime((2000, 1, 1, 0, 0, 0, 0, 0, -1))
+        self.assertEqual(time.ctime(t), 'Sat Jan  1 00:00:00 2000')
+        for year in [-100, 100, 1000, 2000, 10000]:
+            try:
+                testval = time.mktime((year, 1, 10) + (0,)*6)
+            except (ValueError, OverflowError):
+                # If mktime fails, ctime will fail too.  This may happen
+                # on some platforms.
+                pass
+            else:
+                self.assertEqual(time.ctime(testval)[20:], str(year))
+
+    @unittest.skipUnless(hasattr(time, "tzset"),
+                         "time module has no attribute tzset")
+    def test_tzset(self):
+
+        from os import environ
+
+        # Epoch time of midnight Dec 25th 2002. Never DST in northern
+        # hemisphere.
+        xmas2002 = 1040774400.0
+
+        # These formats are correct for 2002, and possibly future years
+        # This format is the 'standard' as documented at:
+        # http://www.opengroup.org/onlinepubs/007904975/basedefs/xbd_chap08.html
+        # They are also documented in the tzset(3) man page on most Unix
+        # systems.
+        eastern = 'EST+05EDT,M4.1.0,M10.5.0'
+        victoria = 'AEST-10AEDT-11,M10.5.0,M3.5.0'
+        utc='UTC+0'
+
+        org_TZ = environ.get('TZ',None)
+        try:
+            # Make sure we can switch to UTC time and results are correct
+            # Note that unknown timezones default to UTC.
+            # Note that altzone is undefined in UTC, as there is no DST
+            environ['TZ'] = eastern
+            time.tzset()
+            environ['TZ'] = utc
+            time.tzset()
+            self.assertEqual(
+                time.gmtime(xmas2002), time.localtime(xmas2002)
+                )
+            self.assertEqual(time.daylight, 0)
+            self.assertEqual(time.timezone, 0)
+            self.assertEqual(time.localtime(xmas2002).tm_isdst, 0)
+
+            # Make sure we can switch to US/Eastern
+            environ['TZ'] = eastern
+            time.tzset()
+            self.assertNotEqual(time.gmtime(xmas2002), time.localtime(xmas2002))
+            self.assertEqual(time.tzname, ('EST', 'EDT'))
+            self.assertEqual(len(time.tzname), 2)
+            self.assertEqual(time.daylight, 1)
+            self.assertEqual(time.timezone, 18000)
+            self.assertEqual(time.altzone, 14400)
+            self.assertEqual(time.localtime(xmas2002).tm_isdst, 0)
+            self.assertEqual(len(time.tzname), 2)
+
+            # Now go to the southern hemisphere.
+            environ['TZ'] = victoria
+            time.tzset()
+            self.assertNotEqual(time.gmtime(xmas2002), time.localtime(xmas2002))
+
+            # Issue #11886: Australian Eastern Standard Time (UTC+10) is called
+            # "EST" (as Eastern Standard Time, UTC-5) instead of "AEST"
+            # (non-DST timezone), and "EDT" instead of "AEDT" (DST timezone),
+            # on some operating systems (e.g. FreeBSD), which is wrong. See for
+            # example this bug:
+            # http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=93810
+            self.assertIn(time.tzname[0], ('AEST' 'EST'), time.tzname[0])
+            self.assertTrue(time.tzname[1] in ('AEDT', 'EDT'), str(time.tzname[1]))
+            self.assertEqual(len(time.tzname), 2)
+            self.assertEqual(time.daylight, 1)
+            self.assertEqual(time.timezone, -36000)
+            self.assertEqual(time.altzone, -39600)
+            self.assertEqual(time.localtime(xmas2002).tm_isdst, 1)
+
+        finally:
+            # Repair TZ environment variable in case any other tests
+            # rely on it.
+            if org_TZ is not None:
+                environ['TZ'] = org_TZ
+            elif 'TZ' in environ:
+                del environ['TZ']
+            time.tzset()
+
+    def test_insane_timestamps(self):
+        # It's possible that some platform maps time_t to double,
+        # and that this test will fail there.  This test should
+        # exempt such platforms (provided they return reasonable
+        # results!).
+        for func in time.ctime, time.gmtime, time.localtime:
+            for unreasonable in -1e200, 1e200:
+                self.assertRaises(OverflowError, func, unreasonable)
+
+    def test_ctime_without_arg(self):
+        # Not sure how to check the values, since the clock could tick
+        # at any time.  Make sure these are at least accepted and
+        # don't raise errors.
+        time.ctime()
+        time.ctime(None)
+
+    def test_gmtime_without_arg(self):
+        gt0 = time.gmtime()
+        gt1 = time.gmtime(None)
+        t0 = time.mktime(gt0)
+        t1 = time.mktime(gt1)
+        self.assertAlmostEqual(t1, t0, delta=0.2)
+
+    def test_localtime_without_arg(self):
+        lt0 = time.localtime()
+        lt1 = time.localtime(None)
+        t0 = time.mktime(lt0)
+        t1 = time.mktime(lt1)
+        self.assertAlmostEqual(t1, t0, delta=0.2)
+
+    def test_mktime(self):
+        # Issue #1726687
+        for t in (-2, -1, 0, 1):
+            try:
+                tt = time.localtime(t)
+            except (OverflowError, OSError):
+                pass
+            else:
+                self.assertEqual(time.mktime(tt), t)
+
+    # Issue #13309: passing extreme values to mktime() or localtime()
+    # borks the glibc's internal timezone data.
+    @unittest.skipUnless(platform.libc_ver()[0] != 'glibc',
+                         "disabled because of a bug in glibc. Issue #13309")
+    def test_mktime_error(self):
+        # It may not be possible to reliably make mktime return error
+        # on all platfom.  This will make sure that no other exception
+        # than OverflowError is raised for an extreme value.
+        tt = time.gmtime(self.t)
+        tzname = time.strftime('%Z', tt)
+        self.assertNotEqual(tzname, 'LMT')
+        try:
+            time.mktime((-1, 1, 1, 0, 0, 0, -1, -1, -1))
+        except OverflowError:
+            pass
+        self.assertEqual(time.strftime('%Z', tt), tzname)
+
+    @unittest.skipUnless(hasattr(time, 'monotonic'),
+                         'need time.monotonic')
+    def test_monotonic(self):
+        t1 = time.monotonic()
+        time.sleep(0.5)
+        t2 = time.monotonic()
+        dt = t2 - t1
+        self.assertGreater(t2, t1)
+        self.assertAlmostEqual(dt, 0.5, delta=0.2)
+
+        info = time.get_clock_info('monotonic')
+        self.assertTrue(info.monotonic)
+        self.assertFalse(info.adjustable)
+
+    def test_perf_counter(self):
+        time.perf_counter()
+
+    def test_process_time(self):
+        # process_time() should not include time spend during a sleep
+        start = time.process_time()
+        time.sleep(0.100)
+        stop = time.process_time()
+        # use 20 ms because process_time() has usually a resolution of 15 ms
+        # on Windows
+        self.assertLess(stop - start, 0.020)
+
+        info = time.get_clock_info('process_time')
+        self.assertTrue(info.monotonic)
+        self.assertFalse(info.adjustable)
+
+    @unittest.skipUnless(hasattr(time, 'monotonic'),
+                         'need time.monotonic')
+    @unittest.skipUnless(hasattr(time, 'clock_settime'),
+                         'need time.clock_settime')
+    def test_monotonic_settime(self):
+        t1 = time.monotonic()
+        realtime = time.clock_gettime(time.CLOCK_REALTIME)
+        # jump backward with an offset of 1 hour
+        try:
+            time.clock_settime(time.CLOCK_REALTIME, realtime - 3600)
+        except PermissionError as err:
+            self.skipTest(err)
+        t2 = time.monotonic()
+        time.clock_settime(time.CLOCK_REALTIME, realtime)
+        # monotonic must not be affected by system clock updates
+        self.assertGreaterEqual(t2, t1)
+
+    def test_localtime_failure(self):
+        # Issue #13847: check for localtime() failure
+        invalid_time_t = None
+        for time_t in (-1, 2**30, 2**33, 2**60):
+            try:
+                time.localtime(time_t)
+            except OverflowError:
+                self.skipTest("need 64-bit time_t")
+            except OSError:
+                invalid_time_t = time_t
+                break
+        if invalid_time_t is None:
+            self.skipTest("unable to find an invalid time_t value")
+
+        self.assertRaises(OSError, time.localtime, invalid_time_t)
+        self.assertRaises(OSError, time.ctime, invalid_time_t)
+
+    def test_get_clock_info(self):
+        clocks = ['clock', 'perf_counter', 'process_time', 'time']
+        if hasattr(time, 'monotonic'):
+            clocks.append('monotonic')
+
+        for name in clocks:
+            info = time.get_clock_info(name)
+            #self.assertIsInstance(info, dict)
+            self.assertIsInstance(info.implementation, str)
+            self.assertNotEqual(info.implementation, '')
+            self.assertIsInstance(info.monotonic, bool)
+            self.assertIsInstance(info.resolution, float)
+            # 0.0 < resolution <= 1.0
+            self.assertGreater(info.resolution, 0.0)
+            self.assertLessEqual(info.resolution, 1.0)
+            self.assertIsInstance(info.adjustable, bool)
+
+        self.assertRaises(ValueError, time.get_clock_info, 'xxx')
+
+
+class TestLocale(unittest.TestCase):
+    def setUp(self):
+        self.oldloc = locale.setlocale(locale.LC_ALL)
+
+    def tearDown(self):
+        locale.setlocale(locale.LC_ALL, self.oldloc)
+
+    def test_bug_3061(self):
+        try:
+            tmp = locale.setlocale(locale.LC_ALL, "fr_FR")
+        except locale.Error:
+            # skip this test
+            return
+        # This should not cause an exception
+        time.strftime("%B", (2009,2,1,0,0,0,0,0,0))
+
+
+class _TestAsctimeYear:
+    _format = '%d'
+
+    def yearstr(self, y):
+        return time.asctime((y,) + (0,) * 8).split()[-1]
+
+    def test_large_year(self):
+        # Check that it doesn't crash for year > 9999
+        self.assertEqual(self.yearstr(12345), '12345')
+        self.assertEqual(self.yearstr(123456789), '123456789')
+
+class _TestStrftimeYear:
+
+    # Issue 13305:  For years < 1000, the value is not always
+    # padded to 4 digits across platforms.  The C standard
+    # assumes year >= 1900, so it does not specify the number
+    # of digits.
+
+    if time.strftime('%Y', (1,) + (0,) * 8) == '0001':
+        _format = '%04d'
+    else:
+        _format = '%d'
+
+    def yearstr(self, y):
+        return time.strftime('%Y', (y,) + (0,) * 8)
+
+    def test_4dyear(self):
+        # Check that we can return the zero padded value.
+        if self._format == '%04d':
+            self.test_year('%04d')
         else:
-            stack = deque([(None, self)])
-            stack_pop = stack.popleft
-            stack_extend = stack.extend
-        while stack:
-            parent, node = stack_pop()
-            yield parent, node
-            stack_extend((node, child) for child in node.children())
-
-    def find(self, kind):
-        """ Find the first layout node of the given kind.
-
-        Parameters
-        ----------
-        kind : type or tuple of types
-            The type of the layout node to find.
-
-        Returns
-        -------
-        result : LayoutNode or None
-            The first layout node of the given type in the tree. The
-            search is performed breadth-first.
-
-        """
-        for parent, node in self.traverse():
-            if isinstance(node, kind):
-                return node
-
-    def find_all(self, kind):
-        """ Find the layout nodes of the given kind.
-
-        Parameters
-        ----------
-        kind : type or tuple of types
-            The type of the layout nodes to find.
-
-        Returns
-        -------
-        result : list
-            The list of the layout nodes in the tree which are of the
-            request type. They are ordered breadth-first.
-
-        """
-        res = []
-        for parent, node in self.traverse():
-            if isinstance(node, kind):
-                res.append(node)
-        return res
-
-
-class ItemLayout(LayoutNode):
-    """ A layout object for defining an item layout.
-
-    """
-    #: The name of the DockItem to which this layout item applies.
-    name = Unicode()
-
-    #: Whether or not the item is floating. An ItemLayout defined as
-    #: a toplevel item in a DockLayout should be marked as floating.
-    floating = Bool(False)
-
-    #: The geometry to apply to the item. This is expressed in desktop
-    #: coordinates and only applies if the item is floating.
-    geometry = Coerced(Rect, (-1, -1, -1, -1), coercer=_coerce_rect)
-
-    #: Whether or not the item is linked with its floating neighbors.
-    #: This value will only have an effect if the item is floating.
-    linked = Bool(False)
-
-    #: Whether or not the item is maximized. This value will only have
-    #: effect if the item is floating or docked in a SplitLayout.
-    maximized = Bool(False)
-
-    def __init__(self, name, **kwargs):
-        super(ItemLayout, self).__init__(name=name, **kwargs)
-
-
-class TabLayout(LayoutNode):
-    """ A layout object for defining tabbed dock layouts.
-
-    """
-    #: The position of the tabs in the tab layout.
-    tab_position = Enum('top', 'bottom', 'left', 'right')
-
-    #: The index of the currently selected tab.
-    index = Int(0)
-
-    #: The list of item layouts to include in the tab layout.
-    items = List(Coerced(ItemLayout))
-
-    def __init__(self, *items, **kwargs):
-        super(TabLayout, self).__init__(items=list(items), **kwargs)
-
-    def children(self):
-        """ Get the list of children of the tab layout.
-
-        """
-        return self.items[:]
-
-
-class _SplitLayoutItem(object):
-    """ A private class which performs type checking for split layouts.
-
-    """
-    class __metaclass__(type):
-
-        def __instancecheck__(cls, instance):
-            return isinstance(instance, (ItemLayout, TabLayout, SplitLayout))
-
-        def __call__(cls, item):
-            if isinstance(item, basestring):
-                return ItemLayout(item)
-            msg = "cannot coerce '%s' to a 'SplitLayout' item"
-            raise TypeError(msg % type(item).__name__)
-
-
-class SplitLayout(LayoutNode):
-    """ A layout object for defining split dock layouts.
-
-    """
-    #: The orientation of the split layout.
-    orientation = Enum('horizontal', 'vertical')
-
-    #: The default sizes to apply to the items in the splitter. If
-    #: provided, the length must be equal to the number of items.
-    sizes = List(Int())
-
-    #: This list of split layout items to include in the split layout.
-    items = List(Coerced(_SplitLayoutItem))
-
-    def __init__(self, *items, **kwargs):
-        super(SplitLayout, self).__init__(items=list(items), **kwargs)
-
-    def children(self):
-        """ Get the list of children of the split layout.
-
-        """
-        return self.items[:]
-
-
-class HSplitLayout(SplitLayout):
-    """ A split layout which defaults to 'horizonal' orientation.
-
-    """
-    def __init__(self, *items, **kwargs):
-        kwargs['orientation'] = 'horizontal'
-        super(HSplitLayout, self).__init__(*items, **kwargs)
-
-
-class VSplitLayout(SplitLayout):
-    """ A split layout which defaults to 'vertical' orientation.
-
-    """
-    def __init__(self, *items, **kwargs):
-        kwargs['orientation'] = 'vertical'
-        super(VSplitLayout, self).__init__(*items, **kwargs)
-
-
-class DockBarLayout(LayoutNode):
-    """ A layout object for defining a dock bar layout.
-
-    """
-    #: The position of the tool bar in its area. Only one tool bar may
-    #: occupy a given position at any one time.
-    position = Enum('top', 'right', 'bottom', 'left')
-
-    #: The list of item layouts to include in the tab layout.
-    items = List(Coerced(ItemLayout))
-
-    def __init__(self, *items, **kwargs):
-        super(DockBarLayout, self).__init__(items=list(items), **kwargs)
-
-    def children(self):
-        """ Get the list of children of the dock bar layout.
-
-        """
-        return self.items[:]
-
-
-class _AreaLayoutItem(object):
-    """ A private class which performs type checking for area layouts.
-
-    """
-    class __metaclass__(type):
-
-        def __instancecheck__(cls, instance):
-            allowed = (type(None), ItemLayout, TabLayout, SplitLayout)
-            return isinstance(instance, allowed)
-
-        def __call__(cls, item):
-            if isinstance(item, basestring):
-                return ItemLayout(item)
-            msg = "cannot coerce '%s' to an 'AreaLayout' item"
-            raise TypeError(msg % type(item).__name__)
-
-
-class AreaLayout(LayoutNode):
-    """ A layout object for defining a dock area layout.
-
-    """
-    #: The main layout item to include in the area layout.
-    item = Coerced(_AreaLayoutItem)
-
-    #: The dock bar layouts to include in the area layout.
-    dock_bars = List(DockBarLayout)
-
-    #: Whether or not the area is floating. A DockLayout should have
-    #: at most one non-floating area layout.
-    floating = Bool(False)
-
-    #: The geometry to apply to the area. This is expressed in desktop
-    #: coordinates and only applies if the area is floating.
-    geometry = Coerced(Rect, (-1, -1, -1, -1), coercer=_coerce_rect)
-
-    #: Whether or not the area is linked with its floating neighbors.
-    #: This only has an effect if the area is a floating.
-    linked = Bool(False)
-
-    #: Whether or not the area is maximized. This only has an effect if
-    #: the area is a floating.
-    maximized = Bool(False)
-
-    def __init__(self, item=None, **kwargs):
-        super(AreaLayout, self).__init__(item=item, **kwargs)
-
-    def children(self):
-        """ Get the list of children of the area layout.
-
-        """
-        item = self.item
-        base = [item] if item is not None else []
-        return base + self.dock_bars
-
-
-class _DockLayoutItem(object):
-    """ A private class which performs type checking for dock layouts.
-
-    """
-    class __metaclass__(type):
-
-        def __instancecheck__(cls, instance):
-            return isinstance(instance, (ItemLayout, AreaLayout))
-
-        def __call__(cls, item):
-            if isinstance(item, basestring):
-                return ItemLayout(item)
-            if isinstance(item, (SplitLayout, TabLayout)):
-                return AreaLayout(item)
-            msg = "cannot coerce '%s' to a 'DockLayout' item"
-            raise TypeError(msg % type(item).__name__)
-
-
-class DockLayout(LayoutNode):
-    """ The layout object for defining toplevel dock layouts.
-
-    """
-    #: The layout items to include in the dock layout.
-    items = List(Coerced(_DockLayoutItem))
-
-    def __init__(self, *items, **kwargs):
-        super(DockLayout, self).__init__(items=list(items), **kwargs)
-
-    def children(self):
-        """ Get the list of children of the dock layout.
-
-        """
-        return self.items[:]
-
-
-class DockLayoutWarning(UserWarning):
-    """ A custom user warning for use with dock layouts.
-
-    """
+            def year4d(y):
+                return time.strftime('%4Y', (y,) + (0,) * 8)
+            self.test_year('%04d', func=year4d)
+
+    def skip_if_not_supported(y):
+        msg = "strftime() is limited to [1; 9999] with Visual Studio"
+        # Check that it doesn't crash for year > 9999
+        try:
+            time.strftime('%Y', (y,) + (0,) * 8)
+        except ValueError:
+            cond = False
+        else:
+            cond = True
+        return unittest.skipUnless(cond, msg)
+
+    @skip_if_not_supported(10000)
+    def test_large_year(self):
+        return super().test_large_year()
+
+    @skip_if_not_supported(0)
+    def test_negative(self):
+        return super().test_negative()
+
+    del skip_if_not_supported
+
+
+class _Test4dYear:
+    _format = '%d'
+
+    def test_year(self, fmt=None, func=None):
+        fmt = fmt or self._format
+        func = func or self.yearstr
+        self.assertEqual(func(1),    fmt % 1)
+        self.assertEqual(func(68),   fmt % 68)
+        self.assertEqual(func(69),   fmt % 69)
+        self.assertEqual(func(99),   fmt % 99)
+        self.assertEqual(func(999),  fmt % 999)
+        self.assertEqual(func(9999), fmt % 9999)
+
+    def test_large_year(self):
+        self.assertEqual(self.yearstr(12345), '12345')
+        self.assertEqual(self.yearstr(123456789), '123456789')
+        self.assertEqual(self.yearstr(TIME_MAXYEAR), str(TIME_MAXYEAR))
+        self.assertRaises(OverflowError, self.yearstr, TIME_MAXYEAR + 1)
+
+    def test_negative(self):
+        self.assertEqual(self.yearstr(-1), self._format % -1)
+        self.assertEqual(self.yearstr(-1234), '-1234')
+        self.assertEqual(self.yearstr(-123456), '-123456')
+        self.assertEqual(self.yearstr(-123456789), str(-123456789))
+        self.assertEqual(self.yearstr(-1234567890), str(-1234567890))
+        self.assertEqual(self.yearstr(TIME_MINYEAR + 1900), str(TIME_MINYEAR + 1900))
+        # Issue #13312: it may return wrong value for year < TIME_MINYEAR + 1900
+        # Skip the value test, but check that no error is raised
+        self.yearstr(TIME_MINYEAR)
+        # self.assertEqual(self.yearstr(TIME_MINYEAR), str(TIME_MINYEAR))
+        self.assertRaises(OverflowError, self.yearstr, TIME_MINYEAR - 1)
+
+
+class TestAsctime4dyear(_TestAsctimeYear, _Test4dYear, unittest.TestCase):
+    pass
+
+class TestStrftime4dyear(_TestStrftimeYear, _Test4dYear, unittest.TestCase):
     pass
 
 
-class DockLayoutValidator(NodeVisitor):
-    """ A node visitor which validates a layout.
-
-    If an irregularity or invalid condition is found in the layout, a
-    warning is emitted. Such conditions can result in undefined layout
-    behavior.
-
-    """
-    def __init__(self, available):
-        """ Initialize a DockLayoutValidator.
-
-        Parameters
-        ----------
-        available : iterable
-            An iterable of strings which represent the available dock
-            item names onto which the layout will be applied. These are
-            used to validate the set of visited ItemLayout instances.
-
-        """
-        self._available = set(available)
-
-    def warn(self, message):
-        """ Emit a dock layout warning with the given message.
-
-        """
-        f_globals = self._caller.f_globals
-        f_lineno = self._caller.f_lineno
-        f_mod = f_globals.get('__name__', '<string>')
-        f_name = f_globals.get('__file__')
-        if f_name:
-            if f_name.lower().endswith((".pyc", ".pyo")):
-                f_name = f_name[:-1]
-        else:
-            if f_mod == "__main__":
-                f_name = sys.argv[0]
-            if not f_name:
-                f_name = f_mod
-        warnings.warn_explicit(
-            message, DockLayoutWarning, f_name, f_lineno, f_mod, f_globals
+class TestPytime(unittest.TestCase):
+    def setUp(self):
+        self.invalid_values = (
+            -(2 ** 100), 2 ** 100,
+            -(2.0 ** 100.0), 2.0 ** 100.0,
         )
 
-    def setup(self, node):
-        """ Setup the dock layout validator.
-
-        """
-        self._caller = sys._getframe(2)
-        self._seen_items = set()
-        self._cant_maximize = {}
-
-    def teardown(self, node):
-        """ Teardown the dock layout validator.
-
-        """
-        for name in self._available - self._seen_items:
-            msg = "item '%s' is not referenced by the layout"
-            self.warn(msg % name)
-        for name in self._seen_items - self._available:
-            msg = "item '%s' is not an available layout item"
-            self.warn(msg % name)
-        del self._caller
-        del self._seen_items
-        del self._cant_maximize
-
-    def visit_ItemLayout(self, node):
-        """ The visitor method for an ItemLayout node.
-
-        """
-        if node.name in self._seen_items:
-            self.warn("duplicate use of ItemLayout name '%s'" % node.name)
-        self._seen_items.add(node.name)
-        if not node.floating:
-            if -1 not in node.geometry:
-                self.warn("non-floating ItemLayout with specific geometry")
-            if node.linked:
-                self.warn("non-floating ItemLayout marked as linked")
-            if node.maximized and node in self._cant_maximize:
-                msg = "ItemLayout contained in %s marked as maximized"
-                self.warn(msg % self._cant_maximize[node])
-
-    def visit_TabLayout(self, node):
-        """ The visitor method for a TabLayout node.
-
-        """
-        for item in node.items:
-            self._cant_maximize[item] = 'TabLayout'
-            self.visit(item)
-
-    def visit_SplitLayout(self, node):
-        """ The visitor method for a SplitLayout node.
-
-        """
-        if len(node.sizes) > 0:
-            if len(node.sizes) != len(node.items):
-                self.warn("SplitLayout sizes length != items length")
-        for item in node.items:
-            if isinstance(item, SplitLayout):
-                if item.orientation == node.orientation:
-                    msg = "child SplitLayout has same orientation as parent"
-                    self.warn(msg)
-            self.visit(item)
-
-    def visit_DockBarLayout(self, node):
-        """ The visitor method for a DockBarLayout node.
-
-        """
-        for item in node.items:
-            self._cant_maximize[item] = 'DockBarLayout'
-            self.visit(item)
-
-    def visit_AreaLayout(self, node):
-        """ The visitor method for an AreaLayout node.
-
-        """
-        if not node.floating:
-            if -1 not in node.geometry:
-                self.warn("non-floating AreaLayout with specific geometry")
-            if node.linked:
-                self.warn("non-floating AreaLayout marked as linked")
-            if node.maximized:
-                self.warn("non-floating AreaLayout marked as maximized")
-        if node.item is not None:
-            self.visit(node.item)
-        seen_positions = set()
-        for bar in node.dock_bars:
-            if bar.position in seen_positions:
-                msg = "multiple DockBarLayout items in '%s' position"
-                self.warn(msg % bar.position)
-            seen_positions.add(bar.position)
-            self.visit(bar)
-
-    def visit_DockLayout(self, node):
-        """ The visitor method for a DockLayout node.
-
-        """
-        has_non_floating_area = False
-        for item in node.items:
-            if isinstance(item, ItemLayout):
-                if not item.floating:
-                    self.warn("non-floating toplevel ItemLayout")
-            else:  # must be an AreaLayout
-                if not item.floating:
-                    if has_non_floating_area:
-                        self.warn("multiple non-floating AreaLayout items")
-                    has_non_floating_area = True
-            self.visit(item)
-
-
-#------------------------------------------------------------------------------
-# Dock Layout Operations
-#------------------------------------------------------------------------------
-class DockLayoutOp(Atom):
-    """ A sentinel base class for defining dock layout operations.
-
-    """
-    pass
-
-
-class InsertItem(DockLayoutOp):
-    """ A layout operation which inserts an item into a layout.
-
-    This operation will remove an item from the current layout and
-    insert it next to a target item. If the item does not exist, the
-    operation is a no-op.
-
-    If the target -
-
-    - is a normally docked item
-        The item will be inserted as a new split item.
-
-    - is docked in a tab group
-        The item will be inserted as a neighbor of the tab group.
-
-    - is docked in a dock bar
-        The item will be appended to the dock bar.
-
-    - is a floating dock item
-        A new dock area will be created and the item will be inserted
-        as a new split item.
-
-    - does not exist
-        The item is inserted into the border of the primary dock area.
-
-    """
-    #: The name of the dock item to insert into the layout.
-    item = Unicode()
-
-    #: The name of the dock item to use as the target location.
-    target = Unicode()
-
-    #: The position relative to the target at which to insert the item.
-    position = Enum('left', 'top', 'right', 'bottom')
-
-
-class InsertBorderItem(DockLayoutOp):
-    """ A layout operation which inserts an item into an area border.
-
-    This operation will remove an item from the current layout and
-    insert it into the border of a dock area. If the item does not
-    exist, the operation is a no-op.
-
-    If the target -
-
-    - is a normally docked item
-        The item is inserted into the border of the dock area containing
-        the target.
-
-    - is docked in a tab group
-        The item is inserted into the border of the dock area containing
-        the tab group.
-
-    - is docked in a dock bar
-        The item is inserted into the border of the dock area containing
-        the dock bar.
-
-    - is a floating dock item
-        A new dock area will be created and the item will be inserted
-        into the border of the new dock area.
-
-    - does not exist
-        The item is inserted into the border of the primary dock area.
-
-    """
-    #: The name of the dock item to insert into the layout.
-    item = Unicode()
-
-    #: The name of the dock item to use as the target location.
-    target = Unicode()
-
-    #: The border position at which to insert the item.
-    position = Enum('left', 'top', 'right', 'bottom')
-
-
-class InsertDockBarItem(DockLayoutOp):
-    """ A layout operation which inserts an item into a dock bar.
-
-    This operation will remove an item from the current layout and
-    insert it into a dock bar in a dock area. If the item does not
-    exist, the operation is a no-op.
-
-    If the target -
-
-    - is a normally docked item
-        The item is inserted into the dock bar of the dock area
-        containing the target.
-
-    - is docked in a tab group
-        The item is inserted into the dock bar of the dock area
-        containing the tab group.
-
-    - is docked in a dock bar
-        The item is inserted into the dock bar of the dock area
-        containing the dock bar.
-
-    - is a floating dock item
-        A new dock area will be created and the item will be inserted
-        into the dock bar of the new dock area.
-
-    - does not exist
-        The item is inserted into the dock bar of the primary dock
-        area.
-
-    """
-    #: The name of the dock item to insert into the layout.
-    item = Unicode()
-
-    #: The name of the dock item to use as the target location.
-    target = Unicode()
-
-    #: The dock bar position at which to insert the item.
-    position = Enum('right', 'left', 'bottom', 'top')
-
-    #: The index at which to insert the dock bar item.
-    index = Int(-1)
-
-
-class InsertTab(DockLayoutOp):
-    """ A layout operation which inserts a tab into a tab group.
-
-    This operation will remove an item from the current layout and
-    insert it into a tab group in a dock area. If the item does not
-    exist, the operation is a no-op.
-
-    If the target -
-
-    - is a normally docked item
-        The target and item will be merged into a new tab group
-        using the default tab position.
-
-    - is docked in a tab group
-        The item will be inserted into the tab group.
-
-    - is docked in a dock bar
-        The item will be appended to the dock bar.
-
-    - is a floating dock item
-        A new dock area will be created and the target and item will
-        be merged into a new tab group.
-
-    - does not exist
-        The item is inserted into the left border of the primary dock
-        area.
-
-    """
-    #: The name of the dock item to insert into the tab group.
-    item = Unicode()
-
-    #: The name of an existing dock item in the tab group of interest.
-    target = Unicode()
-
-    #: The index at which to insert the dock item.
-    index = Int(-1)
-
-    #: The position of the tabs for a newly created tab group.
-    tab_position = Enum('default', 'top', 'bottom', 'left', 'right')
-
-
-class FloatItem(DockLayoutOp):
-    """ A layout operation which creates a floating dock item.
-
-    This operation will remove an item from the current layout and
-    insert convert it into a floating item. If the item does not
-    exist, the operation is a no-op.
-
-    """
-    #: The item layout to use when configuring the floating item.
-    item = Coerced(ItemLayout)
-
-
-class FloatArea(DockLayoutOp):
-    """ A layout operation which creates a new floating dock area.
-
-    This layout operation will create a new floating dock area using
-    the given area layout specification.
-
-    """
-    #: The area layout to use when building the new dock area.
-    area = Coerced(AreaLayout)
-
-
-class RemoveItem(DockLayoutOp):
-    """ A layout operation which will remove an item from the layout.
-
-    This layout operation will remove the dock item from the layout
-    and hide it. It can be added back to layout later with one of the
-    other layout operations.
-
-    """
-    #: The name of the dock item to remove from the layout.
-    item = Unicode()
-
-
-class ExtendItem(DockLayoutOp):
-    """ A layout operation which extends an item in a dock bar.
-
-    This layout operation will cause the named item to be extended to
-    from its dock bar. If the item does not exist in a dock bar, this
-    operation is a no-op.
-
-    """
-    #: The name of the dock item to extend from its dock bar.
-    item = Unicode()
-
-
-class RetractItem(DockLayoutOp):
-    """ A layout operation which retracts an item into a dock bar.
-
-    This layout operation will cause the named item to be retracted
-    into its dock bar. If the item does not exist in a dock bar, this
-    operation is a no-op.
-
-    """
-    #: The name of the dock item to retract into its dock bar.
-    item = Unicode()
-
-
-#------------------------------------------------------------------------------
-# Deprecated Layout Classes
-#------------------------------------------------------------------------------
-import os
-if os.environ.get('ENAML_DEPRECATED_DOCK_LAYOUT'):
-
-    class dockitem(Atom):
-        """ This class is deprecated. Use ItemLayout instead.
-
-        """
-        name = Unicode()
-        geometry = Coerced(Rect, (-1, -1, -1, -1), coercer=_coerce_rect)
-        maximized = Bool(False)
-        linked = Bool(False)
-        def __init__(self, name, **kwargs):
-            super(dockitem, self).__init__(name=name, **kwargs)
-        def traverse(self):
-            yield self
-
-
-    def _coerce_item(thing):
-        """ This function is deprecated.
-
-        """
-        if isinstance(thing, basestring):
-            return dockitem(thing)
-        msg = "cannot coerce '%s' to a 'dockitem'"
-        raise TypeError(msg % type(thing).__name__)
-
-
-    class docktabs(Atom):
-        """ This class is deprecated. Use TabLayout instead.
-
-        """
-        tab_position = Enum('top', 'bottom', 'left', 'right')
-        index = Int(0)
-        children = List(Coerced(dockitem, coercer=_coerce_item))
-        def __init__(self, *children, **kwargs):
-            super(docktabs, self).__init__(children=list(children), **kwargs)
-        def traverse(self):
-            yield self
-            for child in self.children:
-                for item in child.traverse():
-                    yield item
-
-
-    class _splitnode(object):
-        """ This class is deprecated.
-
-        """
-        class __metaclass__(type):
-            def __instancecheck__(cls, instance):
-                return isinstance(instance, (dockitem, docktabs, docksplit))
-            def __call__(cls, item):
-                if isinstance(item, basestring):
-                    return dockitem(item)
-                msg = "cannot coerce '%s' to a 'docksplit' child"
-                raise TypeError(msg % type(item).__name__)
-
-
-    class docksplit(Atom):
-        """ This class is deprecated. Use SplitLayout instead.
-
-        """
-        orientation = Enum('horizontal', 'vertical')
-        sizes = List(int)
-        children = List(Coerced(_splitnode))
-        def __init__(self, *children, **kwargs):
-            super(docksplit, self).__init__(children=list(children), **kwargs)
-        def traverse(self):
-            yield self
-            for child in self.children:
-                for item in child.traverse():
-                    yield item
-
-
-    def hdocksplit(*args, **kwargs):
-        """ This function is deprecated.
-
-        """
-        kwargs.setdefault('orientation', 'horizontal')
-        return docksplit(*args, **kwargs)
-
-
-    def vdocksplit(*args, **kwargs):
-        """ This function is deprecated.
-
-        """
-        kwargs.setdefault('orientation', 'vertical')
-        return docksplit(*args, **kwargs)
-
-
-    class _areanode(object):
-        """ This class is deprecated.
-
-        """
-        class __metaclass__(type):
-            def __instancecheck__(cls, instance):
-                return isinstance(instance, (dockitem, docktabs, docksplit))
-            def __call__(cls, item):
-                if isinstance(item, basestring):
-                    return dockitem(item)
-                msg = "cannot coerce '%s' to a 'dockarea' child"
-                raise TypeError(msg % type(item).__name__)
-
-
-    class dockarea(Atom):
-        """ This class is deprecated. Use LayoutArea instead.
-
-        """
-        geometry = Coerced(Rect, (-1, -1, -1, -1), coercer=_coerce_rect)
-        maximized = Bool(False)
-        maximized_item = Unicode()
-        linked = Bool(False)
-        child = Coerced(_areanode)
-        def __init__(self, child, **kwargs):
-            super(dockarea, self).__init__(child=child, **kwargs)
-        def traverse(self):
-            yield self
-            for item in self.child.traverse():
-                yield item
-
-
-    class _primarynode(object):
-        """ This class is deprecated.
-
-        """
-        class __metaclass__(type):
-            def __instancecheck__(cls, instance):
-                return isinstance(instance, (type(None), dockarea, dockitem))
-            def __call__(cls, item):
-                if isinstance(item, basestring):
-                    return dockitem(item)
-                if isinstance(item, (docksplit, docktabs)):
-                    return dockarea(item)
-                msg = "cannot coerce '%s' to a primary 'docklayout' child"
-                raise TypeError(msg % type(item).__name__)
-
-
-    class _secondarynode(object):
-        """ This class is deprecated.
-
-        """
-        class __metaclass__(type):
-            def __instancecheck__(cls, instance):
-                return isinstance(instance, (dockarea, dockitem))
-            def __call__(cls, item):
-                if isinstance(item, basestring):
-                    return dockitem(item)
-                if isinstance(item, (docksplit, docktabs)):
-                    return dockarea(item)
-                msg = "cannot coerce '%s' to a secondary 'docklayout' child"
-                raise TypeError(msg % type(item).__name__)
-
-
-    class docklayout(Atom):
-        """ This class is deprecated. Use DockLayout instead.
-
-        """
-        primary = Coerced(_primarynode)
-        secondary = List(Coerced(_secondarynode))
-        def __init__(self, primary, *secondary, **kwargs):
-            sup = super(docklayout, self)
-            sup.__init__(primary=primary, secondary=list(secondary), **kwargs)
-        def traverse(self):
-            yield self
-            if self.primary is not None:
-                for item in self.primary.traverse():
-                    yield item
-            for secondary in self.secondary:
-                for item in secondary.traverse():
-                    yield item
-
-
-    def convert_to_new_docklayout(layout):
-        """ A function which converts a 'docklayout' to a 'DockLayout'.
-
-        """
-        assert isinstance(layout, docklayout)
-
-        def h_generic(item):
-            if isinstance(item, dockitem):
-                return h_dockitem(item)
-            if isinstance(item, docktabs):
-                return h_docktabs(item)
-            if isinstance(item, docksplit):
-                return h_docksplit(item)
-            if isinstance(item, dockarea):
-                return h_dockarea(item)
-            return h_docklayout(item)
-
-        def h_dockitem(item):
-            n_item = ItemLayout(item.name)
-            n_item.geometry = item.geometry
-            n_item.maximized = item.maximized
-            n_item.linked = item.linked
-            return n_item
-
-        def h_docktabs(tabs):
-            n_tabs = TabLayout()
-            n_tabs.items = [h_dockitem(i) for i in tabs.children]
-            n_tabs.tab_position = tabs.tab_position
-            n_tabs.index = tabs.index
-            return n_tabs
-
-        def h_docksplit(split):
-            n_split = SplitLayout()
-            n_split.items = [h_generic(i) for i in split.children]
-            n_split.orientation = split.orientation
-            n_split.sizes = split.sizes
-            return n_split
-
-        def h_dockarea(area):
-            h_area = AreaLayout()
-            h_area.item = h_generic(area.child)
-            h_area.geometry = area.geometry
-            h_area.linked = area.linked
-            h_area.maximized = area.maximized
-            if area.maximized_item:
-                for item in h_area.find_all(ItemLayout):
-                    if item.name == area.maximized_item:
-                        item.maximized = True
-                        break
-            return h_area
-
-        def h_docklayout(layout):
-            h_layout = DockLayout()
-            if layout.primary is not None:
-                h_layout.items.append(h_generic(layout.primary))
-            for other in layout.secondary:
-                h_item = h_generic(other)
-                h_item.floating = True
-                h_layout.items.append(h_item)
-            return h_layout
-
-        return h_generic(layout)
-
-    def convert_to_old_docklayout(layout):
-        """ A function which converts a 'DockLayout' to a 'docklayout'.
-
-        """
-        assert isinstance(layout, DockLayout)
-
-        def h_generic(item):
-            if isinstance(item, ItemLayout):
-                return h_ItemLayout(item)
-            if isinstance(item, TabLayout):
-                return h_TabLayout(item)
-            if isinstance(item, SplitLayout):
-                return h_SplitLayout(item)
-            if isinstance(item, AreaLayout):
-                return h_AreaLayout(item)
-            return h_DockLayout(item)
-
-        def h_ItemLayout(item):
-            n_item = dockitem(item.name)
-            n_item.geometry = item.geometry
-            n_item.maximized = item.maximized
-            n_item.linked = item.linked
-            return n_item
-
-        def h_TabLayout(tabs):
-            n_tabs = docktabs()
-            n_tabs.children = [h_ItemLayout(i) for i in tabs.items]
-            n_tabs.tab_position = tabs.tab_position
-            n_tabs.index = tabs.index
-            return n_tabs
-
-        def h_SplitLayout(split):
-            n_split = docksplit()
-            n_split.children = [h_generic(i) for i in split.items]
-            n_split.orientation = split.orientation
-            n_split.sizes = split.sizes
-            return n_split
-
-        def h_AreaLayout(area):
-            if area.item is None:
-                n_area = dockarea(None)
-            else:
-                n_area = dockarea(h_generic(area.item))
-            n_area.geometry = area.geometry
-            n_area.linked = area.linked
-            n_area.maximized = area.maximized
-            for item in area.find_all(ItemLayout):
-                if item.maximized:
-                    n_area.maximized_item = item.name
-                    break
-            return n_area
-
-        def h_DockLayout(layout):
-            primary = None
-            secondary = []
-            for item in layout.items:
-                n_item = h_generic(item)
-                if item.floating or primary is not None:
-                    secondary.append(n_item)
-                else:
-                    primary = n_item
-            return docklayout(primary, *secondary)
-
-        return h_generic(layout)
+    def test_time_t(self):
+        from _testcapi import pytime_object_to_time_t
+        for obj, time_t in (
+            (0, 0),
+            (-1, -1),
+            (-1.0, -1),
+            (-1.9, -1),
+            (1.0, 1),
+            (1.9, 1),
+        ):
+            self.assertEqual(pytime_object_to_time_t(obj), time_t)
+
+        for invalid in self.invalid_values:
+            self.assertRaises(OverflowError, pytime_object_to_time_t, invalid)
+
+    def test_timeval(self):
+        from _testcapi import pytime_object_to_timeval
+        for obj, timeval in (
+            (0, (0, 0)),
+            (-1, (-1, 0)),
+            (-1.0, (-1, 0)),
+            (1e-6, (0, 1)),
+            (-1e-6, (-1, 999999)),
+            (-1.2, (-2, 800000)),
+            (1.1234560, (1, 123456)),
+            (1.1234569, (1, 123456)),
+            (-1.1234560, (-2, 876544)),
+            (-1.1234561, (-2, 876543)),
+        ):
+            self.assertEqual(pytime_object_to_timeval(obj), timeval)
+
+        for invalid in self.invalid_values:
+            self.assertRaises(OverflowError, pytime_object_to_timeval, invalid)
+
+    def test_timespec(self):
+        from _testcapi import pytime_object_to_timespec
+        for obj, timespec in (
+            (0, (0, 0)),
+            (-1, (-1, 0)),
+            (-1.0, (-1, 0)),
+            (1e-9, (0, 1)),
+            (-1e-9, (-1, 999999999)),
+            (-1.2, (-2, 800000000)),
+            (1.1234567890, (1, 123456789)),
+            (1.1234567899, (1, 123456789)),
+            (-1.1234567890, (-2, 876543211)),
+            (-1.1234567891, (-2, 876543210)),
+        ):
+            self.assertEqual(pytime_object_to_timespec(obj), timespec)
+
+        for invalid in self.invalid_values:
+            self.assertRaises(OverflowError, pytime_object_to_timespec, invalid)
+
+    @unittest.skipUnless(time._STRUCT_TM_ITEMS == 11, "needs tm_zone support")
+    def test_localtime_timezone(self):
+
+        # Get the localtime and examine it for the offset and zone.
+        lt = time.localtime()
+        self.assertTrue(hasattr(lt, "tm_gmtoff"))
+        self.assertTrue(hasattr(lt, "tm_zone"))
+
+        # See if the offset and zone are similar to the module
+        # attributes.
+        if lt.tm_gmtoff is None:
+            self.assertTrue(not hasattr(time, "timezone"))
+        else:
+            self.assertEqual(lt.tm_gmtoff, -[time.timezone, time.altzone][lt.tm_isdst])
+        if lt.tm_zone is None:
+            self.assertTrue(not hasattr(time, "tzname"))
+        else:
+            self.assertEqual(lt.tm_zone, time.tzname[lt.tm_isdst])
+
+        # Try and make UNIX times from the localtime and a 9-tuple
+        # created from the localtime. Test to see that the times are
+        # the same.
+        t = time.mktime(lt); t9 = time.mktime(lt[:9])
+        self.assertEqual(t, t9)
+
+        # Make localtimes from the UNIX times and compare them to
+        # the original localtime, thus making a round trip.
+        new_lt = time.localtime(t); new_lt9 = time.localtime(t9)
+        self.assertEqual(new_lt, lt)
+        self.assertEqual(new_lt.tm_gmtoff, lt.tm_gmtoff)
+        self.assertEqual(new_lt.tm_zone, lt.tm_zone)
+        self.assertEqual(new_lt9, lt)
+        self.assertEqual(new_lt.tm_gmtoff, lt.tm_gmtoff)
+        self.assertEqual(new_lt9.tm_zone, lt.tm_zone)
+
+    @unittest.skipUnless(time._STRUCT_TM_ITEMS == 11, "needs tm_zone support")
+    def test_strptime_timezone(self):
+        t = time.strptime("UTC", "%Z")
+        self.assertEqual(t.tm_zone, 'UTC')
+        t = time.strptime("+0500", "%z")
+        self.assertEqual(t.tm_gmtoff, 5 * 3600)
+
+    @unittest.skipUnless(time._STRUCT_TM_ITEMS == 11, "needs tm_zone support")
+    def test_short_times(self):
+
+        import pickle
+
+        # Load a short time structure using pickle.
+        st = b"ctime\nstruct_time\np0\n((I2007\nI8\nI11\nI1\nI24\nI49\nI5\nI223\nI1\ntp1\n(dp2\ntp3\nRp4\n."
+        lt = pickle.loads(st)
+        self.assertIs(lt.tm_gmtoff, None)
+        self.assertIs(lt.tm_zone, None)
+
+
+if __name__ == "__main__":
+    unittest.main()

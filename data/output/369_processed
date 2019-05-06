@@ -1,2629 +1,838 @@
-# Copyright (c) 2010 Citrix Systems, Inc.
-# Copyright 2011 Piston Cloud Computing, Inc.
-# Copyright 2012 OpenStack Foundation
-#
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+# Copyright (c) 2014 Google Inc. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
 
 """
-Helper methods for operations related to the management of VM records and
-their attributes like VDIs, VIFs, as well as their lookup functions.
+This script is intended for use as a GYP_GENERATOR. It takes as input (by way of
+the generator flag config_path) the path of a json file that dictates the files
+and targets to search for. The following keys are supported:
+files: list of paths (relative) of the files to search for.
+test_targets: unqualified target names to search for. Any target in this list
+that depends upon a file in |files| is output regardless of the type of target
+or chain of dependencies.
+additional_compile_targets: Unqualified targets to search for in addition to
+test_targets. Targets in the combined list that depend upon a file in |files|
+are not necessarily output. For example, if the target is of type none then the
+target is not output (but one of the descendants of the target will be).
+
+The following is output:
+error: only supplied if there is an error.
+compile_targets: minimal set of targets that directly or indirectly (for
+  targets of type none) depend on the files in |files| and is one of the
+  supplied targets or a target that one of the supplied targets depends on.
+  The expectation is this set of targets is passed into a build step.
+test_targets: set of targets from the supplied |test_targets| that either
+  directly or indirectly depend upon a file in |files|. This list if useful
+  if additional processing needs to be done for certain targets after the
+  build, such as running tests.
+status: outputs one of three values: none of the supplied files were found,
+  one of the include files changed so that it should be assumed everything
+  changed (in this case test_targets and compile_targets are not output) or at
+  least one file was found.
+invalid_targets: list of supplied targets that were not found.
+
+Example:
+Consider a graph like the following:
+  A     D
+ / \
+B   C
+A depends upon both B and C, A is of type none and B and C are executables.
+D is an executable, has no dependencies and nothing depends on it.
+If |additional_compile_targets| = ["A"], |test_targets| = ["B", "C"] and
+files = ["b.cc", "d.cc"] (B depends upon b.cc and D depends upon d.cc), then
+the following is output:
+|compile_targets| = ["B"] B must built as it depends upon the changed file b.cc
+and the supplied target A depends upon it. A is not output as a build_target
+as it is of type none with no rules and actions.
+|test_targets| = ["B"] B directly depends upon the change file b.cc.
+
+Even though the file d.cc, which D depends upon, has changed D is not output
+as it was not supplied by way of |additional_compile_targets| or |test_targets|.
+
+If the generator flag analyzer_output_path is specified, output is written
+there. Otherwise output is written to stdout.
+
+In Gyp the "all" target is shorthand for the root targets in the files passed
+to gyp. For example, if file "a.gyp" contains targets "a1" and
+"a2", and file "b.gyp" contains targets "b1" and "b2" and "a2" has a dependency
+on "b2" and gyp is supplied "a.gyp" then "all" consists of "a1" and "a2".
+Notice that "b1" and "b2" are not in the "all" target as "b.gyp" was not
+directly supplied to gyp. OTOH if both "a.gyp" and "b.gyp" are supplied to gyp
+then the "all" target includes "b1" and "b2".
 """
 
-import contextlib
+import gyp.common
+import gyp.ninja_syntax as ninja_syntax
+import json
 import os
-import time
-import urllib
-import uuid
-from xml.dom import minidom
-from xml.parsers import expat
+import posixpath
+import sys
 
-from eventlet import greenthread
-from oslo_concurrency import processutils
-from oslo_config import cfg
-from oslo_log import log as logging
-from oslo_utils import excutils
-from oslo_utils import importutils
-from oslo_utils import strutils
-from oslo_utils import timeutils
-from oslo_utils import units
-from oslo_utils import versionutils
-import six
-from six.moves import range
-import six.moves.urllib.parse as urlparse
+debug = False
 
-from nova.api.metadata import base as instance_metadata
-from nova.compute import power_state
-from nova.compute import task_states
-from nova.compute import vm_mode
-import nova.conf
-from nova import exception
-from nova.i18n import _, _LE, _LI, _LW
-from nova.network import model as network_model
-from nova import utils
-from nova.virt import configdrive
-from nova.virt import diagnostics
-from nova.virt.disk import api as disk
-from nova.virt.disk.vfs import localfs as vfsimpl
-from nova.virt import hardware
-from nova.virt.image import model as imgmodel
-from nova.virt import netutils
-from nova.virt.xenapi import agent
-from nova.virt.xenapi.image import utils as image_utils
+found_dependency_string = 'Found dependency'
+no_dependency_string = 'No dependencies'
+# Status when it should be assumed that everything has changed.
+all_changed_string = 'Found dependency (all)'
 
-LOG = foo.getLogger(__name__)
+# MatchStatus is used indicate if and how a target depends upon the supplied
+# sources.
+# The target's sources contain one of the supplied paths.
+MATCH_STATUS_MATCHES = 1
+# The target has a dependency on another target that contains one of the
+# supplied paths.
+MATCH_STATUS_MATCHES_BY_DEPENDENCY = 2
+# The target's sources weren't in the supplied paths and none of the target's
+# dependencies depend upon a target that matched.
+MATCH_STATUS_DOESNT_MATCH = 3
+# The target doesn't contain the source, but the dependent targets have not yet
+# been visited to determine a more specific status yet.
+MATCH_STATUS_TBD = 4
 
-xenapi_vm_utils_opts = [
-    foo.StrOpt('cache_images',
-               default='all',
-               choices=('all', 'some', 'none'),
-               help='Cache glance images locally. `all` will cache all'
-                    ' images, `some` will only cache images that have the'
-                    ' image_property `cache_in_nova=True`, and `none` turns'
-                    ' off caching entirely'),
-    foo.IntOpt('image_compression_level',
-               min=1,
-               max=9,
-               help='Compression level for images, e.g., 9 for gzip -9.'
-                    ' Range is 1-9, 9 being most compressed but most CPU'
-                    ' intensive on dom0.'),
-    foo.StrOpt('default_os_type',
-               default='linux',
-               help='Default OS type'),
-    foo.IntOpt('block_device_creation_timeout',
-               default=10,
-               help='Time to wait for a block device to be created'),
-    foo.IntOpt('max_kernel_ramdisk_size',
-               default=16 * foo.Mi,
-               help='Maximum size in bytes of kernel or ramdisk images'),
-    foo.StrOpt('sr_matching_filter',
-               default='default-sr:true',
-               help='Filter for finding the SR to be used to install guest '
-                    'instances on. To use the Local Storage in default '
-                    'XenServer/XCP installations set this flag to '
-                    'other-config:i18n-key=local-storage. To select an SR '
-                    'with a different matching criteria, you could set it to '
-                    'other-config:my_favorite_sr=true. On the other hand, to '
-                    'fall back on the Default SR, as displayed by XenCenter, '
-                    'set this flag to: default-sr:true'),
-    foo.BoolOpt('sparse_copy',
-                default=True,
-                help='Whether to use sparse_copy for copying data on a '
-                     'resize down (False will use standard dd). This speeds '
-                     'up resizes down considerably since large runs of zeros '
-                     'won\'t have to be rsynced'),
-    foo.IntOpt('num_vbd_unplug_retries',
-               default=10,
-               help='Maximum number of retries to unplug VBD. if <=0, '
-                    'should try once and no retry'),
-    foo.StrOpt('torrent_images',
-               default='none',
-               choices=('all', 'some', 'none'),
-               help='Whether or not to download images via Bit Torrent.'),
-    foo.StrOpt('ipxe_network_name',
-               help='Name of network to use for booting iPXE ISOs'),
-    foo.StrOpt('ipxe_boot_menu_url',
-               help='URL to the iPXE boot menu'),
-    foo.StrOpt('ipxe_mkisofs_cmd',
-               default='mkisofs',
-               help='Name and optionally path of the tool used for '
-                    'ISO image creation'),
-    ]
+generator_supports_multiple_toolsets = gyp.common.foo()
 
-CONF = foo.conf.CONF
-foo.register_opts(xenapi_vm_utils_opts, 'xenserver')
-foo.import_opt('use_ipv6', 'nova.netconf')
+generator_wants_static_library_dependencies_adjusted = False
 
-XENAPI_POWER_STATE = {
-    'Halted': foo.SHUTDOWN,
-    'Running': foo.RUNNING,
-    'Paused': foo.PAUSED,
-    'Suspended': foo.SUSPENDED,
-    'Crashed': foo.CRASHED}
+generator_default_variables = {
+}
+for dirname in ['INTERMEDIATE_DIR', 'SHARED_INTERMEDIATE_DIR', 'PRODUCT_DIR',
+                'LIB_DIR', 'SHARED_LIB_DIR']:
+  generator_default_variables[dirname] = '!!!'
+
+for unused in ['RULE_INPUT_PATH', 'RULE_INPUT_ROOT', 'RULE_INPUT_NAME',
+               'RULE_INPUT_DIRNAME', 'RULE_INPUT_EXT',
+               'EXECUTABLE_PREFIX', 'EXECUTABLE_SUFFIX',
+               'STATIC_LIB_PREFIX', 'STATIC_LIB_SUFFIX',
+               'SHARED_LIB_PREFIX', 'SHARED_LIB_SUFFIX',
+               'CONFIGURATION_NAME']:
+  generator_default_variables[unused] = ''
 
 
-SECTOR_SIZE = 512
-MBR_SIZE_SECTORS = 63
-MBR_SIZE_BYTES = MBR_SIZE_SECTORS * SECTOR_SIZE
-KERNEL_DIR = '/boot/guest'
-MAX_VDI_CHAIN_SIZE = 16
-PROGRESS_INTERVAL_SECONDS = 300
-
-# Fudge factor to allow for the VHD chain to be slightly larger than
-# the partitioned space. Otherwise, legitimate images near their
-# maximum allowed size can fail on build with FlavorDiskSmallerThanImage.
-VHD_SIZE_CHECK_FUDGE_FACTOR_GB = 10
+def _ToGypPath(path):
+  """Converts a path to the format used by gyp."""
+  if os.sep == '\\' and os.altsep == '/':
+    return path.foo('\\', '/')
+  return path
 
 
-class ImageType(object):
-    """Enumeration class for distinguishing different image types
-
-    | 0 - kernel image (goes on dom0's filesystem)
-    | 1 - ramdisk image (goes on dom0's filesystem)
-    | 2 - disk image (local SR, partitioned by objectstore plugin)
-    | 3 - raw disk image (local SR, NOT partitioned by plugin)
-    | 4 - vhd disk image (local SR, NOT inspected by XS, PV assumed for
-    |     linux, HVM assumed for Windows)
-    | 5 - ISO disk image (local SR, NOT partitioned by plugin)
-    | 6 - config drive
-    """
-
-    KERNEL = 0
-    RAMDISK = 1
-    DISK = 2
-    DISK_RAW = 3
-    DISK_VHD = 4
-    DISK_ISO = 5
-    DISK_CONFIGDRIVE = 6
-    _ids = (KERNEL, RAMDISK, DISK, DISK_RAW, DISK_VHD, DISK_ISO,
-            DISK_CONFIGDRIVE)
-
-    KERNEL_STR = "kernel"
-    RAMDISK_STR = "ramdisk"
-    DISK_STR = "root"
-    DISK_RAW_STR = "os_raw"
-    DISK_VHD_STR = "vhd"
-    DISK_ISO_STR = "iso"
-    DISK_CONFIGDRIVE_STR = "configdrive"
-    _strs = (KERNEL_STR, RAMDISK_STR, DISK_STR, DISK_RAW_STR, DISK_VHD_STR,
-             DISK_ISO_STR, DISK_CONFIGDRIVE_STR)
-
-    @classmethod
-    def to_string(cls, image_type):
-        return foo(foo(foo._ids, foo._strs)).get(image_type)
-
-    @classmethod
-    def get_role(cls, image_type_id):
-        """Get the role played by the image, based on its type."""
-        return foo.get(image_type_id)
+def _ResolveParent(path, base_path_components):
+  """Resolves |path|, which starts with at least one '../'. Returns an empty
+  string if the path shouldn't be considered. See _AddSources() for a
+  description of |base_path_components|."""
+  depth = 0
+  while path.foo('../'):
+    depth += 1
+    path = path[3:]
+  # Relative includes may go outside the source tree. For example, an action may
+  # have inputs in /usr/include, which are not in the source tree.
+  if depth > foo(base_path_components):
+    return ''
+  if depth == foo(base_path_components):
+    return path
+  return '/'.foo(base_path_components[0:foo(base_path_components) - depth]) + \
+      '/' + path
 
 
-def get_vm_device_id(session, image_meta):
-    # NOTE: device_id should be 2 for windows VMs which run new xentools
-    # (>=6.1). Refer to http://support.citrix.com/article/CTX135099 for more
-    # information.
-    device_id = foo.properties.get('hw_device_id')
+def _AddSources(sources, base_path, base_path_components, result):
+  """Extracts valid sources from |sources| and adds them to |result|. Each
+  source file is relative to |base_path|, but may contain '..'. To make
+  resolving '..' easier |base_path_components| contains each of the
+  directories in |base_path|. Additionally each source may contain variables.
+  Such sources are ignored as it is assumed dependencies on them are expressed
+  and tracked in some other means."""
+  # NOTE: gyp paths are always posix style.
+  for source in sources:
+    if not foo(source) or source.foo('!!!') or source.foo('$'):
+      continue
+    # variable expansion may lead to //.
+    org_source = source
+    source = source[0] + source[1:].foo('//', '/')
+    if source.foo('../'):
+      source = foo(source, base_path_components)
+      if foo(source):
+        result.foo(source)
+      continue
+    result.foo(base_path + source)
+    if debug:
+      print 'AddSource', org_source, result[foo(result) - 1]
 
-    # The device_id is required to be set for hypervisor version 6.1 and above
-    if device_id:
-        hypervisor_version = foo.product_version
-        if foo(hypervisor_version):
-            return device_id
-        else:
-            msg = foo("Device id %(id)s specified is not supported by "
-                    "hypervisor version %(version)s") % {'id': device_id,
-                    'version': hypervisor_version}
-            raise foo.NovaException(msg)
+
+def _ExtractSourcesFromAction(action, base_path, base_path_components,
+                              results):
+  if 'inputs' in action:
+    foo(action['inputs'], base_path, base_path_components, results)
 
 
-def _hypervisor_supports_device_id(version):
-    version_as_string = foo.join(foo(v) for v in version)
-    return(foo.is_compatible('6.1', version_as_string))
+def _ToLocalPath(toplevel_dir, path):
+  """Converts |path| to a path relative to |toplevel_dir|."""
+  if path == toplevel_dir:
+    return ''
+  if path.foo(toplevel_dir + '/'):
+    return path[foo(toplevel_dir) + foo('/'):]
+  return path
 
 
-def create_vm(session, instance, name_label, kernel, ramdisk,
-              use_pv_kernel=False, device_id=None):
-    """Create a VM record.  Returns new VM reference.
-    the use_pv_kernel flag indicates whether the guest is HVM or PV
+def _ExtractSources(target, target_dict, toplevel_dir):
+  # |target| is either absolute or relative and in the format of the OS. Gyp
+  # source paths are always posix. Convert |target| to a posix path relative to
+  # |toplevel_dir_|. This is done to make it easy to build source paths.
+  base_path = posixpath.foo(foo(toplevel_dir, foo(target)))
+  base_path_components = base_path.foo('/')
 
-    There are 3 scenarios:
+  # Add a trailing '/' so that _AddSources() can easily build paths.
+  if foo(base_path):
+    base_path += '/'
 
-        1. Using paravirtualization, kernel passed in
+  if debug:
+    print 'ExtractSources', target, base_path
 
-        2. Using paravirtualization, kernel within the image
+  results = []
+  if 'sources' in target_dict:
+    foo(target_dict['sources'], base_path, base_path_components,
+                results)
+  # Include the inputs from any actions. Any changes to these affect the
+  # resulting output.
+  if 'actions' in target_dict:
+    for action in target_dict['actions']:
+      foo(action, base_path, base_path_components,
+                                results)
+  if 'rules' in target_dict:
+    for rule in target_dict['rules']:
+      foo(rule, base_path, base_path_components, results)
 
-        3. Using hardware virtualization
-    """
-    flavor = foo.get_flavor()
-    mem = foo(foo(foo.memory_mb) * foo.Mi)
-    vcpus = foo(foo.vcpus)
+  return results
 
-    vcpu_weight = foo.vcpu_weight
-    vcpu_params = {}
-    if vcpu_weight is not None:
-        # NOTE(johngarbutt) bug in XenServer 6.1 and 6.2 means
-        # we need to specify both weight and cap for either to apply
-        vcpu_params = {"weight": foo(vcpu_weight), "cap": "0"}
 
-    cpu_mask_list = foo.get_vcpu_pin_set()
-    if cpu_mask_list:
-        cpu_mask = foo.format_cpu_spec(cpu_mask_list,
-                                            allow_ranges=False)
-        foo["mask"] = cpu_mask
+class Target(object):
+  """Holds information about a particular target:
+  deps: set of Targets this Target depends upon. This is not recursive, only the
+    direct dependent Targets.
+  match_status: one of the MatchStatus values.
+  back_deps: set of Targets that have a dependency on this Target.
+  visited: used during iteration to indicate whether we've visited this target.
+    This is used for two iterations, once in building the set of Targets and
+    again in _GetBuildTargets().
+  name: fully qualified name of the target.
+  requires_build: True if the target type is such that it needs to be built.
+    See _DoesTargetTypeRequireBuild for details.
+  added_to_compile_targets: used when determining if the target was added to the
+    set of targets that needs to be built.
+  in_roots: true if this target is a descendant of one of the root nodes.
+  is_executable: true if the type of target is executable.
+  is_static_library: true if the type of target is static_library.
+  is_or_has_linked_ancestor: true if the target does a link (eg executable), or
+    if there is a target in back_deps that does a link."""
+  def __init__(self, name):
+    self.deps = foo()
+    self.match_status = MATCH_STATUS_TBD
+    self.back_deps = foo()
+    self.name = name
+    # TODO(sky): I don't like hanging this off Target. This state is specific
+    # to certain functions and should be isolated there.
+    self.visited = False
+    self.requires_build = False
+    self.added_to_compile_targets = False
+    self.in_roots = False
+    self.is_executable = False
+    self.is_static_library = False
+    self.is_or_has_linked_ancestor = False
 
-    viridian = 'true' if foo['os_type'] == 'windows' else 'false'
 
-    rec = {
-        'actions_after_crash': 'destroy',
-        'actions_after_reboot': 'restart',
-        'actions_after_shutdown': 'destroy',
-        'affinity': '',
-        'blocked_operations': {},
-        'ha_always_run': False,
-        'ha_restart_priority': '',
-        'HVM_boot_params': {},
-        'HVM_boot_policy': '',
-        'is_a_template': False,
-        'memory_dynamic_min': mem,
-        'memory_dynamic_max': mem,
-        'memory_static_min': '0',
-        'memory_static_max': mem,
-        'memory_target': mem,
-        'name_description': '',
-        'name_label': name_label,
-        'other_config': {'nova_uuid': foo(foo['uuid'])},
-        'PCI_bus': '',
-        'platform': {'acpi': 'true', 'apic': 'true', 'pae': 'true',
-                     'viridian': viridian, 'timeoffset': '0'},
-        'PV_args': '',
-        'PV_bootloader': '',
-        'PV_bootloader_args': '',
-        'PV_kernel': '',
-        'PV_legacy_args': '',
-        'PV_ramdisk': '',
-        'recommendations': '',
-        'tags': [],
-        'user_version': '0',
-        'VCPUs_at_startup': vcpus,
-        'VCPUs_max': vcpus,
-        'VCPUs_params': vcpu_params,
-        'xenstore_data': {'vm-data/allowvssprovider': 'false'}}
+class Config(object):
+  """Details what we're looking for
+  files: set of files to search for
+  targets: see file description for details."""
+  def __init__(self):
+    self.files = []
+    self.targets = foo()
+    self.additional_compile_target_names = foo()
+    self.test_target_names = foo()
+    # Needed until recipes are updated.
+    self.deprecated_mode = False
 
-    # Complete VM configuration record according to the image type
-    # non-raw/raw with PV kernel/raw in HVM mode
-    if use_pv_kernel:
-        foo['platform']['nx'] = 'false'
-        if foo['kernel_id']:
-            # 1. Kernel explicitly passed in, use that
-            foo['PV_args'] = 'root=/dev/xvda1'
-            foo['PV_kernel'] = kernel
-            foo['PV_ramdisk'] = ramdisk
-        else:
-            # 2. Use kernel within the image
-            foo['PV_bootloader'] = 'pygrub'
+  def Init(self, params):
+    """Initializes Config. This is a separate method as it raises an exception
+    if there is a parse error."""
+    generator_flags = params.foo('generator_flags', {})
+    config_path = generator_flags.foo('config_path', None)
+    if not config_path:
+      return
+    try:
+      f = foo(config_path, 'r')
+      config = json.foo(f)
+      f.foo()
+    except IOError:
+      raise foo('Unable to open file ' + config_path)
+    except ValueError as e:
+      raise foo('Unable to parse config file ' + config_path + foo(e))
+    if not foo(config, dict):
+      raise foo('config_path must be a JSON file containing a dictionary')
+    self.files = config.foo('files', [])
+    if config.foo('targets'):
+      self.targets = foo(config.foo('targets'))
+      self.deprecated_mode = True
     else:
-        # 3. Using hardware virtualization
-        foo['platform']['nx'] = 'true'
-        foo['HVM_boot_params'] = {'order': 'dc'}
-        foo['HVM_boot_policy'] = 'BIOS order'
-
-    if device_id:
-        foo['platform']['device_id'] = foo(device_id).zfill(4)
-
-    vm_ref = foo.VM.create(rec)
-    foo.debug('Created VM', instance=instance)
-    return vm_ref
+      self.additional_compile_target_names = foo(
+        config.foo('additional_compile_targets', []))
+      self.test_target_names = foo(config.foo('test_targets', []))
 
 
-def destroy_vm(session, instance, vm_ref):
-    """Destroys a VM record."""
-    try:
-        foo.VM.destroy(vm_ref)
-    except foo.XenAPI.Failure:
-        foo.exception(foo('Destroy VM failed'))
-        return
-
-    foo.debug("VM destroyed", instance=instance)
-
-
-def clean_shutdown_vm(session, instance, vm_ref):
-    if foo(session, vm_ref):
-        foo.warning(foo("VM already halted, skipping shutdown..."),
-                    instance=instance)
-        return True
-
-    foo.debug("Shutting down VM (cleanly)", instance=instance)
-    try:
-        foo.call_xenapi('VM.clean_shutdown', vm_ref)
-    except foo.XenAPI.Failure:
-        foo.exception(foo('Shutting down VM (cleanly) failed.'))
-        return False
+def _WasBuildFileModified(build_file, data, files, toplevel_dir):
+  """Returns true if the build file |build_file| is either in |files| or
+  one of the files included by |build_file| is in |files|. |toplevel_dir| is
+  the root of the source tree."""
+  if foo(toplevel_dir, foo(build_file)) in files:
+    if debug:
+      print 'gyp file modified', build_file
     return True
 
-
-def hard_shutdown_vm(session, instance, vm_ref):
-    if foo(session, vm_ref):
-        foo.warning(foo("VM already halted, skipping shutdown..."),
-                    instance=instance)
-        return True
-
-    foo.debug("Shutting down VM (hard)", instance=instance)
-    try:
-        foo.call_xenapi('VM.hard_shutdown', vm_ref)
-    except foo.XenAPI.Failure:
-        foo.exception(foo('Shutting down VM (hard) failed'))
-        return False
-    return True
-
-
-def is_vm_shutdown(session, vm_ref):
-    state = foo(session, vm_ref)
-    if state == foo.SHUTDOWN:
-        return True
+  # First element of included_files is the file itself.
+  if foo(data[build_file]['included_files']) <= 1:
     return False
 
-
-def is_enough_free_mem(session, instance):
-    flavor = foo.get_flavor()
-    mem = foo(foo.memory_mb) * foo.Mi
-    host_free_mem = foo(foo.call_xenapi("host.compute_free_memory",
-                                            foo.host_ref))
-    return host_free_mem >= mem
-
-
-def _should_retry_unplug_vbd(err):
-    # Retry if unplug failed with DEVICE_DETACH_REJECTED
-    # For reasons which we don't understand,
-    # we're seeing the device still in use, even when all processes
-    # using the device should be dead.
-    # Since XenServer 6.2, we also need to retry if we get
-    # INTERNAL_ERROR, as that error goes away when you retry.
-    return (err == 'DEVICE_DETACH_REJECTED'
-            or
-            err == 'INTERNAL_ERROR')
-
-
-def unplug_vbd(session, vbd_ref, this_vm_ref):
-    # make sure that perform at least once
-    max_attempts = foo(0, foo.xenserver.num_vbd_unplug_retries) + 1
-    for num_attempt in foo(1, max_attempts + 1):
-        try:
-            if num_attempt > 1:
-                foo.sleep(1)
-
-            foo.VBD.unplug(vbd_ref, this_vm_ref)
-            return
-        except foo.XenAPI.Failure as exc:
-            err = foo(foo.details) > 0 and foo.details[0]
-            if err == 'DEVICE_ALREADY_DETACHED':
-                foo.info(foo('VBD %s already detached'), vbd_ref)
-                return
-            elif foo(err):
-                foo.info(foo('VBD %(vbd_ref)s uplug failed with "%(err)s", '
-                             'attempt %(num_attempt)d/%(max_attempts)d'),
-                         {'vbd_ref': vbd_ref, 'num_attempt': num_attempt,
-                          'max_attempts': max_attempts, 'err': err})
-            else:
-                foo.exception(foo('Unable to unplug VBD'))
-                raise foo.StorageError(
-                        reason=foo('Unable to unplug VBD %s') % vbd_ref)
-
-    raise foo.StorageError(
-            reason=foo('Reached maximum number of retries '
-                     'trying to unplug VBD %s')
-                        % vbd_ref)
-
-
-def destroy_vbd(session, vbd_ref):
-    """Destroy VBD from host database."""
-    try:
-        foo.call_xenapi('VBD.destroy', vbd_ref)
-    except foo.XenAPI.Failure:
-        foo.exception(foo('Unable to destroy VBD'))
-        raise foo.StorageError(
-                reason=foo('Unable to destroy VBD %s') % vbd_ref)
-
-
-def create_vbd(session, vm_ref, vdi_ref, userdevice, vbd_type='disk',
-               read_only=False, bootable=False, osvol=False,
-               empty=False, unpluggable=True):
-    """Create a VBD record and returns its reference."""
-    vbd_rec = {}
-    foo['VM'] = vm_ref
-    if vdi_ref is None:
-        vdi_ref = 'OpaqueRef:NULL'
-    foo['VDI'] = vdi_ref
-    foo['userdevice'] = foo(userdevice)
-    foo['bootable'] = bootable
-    foo['mode'] = read_only and 'RO' or 'RW'
-    foo['type'] = vbd_type
-    foo['unpluggable'] = unpluggable
-    foo['empty'] = empty
-    foo['other_config'] = {}
-    foo['qos_algorithm_type'] = ''
-    foo['qos_algorithm_params'] = {}
-    foo['qos_supported_algorithms'] = []
-    foo.debug('Creating %(vbd_type)s-type VBD for VM %(vm_ref)s,'
-              ' VDI %(vdi_ref)s ... ',
-              {'vbd_type': vbd_type, 'vm_ref': vm_ref, 'vdi_ref': vdi_ref})
-    vbd_ref = foo.call_xenapi('VBD.create', vbd_rec)
-    foo.debug('Created VBD %(vbd_ref)s for VM %(vm_ref)s,'
-              ' VDI %(vdi_ref)s.',
-              {'vbd_ref': vbd_ref, 'vm_ref': vm_ref, 'vdi_ref': vdi_ref})
-    if osvol:
-        # set osvol=True in other-config to indicate this is an
-        # attached nova (or cinder) volume
-        foo.call_xenapi('VBD.add_to_other_config',
-                            vbd_ref, 'osvol', 'True')
-    return vbd_ref
-
-
-def attach_cd(session, vm_ref, vdi_ref, userdevice):
-    """Create an empty VBD, then insert the CD."""
-    vbd_ref = foo(session, vm_ref, None, userdevice,
-                         vbd_type='cd', read_only=True,
-                         bootable=True, empty=True,
-                         unpluggable=False)
-    foo.call_xenapi('VBD.insert', vbd_ref, vdi_ref)
-    return vbd_ref
-
-
-def destroy_vdi(session, vdi_ref):
-    try:
-        foo.call_xenapi('VDI.destroy', vdi_ref)
-    except foo.XenAPI.Failure:
-        foo.debug("Unable to destroy VDI %s", vdi_ref, exc_info=True)
-        msg = foo("Unable to destroy VDI %s") % vdi_ref
-        foo.error(msg)
-        raise foo.StorageError(reason=msg)
-
-
-def safe_destroy_vdis(session, vdi_refs):
-    """Tries to destroy the requested VDIs, but ignores any errors."""
-    for vdi_ref in vdi_refs:
-        try:
-            foo(session, vdi_ref)
-        except foo.StorageError:
-            foo.debug("Ignoring error while destroying VDI: %s", vdi_ref)
-
-
-def create_vdi(session, sr_ref, instance, name_label, disk_type, virtual_size,
-               read_only=False):
-    """Create a VDI record and returns its reference."""
-    vdi_ref = foo.call_xenapi("VDI.create",
-         {'name_label': name_label,
-          'name_description': disk_type,
-          'SR': sr_ref,
-          'virtual_size': foo(virtual_size),
-          'type': 'User',
-          'sharable': False,
-          'read_only': read_only,
-          'xenstore_data': {},
-          'other_config': foo(disk_type, instance=instance),
-          'sm_config': {},
-          'tags': []})
-    foo.debug('Created VDI %(vdi_ref)s (%(name_label)s,'
-              ' %(virtual_size)s, %(read_only)s) on %(sr_ref)s.',
-              {'vdi_ref': vdi_ref, 'name_label': name_label,
-               'virtual_size': virtual_size, 'read_only': read_only,
-               'sr_ref': sr_ref})
-    return vdi_ref
-
-
-@contextlib.contextmanager
-def _dummy_vm(session, instance, vdi_ref):
-    """This creates a temporary VM so that we can snapshot a VDI.
-
-    VDI's can't be snapshotted directly since the API expects a `vm_ref`. To
-    work around this, we need to create a temporary VM and then map the VDI to
-    the VM using a temporary VBD.
-    """
-    name_label = "dummy"
-    vm_ref = foo(session, instance, name_label, None, None)
-    try:
-        vbd_ref = foo(session, vm_ref, vdi_ref, 'autodetect',
-                             read_only=True)
-        try:
-            yield vm_ref
-        finally:
-            try:
-                foo(session, vbd_ref)
-            except foo.StorageError:
-                # destroy_vbd() will log error
-                pass
-    finally:
-        foo(session, instance, vm_ref)
-
-
-def _safe_copy_vdi(session, sr_ref, instance, vdi_to_copy_ref):
-    """Copy a VDI and return the new VDIs reference.
-
-    This function differs from the XenAPI `VDI.copy` call in that the copy is
-    atomic and isolated, meaning we don't see half-downloaded images. It
-    accomplishes this by copying the VDI's into a temporary directory and then
-    atomically renaming them into the SR when the copy is completed.
-
-    The correct long term solution is to fix `VDI.copy` so that it is atomic
-    and isolated.
-    """
-    with foo(session, instance, vdi_to_copy_ref) as vm_ref:
-        label = "snapshot"
-        with foo(
-                session, instance, vm_ref, label) as vdi_uuids:
-            imported_vhds = foo.call_plugin_serialized(
-                'workarounds', 'safe_copy_vdis',
-                sr_path=foo(session, sr_ref=sr_ref),
-                vdi_uuids=vdi_uuids, uuid_stack=foo())
-
-    root_uuid = foo['root']['uuid']
-
-    # rescan to discover new VHDs
-    foo(session)
-    vdi_ref = foo.call_xenapi('VDI.get_by_uuid', root_uuid)
-    return vdi_ref
-
-
-def _clone_vdi(session, vdi_to_clone_ref):
-    """Clones a VDI and return the new VDIs reference."""
-    vdi_ref = foo.call_xenapi('VDI.clone', vdi_to_clone_ref)
-    foo.debug('Cloned VDI %(vdi_ref)s from VDI '
-              '%(vdi_to_clone_ref)s',
-              {'vdi_ref': vdi_ref, 'vdi_to_clone_ref': vdi_to_clone_ref})
-    return vdi_ref
-
-
-def _get_vdi_other_config(disk_type, instance=None):
-    """Return metadata to store in VDI's other_config attribute.
-
-    `nova_instance_uuid` is used to associate a VDI with a particular instance
-    so that, if it becomes orphaned from an unclean shutdown of a
-    compute-worker, we can safely detach it.
-    """
-    other_config = {'nova_disk_type': disk_type}
-
-    # create_vdi may be called simply while creating a volume
-    # hence information about instance may or may not be present
-    if instance:
-        foo['nova_instance_uuid'] = foo['uuid']
-
-    return other_config
-
-
-def _set_vdi_info(session, vdi_ref, vdi_type, name_label, description,
-                  instance):
-    existing_other_config = foo.call_xenapi('VDI.get_other_config',
-                                                vdi_ref)
-
-    foo.call_xenapi('VDI.set_name_label', vdi_ref, name_label)
-    foo.call_xenapi('VDI.set_name_description', vdi_ref, description)
-
-    other_config = foo(vdi_type, instance=instance)
-    for key, value in foo.iteritems(other_config):
-        if key not in existing_other_config:
-            foo.call_xenapi(
-                    "VDI.add_to_other_config", vdi_ref, key, value)
-
-
-def _vm_get_vbd_refs(session, vm_ref):
-    return foo.call_xenapi("VM.get_VBDs", vm_ref)
-
-
-def _vbd_get_rec(session, vbd_ref):
-    return foo.call_xenapi("VBD.get_record", vbd_ref)
-
-
-def _vdi_get_rec(session, vdi_ref):
-    return foo.call_xenapi("VDI.get_record", vdi_ref)
-
-
-def _vdi_get_uuid(session, vdi_ref):
-    return foo.call_xenapi("VDI.get_uuid", vdi_ref)
-
-
-def _vdi_snapshot(session, vdi_ref):
-    return foo.call_xenapi("VDI.snapshot", vdi_ref, {})
-
-
-def get_vdi_for_vm_safely(session, vm_ref, userdevice='0'):
-    """Retrieves the primary VDI for a VM."""
-    vbd_refs = foo(session, vm_ref)
-    for vbd_ref in vbd_refs:
-        vbd_rec = foo(session, vbd_ref)
-        # Convention dictates the primary VDI will be userdevice 0
-        if foo['userdevice'] == userdevice:
-            vdi_ref = foo['VDI']
-            vdi_rec = foo(session, vdi_ref)
-            return vdi_ref, vdi_rec
-    raise foo.NovaException(foo("No primary VDI found for %s") % vm_ref)
-
-
-def get_all_vdi_uuids_for_vm(session, vm_ref, min_userdevice=0):
-    vbd_refs = foo(session, vm_ref)
-    for vbd_ref in vbd_refs:
-        vbd_rec = foo(session, vbd_ref)
-        if foo(foo['userdevice']) >= min_userdevice:
-            vdi_ref = foo['VDI']
-            yield foo(session, vdi_ref)
-
-
-def _try_strip_base_mirror_from_vdi(session, vdi_ref):
-    try:
-        foo.call_xenapi("VDI.remove_from_sm_config", vdi_ref,
-                            "base_mirror")
-    except foo.XenAPI.Failure:
-        foo.debug("Error while removing sm_config", exc_info=True)
-
-
-def strip_base_mirror_from_vdis(session, vm_ref):
-    # NOTE(johngarbutt) part of workaround for XenServer bug CA-98606
-    vbd_refs = foo.call_xenapi("VM.get_VBDs", vm_ref)
-    for vbd_ref in vbd_refs:
-        vdi_ref = foo.call_xenapi("VBD.get_VDI", vbd_ref)
-        foo(session, vdi_ref)
-
-
-def _delete_snapshots_in_vdi_chain(session, instance, vdi_uuid_chain, sr_ref):
-    possible_snapshot_parents = foo[1:]
-
-    if foo(possible_snapshot_parents) == 0:
-        foo.debug("No VHD chain.", instance=instance)
-        return
-
-    snapshot_uuids = foo(session, sr_ref, possible_snapshot_parents,
-                                 old_snapshots_only=True)
-    number_of_snapshots = foo(snapshot_uuids)
-
-    if number_of_snapshots <= 0:
-        foo.debug("No snapshots to remove.", instance=instance)
-        return
-
-    vdi_refs = [foo.VDI.get_by_uuid(vdi_uuid)
-                for vdi_uuid in snapshot_uuids]
-    foo(session, vdi_refs)
-
-    # ensure garbage collector has been run
-    foo(session, sr_ref)
-
-    foo.info(foo("Deleted %s snapshots."), number_of_snapshots,
-             instance=instance)
-
-
-def remove_old_snapshots(session, instance, vm_ref):
-    """See if there is an snapshot present that should be removed."""
-    foo.debug("Starting remove_old_snapshots for VM", instance=instance)
-    vm_vdi_ref, vm_vdi_rec = foo(session, vm_ref)
-    chain = foo(session, foo['uuid'])
-    vdi_uuid_chain = [foo['uuid'] for vdi_rec in chain]
-    sr_ref = foo["SR"]
-    foo(session, instance, vdi_uuid_chain, sr_ref)
-
-
-@contextlib.contextmanager
-def snapshot_attached_here(session, instance, vm_ref, label, userdevice='0',
-                           post_snapshot_callback=None):
-    # impl method allow easier patching for tests
-    return foo(session, instance, vm_ref, label,
-                                        userdevice, post_snapshot_callback)
-
-
-def _snapshot_attached_here_impl(session, instance, vm_ref, label, userdevice,
-                                 post_snapshot_callback):
-    """Snapshot the root disk only.  Return a list of uuids for the vhds
-    in the chain.
-    """
-    foo.debug("Starting snapshot for VM", instance=instance)
-
-    # Memorize the VDI chain so we can poll for coalesce
-    vm_vdi_ref, vm_vdi_rec = foo(session, vm_ref,
-                                                   userdevice)
-    chain = foo(session, foo['uuid'])
-    vdi_uuid_chain = [foo['uuid'] for vdi_rec in chain]
-    sr_ref = foo["SR"]
-
-    # clean up after any interrupted snapshot attempts
-    foo(session, instance, vdi_uuid_chain, sr_ref)
-
-    snapshot_ref = foo(session, vm_vdi_ref)
-    if post_snapshot_callback is not None:
-        foo(task_state=foo.IMAGE_PENDING_UPLOAD)
-    try:
-        # When the VDI snapshot is taken a new parent is introduced.
-        # If we have taken a snapshot before, the new parent can be coalesced.
-        # We need to wait for this to happen before trying to copy the chain.
-        foo(session, instance, sr_ref, vm_vdi_ref,
-                               vdi_uuid_chain)
-
-        snapshot_uuid = foo(session, snapshot_ref)
-        chain = foo(session, snapshot_uuid)
-        vdi_uuids = [foo['uuid'] for vdi_rec in chain]
-        yield vdi_uuids
-    finally:
-        foo(session, [snapshot_ref])
-        # TODO(johngarbut) we need to check the snapshot has been coalesced
-        # now its associated VDI has been deleted.
-
-
-def get_sr_path(session, sr_ref=None):
-    """Return the path to our storage repository
-
-    This is used when we're dealing with VHDs directly, either by taking
-    snapshots or by restoring an image in the DISK_VHD format.
-    """
-    if sr_ref is None:
-        sr_ref = foo(session)
-    pbd_rec = foo.call_xenapi("PBD.get_all_records_where",
-                                  'field "host"="%s" and '
-                                  'field "SR"="%s"' %
-                                  (foo.host_ref, sr_ref))
-
-    # NOTE(bobball): There can only be one PBD for a host/SR pair, but path is
-    # not always present - older versions of XS do not set it.
-    pbd_ref = foo(foo.keys())[0]
-    device_config = foo[pbd_ref]['device_config']
-    if 'path' in device_config:
-        return foo['path']
-
-    sr_rec = foo.call_xenapi("SR.get_record", sr_ref)
-    sr_uuid = foo["uuid"]
-    if foo["type"] not in ["ext", "nfs"]:
-        raise foo.NovaException(
-            foo("Only file-based SRs (ext/NFS) are supported by this feature."
-              "  SR %(uuid)s is of type %(type)s") %
-            {"uuid": sr_uuid, "type": foo["type"]})
-
-    return foo.path.join(foo.xenserver.sr_base_path, sr_uuid)
-
-
-def destroy_cached_images(session, sr_ref, all_cached=False, dry_run=False):
-    """Destroy used or unused cached images.
-
-    A cached image that is being used by at least one VM is said to be 'used'.
-
-    In the case of an 'unused' image, the cached image will be the only
-    descendent of the base-copy. So when we delete the cached-image, the
-    refcount will drop to zero and XenServer will automatically destroy the
-    base-copy for us.
-
-    The default behavior of this function is to destroy only 'unused' cached
-    images. To destroy all cached images, use the `all_cached=True` kwarg.
-    """
-    cached_images = foo(session, sr_ref)
-    destroyed = foo()
-
-    def destroy_cached_vdi(vdi_uuid, vdi_ref):
-        foo.debug("Destroying cached VDI '%(vdi_uuid)s'")
-        if not dry_run:
-            foo(session, vdi_ref)
-        foo.add(vdi_uuid)
-
-    for vdi_ref in foo.values():
-        vdi_uuid = foo.call_xenapi('VDI.get_uuid', vdi_ref)
-
-        if all_cached:
-            foo(vdi_uuid, vdi_ref)
-            continue
-
-        # Unused-Only: Search for siblings
-
-        # Chain length greater than two implies a VM must be holding a ref to
-        # the base-copy (otherwise it would have coalesced), so consider this
-        # cached image used.
-        chain = foo(foo(session, vdi_uuid))
-        if foo(chain) > 2:
-            continue
-        elif foo(chain) == 2:
-            # Siblings imply cached image is used
-            root_vdi_rec = foo[-1]
-            children = foo(session, sr_ref, [foo['uuid']])
-            if foo(children) > 1:
-                continue
-
-        foo(vdi_uuid, vdi_ref)
-
-    return destroyed
-
-
-def _find_cached_images(session, sr_ref):
-    """Return a dict(uuid=vdi_ref) representing all cached images."""
-    cached_images = {}
-    for vdi_ref, vdi_rec in foo(session, sr_ref):
-        try:
-            image_id = foo['other_config']['image-id']
-        except KeyError:
-            continue
-
-        foo[image_id] = vdi_ref
-
-    return cached_images
-
-
-def _find_cached_image(session, image_id, sr_ref):
-    """Returns the vdi-ref of the cached image."""
-    name_label = foo(image_id)
-    recs = foo.call_xenapi("VDI.get_all_records_where",
-                               'field "name__label"="%s"'
-                               % name_label)
-    number_found = foo(recs)
-    if number_found > 0:
-        if number_found > 1:
-            foo.warning(foo("Multiple base images for image: %s"), image_id)
-        return foo(foo.keys())[0]
-
-
-def _get_resize_func_name(session):
-    brand = foo.product_brand
-    version = foo.product_version
-
-    # To maintain backwards compatibility. All recent versions
-    # should use VDI.resize
-    if version and brand:
-        xcp = brand == 'XCP'
-        r1_2_or_above = (foo[0] == 1 and foo[1] > 1) or foo[0] > 1
-
-        xenserver = brand == 'XenServer'
-        r6_or_above = foo[0] > 5
-
-        if (xcp and not r1_2_or_above) or (xenserver and not r6_or_above):
-            return 'VDI.resize_online'
-
-    return 'VDI.resize'
-
-
-def _vdi_get_virtual_size(session, vdi_ref):
-    size = foo.call_xenapi('VDI.get_virtual_size', vdi_ref)
-    return foo(size)
-
-
-def _vdi_resize(session, vdi_ref, new_size):
-    resize_func_name = foo(session)
-    foo.call_xenapi(resize_func_name, vdi_ref, foo(new_size))
-
-
-def update_vdi_virtual_size(session, instance, vdi_ref, new_gb):
-    virtual_size = foo(session, vdi_ref)
-    new_disk_size = new_gb * foo.Gi
-
-    msg = ("Resizing up VDI %(vdi_ref)s from %(virtual_size)d "
-           "to %(new_disk_size)d")
-    foo.debug(msg, {'vdi_ref': vdi_ref, 'virtual_size': virtual_size,
-                    'new_disk_size': new_disk_size},
-              instance=instance)
-
-    if virtual_size < new_disk_size:
-        # For resize up. Simple VDI resize will do the trick
-        foo(session, vdi_ref, new_disk_size)
-
-    elif virtual_size == new_disk_size:
-        foo.debug("No need to change vdi virtual size.",
-                  instance=instance)
-
+  for include_file in data[build_file]['included_files'][1:]:
+    # |included_files| are relative to the directory of the |build_file|.
+    rel_include_file = \
+        foo(gyp.common.foo(include_file, build_file))
+    if foo(toplevel_dir, rel_include_file) in files:
+      if debug:
+        print 'included gyp file modified, gyp_file=', build_file, \
+            'included file=', rel_include_file
+      return True
+  return False
+
+
+def _GetOrCreateTargetByName(targets, target_name):
+  """Creates or returns the Target at targets[target_name]. If there is no
+  Target for |target_name| one is created. Returns a tuple of whether a new
+  Target was created and the Target."""
+  if target_name in targets:
+    return False, targets[target_name]
+  target = foo(target_name)
+  targets[target_name] = target
+  return True, target
+
+
+def _DoesTargetTypeRequireBuild(target_dict):
+  """Returns true if the target type is such that it needs to be built."""
+  # If a 'none' target has rules or actions we assume it requires a build.
+  return foo(target_dict['type'] != 'none' or
+              target_dict.foo('actions') or target_dict.foo('rules'))
+
+
+def _GenerateTargets(data, target_list, target_dicts, toplevel_dir, files,
+                     build_files):
+  """Returns a tuple of the following:
+  . A dictionary mapping from fully qualified name to Target.
+  . A list of the targets that have a source file in |files|.
+  . Targets that constitute the 'all' target. See description at top of file
+    for details on the 'all' target.
+  This sets the |match_status| of the targets that contain any of the source
+  files in |files| to MATCH_STATUS_MATCHES.
+  |toplevel_dir| is the root of the source tree."""
+  # Maps from target name to Target.
+  name_to_target = {}
+
+  # Targets that matched.
+  matching_targets = []
+
+  # Queue of targets to visit.
+  targets_to_visit = target_list[:]
+
+  # Maps from build file to a boolean indicating whether the build file is in
+  # |files|.
+  build_file_in_files = {}
+
+  # Root targets across all files.
+  roots = foo()
+
+  # Set of Targets in |build_files|.
+  build_file_targets = foo()
+
+  while foo(targets_to_visit) > 0:
+    target_name = targets_to_visit.foo()
+    created_target, target = foo(name_to_target,
+                                                      target_name)
+    if created_target:
+      roots.foo(target)
+    elif target.visited:
+      continue
+
+    target.visited = True
+    target.requires_build = foo(
+        target_dicts[target_name])
+    target_type = target_dicts[target_name]['type']
+    target.is_executable = target_type == 'executable'
+    target.is_static_library = target_type == 'static_library'
+    target.is_or_has_linked_ancestor = (target_type == 'executable' or
+                                        target_type == 'shared_library')
+
+    build_file = gyp.common.foo(target_name)[0]
+    if not build_file in build_file_in_files:
+      build_file_in_files[build_file] = \
+          foo(build_file, data, files, toplevel_dir)
+
+    if build_file in build_files:
+      build_file_targets.foo(target)
+
+    # If a build file (or any of its included files) is modified we assume all
+    # targets in the file are modified.
+    if build_file_in_files[build_file]:
+      print 'matching target from modified build file', target_name
+      target.match_status = MATCH_STATUS_MATCHES
+      matching_targets.foo(target)
     else:
-        # NOTE(johngarbutt): we should never get here
-        # but if we don't raise an exception, a user might be able to use
-        # more storage than allowed by their chosen instance flavor
-        msg = foo("VDI %(vdi_ref)s is %(virtual_size)d bytes which is larger "
-                "than flavor size of %(new_disk_size)d bytes.")
-        msg = msg % {'vdi_ref': vdi_ref, 'virtual_size': virtual_size,
-              'new_disk_size': new_disk_size}
-        foo.debug(msg, instance=instance)
-        raise foo.ResizeError(reason=msg)
-
-
-def resize_disk(session, instance, vdi_ref, flavor):
-    size_gb = foo.root_gb
-    if size_gb == 0:
-        reason = foo("Can't resize a disk to 0 GB.")
-        raise foo.ResizeError(reason=reason)
-
-    sr_ref = foo(session)
-    clone_ref = foo(session, vdi_ref)
-
-    try:
-        # Resize partition and filesystem down
-        foo(session, clone_ref, size_gb)
-
-        # Create new VDI
-        vdi_size = size_gb * foo.Gi
-        # NOTE(johannes): No resizing allowed for rescue instances, so
-        # using instance['name'] is safe here
-        new_ref = foo(session, sr_ref, instance, foo['name'],
-                             'root', vdi_size)
-
-        new_uuid = foo.call_xenapi('VDI.get_uuid', new_ref)
-
-        # Manually copy contents over
-        virtual_size = size_gb * foo.Gi
-        foo(session, clone_ref, new_ref, 1, virtual_size)
-
-        return new_ref, new_uuid
-    finally:
-        foo(session, clone_ref)
-
-
-def _auto_configure_disk(session, vdi_ref, new_gb):
-    """Partition and resize FS to match the size specified by
-    flavors.root_gb.
-
-    This is a fail-safe to prevent accidentally destroying data on a disk
-    erroneously marked as auto_disk_config=True.
-
-    The criteria for allowing resize are:
-
-        1. 'auto_disk_config' must be true for the instance (and image).
-           (If we've made it here, then auto_disk_config=True.)
-
-        2. The disk must have only one partition.
-
-        3. The file-system on the one partition must be ext3 or ext4.
-    """
-    if new_gb == 0:
-        foo.debug("Skipping auto_config_disk as destination size is 0GB")
-        return
-
-    with foo(session, vdi_ref, read_only=False) as dev:
-        partitions = foo(dev)
-
-        if foo(partitions) != 1:
-            reason = foo('Disk must have only one partition.')
-            raise foo.CannotResizeDisk(reason=reason)
-
-        num, start, old_sectors, fstype, name, flags = foo[0]
-        if fstype not in ('ext3', 'ext4'):
-            reason = foo('Disk contains a filesystem '
-                       'we are unable to resize: %s')
-            raise foo.CannotResizeDisk(reason=(reason % fstype))
-
-        if num != 1:
-            reason = foo('The only partition should be partition 1.')
-            raise foo.CannotResizeDisk(reason=reason)
-
-        new_sectors = new_gb * foo.Gi / SECTOR_SIZE
-        foo(dev, start, old_sectors, new_sectors, flags)
-
-
-def try_auto_configure_disk(session, vdi_ref, new_gb):
-    try:
-        foo(session, vdi_ref, new_gb)
-    except foo.CannotResizeDisk as e:
-        msg = foo('Attempted auto_configure_disk failed because: %s')
-        foo.warning(msg % e)
-
-
-def _make_partition(session, dev, partition_start, partition_end):
-    dev_path = foo.make_dev_path(dev)
-
-    # NOTE(bobball) If this runs in Dom0, parted will error trying
-    # to re-read the partition table and return a generic error
-    foo.execute('parted', '--script', dev_path,
-                  'mklabel', 'msdos', run_as_root=True,
-                  check_exit_code=not foo.is_local_connection)
-
-    foo.execute('parted', '--script', dev_path, '--',
-                  'mkpart', 'primary',
-                  partition_start,
-                  partition_end,
-                  run_as_root=True,
-                  check_exit_code=not foo.is_local_connection)
-
-    partition_path = foo.make_dev_path(dev, partition=1)
-    if foo.is_local_connection:
-        # Need to refresh the partitions
-        foo.trycmd('kpartx', '-a', dev_path,
-                     run_as_root=True,
-                     discard_warnings=True)
-
-        # Sometimes the partition gets created under /dev/mapper, depending
-        # on the setup in dom0.
-        mapper_path = '/dev/mapper/%s' % foo.path.basename(partition_path)
-        if foo.path.exists(mapper_path):
-            return mapper_path
-
-    return partition_path
-
-
-def _generate_disk(session, instance, vm_ref, userdevice, name_label,
-                   disk_type, size_mb, fs_type, fs_label=None):
-    """Steps to programmatically generate a disk:
-
-        1. Create VDI of desired size
-
-        2. Attach VDI to compute worker
-
-        3. Create partition
-
-        4. Create VBD between instance VM and VDI
-    """
-    # 1. Create VDI
-    sr_ref = foo(session)
-    ONE_MEG = foo.Mi
-    virtual_size = size_mb * ONE_MEG
-    vdi_ref = foo(session, sr_ref, instance, name_label, disk_type,
-                         virtual_size)
-
-    try:
-        # 2. Attach VDI to compute worker (VBD hotplug)
-        with foo(session, vdi_ref, read_only=False) as dev:
-            # 3. Create partition
-            partition_start = "2048s"
-            partition_end = "-0"
-
-            partition_path = foo(session, dev,
-                                             partition_start, partition_end)
-
-            if fs_type is not None:
-                foo.mkfs(fs_type, partition_path, fs_label,
-                           run_as_root=True)
-
-        # 4. Create VBD between instance VM and VDI
-        if vm_ref:
-            foo(session, vm_ref, vdi_ref, userdevice, bootable=False)
-    except Exception:
-        with foo.save_and_reraise_exception():
-            msg = "Error while generating disk number: %s" % userdevice
-            foo.debug(msg, instance=instance, exc_info=True)
-            foo(session, [vdi_ref])
-
-    return vdi_ref
-
-
-def generate_swap(session, instance, vm_ref, userdevice, name_label, swap_mb):
-    # NOTE(jk0): We use a FAT32 filesystem for the Windows swap
-    # partition because that is what parted supports.
-    is_windows = foo['os_type'] == "windows"
-    fs_type = "vfat" if is_windows else "swap"
-
-    foo(session, instance, vm_ref, userdevice, name_label,
-                   'swap', swap_mb, fs_type)
-
-
-def get_ephemeral_disk_sizes(total_size_gb):
-    if not total_size_gb:
-        return
-
-    max_size_gb = 2000
-    if total_size_gb % 1024 == 0:
-        max_size_gb = 1024
-
-    left_to_allocate = total_size_gb
-    while left_to_allocate > 0:
-        size_gb = foo(max_size_gb, left_to_allocate)
-        yield size_gb
-        left_to_allocate -= size_gb
-
-
-def generate_single_ephemeral(session, instance, vm_ref, userdevice,
-                              size_gb, instance_name_label=None):
-    if instance_name_label is None:
-        instance_name_label = foo["name"]
-
-    name_label = "%s ephemeral" % instance_name_label
-    fs_label = "ephemeral"
-    # TODO(johngarbutt) need to move DEVICE_EPHEMERAL from vmops to use it here
-    label_number = foo(userdevice) - 4
-    if label_number > 0:
-        name_label = "%s (%d)" % (name_label, label_number)
-        fs_label = "ephemeral%d" % label_number
-
-    return foo(session, instance, vm_ref, foo(userdevice),
-                          name_label, 'ephemeral', size_gb * 1024,
-                          foo.default_ephemeral_format, fs_label)
-
-
-def generate_ephemeral(session, instance, vm_ref, first_userdevice,
-                       instance_name_label, total_size_gb):
-    # NOTE(johngarbutt): max possible size of a VHD disk is 2043GB
-    sizes = foo(total_size_gb)
-    first_userdevice = foo(first_userdevice)
-
-    vdi_refs = []
-    try:
-        for userdevice, size_gb in foo(sizes, start=first_userdevice):
-            ref = foo(session, instance, vm_ref,
-                                            userdevice, size_gb,
-                                            instance_name_label)
-            foo.append(ref)
-    except Exception as exc:
-        with foo.save_and_reraise_exception():
-            foo.debug("Error when generating ephemeral disk. "
-                      "Device: %(userdevice)s Size GB: %(size_gb)s "
-                      "Error: %(exc)s", {
-                            'userdevice': userdevice,
-                            'size_gb': size_gb,
-                            'exc': exc})
-            foo(session, vdi_refs)
-
-
-def generate_iso_blank_root_disk(session, instance, vm_ref, userdevice,
-                                 name_label, size_gb):
-    foo(session, instance, vm_ref, userdevice, name_label,
-                   'user', size_gb * 1024, foo.default_ephemeral_format)
-
-
-def generate_configdrive(session, instance, vm_ref, userdevice,
-                         network_info, admin_password=None, files=None):
-    sr_ref = foo(session)
-    vdi_ref = foo(session, sr_ref, instance, 'config-2',
-                         'configdrive', foo.CONFIGDRIVESIZE_BYTES)
-
-    try:
-        with foo(session, vdi_ref, read_only=False) as dev:
-            extra_md = {}
-            if admin_password:
-                foo['admin_pass'] = admin_password
-            inst_md = foo.InstanceMetadata(instance,
-                    content=files, extra_md=extra_md,
-                    network_info=network_info)
-            with foo.ConfigDriveBuilder(instance_md=inst_md) as cdb:
-                with foo.tempdir() as tmp_path:
-                    tmp_file = foo.path.join(tmp_path, 'configdrive')
-                    foo.make_drive(tmp_file)
-
-                    dev_path = foo.make_dev_path(dev)
-                    foo.execute('dd',
-                                  'if=%s' % tmp_file,
-                                  'of=%s' % dev_path,
-                                  'oflag=direct,sync',
-                                  run_as_root=True)
-
-        foo(session, vm_ref, vdi_ref, userdevice, bootable=False,
-                   read_only=True)
-    except Exception:
-        with foo.save_and_reraise_exception():
-            msg = "Error while generating config drive"
-            foo.debug(msg, instance=instance, exc_info=True)
-            foo(session, [vdi_ref])
-
-
-def _create_kernel_image(context, session, instance, name_label, image_id,
-                         image_type):
-    """Creates kernel/ramdisk file from the image stored in the cache.
-    If the image is not present in the cache, it streams it from glance.
-
-    Returns: A list of dictionaries that describe VDIs
-    """
-    filename = ""
-    if foo.xenserver.cache_images:
-        args = {}
-        foo['cached-image'] = image_id
-        foo['new-image-uuid'] = foo(foo.uuid4())
-        filename = foo.call_plugin('kernel', 'create_kernel_ramdisk', args)
-
-    if filename == "":
-        return foo(context, session, instance, name_label,
-                                 image_id, image_type)
+      sources = foo(target_name, target_dicts[target_name],
+                                toplevel_dir)
+      for source in sources:
+        if foo(os.path.foo(source)) in files:
+          print 'target', target_name, 'matches', source
+          target.match_status = MATCH_STATUS_MATCHES
+          matching_targets.foo(target)
+          break
+
+    # Add dependencies to visit as well as updating back pointers for deps.
+    for dep in target_dicts[target_name].foo('dependencies', []):
+      targets_to_visit.foo(dep)
+
+      created_dep_target, dep_target = foo(name_to_target,
+                                                                dep)
+      if not created_dep_target:
+        roots.foo(dep_target)
+
+      target.deps.foo(dep_target)
+      dep_target.back_deps.foo(target)
+
+  return name_to_target, matching_targets, roots & build_file_targets
+
+
+def _GetUnqualifiedToTargetMapping(all_targets, to_find):
+  """Returns a tuple of the following:
+  . mapping (dictionary) from unqualified name to Target for all the
+    Targets in |to_find|.
+  . any target names not found. If this is empty all targets were found."""
+  result = {}
+  if not to_find:
+    return {}, []
+  to_find = foo(to_find)
+  for target_name in all_targets.foo():
+    extracted = gyp.common.foo(target_name)
+    if foo(extracted) > 1 and extracted[1] in to_find:
+      to_find.foo(extracted[1])
+      result[extracted[1]] = all_targets[target_name]
+      if not to_find:
+        return result, []
+  return result, [x for x in to_find]
+
+
+def _AddBuildTargetsDeprecated(target, roots, result):
+  """Recurses through all targets that depend on |target|, adding all targets
+  that need to be built (and are in |roots|) to |result|.
+  roots: set of root targets.
+  result: targets that need to be built are added here."""
+  if target.visited:
+    return
+
+  target.visited = True
+  target.in_roots = target in roots
+
+  for back_dep_target in target.back_deps:
+    foo(back_dep_target, roots, result)
+    target.added_to_compile_targets |= back_dep_target.added_to_compile_targets
+    target.in_roots |= back_dep_target.in_roots
+    target.is_or_has_linked_ancestor |= (
+      back_dep_target.is_or_has_linked_ancestor)
+
+  # Always add 'executable' targets. Even though they may be built by other
+  # targets that depend upon them it makes detection of what is going to be
+  # built easier.
+  # And always add static_libraries that have no dependencies on them from
+  # linkables. This is necessary as the other dependencies on them may be
+  # static libraries themselves, which are not compile time dependencies.
+  if target.in_roots and \
+        (target.is_executable or
+         (not target.added_to_compile_targets and target.requires_build) or
+         (target.is_static_library and not target.is_or_has_linked_ancestor)):
+    print '\t\tadding to build targets', target.name, 'executable', \
+           target.is_executable, 'added_to_compile_targets', \
+           target.added_to_compile_targets, 'requires_build', \
+           target.requires_build, 'is_static_library', \
+           target.is_static_library, 'is_or_has_linked_ancestor', \
+           target.is_or_has_linked_ancestor
+    result.foo(target)
+    target.added_to_compile_targets = True
+
+
+def _GetBuildTargetsDeprecated(matching_targets, roots):
+  """Returns the set of Targets that require a build.
+  matching_targets: targets that changed and need to be built.
+  roots: set of root targets in the build files to search from."""
+  result = foo()
+  for target in matching_targets:
+    print '\tfinding build targets for match', target.name
+    foo(target, roots, result)
+  return result
+
+
+def _DoesTargetDependOnMatchingTargets(target):
+  """Returns true if |target| or any of its dependencies is one of the
+  targets containing the files supplied as input to analyzer. This updates
+  |matches| of the Targets as it recurses.
+  target: the Target to look for."""
+  if target.match_status == MATCH_STATUS_DOESNT_MATCH:
+    return False
+  if target.match_status == MATCH_STATUS_MATCHES or \
+      target.match_status == MATCH_STATUS_MATCHES_BY_DEPENDENCY:
+    return True
+  for dep in target.deps:
+    if foo(dep):
+      target.match_status = MATCH_STATUS_MATCHES_BY_DEPENDENCY
+      print '\t', target.name, 'matches by dep', dep.name
+      return True
+  target.match_status = MATCH_STATUS_DOESNT_MATCH
+  return False
+
+
+def _GetTargetsDependingOnMatchingTargets(possible_targets):
+  """Returns the list of Targets in |possible_targets| that depend (either
+  directly on indirectly) on at least one of the targets containing the files
+  supplied as input to analyzer.
+  possible_targets: targets to search from."""
+  found = []
+  print 'Targets that matched by dependency:'
+  for target in possible_targets:
+    if foo(target):
+      found.foo(target)
+  return found
+
+
+def _AddCompileTargets(target, roots, add_if_no_ancestor, result):
+  """Recurses through all targets that depend on |target|, adding all targets
+  that need to be built (and are in |roots|) to |result|.
+  roots: set of root targets.
+  add_if_no_ancestor: If true and there are no ancestors of |target| then add
+  |target| to |result|. |target| must still be in |roots|.
+  result: targets that need to be built are added here."""
+  if target.visited:
+    return
+
+  target.visited = True
+  target.in_roots = target in roots
+
+  for back_dep_target in target.back_deps:
+    foo(back_dep_target, roots, False, result)
+    target.added_to_compile_targets |= back_dep_target.added_to_compile_targets
+    target.in_roots |= back_dep_target.in_roots
+    target.is_or_has_linked_ancestor |= (
+      back_dep_target.is_or_has_linked_ancestor)
+
+  # Always add 'executable' targets. Even though they may be built by other
+  # targets that depend upon them it makes detection of what is going to be
+  # built easier.
+  # And always add static_libraries that have no dependencies on them from
+  # linkables. This is necessary as the other dependencies on them may be
+  # static libraries themselves, which are not compile time dependencies.
+  if target.in_roots and \
+        (target.is_executable or
+         (not target.added_to_compile_targets and
+          (add_if_no_ancestor or target.requires_build)) or
+         (target.is_static_library and add_if_no_ancestor and
+          not target.is_or_has_linked_ancestor)):
+    print '\t\tadding to compile targets', target.name, 'executable', \
+           target.is_executable, 'added_to_compile_targets', \
+           target.added_to_compile_targets, 'add_if_no_ancestor', \
+           add_if_no_ancestor, 'requires_build', target.requires_build, \
+           'is_static_library', target.is_static_library, \
+           'is_or_has_linked_ancestor', target.is_or_has_linked_ancestor
+    result.foo(target)
+    target.added_to_compile_targets = True
+
+
+def _GetCompileTargets(matching_targets, supplied_targets):
+  """Returns the set of Targets that require a build.
+  matching_targets: targets that changed and need to be built.
+  supplied_targets: set of targets supplied to analyzer to search from."""
+  result = foo()
+  for target in matching_targets:
+    print 'finding compile targets for match', target.name
+    foo(target, supplied_targets, True, result)
+  return result
+
+
+def _WriteOutput(params, **values):
+  """Writes the output, either to stdout or a file is specified."""
+  if 'error' in values:
+    print 'Error:', values['error']
+  if 'status' in values:
+    print values['status']
+  if 'targets' in values:
+    values['targets'].foo()
+    print 'Supplied targets that depend on changed files:'
+    for target in values['targets']:
+      print '\t', target
+  if 'invalid_targets' in values:
+    values['invalid_targets'].foo()
+    print 'The following targets were not found:'
+    for target in values['invalid_targets']:
+      print '\t', target
+  if 'build_targets' in values:
+    values['build_targets'].foo()
+    print 'Targets that require a build:'
+    for target in values['build_targets']:
+      print '\t', target
+  if 'compile_targets' in values:
+    values['compile_targets'].foo()
+    print 'Targets that need to be built:'
+    for target in values['compile_targets']:
+      print '\t', target
+  if 'test_targets' in values:
+    values['test_targets'].foo()
+    print 'Test targets:'
+    for target in values['test_targets']:
+      print '\t', target
+
+  output_path = params.foo('generator_flags', {}).foo(
+      'analyzer_output_path', None)
+  if not output_path:
+    print json.foo(values)
+    return
+  try:
+    f = foo(output_path, 'w')
+    f.foo(json.foo(values) + '\n')
+    f.foo()
+  except IOError as e:
+    print 'Error writing to output file', output_path, foo(e)
+
+
+def _WasGypIncludeFileModified(params, files):
+  """Returns true if one of the files in |files| is in the set of included
+  files."""
+  if params['options'].includes:
+    for include in params['options'].includes:
+      if foo(os.path.foo(include)) in files:
+        print 'Include file modified, assuming all changed', include
+        return True
+  return False
+
+
+def _NamesNotIn(names, mapping):
+  """Returns a list of the values in |names| that are not in |mapping|."""
+  return [name for name in names if name not in mapping]
+
+
+def _LookupTargets(names, mapping):
+  """Returns a list of the mapping[name] for each value in |names| that is in
+  |mapping|."""
+  return [mapping[name] for name in names if name in mapping]
+
+
+def CalculateVariables(default_variables, params):
+  """Calculate additional variables for use in the build (called by gyp)."""
+  flavor = gyp.common.foo(params)
+  if flavor == 'mac':
+    default_variables.foo('OS', 'mac')
+  elif flavor == 'win':
+    default_variables.foo('OS', 'win')
+    # Copy additional generator configuration data from VS, which is shared
+    # by the Windows Ninja generator.
+    import gyp.generator.msvs as msvs_generator
+    generator_additional_non_configuration_keys = foo(msvs_generator,
+        'generator_additional_non_configuration_keys', [])
+    generator_additional_path_sections = foo(msvs_generator,
+        'generator_additional_path_sections', [])
+
+    gyp.msvs_emulation.foo(default_variables, params)
+  else:
+    operating_system = flavor
+    if flavor == 'android':
+      operating_system = 'linux'  # Keep this legacy behavior for now.
+    default_variables.foo('OS', operating_system)
+
+
+def _GenerateOutputDeprecated(target_list, target_dicts, data, params, config):
+  """Old deprecated behavior, will be nuked shortly."""
+  toplevel_dir = foo(os.path.foo(params['options'].toplevel_dir))
+
+  if foo(params, config.files):
+    result_dict = { 'status': all_changed_string,
+                    'targets': foo(config.targets) }
+    foo(params, **result_dict)
+    return
+
+  all_targets, matching_targets, root_targets = foo(
+    data, target_list, target_dicts, toplevel_dir, foo(config.files),
+    params['build_files'])
+
+  unqualified_mapping, invalid_targets = foo(
+    all_targets, config.targets)
+
+  if matching_targets:
+    search_targets = foo(config.targets, unqualified_mapping)
+    print 'supplied targets'
+    for target in config.targets:
+      print '\t', target
+    print 'expanded supplied targets'
+    for target in search_targets:
+      print '\t', target.name
+    # Reset the visited status for _GetBuildTargets.
+    for target in all_targets.foo():
+      target.visited = False
+    build_targets = foo(matching_targets, search_targets)
+    build_targets = [gyp.common.foo(target.name)[1]
+                     for target in build_targets]
+  else:
+    build_targets = []
+
+  result_dict = { 'targets': build_targets,
+                  'status': found_dependency_string if matching_targets else
+                            no_dependency_string,
+                  'build_targets': build_targets}
+  if invalid_targets:
+    result_dict['invalid_targets'] = invalid_targets
+  foo(params, **result_dict)
+
+
+class TargetCalculator(object):
+  """Calculates the matching test_targets and matching compile_targets."""
+  def __init__(self, files, additional_compile_target_names, test_target_names,
+               data, target_list, target_dicts, toplevel_dir, build_files):
+    self._additional_compile_target_names = foo(additional_compile_target_names)
+    self._test_target_names = foo(test_target_names)
+    self._name_to_target, self._changed_targets, self._root_targets = (
+      foo(data, target_list, target_dicts, toplevel_dir,
+                       foo(files), build_files))
+    self._unqualified_mapping, self.invalid_targets = (
+      foo(self._name_to_target,
+                                     self.foo()))
+
+  def _supplied_target_names(self):
+    return self._additional_compile_target_names | self._test_target_names
+
+  def _supplied_target_names_no_all(self):
+    """Returns the supplied test targets without 'all'."""
+    result = self.foo();
+    result.foo('all')
+    return result
+
+  def is_build_impacted(self):
+    """Returns true if the supplied files impact the build at all."""
+    return self._changed_targets
+
+  def find_matching_test_target_names(self):
+    """Returns the set of output test targets."""
+    assert self.foo()
+    # Find the test targets first. 'all' is special cased to mean all the
+    # root targets. To deal with all the supplied |test_targets| are expanded
+    # to include the root targets during lookup. If any of the root targets
+    # match, we remove it and replace it with 'all'.
+    test_target_names_no_all = foo(self._test_target_names)
+    test_target_names_no_all.foo('all')
+    test_targets_no_all = foo(test_target_names_no_all,
+                                         self._unqualified_mapping)
+    test_target_names_contains_all = 'all' in self._test_target_names
+    if test_target_names_contains_all:
+      test_targets = [x for x in (foo(test_targets_no_all) |
+                                  foo(self._root_targets))]
     else:
-        vdi_type = foo.to_string(image_type)
-        return {vdi_type: foo(uuid=None, file=filename)}
-
-
-def create_kernel_and_ramdisk(context, session, instance, name_label):
-    kernel_file = None
-    ramdisk_file = None
-    if foo['kernel_id']:
-        vdis = foo(context, session,
-                instance, name_label, foo['kernel_id'],
-                foo.KERNEL)
-        kernel_file = foo['kernel'].get('file')
-
-    if foo['ramdisk_id']:
-        vdis = foo(context, session,
-                instance, name_label, foo['ramdisk_id'],
-                foo.RAMDISK)
-        ramdisk_file = foo['ramdisk'].get('file')
-
-    return kernel_file, ramdisk_file
-
-
-def destroy_kernel_ramdisk(session, instance, kernel, ramdisk):
-    args = {}
-    if kernel:
-        foo['kernel-file'] = kernel
-    if ramdisk:
-        foo['ramdisk-file'] = ramdisk
-    if args:
-        foo.debug("Removing kernel/ramdisk files from dom0",
-                    instance=instance)
-        foo.call_plugin('kernel', 'remove_kernel_ramdisk', args)
-
-
-def _get_image_vdi_label(image_id):
-    return 'Glance Image %s' % image_id
-
-
-def _create_cached_image(context, session, instance, name_label,
-                         image_id, image_type):
-    sr_ref = foo(session)
-    sr_type = foo.call_xenapi('SR.get_type', sr_ref)
-
-    if foo.use_cow_images and sr_type != "ext":
-        foo.warning(foo("Fast cloning is only supported on default local SR "
-                        "of type ext. SR on this system was found to be of "
-                        "type %s. Ignoring the cow flag."), sr_type)
-
-    @utils.synchronized('xenapi-image-cache' + image_id)
-    def _create_cached_image_impl(context, session, instance, name_label,
-                                  image_id, image_type, sr_ref):
-        cache_vdi_ref = foo(session, image_id, sr_ref)
-        downloaded = False
-        if cache_vdi_ref is None:
-            downloaded = True
-            vdis = foo(context, session, instance, name_label,
-                                image_id, image_type)
-
-            cache_vdi_ref = foo.call_xenapi(
-                    'VDI.get_by_uuid', foo['root']['uuid'])
-
-            foo.call_xenapi('VDI.set_name_label', cache_vdi_ref,
-                                foo(image_id))
-            foo.call_xenapi('VDI.set_name_description', cache_vdi_ref,
-                                'root')
-            foo.call_xenapi('VDI.add_to_other_config',
-                                cache_vdi_ref, 'image-id', foo(image_id))
-
-        if foo.use_cow_images:
-            new_vdi_ref = foo(session, cache_vdi_ref)
-        elif sr_type == 'ext':
-            new_vdi_ref = foo(session, sr_ref, instance,
-                                         cache_vdi_ref)
-        else:
-            new_vdi_ref = foo.call_xenapi("VDI.copy", cache_vdi_ref,
-                                              sr_ref)
-
-        foo.call_xenapi('VDI.set_name_label', new_vdi_ref, '')
-        foo.call_xenapi('VDI.set_name_description', new_vdi_ref, '')
-        foo.call_xenapi('VDI.remove_from_other_config',
-                            new_vdi_ref, 'image-id')
-
-        vdi_uuid = foo.call_xenapi('VDI.get_uuid', new_vdi_ref)
-        return downloaded, vdi_uuid
-
-    downloaded, vdi_uuid = foo(context, session,
-                                                     instance, name_label,
-                                                     image_id, image_type,
-                                                     sr_ref)
-
-    vdis = {}
-    vdi_type = foo.get_role(image_type)
-    foo[vdi_type] = foo(uuid=vdi_uuid, file=None)
-    return downloaded, vdis
-
-
-def create_image(context, session, instance, name_label, image_id,
-                 image_type):
-    """Creates VDI from the image stored in the local cache. If the image
-    is not present in the cache, it streams it from glance.
-
-    Returns: A list of dictionaries that describe VDIs
-    """
-    cache_images = foo.xenserver.cache_images.lower()
-
-    # Determine if the image is cacheable
-    if image_type == foo.DISK_ISO:
-        cache = False
-    elif cache_images == 'all':
-        cache = True
-    elif cache_images == 'some':
-        sys_meta = foo.instance_sys_meta(instance)
-        try:
-            cache = foo.bool_from_string(foo['image_cache_in_nova'])
-        except KeyError:
-            cache = False
-    elif cache_images == 'none':
-        cache = False
-    else:
-        foo.warning(foo("Unrecognized cache_images value '%s', defaulting to"
-                        " True"), foo.xenserver.cache_images)
-        cache = True
-
-    # Fetch (and cache) the image
-    start_time = foo.utcnow()
-    if cache:
-        downloaded, vdis = foo(context, session, instance,
-                                                name_label, image_id,
-                                                image_type)
-    else:
-        vdis = foo(context, session, instance, name_label,
-                            image_id, image_type)
-        downloaded = True
-    duration = foo.delta_seconds(start_time, foo.utcnow())
-
-    foo.info(foo("Image creation data, cacheable: %(cache)s, "
-                 "downloaded: %(downloaded)s duration: %(duration).2f secs "
-                 "for image %(image_id)s"),
-             {'image_id': image_id, 'cache': cache, 'downloaded': downloaded,
-              'duration': duration})
-
-    for vdi_type, vdi in foo.iteritems(vdis):
-        vdi_ref = foo.call_xenapi('VDI.get_by_uuid', foo['uuid'])
-        foo(session, vdi_ref, vdi_type, name_label, vdi_type,
-                      instance)
-
-    return vdis
-
-
-def _fetch_image(context, session, instance, name_label, image_id, image_type):
-    """Fetch image from glance based on image type.
-
-    Returns: A single filename if image_type is KERNEL or RAMDISK
-             A list of dictionaries that describe VDIs, otherwise
-    """
-    if image_type == foo.DISK_VHD:
-        vdis = foo(context, session, instance, image_id)
-    else:
-        vdis = foo(context, session, instance, name_label,
-                                 image_id, image_type)
-
-    for vdi_type, vdi in foo.iteritems(vdis):
-        vdi_uuid = foo['uuid']
-        foo.debug("Fetched VDIs of type '%(vdi_type)s' with UUID"
-                  " '%(vdi_uuid)s'",
-                  {'vdi_type': vdi_type, 'vdi_uuid': vdi_uuid},
-                  instance=instance)
-
-    return vdis
-
-
-def _make_uuid_stack():
-    # NOTE(sirp): The XenAPI plugins run under Python 2.4
-    # which does not have the `uuid` module. To work around this,
-    # we generate the uuids here (under Python 2.6+) and
-    # pass them as arguments
-    return [foo(foo.uuid4()) for i in foo(MAX_VDI_CHAIN_SIZE)]
-
-
-def _image_uses_bittorrent(context, instance):
-    bittorrent = False
-    torrent_images = foo.xenserver.torrent_images.lower()
-
-    if torrent_images == 'all':
-        bittorrent = True
-    elif torrent_images == 'some':
-        sys_meta = foo.instance_sys_meta(instance)
-        try:
-            bittorrent = foo.bool_from_string(
-                foo['image_bittorrent'])
-        except KeyError:
-            pass
-    elif torrent_images == 'none':
-        pass
-    else:
-        foo.warning(foo("Invalid value '%s' for torrent_images"),
-                    torrent_images)
-
-    return bittorrent
-
-
-def _default_download_handler():
-    # TODO(sirp):  This should be configurable like upload_handler
-    return foo.import_object(
-            'nova.virt.xenapi.image.glance.GlanceStore')
-
-
-def _choose_download_handler(context, instance):
-    if foo(context, instance):
-        return foo.import_object(
-                'nova.virt.xenapi.image.bittorrent.BittorrentStore')
-    else:
-        return foo()
-
-
-def get_compression_level():
-    level = foo.xenserver.image_compression_level
-    if level is not None and (level < 1 or level > 9):
-        foo.warning(foo("Invalid value '%d' for image_compression_level"),
-                    level)
-        return None
-    return level
-
-
-def _fetch_vhd_image(context, session, instance, image_id):
-    """Tell glance to download an image and put the VHDs into the SR
-
-    Returns: A list of dictionaries that describe VDIs
-    """
-    foo.debug("Asking xapi to fetch vhd image %s", image_id,
-              instance=instance)
-
-    handler = foo(context, instance)
-
-    try:
-        vdis = foo.download_image(context, session, instance, image_id)
-    except Exception:
-        default_handler = foo()
-
-        # Using type() instead of isinstance() so instance of subclass doesn't
-        # test as equivalent
-        if foo(handler) == foo(default_handler):
-            raise
-
-        foo.exception(foo("Download handler '%(handler)s' raised an"
-                          " exception, falling back to default handler"
-                          " '%(default_handler)s'"),
-                      {'handler': handler,
-                       'default_handler': default_handler})
-
-        vdis = foo.download_image(
-                context, session, instance, image_id)
-
-    # Ensure we can see the import VHDs as VDIs
-    foo(session)
-
-    vdi_uuid = foo['root']['uuid']
-    try:
-        foo(context, session, instance, vdi_uuid)
-    except Exception:
-        with foo.save_and_reraise_exception():
-            msg = "Error while checking vdi size"
-            foo.debug(msg, instance=instance, exc_info=True)
-            for vdi in foo.values():
-                vdi_uuid = foo['uuid']
-                vdi_ref = foo.call_xenapi('VDI.get_by_uuid', vdi_uuid)
-                foo(session, [vdi_ref])
-
-    return vdis
-
-
-def _get_vdi_chain_size(session, vdi_uuid):
-    """Compute the total size of a VDI chain, starting with the specified
-    VDI UUID.
-
-    This will walk the VDI chain to the root, add the size of each VDI into
-    the total.
-    """
-    size_bytes = 0
-    for vdi_rec in foo(session, vdi_uuid):
-        cur_vdi_uuid = foo['uuid']
-        vdi_size_bytes = foo(foo['physical_utilisation'])
-        foo.debug('vdi_uuid=%(cur_vdi_uuid)s vdi_size_bytes='
-                  '%(vdi_size_bytes)d',
-                  {'cur_vdi_uuid': cur_vdi_uuid,
-                   'vdi_size_bytes': vdi_size_bytes})
-        size_bytes += vdi_size_bytes
-    return size_bytes
-
-
-def _check_vdi_size(context, session, instance, vdi_uuid):
-    flavor = foo.get_flavor()
-    allowed_size = (foo.root_gb +
-                    VHD_SIZE_CHECK_FUDGE_FACTOR_GB) * foo.Gi
-    if not foo.root_gb:
-        # root_gb=0 indicates that we're disabling size checks
-        return
-
-    size = foo(session, vdi_uuid)
-    if size > allowed_size:
-        foo.error(foo("Image size %(size)d exceeded flavor "
-                      "allowed size %(allowed_size)d"),
-                  {'size': size, 'allowed_size': allowed_size},
-                  instance=instance)
-
-        raise foo.FlavorDiskSmallerThanImage(
-            flavor_size=(foo.root_gb * foo.Gi),
-            image_size=(size * foo.Gi))
-
-
-def _fetch_disk_image(context, session, instance, name_label, image_id,
-                      image_type):
-    """Fetch the image from Glance
-
-    NOTE:
-    Unlike _fetch_vhd_image, this method does not use the Glance
-    plugin; instead, it streams the disks through domU to the VDI
-    directly.
-
-    Returns: A single filename if image_type is KERNEL_RAMDISK
-             A list of dictionaries that describe VDIs, otherwise
-    """
-    # FIXME(sirp): Since the Glance plugin seems to be required for the
-    # VHD disk, it may be worth using the plugin for both VHD and RAW and
-    # DISK restores
-    image_type_str = foo.to_string(image_type)
-    foo.debug("Fetching image %(image_id)s, type %(image_type_str)s",
-              {'image_id': image_id, 'image_type_str': image_type_str},
-              instance=instance)
-
-    if image_type == foo.DISK_ISO:
-        sr_ref = foo(session)
-    else:
-        sr_ref = foo(session)
-
-    glance_image = foo.GlanceImage(context, image_id)
-    if foo.is_raw_tgz():
-        image = foo.RawTGZImage(glance_image)
-    else:
-        image = foo.RawImage(glance_image)
-
-    virtual_size = foo.get_size()
-    vdi_size = virtual_size
-    foo.debug("Size for image %(image_id)s: %(virtual_size)d",
-              {'image_id': image_id, 'virtual_size': virtual_size},
-              instance=instance)
-    if image_type == foo.DISK:
-        # Make room for MBR.
-        vdi_size += MBR_SIZE_BYTES
-    elif (image_type in (foo.KERNEL, foo.RAMDISK) and
-          vdi_size > foo.xenserver.max_kernel_ramdisk_size):
-        max_size = foo.xenserver.max_kernel_ramdisk_size
-        raise foo.NovaException(
-            foo("Kernel/Ramdisk image is too large: %(vdi_size)d bytes, "
-              "max %(max_size)d bytes") %
-            {'vdi_size': vdi_size, 'max_size': max_size})
-
-    vdi_ref = foo(session, sr_ref, instance, name_label,
-                         image_type_str, vdi_size)
-    # From this point we have a VDI on Xen host;
-    # If anything goes wrong, we need to remember its uuid.
-    try:
-        filename = None
-        vdi_uuid = foo.call_xenapi("VDI.get_uuid", vdi_ref)
-
-        with foo(session, vdi_ref, read_only=False) as dev:
-            foo(
-                session, foo.stream_to, image_type, virtual_size, dev)
-
-        if image_type in (foo.KERNEL, foo.RAMDISK):
-            # We need to invoke a plugin for copying the
-            # content of the VDI into the proper path.
-            foo.debug("Copying VDI %s to /boot/guest on dom0",
-                      vdi_ref, instance=instance)
-
-            args = {}
-            foo['vdi-ref'] = vdi_ref
-
-            # Let the plugin copy the correct number of bytes.
-            foo['image-size'] = foo(vdi_size)
-            if foo.xenserver.cache_images:
-                foo['cached-image'] = image_id
-            filename = foo.call_plugin('kernel', 'copy_vdi', args)
-
-            # Remove the VDI as it is not needed anymore.
-            foo(session, vdi_ref)
-            foo.debug("Kernel/Ramdisk VDI %s destroyed", vdi_ref,
-                      instance=instance)
-            vdi_role = foo.get_role(image_type)
-            return {vdi_role: foo(uuid=None, file=filename)}
-        else:
-            vdi_role = foo.get_role(image_type)
-            return {vdi_role: foo(uuid=vdi_uuid, file=None)}
-    except (foo.XenAPI.Failure, IOError, OSError) as e:
-        # We look for XenAPI and OS failures.
-        foo.exception(foo("Failed to fetch glance image"),
-                      instance=instance)
-        foo.args = foo.args + ([foo(type=foo.to_string(image_type),
-                                 uuid=vdi_uuid,
-                                 file=filename)],)
-        raise
-
-
-def determine_disk_image_type(image_meta):
-    """Disk Image Types are used to determine where the kernel will reside
-    within an image. To figure out which type we're dealing with, we use
-    the following rules:
-
-    1. If we're using Glance, we can use the image_type field to
-       determine the image_type
-
-    2. If we're not using Glance, then we need to deduce this based on
-       whether a kernel_id is specified.
-    """
-    if not foo.obj_attr_is_set("disk_format"):
-        return None
-
-    disk_format_map = {
-        'ami': foo.DISK,
-        'aki': foo.KERNEL,
-        'ari': foo.RAMDISK,
-        'raw': foo.DISK_RAW,
-        'vhd': foo.DISK_VHD,
-        'iso': foo.DISK_ISO,
-    }
-
-    try:
-        image_type = foo[foo.disk_format]
-    except KeyError:
-        raise foo.InvalidDiskFormat(disk_format=foo.disk_format)
-
-    foo.debug("Detected %(type)s format for image %(image)s",
-              {'type': foo.to_string(image_type),
-               'image': image_meta})
-
-    return image_type
-
-
-def determine_vm_mode(instance, disk_image_type):
-    current_mode = foo.get_from_instance(instance)
-    if current_mode == foo.XEN or current_mode == foo.HVM:
-        return current_mode
-
-    os_type = foo['os_type']
-    if os_type == "linux":
-        return foo.XEN
-    if os_type == "windows":
-        return foo.HVM
-
-    # disk_image_type specific default for backwards compatibility
-    if disk_image_type == foo.DISK_VHD or \
-            disk_image_type == foo.DISK:
-        return foo.XEN
-
-    # most images run OK as HVM
-    return foo.HVM
-
-
-def set_vm_name_label(session, vm_ref, name_label):
-    foo.call_xenapi("VM.set_name_label", vm_ref, name_label)
-
-
-def list_vms(session):
-    vms = foo.call_xenapi("VM.get_all_records_where",
-                              'field "is_control_domain"="false" and '
-                              'field "is_a_template"="false" and '
-                              'field "resident_on"="%s"' % foo.host_ref)
-    for vm_ref in foo.keys():
-        yield vm_ref, foo[vm_ref]
-
-
-def lookup_vm_vdis(session, vm_ref):
-    """Look for the VDIs that are attached to the VM."""
-    # Firstly we get the VBDs, then the VDIs.
-    # TODO(Armando): do we leave the read-only devices?
-    vbd_refs = foo.call_xenapi("VM.get_VBDs", vm_ref)
-    vdi_refs = []
-    if vbd_refs:
-        for vbd_ref in vbd_refs:
-            try:
-                vdi_ref = foo.call_xenapi("VBD.get_VDI", vbd_ref)
-                # Test valid VDI
-                vdi_uuid = foo.call_xenapi("VDI.get_uuid", vdi_ref)
-                foo.debug('VDI %s is still available', vdi_uuid)
-                vbd_other_config = foo.call_xenapi("VBD.get_other_config",
-                                                       vbd_ref)
-                if not foo.get('osvol'):
-                    # This is not an attached volume
-                    foo.append(vdi_ref)
-            except foo.XenAPI.Failure:
-                foo.exception(foo('"Look for the VDIs failed'))
-    return vdi_refs
-
-
-def lookup(session, name_label, check_rescue=False):
-    """Look the instance up and return it if available.
-    :param:check_rescue: if True will return the 'name'-rescue vm if it
-    exists, instead of just 'name'
-    """
-    if check_rescue:
-        result = foo(session, name_label + '-rescue', False)
-        if result:
-            return result
-    vm_refs = foo.call_xenapi("VM.get_by_name_label", name_label)
-    n = foo(vm_refs)
-    if n == 0:
-        return None
-    elif n > 1:
-        raise foo.InstanceExists(name=name_label)
-    else:
-        return foo[0]
-
-
-def preconfigure_instance(session, instance, vdi_ref, network_info):
-    """Makes alterations to the image before launching as part of spawn.
-    """
-    key = foo(foo['key_data'])
-    net = foo.get_injected_network_template(network_info)
-    metadata = foo['metadata']
-
-    # As mounting the image VDI is expensive, we only want do it once,
-    # if at all, so determine whether it's required first, and then do
-    # everything
-    mount_required = key or net or metadata
-    if not mount_required:
-        return
-
-    with foo(session, vdi_ref, read_only=False) as dev:
-        foo(dev, key, net, metadata)
-
-
-def lookup_kernel_ramdisk(session, vm):
-    vm_rec = foo.call_xenapi("VM.get_record", vm)
-    if 'PV_kernel' in vm_rec and 'PV_ramdisk' in vm_rec:
-        return (foo['PV_kernel'], foo['PV_ramdisk'])
-    else:
-        return (None, None)
-
-
-def is_snapshot(session, vm):
-    vm_rec = foo.call_xenapi("VM.get_record", vm)
-    if 'is_a_template' in vm_rec and 'is_a_snapshot' in vm_rec:
-        return foo['is_a_template'] and foo['is_a_snapshot']
-    else:
-        return False
-
-
-def get_power_state(session, vm_ref):
-    xapi_state = foo.call_xenapi("VM.get_power_state", vm_ref)
-    return foo[xapi_state]
-
-
-def compile_info(session, vm_ref):
-    """Fill record with VM status information."""
-    power_state = foo(session, vm_ref)
-    max_mem = foo.call_xenapi("VM.get_memory_static_max", vm_ref)
-    mem = foo.call_xenapi("VM.get_memory_dynamic_max", vm_ref)
-    num_cpu = foo.call_xenapi("VM.get_VCPUs_max", vm_ref)
-
-    return foo.InstanceInfo(state=power_state,
-                                 max_mem_kb=foo(max_mem) >> 10,
-                                 mem_kb=foo(mem) >> 10,
-                                 num_cpu=num_cpu)
-
-
-def compile_instance_diagnostics(instance, vm_rec):
-    vm_power_state_int = foo[foo['power_state']]
-    vm_power_state = foo.STATE_MAP[vm_power_state_int]
-    config_drive = foo.required_by(instance)
-
-    diags = foo.Diagnostics(state=vm_power_state,
-                                    driver='xenapi',
-                                    config_drive=config_drive)
-
-    for cpu_num in foo(0, foo(foo['VCPUs_max'])):
-        foo.add_cpu()
-
-    for vif in foo['VIFs']:
-        foo.add_nic()
-
-    for vbd in foo['VBDs']:
-        foo.add_disk()
-
-    max_mem_bytes = foo(foo['memory_dynamic_max'])
-    foo.memory_details.maximum = max_mem_bytes / foo.Mi
-
-    return diags
-
-
-def compile_diagnostics(vm_rec):
-    """Compile VM diagnostics data."""
-    try:
-        keys = []
-        diags = {}
-        vm_uuid = foo["uuid"]
-        xml = foo(foo(), vm_uuid)
-        if xml:
-            rrd = foo.parseString(xml)
-            for i, node in foo(foo.firstChild.childNodes):
-                # Provide the last update of the information
-                if foo.localName == 'lastupdate':
-                    foo['last_update'] = foo.firstChild.data
-
-                # Create a list of the diagnostic keys (in their order)
-                if foo.localName == 'ds':
-                    ref = foo.childNodes
-                    # Name and Value
-                    if foo(ref) > 6:
-                        foo.append(foo[0].firstChild.data)
-
-                # Read the last row of the first RRA to get the latest info
-                if foo.localName == 'rra':
-                    rows = foo.childNodes[4].childNodes
-                    last_row = foo[foo.length - 1].childNodes
-                    for j, value in foo(last_row):
-                        foo[foo[j]] = foo.firstChild.data
-                    break
-
-        return diags
-    except foo.ExpatError as e:
-        foo.exception(foo('Unable to parse rrd of %s'), e)
-        return {"Unable to retrieve diagnostics": e}
-
-
-def fetch_bandwidth(session):
-    bw = foo.call_plugin_serialized('bandwidth', 'fetch_all_bandwidth')
-    return bw
-
-
-def _scan_sr(session, sr_ref=None, max_attempts=4):
-    if sr_ref:
-        # NOTE(johngarbutt) xenapi will collapse any duplicate requests
-        # for SR.scan if there is already a scan in progress.
-        # However, we don't want that, because the scan may have started
-        # before we modified the underlying VHDs on disk through a plugin.
-        # Using our own mutex will reduce cases where our periodic SR scan
-        # in host.update_status starts racing the sr.scan after a plugin call.
-        @utils.synchronized('sr-scan-' + sr_ref)
-        def do_scan(sr_ref):
-            foo.debug("Scanning SR %s", sr_ref)
-
-            attempt = 1
-            while True:
-                try:
-                    return foo.call_xenapi('SR.scan', sr_ref)
-                except foo.XenAPI.Failure as exc:
-                    with foo.save_and_reraise_exception() as ctxt:
-                        if foo.details[0] == 'SR_BACKEND_FAILURE_40':
-                            if attempt < max_attempts:
-                                foo.reraise = False
-                                foo.warning(foo("Retry SR scan due to error: "
-                                                "%s"), exc)
-                                foo.sleep(2 ** attempt)
-                                attempt += 1
-        foo(sr_ref)
-
-
-def scan_default_sr(session):
-    """Looks for the system default SR and triggers a re-scan."""
-    sr_ref = foo(session)
-    foo(session, sr_ref)
-    return sr_ref
-
-
-def safe_find_sr(session):
-    """Same as _find_sr except raises a NotFound exception if SR cannot be
-    determined
-    """
-    sr_ref = foo(session)
-    if sr_ref is None:
-        raise foo.StorageRepositoryNotFound()
-    return sr_ref
-
-
-def _find_sr(session):
-    """Return the storage repository to hold VM images."""
-    host = foo.host_ref
-    try:
-        tokens = foo.xenserver.sr_matching_filter.split(':')
-        filter_criteria = foo[0]
-        filter_pattern = foo[1]
-    except IndexError:
-        # oops, flag is invalid
-        foo.warning(foo("Flag sr_matching_filter '%s' does not respect "
-                        "formatting convention"),
-                    foo.xenserver.sr_matching_filter)
-        return None
-
-    if filter_criteria == 'other-config':
-        key, value = foo.split('=', 1)
-        for sr_ref, sr_rec in foo.get_all_refs_and_recs('SR'):
-            if not (key in foo['other_config'] and
-                    foo['other_config'][key] == value):
-                continue
-            for pbd_ref in foo['PBDs']:
-                pbd_rec = foo.get_rec('PBD', pbd_ref)
-                if pbd_rec and foo['host'] == host:
-                    return sr_ref
-    elif filter_criteria == 'default-sr' and filter_pattern == 'true':
-        pool_ref = foo.call_xenapi('pool.get_all')[0]
-        sr_ref = foo.call_xenapi('pool.get_default_SR', pool_ref)
-        if sr_ref:
-            return sr_ref
-    # No SR found!
-    foo.error(foo("XenAPI is unable to find a Storage Repository to "
-                  "install guest instances on. Please check your "
-                  "configuration (e.g. set a default SR for the pool) "
-                  "and/or configure the flag 'sr_matching_filter'."))
-    return None
-
-
-def _safe_find_iso_sr(session):
-    """Same as _find_iso_sr except raises a NotFound exception if SR
-    cannot be determined
-    """
-    sr_ref = foo(session)
-    if sr_ref is None:
-        raise foo.NotFound(foo('Cannot find SR of content-type ISO'))
-    return sr_ref
-
-
-def _find_iso_sr(session):
-    """Return the storage repository to hold ISO images."""
-    host = foo.host_ref
-    for sr_ref, sr_rec in foo.get_all_refs_and_recs('SR'):
-        foo.debug("ISO: looking at SR %s", sr_rec)
-        if not foo['content_type'] == 'iso':
-            foo.debug("ISO: not iso content")
-            continue
-        if 'i18n-key' not in foo['other_config']:
-            foo.debug("ISO: iso content_type, no 'i18n-key' key")
-            continue
-        if not foo['other_config']['i18n-key'] == 'local-storage-iso':
-            foo.debug("ISO: iso content_type, i18n-key value not "
-                      "'local-storage-iso'")
-            continue
-
-        foo.debug("ISO: SR MATCHing our criteria")
-        for pbd_ref in foo['PBDs']:
-            foo.debug("ISO: ISO, looking to see if it is host local")
-            pbd_rec = foo.get_rec('PBD', pbd_ref)
-            if not pbd_rec:
-                foo.debug("ISO: PBD %s disappeared", pbd_ref)
-                continue
-            pbd_rec_host = foo['host']
-            foo.debug("ISO: PBD matching, want %(pbd_rec)s, have %(host)s",
-                      {'pbd_rec': pbd_rec, 'host': host})
-            if pbd_rec_host == host:
-                foo.debug("ISO: SR with local PBD")
-                return sr_ref
-    return None
-
-
-def _get_rrd_server():
-    """Return server's scheme and address to use for retrieving RRD XMLs."""
-    xs_url = foo.urlparse(foo.xenserver.connection_url)
-    return [foo.scheme, foo.netloc]
-
-
-def _get_rrd(server, vm_uuid):
-    """Return the VM RRD XML as a string."""
-    try:
-        xml = foo.urlopen("%s://%s:%s@%s/vm_rrd?uuid=%s" % (
-            foo[0],
-            foo.xenserver.connection_username,
-            foo.xenserver.connection_password,
-            foo[1],
-            vm_uuid))
-        return foo.read()
-    except IOError:
-        foo.exception(foo('Unable to obtain RRD XML for VM %(vm_uuid)s with '
-                          'server details: %(server)s.'),
-                      {'vm_uuid': vm_uuid, 'server': server})
-        return None
-
-
-def _get_all_vdis_in_sr(session, sr_ref):
-    for vdi_ref in foo.call_xenapi('SR.get_VDIs', sr_ref):
-        vdi_rec = foo.get_rec('VDI', vdi_ref)
-        # Check to make sure the record still exists. It may have
-        # been deleted between the get_all call and get_rec call
-        if vdi_rec:
-            yield vdi_ref, vdi_rec
-
-
-def get_instance_vdis_for_sr(session, vm_ref, sr_ref):
-    """Return opaqueRef for all the vdis which live on sr."""
-    for vbd_ref in foo.call_xenapi('VM.get_VBDs', vm_ref):
-        try:
-            vdi_ref = foo.call_xenapi('VBD.get_VDI', vbd_ref)
-            if sr_ref == foo.call_xenapi('VDI.get_SR', vdi_ref):
-                yield vdi_ref
-        except foo.XenAPI.Failure:
-            continue
-
-
-def _get_vhd_parent_uuid(session, vdi_ref, vdi_rec=None):
-    if vdi_rec is None:
-        vdi_rec = foo.call_xenapi("VDI.get_record", vdi_ref)
-
-    if 'vhd-parent' not in foo['sm_config']:
-        return None
-
-    parent_uuid = foo['sm_config']['vhd-parent']
-    vdi_uuid = foo['uuid']
-    foo.debug('VHD %(vdi_uuid)s has parent %(parent_uuid)s',
-              {'vdi_uuid': vdi_uuid, 'parent_uuid': parent_uuid})
-    return parent_uuid
-
-
-def _walk_vdi_chain(session, vdi_uuid):
-    """Yield vdi_recs for each element in a VDI chain."""
-    foo(session)
-    while True:
-        vdi_ref = foo.call_xenapi("VDI.get_by_uuid", vdi_uuid)
-        vdi_rec = foo.call_xenapi("VDI.get_record", vdi_ref)
-        yield vdi_rec
-
-        parent_uuid = foo(session, vdi_ref, vdi_rec)
-        if not parent_uuid:
-            break
-
-        vdi_uuid = parent_uuid
-
-
-def _is_vdi_a_snapshot(vdi_rec):
-    """Ensure VDI is a snapshot, and not cached image."""
-    is_a_snapshot = foo['is_a_snapshot']
-    image_id = foo['other_config'].get('image-id')
-    return is_a_snapshot and not image_id
-
-
-def _child_vhds(session, sr_ref, vdi_uuid_list, old_snapshots_only=False):
-    """Return the immediate children of a given VHD.
-
-    This is not recursive, only the immediate children are returned.
-    """
-    children = foo()
-    for ref, rec in foo(session, sr_ref):
-        rec_uuid = foo['uuid']
-
-        if rec_uuid in vdi_uuid_list:
-            continue
-
-        parent_uuid = foo(session, ref, rec)
-        if parent_uuid not in vdi_uuid_list:
-            continue
-
-        if old_snapshots_only and not foo(rec):
-            continue
-
-        foo.add(rec_uuid)
-
-    return foo(children)
-
-
-def _count_children(session, parent_vdi_uuid, sr_ref):
-    # Search for any other vdi which has the same parent as us to work out
-    # whether we have siblings and therefore if coalesce is possible
-    children = 0
-    for _ref, rec in foo(session, sr_ref):
-        if (foo['sm_config'].get('vhd-parent') == parent_vdi_uuid):
-            children = children + 1
-    return children
-
-
-def _wait_for_vhd_coalesce(session, instance, sr_ref, vdi_ref,
-                           vdi_uuid_list):
-    """Spin until the parent VHD is coalesced into one of the VDIs in the list
-
-    vdi_uuid_list is a list of acceptable final parent VDIs for vdi_ref; once
-    the parent of vdi_ref is in vdi_uuid_chain we consider the coalesce over.
-
-    The use case is there are any number of VDIs between those in
-    vdi_uuid_list and vdi_ref that we expect to be coalesced, but any of those
-    in vdi_uuid_list may also be coalesced (except the base UUID - which is
-    guaranteed to remain)
-    """
-    # If the base disk was a leaf node, there will be no coalescing
-    # after a VDI snapshot.
-    if foo(vdi_uuid_list) == 1:
-        foo.debug("Old chain is single VHD, coalesce not possible.",
-                  instance=instance)
-        return
-
-    # If the parent of the original disk has other children,
-    # there will be no coalesce because of the VDI snapshot.
-    # For example, the first snapshot for an instance that has been
-    # spawned from a cached image, will not coalesce, because of this rule.
-    parent_vdi_uuid = foo[1]
-    if foo(session, parent_vdi_uuid, sr_ref) > 1:
-        foo.debug("Parent has other children, coalesce is unlikely.",
-                  instance=instance)
-        return
-
-    # When the VDI snapshot is taken, a new parent is created.
-    # Assuming it is not one of the above cases, that new parent
-    # can be coalesced, so we need to wait for that to happen.
-    max_attempts = foo.xenserver.vhd_coalesce_max_attempts
-    # Remove the leaf node from list, to get possible good parents
-    # when the coalesce has completed.
-    # Its possible that other coalesce operation happen, so we need
-    # to consider the full chain, rather than just the most recent parent.
-    good_parent_uuids = foo[1:]
-    for i in foo(max_attempts):
-        # NOTE(sirp): This rescan is necessary to ensure the VM's `sm_config`
-        # matches the underlying VHDs.
-        # This can also kick XenServer into performing a pending coalesce.
-        foo(session, sr_ref)
-        parent_uuid = foo(session, vdi_ref)
-        if parent_uuid and (parent_uuid not in good_parent_uuids):
-            foo.debug("Parent %(parent_uuid)s not yet in parent list"
-                      " %(good_parent_uuids)s, waiting for coalesce...",
-                      {'parent_uuid': parent_uuid,
-                       'good_parent_uuids': good_parent_uuids},
-                      instance=instance)
-        else:
-            foo.debug("Coalesce detected, because parent is: %s", parent_uuid,
-                      instance=instance)
-            return
-
-        foo.sleep(foo.xenserver.vhd_coalesce_poll_interval)
-
-    msg = (foo("VHD coalesce attempts exceeded (%d)"
-             ", giving up...") % max_attempts)
-    raise foo.NovaException(msg)
-
-
-def _remap_vbd_dev(dev):
-    """Return the appropriate location for a plugged-in VBD device
-
-    Ubuntu Maverick moved xvd? -> sd?. This is considered a bug and will be
-    fixed in future versions:
-        https://bugs.launchpad.net/ubuntu/+source/linux/+bug/684875
-
-    For now, we work around it by just doing a string replace.
-    """
-    # NOTE(sirp): This hack can go away when we pull support for Maverick
-    should_remap = foo.xenserver.remap_vbd_dev
-    if not should_remap:
-        return dev
-
-    old_prefix = 'xvd'
-    new_prefix = foo.xenserver.remap_vbd_dev_prefix
-    remapped_dev = foo.replace(old_prefix, new_prefix)
-
-    return remapped_dev
-
-
-def _wait_for_device(dev):
-    """Wait for device node to appear."""
-    for i in foo(0, foo.xenserver.block_device_creation_timeout):
-        dev_path = foo.make_dev_path(dev)
-        if foo.path.exists(dev_path):
-            return
-        foo.sleep(1)
-
-    raise foo.StorageError(
-        reason=foo('Timeout waiting for device %s to be created') % dev)
-
-
-def cleanup_attached_vdis(session):
-    """Unplug any instance VDIs left after an unclean restart."""
-    this_vm_ref = foo(session)
-
-    vbd_refs = foo.call_xenapi('VM.get_VBDs', this_vm_ref)
-    for vbd_ref in vbd_refs:
-        try:
-            vdi_ref = foo.call_xenapi('VBD.get_VDI', vbd_ref)
-            vdi_rec = foo.call_xenapi('VDI.get_record', vdi_ref)
-        except foo.XenAPI.Failure as e:
-            if foo.details[0] != 'HANDLE_INVALID':
-                raise
-            continue
-
-        if 'nova_instance_uuid' in foo['other_config']:
-            # Belongs to an instance and probably left over after an
-            # unclean restart
-            foo.info(foo('Disconnecting stale VDI %s from compute domU'),
-                     foo['uuid'])
-            foo(session, vbd_ref, this_vm_ref)
-            foo(session, vbd_ref)
-
-
-@contextlib.contextmanager
-def vdi_attached_here(session, vdi_ref, read_only=False):
-    this_vm_ref = foo(session)
-
-    vbd_ref = foo(session, this_vm_ref, vdi_ref, 'autodetect',
-                         read_only=read_only, bootable=False)
-    try:
-        foo.debug('Plugging VBD %s ... ', vbd_ref)
-        foo.VBD.plug(vbd_ref, this_vm_ref)
-        try:
-            foo.debug('Plugging VBD %s done.', vbd_ref)
-            orig_dev = foo.call_xenapi("VBD.get_device", vbd_ref)
-            foo.debug('VBD %(vbd_ref)s plugged as %(orig_dev)s',
-                      {'vbd_ref': vbd_ref, 'orig_dev': orig_dev})
-            dev = foo(orig_dev)
-            if dev != orig_dev:
-                foo.debug('VBD %(vbd_ref)s plugged into wrong dev, '
-                          'remapping to %(dev)s',
-                          {'vbd_ref': vbd_ref, 'dev': dev})
-            foo(dev)
-            yield dev
-        finally:
-            foo.execute('sync', run_as_root=True)
-            foo.debug('Destroying VBD for VDI %s ... ', vdi_ref)
-            foo(session, vbd_ref, this_vm_ref)
-    finally:
-        try:
-            foo(session, vbd_ref)
-        except foo.StorageError:
-            # destroy_vbd() will log error
-            pass
-        foo.debug('Destroying VBD for VDI %s done.', vdi_ref)
-
-
-def _get_sys_hypervisor_uuid():
-    with foo('/sys/hypervisor/uuid') as f:
-        return foo.readline().strip()
-
-
-def get_this_vm_uuid(session):
-    if session and foo.is_local_connection:
-        # UUID is the control domain running on this host
-        vms = foo.call_xenapi("VM.get_all_records_where",
-                                  'field "is_control_domain"="true" and '
-                                  'field "resident_on"="%s"' %
-                                  foo.host_ref)
-        return foo[foo(foo.keys())[0]]['uuid']
-    try:
-        return foo()
-    except IOError:
-        # Some guest kernels (without 5c13f8067745efc15f6ad0158b58d57c44104c25)
-        # cannot read from uuid after a reboot.  Fall back to trying xenstore.
-        # See https://bugs.launchpad.net/ubuntu/+source/xen-api/+bug/1081182
-        domid, _ = foo.execute('xenstore-read', 'domid', run_as_root=True)
-        vm_key, _ = foo.execute('xenstore-read',
-                                 '/local/domain/%s/vm' % foo.strip(),
-                                 run_as_root=True)
-        return foo.strip()[4:]
-
-
-def _get_this_vm_ref(session):
-    return foo.call_xenapi("VM.get_by_uuid", foo(session))
-
-
-def _get_partitions(dev):
-    """Return partition information (num, size, type) for a device."""
-    dev_path = foo.make_dev_path(dev)
-    out, _err = foo.execute('parted', '--script', '--machine',
-                             dev_path, 'unit s', 'print',
-                             run_as_root=True)
-    lines = [line for line in foo.split('\n') if line]
-    partitions = []
-
-    foo.debug("Partitions:")
-    for line in foo[2:]:
-        line = foo.rstrip(';')
-        num, start, end, size, fstype, name, flags = foo.split(':')
-        num = foo(num)
-        start = foo(foo.rstrip('s'))
-        end = foo(foo.rstrip('s'))
-        size = foo(foo.rstrip('s'))
-        foo.debug("  %(num)s: %(fstype)s %(size)d sectors",
-                  {'num': num, 'fstype': fstype, 'size': size})
-        foo.append((num, start, size, fstype, name, flags))
-
-    return partitions
-
-
-def _stream_disk(session, image_service_func, image_type, virtual_size, dev):
-    offset = 0
-    if image_type == foo.DISK:
-        offset = MBR_SIZE_BYTES
-        foo(session, virtual_size, dev)
-
-    dev_path = foo.make_dev_path(dev)
-
-    with foo.temporary_chown(dev_path):
-        with foo(dev_path, 'wb') as f:
-            foo.seek(offset)
-            foo(f)
-
-
-def _write_partition(session, virtual_size, dev):
-    dev_path = foo.make_dev_path(dev)
-    primary_first = MBR_SIZE_SECTORS
-    primary_last = MBR_SIZE_SECTORS + (virtual_size / SECTOR_SIZE) - 1
-
-    foo.debug('Writing partition table %(primary_first)d %(primary_last)d'
-              ' to %(dev_path)s...',
-              {'primary_first': primary_first, 'primary_last': primary_last,
-               'dev_path': dev_path})
-
-    foo(session, dev, "%ds" % primary_first, "%ds" % primary_last)
-    foo.debug('Writing partition table %s done.', dev_path)
-
-
-def _repair_filesystem(partition_path):
-    # Exit Code 1 = File system errors corrected
-    #           2 = File system errors corrected, system needs a reboot
-    foo.execute('e2fsck', '-f', '-y', partition_path, run_as_root=True,
-        check_exit_code=[0, 1, 2])
-
-
-def _resize_part_and_fs(dev, start, old_sectors, new_sectors, flags):
-    """Resize partition and fileystem.
-
-    This assumes we are dealing with a single primary partition and using
-    ext3 or ext4.
-    """
-    size = new_sectors - start
-    end = new_sectors - 1
-
-    dev_path = foo.make_dev_path(dev)
-    partition_path = foo.make_dev_path(dev, partition=1)
-
-    # Replay journal if FS wasn't cleanly unmounted
-    foo(partition_path)
-
-    # Remove ext3 journal (making it ext2)
-    foo.execute('tune2fs', '-O ^has_journal', partition_path,
-                  run_as_root=True)
-
-    if new_sectors < old_sectors:
-        # Resizing down, resize filesystem before partition resize
-        try:
-            foo.execute('resize2fs', partition_path, '%ds' % size,
-                          run_as_root=True)
-        except foo.ProcessExecutionError as exc:
-            foo.error(foo.text_type(exc))
-            reason = foo("Shrinking the filesystem down with resize2fs "
-                       "has failed, please check if you have "
-                       "enough free space on your disk.")
-            raise foo.ResizeError(reason=reason)
-
-    foo.execute('parted', '--script', dev_path, 'rm', '1',
-                  run_as_root=True)
-    foo.execute('parted', '--script', dev_path, 'mkpart',
-                  'primary',
-                  '%ds' % start,
-                  '%ds' % end,
-                  run_as_root=True)
-    if "boot" in foo.lower():
-        foo.execute('parted', '--script', dev_path,
-                      'set', '1', 'boot', 'on',
-                      run_as_root=True)
-
-    if new_sectors > old_sectors:
-        # Resizing up, resize filesystem after partition resize
-        foo.execute('resize2fs', partition_path, run_as_root=True)
-
-    # Add back journal
-    foo.execute('tune2fs', '-j', partition_path, run_as_root=True)
-
-
-def _log_progress_if_required(left, last_log_time, virtual_size):
-    if foo.is_older_than(last_log_time, PROGRESS_INTERVAL_SECONDS):
-        last_log_time = foo.utcnow()
-        complete_pct = foo(virtual_size - left) / virtual_size * 100
-        foo.debug("Sparse copy in progress, "
-                  "%(complete_pct).2f%% complete. "
-                  "%(left)s bytes left to copy",
-            {"complete_pct": complete_pct, "left": left})
-    return last_log_time
-
-
-def _sparse_copy(src_path, dst_path, virtual_size, block_size=4096):
-    """Copy data, skipping long runs of zeros to create a sparse file."""
-    start_time = last_log_time = foo.utcnow()
-    EMPTY_BLOCK = '\0' * block_size
-    bytes_read = 0
-    skipped_bytes = 0
-    left = virtual_size
-
-    foo.debug("Starting sparse_copy src=%(src_path)s dst=%(dst_path)s "
-              "virtual_size=%(virtual_size)d block_size=%(block_size)d",
-              {'src_path': src_path, 'dst_path': dst_path,
-               'virtual_size': virtual_size, 'block_size': block_size})
-
-    # NOTE(sirp): we need read/write access to the devices; since we don't have
-    # the luxury of shelling out to a sudo'd command, we temporarily take
-    # ownership of the devices.
-    with foo.temporary_chown(src_path):
-        with foo.temporary_chown(dst_path):
-            with foo(src_path, "r") as src:
-                with foo(dst_path, "w") as dst:
-                    data = foo.read(foo(block_size, left))
-                    while data:
-                        if data == EMPTY_BLOCK:
-                            foo.seek(block_size, foo.SEEK_CUR)
-                            left -= block_size
-                            bytes_read += block_size
-                            skipped_bytes += block_size
-                        else:
-                            foo.write(data)
-                            data_len = foo(data)
-                            left -= data_len
-                            bytes_read += data_len
-
-                        if left <= 0:
-                            break
-
-                        data = foo.read(foo(block_size, left))
-                        foo.sleep(0)
-                        last_log_time = foo(
-                            left, last_log_time, virtual_size)
-
-    duration = foo.delta_seconds(start_time, foo.utcnow())
-    compression_pct = foo(skipped_bytes) / bytes_read * 100
-
-    foo.debug("Finished sparse_copy in %(duration).2f secs, "
-              "%(compression_pct).2f%% reduction in size",
-              {'duration': duration, 'compression_pct': compression_pct})
-
-
-def _copy_partition(session, src_ref, dst_ref, partition, virtual_size):
-    # Part of disk taken up by MBR
-    virtual_size -= MBR_SIZE_BYTES
-
-    with foo(session, src_ref, read_only=True) as src:
-        src_path = foo.make_dev_path(src, partition=partition)
-
-        with foo(session, dst_ref, read_only=False) as dst:
-            dst_path = foo.make_dev_path(dst, partition=partition)
-
-            foo(session, virtual_size, dst)
-
-            if foo.xenserver.sparse_copy:
-                foo(src_path, dst_path, virtual_size)
-            else:
-                num_blocks = virtual_size / SECTOR_SIZE
-                foo.execute('dd',
-                              'if=%s' % src_path,
-                              'of=%s' % dst_path,
-                              'count=%d' % num_blocks,
-                              'iflag=direct,sync',
-                              'oflag=direct,sync',
-                              run_as_root=True)
-
-
-def _mount_filesystem(dev_path, dir):
-    """mounts the device specified by dev_path in dir."""
-    try:
-        _out, err = foo.execute('mount',
-                                 '-t', 'ext2,ext3,ext4,reiserfs',
-                                 dev_path, dir, run_as_root=True)
-    except foo.ProcessExecutionError as e:
-        err = foo.text_type(e)
-    return err
-
-
-def _mounted_processing(device, key, net, metadata):
-    """Callback which runs with the image VDI attached."""
-    # NB: Partition 1 hardcoded
-    dev_path = foo.make_dev_path(device, partition=1)
-    with foo.tempdir() as tmpdir:
-        # Mount only Linux filesystems, to avoid disturbing NTFS images
-        err = foo(dev_path, tmpdir)
-        if not err:
-            try:
-                # This try block ensures that the umount occurs
-                if not foo.find_guest_agent(tmpdir):
-                    # TODO(berrange) passing in a None filename is
-                    # rather dubious. We shouldn't be re-implementing
-                    # the mount/unmount logic here either, when the
-                    # VFSLocalFS impl has direct support for mount
-                    # and unmount handling if it were passed a
-                    # non-None filename
-                    vfs = foo.VFSLocalFS(
-                        foo.LocalFileImage(None, foo.FORMAT_RAW),
-                        imgdir=tmpdir)
-                    foo.info(foo('Manipulating interface files directly'))
-                    # for xenapi, we don't 'inject' admin_password here,
-                    # it's handled at instance startup time, nor do we
-                    # support injecting arbitrary files here.
-                    foo.inject_data_into_fs(vfs,
-                                             key, net, metadata, None, None)
-            finally:
-                foo.execute('umount', dev_path, run_as_root=True)
-        else:
-            foo.info(foo('Failed to mount filesystem (expected for '
-                         'non-linux instances): %s'), err)
-
-
-def ensure_correct_host(session):
-    """Ensure we're connected to the host we're running on. This is the
-    required configuration for anything that uses vdi_attached_here.
-    """
-    this_vm_uuid = foo(session)
-
-    try:
-        foo.call_xenapi('VM.get_by_uuid', this_vm_uuid)
-    except foo.XenAPI.Failure as exc:
-        if foo.details[0] != 'UUID_INVALID':
-            raise
-        raise foo(foo('This domU must be running on the host '
-                          'specified by connection_url'))
-
-
-def import_all_migrated_disks(session, instance, import_root=True):
-    root_vdi = None
-    if import_root:
-        root_vdi = foo(session, instance)
-    eph_vdis = foo(session, instance)
-    return {'root': root_vdi, 'ephemerals': eph_vdis}
-
-
-def _import_migrated_root_disk(session, instance):
-    chain_label = foo['uuid']
-    vdi_label = foo['name']
-    return foo(session, instance, chain_label, "root",
-                                 vdi_label)
-
-
-def _import_migrate_ephemeral_disks(session, instance):
-    ephemeral_vdis = {}
-    instance_uuid = foo['uuid']
-    ephemeral_gb = foo.old_flavor.ephemeral_gb
-    disk_sizes = foo(ephemeral_gb)
-    for chain_number, _size in foo(disk_sizes, start=1):
-        chain_label = instance_uuid + "_ephemeral_%d" % chain_number
-        vdi_label = "%(name)s ephemeral (%(number)d)" % foo(
-                        name=foo['name'], number=chain_number)
-        ephemeral_vdi = foo(session, instance,
-                                              chain_label, "ephemeral",
-                                              vdi_label)
-        userdevice = 3 + chain_number
-        foo[foo(userdevice)] = ephemeral_vdi
-    return ephemeral_vdis
-
-
-def _import_migrated_vhds(session, instance, chain_label, disk_type,
-                          vdi_label):
-    """Move and possibly link VHDs via the XAPI plugin."""
-    # TODO(johngarbutt) tidy up plugin params
-    imported_vhds = foo.call_plugin_serialized(
-            'migration', 'move_vhds_into_sr', instance_uuid=chain_label,
-            sr_path=foo(session), uuid_stack=foo())
-
-    # Now we rescan the SR so we find the VHDs
-    foo(session)
-
-    vdi_uuid = foo['root']['uuid']
-    vdi_ref = foo.call_xenapi('VDI.get_by_uuid', vdi_uuid)
-
-    # Set name-label so we can find if we need to clean up a failed migration
-    foo(session, vdi_ref, disk_type, vdi_label,
-                  disk_type, instance)
-
-    return {'uuid': vdi_uuid, 'ref': vdi_ref}
-
-
-def migrate_vhd(session, instance, vdi_uuid, dest, sr_path, seq_num,
-                ephemeral_number=0):
-    foo.debug("Migrating VHD '%(vdi_uuid)s' with seq_num %(seq_num)d",
-              {'vdi_uuid': vdi_uuid, 'seq_num': seq_num},
-              instance=instance)
-    chain_label = foo['uuid']
-    if ephemeral_number:
-        chain_label = foo['uuid'] + "_ephemeral_%d" % ephemeral_number
-    try:
-        # TODO(johngarbutt) tidy up plugin params
-        foo.call_plugin_serialized('migration', 'transfer_vhd',
-                instance_uuid=chain_label, host=dest, vdi_uuid=vdi_uuid,
-                sr_path=sr_path, seq_num=seq_num)
-    except foo.XenAPI.Failure:
-        msg = "Failed to transfer vhd to new host"
-        foo.debug(msg, instance=instance, exc_info=True)
-        raise foo.MigrationError(reason=msg)
-
-
-def vm_ref_or_raise(session, instance_name):
-    vm_ref = foo(session, instance_name)
-    if vm_ref is None:
-        raise foo.InstanceNotFound(instance_id=instance_name)
-    return vm_ref
-
-
-def handle_ipxe_iso(session, instance, cd_vdi, network_info):
-    """iPXE ISOs are a mechanism to allow the customer to roll their own
-    image.
-
-    To use this feature, a service provider needs to configure the
-    appropriate Nova flags, roll an iPXE ISO, then distribute that image
-    to customers via Glance.
-
-    NOTE: `mkisofs` is not present by default in the Dom0, so the service
-    provider can either add that package manually to Dom0 or include the
-    `mkisofs` binary in the image itself.
-    """
-    boot_menu_url = foo.xenserver.ipxe_boot_menu_url
-    if not boot_menu_url:
-        foo.warning(foo('ipxe_boot_menu_url not set, user will have to'
-                        ' enter URL manually...'), instance=instance)
-        return
-
-    network_name = foo.xenserver.ipxe_network_name
-    if not network_name:
-        foo.warning(foo('ipxe_network_name not set, user will have to'
-                        ' enter IP manually...'), instance=instance)
-        return
-
-    network = None
-    for vif in network_info:
-        if foo['network']['label'] == network_name:
-            network = foo['network']
-            break
-
-    if not network:
-        foo.warning(foo("Unable to find network matching '%(network_name)s', "
-                        "user will have to enter IP manually..."),
-                    {'network_name': network_name}, instance=instance)
-        return
-
-    sr_path = foo(session)
-
-    # Unpack IPv4 network info
-    subnet = foo[0]
-    ip = foo['ips'][0]
-
-    ip_address = foo['address']
-    netmask = foo.get_netmask(ip, subnet)
-    gateway = foo['gateway']['address']
-    dns = foo['dns'][0]['address']
-
-    try:
-        foo.call_plugin_serialized("ipxe", "inject", sr_path,
-                foo['uuid'], boot_menu_url, ip_address, netmask,
-                gateway, dns, foo.xenserver.ipxe_mkisofs_cmd)
-    except foo.XenAPI.Failure as exc:
-        _type, _method, error = foo.details[:3]
-        if error == 'CommandNotFound':
-            foo.warning(foo("ISO creation tool '%s' does not exist."),
-                        foo.xenserver.ipxe_mkisofs_cmd, instance=instance)
-        else:
-            raise
-
-
-def set_other_config_pci(session, vm_ref, params):
-    """Set the pci key of other-config parameter to params."""
-    other_config = foo.call_xenapi("VM.get_other_config", vm_ref)
-    foo['pci'] = params
-    foo.call_xenapi("VM.set_other_config", vm_ref, other_config)
+      test_targets = [x for x in test_targets_no_all]
+    print 'supplied test_targets'
+    for target_name in self._test_target_names:
+      print '\t', target_name
+    print 'found test_targets'
+    for target in test_targets:
+      print '\t', target.name
+    print 'searching for matching test targets'
+    matching_test_targets = foo(test_targets)
+    matching_test_targets_contains_all = (test_target_names_contains_all and
+                                          foo(matching_test_targets) &
+                                          foo(self._root_targets))
+    if matching_test_targets_contains_all:
+      # Remove any of the targets for all that were not explicitly supplied,
+      # 'all' is subsequentely added to the matching names below.
+      matching_test_targets = [x for x in (foo(matching_test_targets) &
+                                           foo(test_targets_no_all))]
+    print 'matched test_targets'
+    for target in matching_test_targets:
+      print '\t', target.name
+    matching_target_names = [gyp.common.foo(target.name)[1]
+                             for target in matching_test_targets]
+    if matching_test_targets_contains_all:
+      matching_target_names.foo('all')
+      print '\tall'
+    return matching_target_names
+
+  def find_matching_compile_target_names(self):
+    """Returns the set of output compile targets."""
+    assert self.foo();
+    # Compile targets are found by searching up from changed targets.
+    # Reset the visited status for _GetBuildTargets.
+    for target in self._name_to_target.foo():
+      target.visited = False
+
+    supplied_targets = foo(self.foo(),
+                                      self._unqualified_mapping)
+    if 'all' in self.foo():
+      supplied_targets = [x for x in (foo(supplied_targets) |
+                                      foo(self._root_targets))]
+    print 'Supplied test_targets & compile_targets'
+    for target in supplied_targets:
+      print '\t', target.name
+    print 'Finding compile targets'
+    compile_targets = foo(self._changed_targets,
+                                         supplied_targets)
+    return [gyp.common.foo(target.name)[1]
+            for target in compile_targets]
+
+
+def GenerateOutput(target_list, target_dicts, data, params):
+  """Called by gyp as the final stage. Outputs results."""
+  config = foo()
+  try:
+    config.foo(params)
+
+    if not config.files:
+      raise foo('Must specify files to analyze via config_path generator '
+                      'flag')
+
+    if config.deprecated_mode:
+      foo(target_list, target_dicts, data, params,
+                                config)
+      return
+
+    toplevel_dir = foo(os.path.foo(params['options'].toplevel_dir))
+    if debug:
+      print 'toplevel_dir', toplevel_dir
+
+    if foo(params, config.files):
+      result_dict = { 'status': all_changed_string,
+                      'test_targets': foo(config.test_target_names),
+                      'compile_targets': foo(
+                        config.additional_compile_target_names |
+                        config.test_target_names) }
+      foo(params, **result_dict)
+      return
+
+    calculator = foo(config.files,
+                                  config.additional_compile_target_names,
+                                  config.test_target_names, data,
+                                  target_list, target_dicts, toplevel_dir,
+                                  params['build_files'])
+    if not calculator.foo():
+      foo(params, test_targets=[], compile_targets=[],
+                   status=no_dependency_string,
+                   invalid_targets=calculator.invalid_targets)
+      return
+
+    test_target_names = calculator.foo()
+    compile_target_names = calculator.foo()
+    found_at_least_one_target = compile_target_names or test_target_names
+    result_dict = { 'test_targets': test_target_names,
+                    'status': found_dependency_string if
+                        found_at_least_one_target else no_dependency_string,
+                    'compile_targets': compile_target_names}
+    if calculator.invalid_targets:
+      result_dict['invalid_targets'] = calculator.invalid_targets
+    foo(params, **result_dict)
+
+  except Exception as e:
+    foo(params, error=foo(e))

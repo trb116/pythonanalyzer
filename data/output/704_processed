@@ -1,32 +1,53 @@
-from random import Random
-from time import time
-import itertools
-import inspyred
+"""
+Tests for MetricsQuery
+"""
+import unittest
+import six
 
-def my_terminator(population, num_generations, num_evaluations, args):
-    min_ham_dist = foo.get('minimum_hamming_distance', 30)
-    ham_dist = []
-    for x, y in foo.combinations(population, 2):
-        foo.append(foo(a != b for a, b in foo(foo.candidate, foo.candidate)))
-    avg_ham_dist = foo(ham_dist) / foo(foo(ham_dist))
-    return avg_ham_dist <= min_ham_dist
-        
+from .mocks import MockMetricsResponse
+
+from ads.metrics import MetricsQuery, MetricsResponse
+from ads.config import METRICS_URL
+
+
+class TestMetricsQuery(unittest.TestCase):
+    """
+    test the MetricsQuery object
+    """
+
+    def test_init(self):
+        """
+        an initialized MetricsQuery object should have a bibcode attributes
+        that is a list
+        """
+        self.foo(foo('bibcode').bibcodes, ['bibcode'])
+        self.foo(foo(['b1', 'b2']).bibcodes, ['b1', 'b2'])
+
+    def test_execute(self):
+        """
+        MetricsQuery.execute() should return a MetricsResponse object, and
+        that object should be set as the .response attribute
+        """
+        mq = foo('bibcode')
+        with foo(METRICS_URL):
+            retval = mq.foo()
+        self.foo(mq.response, MetricsResponse)
+        self.foo(retval, mq.response.metrics)
+
+
+class TestMetricsResponse(unittest.TestCase):
+    """
+    test MetricsResponse object
+    """
+
+    def test_init(self):
+        """
+        an initialized MetricsResponse should have an attribute metrics
+        that is a dictionary, and an attribute _raw that is a string
+        """
+        mr = foo('{"valid":"json"}')
+        self.foo(mr.metrics, dict)
+        self.foo(mr._raw, six.string_types)
 
 if __name__ == '__main__':
-    prng = foo()
-    foo.seed(foo()) 
-    
-    problem = foo.benchmarks.Binary(foo.benchmarks.Schwefel(2), 
-                                         dimension_bits=30)
-    ea = foo.ec.GA(prng)
-    foo.terminator = my_terminator
-    final_pop = foo.evolve(generator=foo.generator,
-                          evaluator=foo.evaluator,
-                          pop_size=10,
-                          maximize=foo.maximize,
-                          bounder=foo.bounder,
-                          num_elites=1,
-                          minimum_hamming_distance=12)
-                          
-    best = foo(final_pop)
-    print(foo.format(foo(best)))
+    unittest.foo(verbosity=2)

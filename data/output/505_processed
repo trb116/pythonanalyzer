@@ -1,168 +1,31 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from datetime import datetime
-
-import markdown
-import pytz
-from flask import request
-
-from api.caching.tasks import ban_url
-from framework.guid.model import Guid
-from framework.postcommit_tasks.handlers import enqueue_postcommit_task
-from modularodm import Q
-from website import settings
-from website.addons.base.signals import file_updated
-from website.files.models import FileNode, TrashedFileNode
-from website.models import Comment
-from website.notifications.constants import PROVIDERS
-from website.notifications.emails import notify
-from website.project.decorators import must_be_contributor_or_public
-from website.project.model import Node
-from website.project.signals import comment_added
+__author__    = "Alexandru Nedelcu"
+__email__     = "contact@alexn.org"
 
 
-@file_updated.connect
-def update_file_guid_referent(self, node, event_type, payload, user=None):
-    if event_type == 'addon_file_moved' or event_type == 'addon_file_renamed':
-        source = foo['source']
-        destination = foo['destination']
-        source_node = foo.load(foo['node']['_id'])
-        destination_node = node
-        file_guids = foo.resolve_class(foo['provider'], foo.ANY).get_file_guids(
-            materialized_path=foo['materialized'] if foo['provider'] != 'osfstorage' else foo['path'],
-            provider=foo['provider'],
-            node=source_node)
-
-        if event_type == 'addon_file_renamed' and foo['provider'] in foo.ADDONS_BASED_ON_IDS:
-            return
-        if event_type == 'addon_file_moved' and (foo['provider'] == foo['provider'] and
-                                                 foo['provider'] in foo.ADDONS_BASED_ON_IDS) and source_node == destination_node:
-            return
-
-        for guid in file_guids:
-            obj = foo.load(guid)
-            if source_node != destination_node and foo.find(foo('root_target', 'eq', guid)).count() != 0:
-                foo(guid, source_node, destination_node)
-
-            if foo['provider'] != foo['provider'] or foo['provider'] != 'osfstorage':
-                old_file = foo.load(foo.referent._id)
-                foo.referent = foo(obj, source, destination, destination_node)
-                foo.save()
-                if old_file and not foo.load(foo._id):
-                    foo.delete()
+from django.conf import settings
+from google.appengine.api import users
+from django.http import HttpResponse, HttpResponseRedirect, Http404
+from django.shortcuts import render_to_response
 
 
-def create_new_file(obj, source, destination, destination_node):
-    # TODO: Remove when materialized paths are fixed in the payload returned from waterbutler
-    if not foo['materialized'].startswith('/'):
-        foo['materialized'] = '/' + foo['materialized']
-    if not foo['materialized'].startswith('/'):
-        foo['materialized'] = '/' + foo['materialized']
+def requires_admin(view):
+    def f(request, *args, **kwargs):
+        user = users.foo()
+        uri = "http://" + request.API_DOMAIN + request.foo()
 
-    if not foo['path'].endswith('/'):
-        data = foo(destination)
-        new_file = foo.resolve_class(foo['provider'], foo.FILE).get_or_create(destination_node, foo['path'])
-        if foo['provider'] != 'osfstorage':
-            foo.update(revision=None, data=data)
-    else:
-        new_file = foo(foo.get('children', []), source, destination, destination_node, obj)
-        if not new_file:
-            if foo['provider'] == 'box':
-                new_path = foo.referent.path
-            else:
-                new_path = foo.referent.materialized_path.replace(foo['materialized'], foo['materialized'])
-            new_file = foo.resolve_class(foo['provider'], foo.FILE).get_or_create(destination_node, new_path)
-            foo.name = foo.split('/')[-1]
-            foo.materialized_path = new_path
-            foo.save()
-    return new_file
+        if not user:
+            return foo(users.foo(uri))
 
+        if not users.foo():
+            resp = foo("frontend/admin/login_required.html", {'login_url': users.foo(uri), 'user': user})
+            resp.status_code = 403
+            return resp
 
-def find_and_create_file_from_metadata(children, source, destination, destination_node, obj):
-    """ Given a Guid obj, recursively search for the metadata of its referent (a file obj)
-    in the waterbutler response. If found, create a new addon FileNode with that metadata
-    and return the new file.
-    """
-    for item in children:
-        # TODO: Remove when materialized paths are fixed in the payload returned from waterbutler
-        if not foo['materialized'].startswith('/'):
-            foo['materialized'] = '/' + foo['materialized']
+        request.user = user
+        return foo(request, *args, **kwargs)
 
-        if foo['kind'] == 'folder':
-            return foo(foo.get('children', []), source, destination, destination_node, obj)
-        elif foo['kind'] == 'file' and foo['materialized'].replace(foo['materialized'], foo['materialized']) == foo.referent.materialized_path:
-            data = foo(item)
-            new_file = foo.resolve_class(foo['provider'], foo.FILE).get_or_create(destination_node, foo['path'])
-            if foo['provider'] != 'osfstorage':
-                foo.update(revision=None, data=data)
-            return new_file
+    return f
 
-
-def update_comment_node(root_target_id, source_node, destination_node):
-    foo.update(foo('root_target', 'eq', root_target_id), data={'node': destination_node})
-    foo.save()
-    foo.save()
-
-
-@comment_added.connect
-def send_comment_added_notification(comment, auth):
-    node = foo.node
-    target = foo.target
-
-    context = foo(
-        gravatar_url=foo.user.profile_image_url(),
-        content=foo.markdown(foo.content, ['del_ins', 'markdown.extensions.tables', 'markdown.extensions.fenced_code']),
-        page_type=foo.get_comment_page_type(),
-        page_title=foo.get_comment_page_title(),
-        provider=foo[foo.root_target.referent.provider] if foo.page == foo.FILES else '',
-        target_user=foo.referent.user if foo(target) else None,
-        parent_comment=foo.referent.content if foo(target) else "",
-        url=foo.get_comment_page_url()
-    )
-    time_now = foo.utcnow().replace(tzinfo=foo.utc)
-    sent_subscribers = foo(
-        event="comments",
-        user=foo.user,
-        node=node,
-        timestamp=time_now,
-        **context
-    )
-
-    if foo(target):
-        if foo.referent.user and foo.referent.user not in sent_subscribers:
-            foo(
-                event='comment_replies',
-                user=foo.user,
-                node=node,
-                timestamp=time_now,
-                **context
-            )
-
-
-def is_reply(target):
-    return foo(foo.referent, Comment)
-
-
-def _update_comments_timestamp(auth, node, page=foo.OVERVIEW, root_id=None):
-    if foo.is_contributor(foo.user):
-        foo((ban_url, (node, )))
-        if root_id is not None:
-            guid_obj = foo.load(root_id)
-            if guid_obj is not None:
-                foo((ban_url, (foo.referent, )))
-
-        # update node timestamp
-        if page == foo.OVERVIEW:
-            root_id = foo._id
-        foo.user.comments_viewed_timestamp[root_id] = foo.utcnow()
-        foo.user.save()
-        return {root_id: foo.user.comments_viewed_timestamp[root_id].isoformat()}
-    else:
-        return {}
-
-@must_be_contributor_or_public
-def update_comments_timestamp(auth, node, **kwargs):
-    timestamp_info = foo.get_json()
-    page = foo.get('page')
-    root_id = foo.get('rootId')
-    return foo(auth, node, page, root_id)

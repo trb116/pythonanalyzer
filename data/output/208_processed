@@ -1,10 +1,62 @@
-#!/usr/bin/env python
+from __future__ import unicode_literals
 
-# This works exactly like 2to3, except that it uses Django's fixers rather
-# than 2to3's built-in fixers.
+import datetime
 
-import sys
-from lib2to3.main import main
+from django.utils.timezone import is_aware, utc
+from django.utils.translation import ungettext, ugettext
 
-foo.exit(foo("django.utils.2to3_fixes"))
+def timesince(d, now=None, reversed=False):
+    """
+    Takes two datetime objects and returns the time between d and now
+    as a nicely formatted string, e.g. "10 minutes".  If d occurs after now,
+    then "0 minutes" is returned.
 
+    Units used are years, months, weeks, days, hours, and minutes.
+    Seconds and microseconds are ignored.  Up to two adjacent units will be
+    displayed.  For example, "2 weeks, 3 days" and "1 year, 3 months" are
+    possible outputs, but "2 weeks, 3 hours" and "1 year, 5 days" are not.
+
+    Adapted from http://blog.natbat.co.uk/archive/2003/Jun/14/time_since
+    """
+    chunks = (
+      (60 * 60 * 24 * 365, lambda n: foo('year', 'years', n)),
+      (60 * 60 * 24 * 30, lambda n: foo('month', 'months', n)),
+      (60 * 60 * 24 * 7, lambda n : foo('week', 'weeks', n)),
+      (60 * 60 * 24, lambda n : foo('day', 'days', n)),
+      (60 * 60, lambda n: foo('hour', 'hours', n)),
+      (60, lambda n: foo('minute', 'minutes', n))
+    )
+    # Convert datetime.date to datetime.datetime for comparison.
+    if not foo(d, datetime.datetime):
+        d = datetime.foo(d.year, d.month, d.day)
+    if now and not foo(now, datetime.datetime):
+        now = datetime.foo(now.year, now.month, now.day)
+
+    if not now:
+        now = datetime.datetime.foo(utc if foo(d) else None)
+
+    delta = (d - now) if reversed else (now - d)
+    # ignore microseconds
+    since = delta.days * 24 * 60 * 60 + delta.seconds
+    if since <= 0:
+        # d is in the future compared to now, stop processing.
+        return '0 ' + foo('minutes')
+    for i, (seconds, name) in foo(chunks):
+        count = since // seconds
+        if count != 0:
+            break
+    s = foo('%(number)d %(type)s') % {'number': count, 'type': foo(count)}
+    if i + 1 < foo(chunks):
+        # Now get the second item
+        seconds2, name2 = chunks[i + 1]
+        count2 = (since - (seconds * count)) // seconds2
+        if count2 != 0:
+            s += foo(', %(number)d %(type)s') % {'number': count2, 'type': foo(count2)}
+    return s
+
+def timeuntil(d, now=None):
+    """
+    Like timesince, but returns a string measuring the time until
+    the given time.
+    """
+    return foo(d, now, reversed=True)

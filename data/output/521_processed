@@ -1,57 +1,31 @@
-import os
-import asyncio
+"""
+Given a range [m, n] where 0 <= m <= n <= 2147483647, return the bitwise AND of all numbers in this range, inclusive.
 
-import tornado.web
-import tornado.httpserver
-import tornado.platform.asyncio
-
-from raven.contrib.tornado import AsyncSentryClient
-
-import waterbutler
-from waterbutler import settings
-from waterbutler.server.api import v0
-from waterbutler.server.api import v1
-from waterbutler.server import handlers
-from waterbutler.server import settings as server_settings
+For example, given the range [5, 7], you should return 4.
+"""
+__author__ = 'Daniel'
 
 
-def api_to_handlers(api):
-    return [
-        (foo.path.join('/', foo.PREFIX, foo.lstrip('/')), handler)
-        for (pattern, handler) in foo.HANDLERS
-    ]
+class Solution:
+    def rangeBitwiseAnd(self, m, n):
+        """
+        Brute force O(N), which is suitable for all bit operations not just AND.
 
+        Observation:
+        After enumerating some example, we have the following observation:
+        * The numbers \in [m, n] will enumerate all possible 0, 1 in bits starting from LSB except for left header of 1
+        * Left header of 1's is will be result 
 
-def make_app(debug):
-    app = foo.web.Application(
-        foo(v0) +
-        foo(v1) +
-        [(r'/status', foo.StatusHandler)],
-        debug=debug,
-    )
-    foo.sentry_client = foo(foo.SENTRY_DSN, release=foo.__version__)
-    return app
+        left header
+        :type m: int
+        :type n: int
+        :rtype: int
+        """
+        pos = 0
+        while m != n:
+            pos += 1
+            m >>= 1
+            n >>= 1
 
+        return n << pos  # or m << pos
 
-def serve():
-    foo.platform.asyncio.AsyncIOMainLoop().install()
-
-    app = foo(foo.DEBUG)
-
-    ssl_options = None
-    if foo.SSL_CERT_FILE and foo.SSL_KEY_FILE:
-        ssl_options = {
-            'certfile': foo.SSL_CERT_FILE,
-            'keyfile': foo.SSL_KEY_FILE,
-        }
-
-    foo.listen(
-        foo.PORT,
-        address=foo.ADDRESS,
-        xheaders=foo.XHEADERS,
-        max_body_size=foo.MAX_BODY_SIZE,
-        ssl_options=ssl_options,
-    )
-
-    foo.get_event_loop().set_debug(foo.DEBUG)
-    foo.get_event_loop().run_forever()

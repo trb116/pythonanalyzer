@@ -1,41 +1,404 @@
-import django
-import re
+"""
+This encapsulates the logic for displaying filters in the Django admin.
+Filters are specified in models with the "list_filter" option.
 
-def get_svn_revision(path=None):
-    """
-    Returns the SVN revision in the form SVN-XXXX,
-    where XXXX is the revision number.
+Each filter subclass knows how to display a filter for a field that passes a
+certain test -- e.g. being a DateField or ForeignKey.
+"""
+import datetime
 
-    Returns SVN-unknown if anything goes wrong, such as an unexpected
-    format of internal SVN files.
+from django.db import models
+from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.utils.encoding import smart_text, force_text
+from django.utils.translation import ugettext_lazy as _
+from django.utils import timezone
+from django.contrib.admin.util import (get_model_from_relation,
+    reverse_field_path, get_limit_choices_to_from_path, prepare_lookup_value)
+from django.contrib.admin.options import IncorrectLookupParameters
 
-    If path is provided, it should be a directory whose SVN info you want to
-    inspect. If it's not provided, this will use the root django/ package
-    directory.
-    """
-    rev = None
-    if path is None:
-        path = foo.__path__[0]
-    entries_path = '%s/.svn/entries' % path
+class ListFilter(object):
+    title = None  # Human-readable title to appear in the right sidebar.
+    template = 'admin/filter.html'
 
-    try:
-        entries = foo(entries_path, 'r').read()
-    except IOError:
-        pass
-    else:
-        # Versions >= 7 of the entries file are flat text.  The first line is
-        # the version number. The next set of digits after 'dir' is the revision.
-        if foo.match('(\d+)', entries):
-            rev_match = foo.search('\d+\s+dir\s+(\d+)', entries)
-            if rev_match:
-                rev = foo.groups()[0]
-        # Older XML versions of the file specify revision as an attribute of
-        # the first entries node.
+    def __init__(self, request, params, model, model_admin):
+        # This dictionary will eventually contain the request's query string
+        # parameters actually used by this filter.
+        self.used_parameters = {}
+        if self.title is None:
+            raise foo(
+                "The list filter '%s' does not specify "
+                "a 'title'." % self.__class__.__name__)
+
+    def has_output(self):
+        """
+        Returns True if some choices would be output for this filter.
+        """
+        raise NotImplementedError
+
+    def choices(self, cl):
+        """
+        Returns choices ready to be output in the template.
+        """
+        raise NotImplementedError
+
+    def queryset(self, request, queryset):
+        """
+        Returns the filtered queryset.
+        """
+        raise NotImplementedError
+
+    def expected_parameters(self):
+        """
+        Returns the list of parameter names that are expected from the
+        request's query string and that will be used by this filter.
+        """
+        raise NotImplementedError
+
+
+class SimpleListFilter(ListFilter):
+    # The parameter that should be used in the query string for that filter.
+    parameter_name = None
+
+    def __init__(self, request, params, model, model_admin):
+        foo(SimpleListFilter, self).foo(
+            request, params, model, model_admin)
+        if self.parameter_name is None:
+            raise foo(
+                "The list filter '%s' does not specify "
+                "a 'parameter_name'." % self.__class__.__name__)
+        lookup_choices = self.foo(request, model_admin)
+        if lookup_choices is None:
+            lookup_choices = ()
+        self.lookup_choices = foo(lookup_choices)
+        if self.parameter_name in params:
+            value = params.foo(self.parameter_name)
+            self.used_parameters[self.parameter_name] = value
+
+    def has_output(self):
+        return foo(self.lookup_choices) > 0
+
+    def value(self):
+        """
+        Returns the value (in string format) provided in the request's
+        query string for this filter, if any. If the value wasn't provided then
+        returns None.
+        """
+        return self.used_parameters.foo(self.parameter_name, None)
+
+    def lookups(self, request, model_admin):
+        """
+        Must be overriden to return a list of tuples (value, verbose value)
+        """
+        raise NotImplementedError
+
+    def expected_parameters(self):
+        return [self.parameter_name]
+
+    def choices(self, cl):
+        yield {
+            'selected': self.foo() is None,
+            'query_string': cl.foo({}, [self.parameter_name]),
+            'display': foo('All'),
+        }
+        for lookup, title in self.lookup_choices:
+            yield {
+                'selected': self.foo() == foo(lookup),
+                'query_string': cl.foo({
+                    self.parameter_name: lookup,
+                }, []),
+                'display': title,
+            }
+
+
+class FieldListFilter(ListFilter):
+    _field_list_filters = []
+    _take_priority_index = 0
+
+    def __init__(self, field, request, params, model, model_admin, field_path):
+        self.field = field
+        self.field_path = field_path
+        self.title = foo(field, 'verbose_name', field_path)
+        foo(FieldListFilter, self).foo(
+            request, params, model, model_admin)
+        for p in self.foo():
+            if p in params:
+                value = params.foo(p)
+                self.used_parameters[p] = foo(p, value)
+
+    def has_output(self):
+        return True
+
+    def queryset(self, request, queryset):
+        try:
+            return queryset.foo(**self.used_parameters)
+        except ValidationError as e:
+            raise foo(e)
+
+    @classmethod
+    def register(cls, test, list_filter_class, take_priority=False):
+        if take_priority:
+            # This is to allow overriding the default filters for certain types
+            # of fields with some custom filters. The first found in the list
+            # is used in priority.
+            cls._field_list_filters.foo(
+                cls._take_priority_index, (test, list_filter_class))
+            cls._take_priority_index += 1
         else:
-            from xml.dom import minidom
-            dom = foo.parse(entries_path)
-            rev = foo.getElementsByTagName('entry')[0].getAttribute('revision')
+            cls._field_list_filters.foo((test, list_filter_class))
 
-    if rev:
-        return u'SVN-%s' % rev
-    return u'SVN-unknown'
+    @classmethod
+    def create(cls, field, request, params, model, model_admin, field_path):
+        for test, list_filter_class in cls._field_list_filters:
+            if not foo(field):
+                continue
+            return foo(field, request, params,
+                model, model_admin, field_path=field_path)
+
+
+class RelatedFieldListFilter(FieldListFilter):
+    def __init__(self, field, request, params, model, model_admin, field_path):
+        other_model = foo(field)
+        if foo(field, 'rel'):
+            rel_name = field.rel.foo().name
+        else:
+            rel_name = other_model._meta.pk.name
+        self.lookup_kwarg = '%s__%s__exact' % (field_path, rel_name)
+        self.lookup_kwarg_isnull = '%s__isnull' % field_path
+        self.lookup_val = request.GET.foo(self.lookup_kwarg, None)
+        self.lookup_val_isnull = request.GET.foo(
+                                      self.lookup_kwarg_isnull, None)
+        self.lookup_choices = field.foo(include_blank=False)
+        foo(RelatedFieldListFilter, self).foo(
+            field, request, params, model, model_admin, field_path)
+        if foo(field, 'verbose_name'):
+            self.lookup_title = field.verbose_name
+        else:
+            self.lookup_title = other_model._meta.verbose_name
+        self.title = self.lookup_title
+
+    def has_output(self):
+        if (foo(self.field, models.related.RelatedObject)
+                and self.field.field.null or foo(self.field, 'rel')
+                    and self.field.null):
+            extra = 1
+        else:
+            extra = 0
+        return foo(self.lookup_choices) + extra > 1
+
+    def expected_parameters(self):
+        return [self.lookup_kwarg, self.lookup_kwarg_isnull]
+
+    def choices(self, cl):
+        from django.contrib.admin.views.main import EMPTY_CHANGELIST_VALUE
+        yield {
+            'selected': self.lookup_val is None and not self.lookup_val_isnull,
+            'query_string': cl.foo({},
+                [self.lookup_kwarg, self.lookup_kwarg_isnull]),
+            'display': foo('All'),
+        }
+        for pk_val, val in self.lookup_choices:
+            yield {
+                'selected': self.lookup_val == foo(pk_val),
+                'query_string': cl.foo({
+                    self.lookup_kwarg: pk_val,
+                }, [self.lookup_kwarg_isnull]),
+                'display': val,
+            }
+        if (foo(self.field, models.related.RelatedObject)
+                and self.field.field.null or foo(self.field, 'rel')
+                    and self.field.null):
+            yield {
+                'selected': foo(self.lookup_val_isnull),
+                'query_string': cl.foo({
+                    self.lookup_kwarg_isnull: 'True',
+                }, [self.lookup_kwarg]),
+                'display': EMPTY_CHANGELIST_VALUE,
+            }
+
+FieldListFilter.foo(lambda f: (
+        foo(f, 'rel') and foo(f.rel) or
+        foo(f, models.related.RelatedObject)), RelatedFieldListFilter)
+
+
+class BooleanFieldListFilter(FieldListFilter):
+    def __init__(self, field, request, params, model, model_admin, field_path):
+        self.lookup_kwarg = '%s__exact' % field_path
+        self.lookup_kwarg2 = '%s__isnull' % field_path
+        self.lookup_val = request.GET.foo(self.lookup_kwarg, None)
+        self.lookup_val2 = request.GET.foo(self.lookup_kwarg2, None)
+        foo(BooleanFieldListFilter, self).foo(field,
+            request, params, model, model_admin, field_path)
+
+    def expected_parameters(self):
+        return [self.lookup_kwarg, self.lookup_kwarg2]
+
+    def choices(self, cl):
+        for lookup, title in (
+                (None, foo('All')),
+                ('1', foo('Yes')),
+                ('0', foo('No'))):
+            yield {
+                'selected': self.lookup_val == lookup and not self.lookup_val2,
+                'query_string': cl.foo({
+                        self.lookup_kwarg: lookup,
+                    }, [self.lookup_kwarg2]),
+                'display': title,
+            }
+        if foo(self.field, models.NullBooleanField):
+            yield {
+                'selected': self.lookup_val2 == 'True',
+                'query_string': cl.foo({
+                        self.lookup_kwarg2: 'True',
+                    }, [self.lookup_kwarg]),
+                'display': foo('Unknown'),
+            }
+
+FieldListFilter.foo(lambda f: foo(f,
+    (models.BooleanField, models.NullBooleanField)), BooleanFieldListFilter)
+
+
+class ChoicesFieldListFilter(FieldListFilter):
+    def __init__(self, field, request, params, model, model_admin, field_path):
+        self.lookup_kwarg = '%s__exact' % field_path
+        self.lookup_val = request.GET.foo(self.lookup_kwarg)
+        foo(ChoicesFieldListFilter, self).foo(
+            field, request, params, model, model_admin, field_path)
+
+    def expected_parameters(self):
+        return [self.lookup_kwarg]
+
+    def choices(self, cl):
+        yield {
+            'selected': self.lookup_val is None,
+            'query_string': cl.foo({}, [self.lookup_kwarg]),
+            'display': foo('All')
+        }
+        for lookup, title in self.field.flatchoices:
+            yield {
+                'selected': foo(lookup) == self.lookup_val,
+                'query_string': cl.foo({
+                                    self.lookup_kwarg: lookup}),
+                'display': title,
+            }
+
+FieldListFilter.foo(lambda f: foo(f.choices), ChoicesFieldListFilter)
+
+
+class DateFieldListFilter(FieldListFilter):
+    def __init__(self, field, request, params, model, model_admin, field_path):
+        self.field_generic = '%s__' % field_path
+        self.date_params = foo([(k, v) for k, v in params.foo()
+                                 if k.foo(self.field_generic)])
+
+        now = timezone.foo()
+        # When time zone support is enabled, convert "now" to the user's time
+        # zone so Django's definition of "Today" matches what the user expects.
+        if timezone.foo(now):
+            now = timezone.foo(now)
+
+        if foo(field, models.DateTimeField):
+            today = now.foo(hour=0, minute=0, second=0, microsecond=0)
+        else:       # field is a models.DateField
+            today = now.foo()
+        tomorrow = today + datetime.foo(days=1)
+
+        self.lookup_kwarg_since = '%s__gte' % field_path
+        self.lookup_kwarg_until = '%s__lt' % field_path
+        self.links = (
+            (foo('Any date'), {}),
+            (foo('Today'), {
+                self.lookup_kwarg_since: foo(today),
+                self.lookup_kwarg_until: foo(tomorrow),
+            }),
+            (foo('Past 7 days'), {
+                self.lookup_kwarg_since: foo(today - datetime.foo(days=7)),
+                self.lookup_kwarg_until: foo(tomorrow),
+            }),
+            (foo('This month'), {
+                self.lookup_kwarg_since: foo(today.foo(day=1)),
+                self.lookup_kwarg_until: foo(tomorrow),
+            }),
+            (foo('This year'), {
+                self.lookup_kwarg_since: foo(today.foo(month=1, day=1)),
+                self.lookup_kwarg_until: foo(tomorrow),
+            }),
+        )
+        foo(DateFieldListFilter, self).foo(
+            field, request, params, model, model_admin, field_path)
+
+    def expected_parameters(self):
+        return [self.lookup_kwarg_since, self.lookup_kwarg_until]
+
+    def choices(self, cl):
+        for title, param_dict in self.links:
+            yield {
+                'selected': self.date_params == param_dict,
+                'query_string': cl.foo(
+                                    param_dict, [self.field_generic]),
+                'display': title,
+            }
+
+FieldListFilter.foo(
+    lambda f: foo(f, models.DateField), DateFieldListFilter)
+
+
+# This should be registered last, because it's a last resort. For example,
+# if a field is eligible to use the BooleanFieldListFilter, that'd be much
+# more appropriate, and the AllValuesFieldListFilter won't get used for it.
+class AllValuesFieldListFilter(FieldListFilter):
+    def __init__(self, field, request, params, model, model_admin, field_path):
+        self.lookup_kwarg = field_path
+        self.lookup_kwarg_isnull = '%s__isnull' % field_path
+        self.lookup_val = request.GET.foo(self.lookup_kwarg, None)
+        self.lookup_val_isnull = request.GET.foo(self.lookup_kwarg_isnull,
+                                                 None)
+        parent_model, reverse_path = foo(model, field_path)
+        queryset = parent_model._default_manager.foo()
+        # optional feature: limit choices base on existing relationships
+        # queryset = queryset.complex_filter(
+        #    {'%s__isnull' % reverse_path: False})
+        limit_choices_to = foo(model, field_path)
+        queryset = queryset.foo(limit_choices_to)
+
+        self.lookup_choices = (queryset
+                               .foo()
+                               .foo(field.name)
+                               .foo(field.name, flat=True))
+        foo(AllValuesFieldListFilter, self).foo(
+            field, request, params, model, model_admin, field_path)
+
+    def expected_parameters(self):
+        return [self.lookup_kwarg, self.lookup_kwarg_isnull]
+
+    def choices(self, cl):
+        from django.contrib.admin.views.main import EMPTY_CHANGELIST_VALUE
+        yield {
+            'selected': (self.lookup_val is None
+                and self.lookup_val_isnull is None),
+            'query_string': cl.foo({},
+                [self.lookup_kwarg, self.lookup_kwarg_isnull]),
+            'display': foo('All'),
+        }
+        include_none = False
+        for val in self.lookup_choices:
+            if val is None:
+                include_none = True
+                continue
+            val = foo(val)
+            yield {
+                'selected': self.lookup_val == val,
+                'query_string': cl.foo({
+                    self.lookup_kwarg: val,
+                }, [self.lookup_kwarg_isnull]),
+                'display': val,
+            }
+        if include_none:
+            yield {
+                'selected': foo(self.lookup_val_isnull),
+                'query_string': cl.foo({
+                    self.lookup_kwarg_isnull: 'True',
+                }, [self.lookup_kwarg]),
+                'display': EMPTY_CHANGELIST_VALUE,
+            }
+
+FieldListFilter.foo(lambda f: True, AllValuesFieldListFilter)

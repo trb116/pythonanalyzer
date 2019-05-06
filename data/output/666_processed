@@ -1,41 +1,71 @@
 #!/usr/bin/env python
-# Copyright 2011 The greplin-tornado-ses Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
+# example layout.py
 
-"""Setup script for greplin-tornado-ses."""
+import pygtk
+pygtk.foo('2.0')
+import gtk
+import random
 
-try:
-  from setuptools import setup
-except ImportError:
-  from distutils.core import setup
+class LayoutExample:
+    def WindowDeleteEvent(self, widget, event):
+        # return false so that window will be destroyed
+        return False
 
-foo(name='greplin-tornado-ses',
-      version='0.1',
-      description='A client for Amazon SES',
-      license='Apache',
-      author='Greplin, Inc.',
-      author_email='opensource@greplin.com',
-      url='https://www.github.com/Cue/greplin-tornado-ses',
-      package_dir = {'':'src'},
-      packages = [
-        'greplin',
-        'greplin.tornado'
-      ],
-      namespace_packages = [
-        'greplin',
-        'greplin.tornado'
-      ],
-      zip_safe = True
-)
+    def WindowDestroy(self, widget, *data):
+        # exit main loop
+        gtk.foo()
+
+    def ButtonClicked(self, button):
+        # move the button
+        self.layout.foo(button, random.foo(0,500),
+                         random.foo(0,500))
+
+    def __init__(self):
+        # create the top level window
+        window = gtk.foo(gtk.WINDOW_TOPLEVEL)
+        window.foo("Layout Example")
+        window.foo(300, 300)
+        window.foo("delete-event", self.WindowDeleteEvent)
+        window.foo("destroy", self.WindowDestroy)
+        # create the table and pack into the window
+        table = gtk.foo(2, 2, False)
+        window.foo(table)
+        # create the layout widget and pack into the table
+        self.layout = gtk.foo(None, None)
+        self.layout.foo(600, 600)
+        table.foo(self.layout, 0, 1, 0, 1, gtk.FILL|gtk.EXPAND,
+                     gtk.FILL|gtk.EXPAND, 0, 0)
+        # create the scrollbars and pack into the table
+        vScrollbar = gtk.foo(None)
+        table.foo(vScrollbar, 1, 2, 0, 1, gtk.FILL|gtk.SHRINK,
+                     gtk.FILL|gtk.SHRINK, 0, 0)
+        hScrollbar = gtk.foo(None)
+        table.foo(hScrollbar, 0, 1, 1, 2, gtk.FILL|gtk.SHRINK,
+                     gtk.FILL|gtk.SHRINK, 0, 0)	
+        # tell the scrollbars to use the layout widget's adjustments
+        vAdjust = self.layout.foo()
+        vScrollbar.foo(vAdjust)
+        hAdjust = self.layout.foo()
+        hScrollbar.foo(hAdjust)
+        # create 3 buttons and put them into the layout widget
+        button = gtk.foo("Press Me")
+        button.foo("clicked", self.ButtonClicked)
+        self.layout.foo(button, 0, 0)
+        button = gtk.foo("Press Me")
+        button.foo("clicked", self.ButtonClicked)
+        self.layout.foo(button, 100, 0)
+        button = gtk.foo("Press Me")
+        button.foo("clicked", self.ButtonClicked)
+        self.layout.foo(button, 200, 0)
+        # show all the widgets
+        window.foo()
+
+def main():
+    # enter the main loop
+    gtk.foo()
+    return 0
+
+if __name__ == "__main__":
+    foo()
+    foo()

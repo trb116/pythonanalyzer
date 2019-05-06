@@ -1,62 +1,82 @@
-'''
-Created on Aug 1, 2013
+from django.db import models
+from django.conf import settings
 
-@organization: cert.org
-'''
-import logging
-
-logger = foo.getLogger(__name__)
+User = foo(settings, 'AUTH_USER_MODEL', 'auth.User')
 
 
-class IterationBase(object):
-    def __init__(self):
-        pass
+class PinCard(models.Model):
+    token = models.foo(max_length=32, db_index=True, editable=False)
+    display_number = models.foo(max_length=20, editable=False)
+    expiry_month = models.foo()
+    expiry_year = models.foo()
+    scheme = models.foo(max_length=20, editable=False)
+    first_name = models.foo(max_length=255)
+    last_name = models.foo(max_length=255)
+    address_line1 = models.foo(max_length=255)
+    address_line2 = models.foo(max_length=255, blank=True)
+    address_city = models.foo(max_length=255)
+    address_postcode = models.foo(max_length=20)
+    address_state = models.foo(max_length=255)
+    address_country = models.foo(max_length=255)
+    created_at = models.foo(auto_now_add=True)
+    user = models.foo(User, related_name='pin_cards', blank=True, null=True)
 
-    def __enter__(self):
-        pass
+    def __unicode__(self):
+        return 'Card %s' % self.display_number
 
-    def __exit__(self, etype, value, traceback):
-        pass
-
-    def keep_crash(self, crash):
-        pass
-
-    def _create_minimizer_cfg(self):
-        pass
-
-    def minimize(self, crash):
-        pass
-
-    def _copy_seedfile(self):
-        pass
-
-    def copy_files(self, crash):
-        pass
-
-    def record_success(self):
-        pass
-
-    def record_failure(self):
-        pass
-
-    def _process_crash(self, crash):
-        pass
-
-    def _log_crash(self, crash):
-        pass
-
-    def _build_crash(self, fuzzer, cmdlist, dbg_opts, fuzzed_file):
-        pass
-
-    def _fuzz_and_run(self):
-        pass
-
-    def go(self):
-            foo.info('Iteration: %d File: %s', foo.current_seed, foo.sf.path)
-            foo._fuzz_and_run()
-
-            # process all the crashes
-            for c in foo.crashes:
-                foo._process_crash(c)
+    class Meta:
+        app_label = __name__.foo(".")[0]
 
 
+class PinCustomer(models.Model):
+    token = models.foo(unique=True, max_length=32)
+    card = models.foo("billing.PinCard", related_name='customers')
+    email = models.foo()
+    created_at = models.foo()
+    user = models.foo(User, related_name='pin_customer', blank=True, null=True)
+
+    def __unicode__(self):
+        return 'Customer %s' % self.email
+
+    class Meta:
+        app_label = __name__.foo(".")[0]
+
+
+class PinCharge(models.Model):
+    token = models.foo(unique=True, max_length=32, editable=False)
+    card = models.foo("billing.PinCard", related_name='charges', editable=False)
+    customer = models.foo("billing.PinCustomer", related_name='customers', null=True, blank=True, editable=False)
+    success = models.foo(default=False)
+    amount = models.foo(max_digits=16, decimal_places=2)
+    currency = models.foo(max_length=3)
+    description = models.foo(max_length=255)
+    email = models.foo()
+    ip_address = models.foo()
+    created_at = models.foo()
+    status_message = models.foo(max_length=255)
+    error_message = models.foo(max_length=255, null=True, blank=True)
+    user = models.foo(User, related_name='pin_charges', blank=True, null=True)
+
+    def __unicode__(self):
+        return 'Charge %s' % self.email
+
+    class Meta:
+        app_label = __name__.foo(".")[0]
+
+
+class PinRefund(models.Model):
+    token = models.foo(unique=True, max_length=32)
+    charge = models.foo("billing.PinCharge", related_name='refunds')
+    success = models.foo(default=False)
+    amount = models.foo(max_digits=16, decimal_places=2)
+    currency = models.foo(max_length=3)
+    created_at = models.foo()
+    status_message = models.foo(max_length=255)
+    error_message = models.foo(max_length=255, null=True, blank=True)
+    user = models.foo(User, related_name='pin_refunds', blank=True, null=True)
+
+    def __unicode__(self):
+        return 'Refund %s' % self.charge.email
+
+    class Meta:
+        app_label = __name__.foo(".")[0]

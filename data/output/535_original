@@ -1,27 +1,101 @@
-from HybridModel import HybridModel
+from __future__ import absolute_import, print_function, division
 
-class SynthModel(HybridModel):
-    def __init__(self,configModel,utils,strTrial):
-        self.tag        = configModel[0]
-        self.mode       = configModel[1]
-        self.misc       = configModel[2]
-        self.trial      = strTrial
-        self.masterTest = utils.TEST_IDS_PATH
-        self.runTrain   = utils.SYNTH_BOOT_PATH \
-                          + 'train_t' + strTrial
-        self.runCV      = utils.SYNTH_BOOT_PATH \
-                          + 'CV_t'  + strTrial
-        self.runTest    = utils.SYNTH_ORIGINAL_PATH \
-                          + 'test_t'  + strTrial
-        self.predTest   = utils.SYNTH_PREDICT_PATH \
-                          + 't' + strTrial
-        self.bootCV     = self.runCV    + '_tmp'
-        self.predCV     = utils.SYNTH_PREDICT_PATH \
-                          + 'CV_t' + strTrial
-        self.predTestTmp= self.predTest + '_tmp'
-        self.predCVTmp  = self.predCV   + '_tmp'
-        self.log        = utils.SYNTH_LOG_PATH + self.tag + '_t' \
-                          + strTrial
-        self.RMSEPath   = utils.SYNTH_RMSE_PATH+ self.tag + '_t' \
-                          + strTrial
-        self.setupRVars(utils)
+
+from petl.test.helpers import ieq
+from petl.transform.fills import filldown, fillleft, fillright
+
+
+def test_filldown():
+
+    table = (('foo', 'bar', 'baz'),
+             (1, 'a', None),
+             (1, None, .23),
+             (1, 'b', None),
+             (2, None, None),
+             (2, None, .56),
+             (2, 'c', None),
+             (None, 'c', .72))
+
+    actual = filldown(table)
+    expect = (('foo', 'bar', 'baz'),
+              (1, 'a', None),
+              (1, 'a', .23),
+              (1, 'b', .23),
+              (2, 'b', .23),
+              (2, 'b', .56),
+              (2, 'c', .56),
+              (2, 'c', .72))
+    ieq(expect, actual)
+    ieq(expect, actual)
+
+    actual = filldown(table, 'bar')
+    expect = (('foo', 'bar', 'baz'),
+              (1, 'a', None),
+              (1, 'a', .23),
+              (1, 'b', None),
+              (2, 'b', None),
+              (2, 'b', .56),
+              (2, 'c', None),
+              (None, 'c', .72))
+    ieq(expect, actual)
+    ieq(expect, actual)
+
+    actual = filldown(table, 'foo', 'bar')
+    expect = (('foo', 'bar', 'baz'),
+              (1, 'a', None),
+              (1, 'a', .23),
+              (1, 'b', None),
+              (2, 'b', None),
+              (2, 'b', .56),
+              (2, 'c', None),
+              (2, 'c', .72))
+    ieq(expect, actual)
+    ieq(expect, actual)
+
+
+def test_fillright():
+
+    table = (('foo', 'bar', 'baz'),
+             (1, 'a', None),
+             (1, None, .23),
+             (1, 'b', None),
+             (2, None, None),
+             (2, None, .56),
+             (2, 'c', None),
+             (None, 'c', .72))
+
+    actual = fillright(table)
+    expect = (('foo', 'bar', 'baz'),
+              (1, 'a', 'a'),
+              (1, 1, .23),
+              (1, 'b', 'b'),
+              (2, 2, 2),
+              (2, 2, .56),
+              (2, 'c', 'c'),
+              (None, 'c', .72))
+    ieq(expect, actual)
+    ieq(expect, actual)
+
+
+def test_fillleft():
+
+    table = (('foo', 'bar', 'baz'),
+             (1, 'a', None),
+             (1, None, .23),
+             (1, 'b', None),
+             (2, None, None),
+             (None, None, .56),
+             (2, 'c', None),
+             (None, 'c', .72))
+
+    actual = fillleft(table)
+    expect = (('foo', 'bar', 'baz'),
+              (1, 'a', None),
+              (1, .23, .23),
+              (1, 'b', None),
+              (2, None, None),
+              (.56, .56, .56),
+              (2, 'c', None),
+              ('c', 'c', .72))
+    ieq(expect, actual)
+    ieq(expect, actual)

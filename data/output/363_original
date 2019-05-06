@@ -1,202 +1,80 @@
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
+# Copyright (c) 2014, Adaptiv Design
+# All rights reserved.
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
 
-import mock
-from oslo_config import cfg
+# 1. Redistributions of source code must retain the above copyright notice,
+# this list of conditions and the following disclaimer.
 
-from nova.tests.unit.virt.libvirt.volume import test_volume
-from nova.virt.libvirt import host
-from nova.virt.libvirt.volume import net
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
 
-CONF = cfg.CONF
-CONF.import_opt('rbd_user', 'nova.virt.libvirt.volume.net', group='libvirt')
-CONF.import_opt('rbd_secret_uuid', 'nova.virt.libvirt.volume.net',
-                group='libvirt')
+# 3. Neither the name of the copyright holder nor the names of its contributors
+# may be used to endorse or promote products derived from this software without
+# specific prior written permission.
+
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+from decimal import Decimal
+
+from sellmo.core.loading import load
+from sellmo.apps.pricing import Price, StandardizedDecimalField
+from sellmo.contrib.settings import settings_manager
+
+from django.db import models
+from django.utils.translation import ugettext_lazy as _
+
+import sellmo.contrib.tax as _tax
+import sellmo.contrib.tax.subtypes.flat_tax as _flat_tax
 
 
-class LibvirtNetVolumeDriverTestCase(
-    test_volume.LibvirtISCSIVolumeBaseTestCase):
-    """Tests the libvirt network volume driver."""
+@load(after='finalize_tax_Tax')
+@load(action='finalize_tax_FlatTax')
+def finalize_model():
+    class FlatTax(_flat_tax.models.FlatTax, _tax.models.Tax):
+        class Meta(_flat_tax.models.FlatTax.Meta, _tax.models.Tax.Meta):
+            app_label = 'tax'
 
-    def _assertNetworkAndProtocolEquals(self, tree):
-        self.assertEqual('network', tree.get('type'))
-        self.assertEqual('rbd', tree.find('./source').get('protocol'))
-        rbd_name = '%s/%s' % ('rbd', self.name)
-        self.assertEqual(rbd_name, tree.find('./source').get('name'))
+    _flat_tax.models.FlatTax = FlatTax
 
-    def _assertISCSINetworkAndProtocolEquals(self, tree):
-        self.assertEqual('network', tree.get('type'))
-        self.assertEqual('iscsi', tree.find('./source').get('protocol'))
-        iscsi_name = '%s/%s' % (self.iqn, self.vol['id'])
-        self.assertEqual(iscsi_name, tree.find('./source').get('name'))
 
-    def sheepdog_connection(self, volume):
-        return {
-            'driver_volume_type': 'sheepdog',
-            'data': {
-                'name': volume['name']
-            }
-        }
+class FlatTax(models.Model):
 
-    def test_libvirt_sheepdog_driver(self):
-        libvirt_driver = net.LibvirtNetVolumeDriver(self.fake_conn)
-        connection_info = self.sheepdog_connection(self.vol)
-        conf = libvirt_driver.get_config(connection_info, self.disk_info)
-        tree = conf.format_dom()
-        self.assertEqual('network', tree.get('type'))
-        self.assertEqual('sheepdog', tree.find('./source').get('protocol'))
-        self.assertEqual(self.name, tree.find('./source').get('name'))
-        libvirt_driver.disconnect_volume(connection_info, "vde")
+    amount = StandardizedDecimalField(
+        default=Decimal('0.0'),
+        verbose_name=_("amount"),
+    )
 
-    def rbd_connection(self, volume):
-        return {
-            'driver_volume_type': 'rbd',
-            'data': {
-                'name': '%s/%s' % ('rbd', volume['name']),
-                'auth_enabled': CONF.libvirt.rbd_secret_uuid is not None,
-                'auth_username': CONF.libvirt.rbd_user,
-                'secret_type': 'ceph',
-                'secret_uuid': CONF.libvirt.rbd_secret_uuid,
-                'qos_specs': {
-                    'total_bytes_sec': '1048576',
-                    'read_iops_sec': '500',
-                    }
-            }
-        }
+    def apply(self, price):
 
-    def test_libvirt_rbd_driver(self):
-        libvirt_driver = net.LibvirtNetVolumeDriver(self.fake_conn)
-        connection_info = self.rbd_connection(self.vol)
-        conf = libvirt_driver.get_config(connection_info, self.disk_info)
-        tree = conf.format_dom()
-        self._assertNetworkAndProtocolEquals(tree)
-        self.assertIsNone(tree.find('./source/auth'))
-        self.assertEqual('1048576', tree.find('./iotune/total_bytes_sec').text)
-        self.assertEqual('500', tree.find('./iotune/read_iops_sec').text)
-        libvirt_driver.disconnect_volume(connection_info, "vde")
+        tax_inclusive = settings_manager['tax_inclusive']
 
-    def test_libvirt_rbd_driver_hosts(self):
-        libvirt_driver = net.LibvirtNetVolumeDriver(self.fake_conn)
-        connection_info = self.rbd_connection(self.vol)
-        hosts = ['example.com', '1.2.3.4', '::1']
-        ports = [None, '6790', '6791']
-        connection_info['data']['hosts'] = hosts
-        connection_info['data']['ports'] = ports
-        conf = libvirt_driver.get_config(connection_info, self.disk_info)
-        tree = conf.format_dom()
-        self._assertNetworkAndProtocolEquals(tree)
-        self.assertIsNone(tree.find('./source/auth'))
-        found_hosts = tree.findall('./source/host')
-        self.assertEqual(hosts, [host.get('name') for host in found_hosts])
-        self.assertEqual(ports, [host.get('port') for host in found_hosts])
-        libvirt_driver.disconnect_volume(connection_info, "vde")
+        # Now we can create the tax
+        tax_amount = self.amount
+        tax = Price(tax_amount, currency=price.currency, component=self)
 
-    def test_libvirt_rbd_driver_auth_enabled(self):
-        libvirt_driver = net.LibvirtNetVolumeDriver(self.fake_conn)
-        connection_info = self.rbd_connection(self.vol)
-        secret_type = 'ceph'
-        connection_info['data']['auth_enabled'] = True
-        connection_info['data']['auth_username'] = self.user
-        connection_info['data']['secret_type'] = secret_type
-        connection_info['data']['secret_uuid'] = self.uuid
+        # Apply tax
+        price += tax
 
-        conf = libvirt_driver.get_config(connection_info, self.disk_info)
-        tree = conf.format_dom()
-        self._assertNetworkAndProtocolEquals(tree)
-        self.assertEqual(self.user, tree.find('./auth').get('username'))
-        self.assertEqual(secret_type, tree.find('./auth/secret').get('type'))
-        self.assertEqual(self.uuid, tree.find('./auth/secret').get('uuid'))
-        libvirt_driver.disconnect_volume(connection_info, "vde")
+        # Handle tax inclusive
+        if tax_inclusive:
+            price -= Price(tax_amount, currency=price.currency)
 
-    def test_libvirt_rbd_driver_auth_enabled_flags_override(self):
-        libvirt_driver = net.LibvirtNetVolumeDriver(self.fake_conn)
-        connection_info = self.rbd_connection(self.vol)
-        secret_type = 'ceph'
-        connection_info['data']['auth_enabled'] = True
-        connection_info['data']['auth_username'] = self.user
-        connection_info['data']['secret_type'] = secret_type
-        connection_info['data']['secret_uuid'] = self.uuid
+        return price
 
-        flags_uuid = '37152720-1785-11e2-a740-af0c1d8b8e4b'
-        flags_user = 'bar'
-        self.flags(rbd_user=flags_user,
-                   rbd_secret_uuid=flags_uuid,
-                   group='libvirt')
-
-        conf = libvirt_driver.get_config(connection_info, self.disk_info)
-        tree = conf.format_dom()
-        self._assertNetworkAndProtocolEquals(tree)
-        self.assertEqual(flags_user, tree.find('./auth').get('username'))
-        self.assertEqual(secret_type, tree.find('./auth/secret').get('type'))
-        self.assertEqual(flags_uuid, tree.find('./auth/secret').get('uuid'))
-        libvirt_driver.disconnect_volume(connection_info, "vde")
-
-    def test_libvirt_rbd_driver_auth_disabled(self):
-        libvirt_driver = net.LibvirtNetVolumeDriver(self.fake_conn)
-        connection_info = self.rbd_connection(self.vol)
-        secret_type = 'ceph'
-        connection_info['data']['auth_enabled'] = False
-        connection_info['data']['auth_username'] = self.user
-        connection_info['data']['secret_type'] = secret_type
-        connection_info['data']['secret_uuid'] = self.uuid
-
-        conf = libvirt_driver.get_config(connection_info, self.disk_info)
-        tree = conf.format_dom()
-        self._assertNetworkAndProtocolEquals(tree)
-        self.assertIsNone(tree.find('./auth'))
-        libvirt_driver.disconnect_volume(connection_info, "vde")
-
-    def test_libvirt_rbd_driver_auth_disabled_flags_override(self):
-        libvirt_driver = net.LibvirtNetVolumeDriver(self.fake_conn)
-        connection_info = self.rbd_connection(self.vol)
-        secret_type = 'ceph'
-        connection_info['data']['auth_enabled'] = False
-        connection_info['data']['auth_username'] = self.user
-        connection_info['data']['secret_type'] = secret_type
-        connection_info['data']['secret_uuid'] = self.uuid
-
-        # NOTE: Supplying the rbd_secret_uuid will enable authentication
-        # locally in nova-compute even if not enabled in nova-volume/cinder
-        flags_uuid = '37152720-1785-11e2-a740-af0c1d8b8e4b'
-        flags_user = 'bar'
-        self.flags(rbd_user=flags_user,
-                   rbd_secret_uuid=flags_uuid,
-                   group='libvirt')
-
-        conf = libvirt_driver.get_config(connection_info, self.disk_info)
-        tree = conf.format_dom()
-        self._assertNetworkAndProtocolEquals(tree)
-        self.assertEqual(flags_user, tree.find('./auth').get('username'))
-        self.assertEqual(secret_type, tree.find('./auth/secret').get('type'))
-        self.assertEqual(flags_uuid, tree.find('./auth/secret').get('uuid'))
-        libvirt_driver.disconnect_volume(connection_info, "vde")
-
-    @mock.patch.object(host.Host, 'find_secret')
-    @mock.patch.object(host.Host, 'create_secret')
-    @mock.patch.object(host.Host, 'delete_secret')
-    def test_libvirt_iscsi_net_driver(self, mock_delete, mock_create,
-                                      mock_find):
-        mock_find.return_value = test_volume.FakeSecret()
-        mock_create.return_value = test_volume.FakeSecret()
-        libvirt_driver = net.LibvirtNetVolumeDriver(self.fake_conn)
-        connection_info = self.iscsi_connection(self.vol, self.location,
-                                                self.iqn, auth=True)
-        secret_type = 'iscsi'
-        flags_user = connection_info['data']['auth_username']
-        conf = libvirt_driver.get_config(connection_info, self.disk_info)
-        tree = conf.format_dom()
-        self._assertISCSINetworkAndProtocolEquals(tree)
-        self.assertEqual(flags_user, tree.find('./auth').get('username'))
-        self.assertEqual(secret_type, tree.find('./auth/secret').get('type'))
-        self.assertEqual(test_volume.SECRET_UUID,
-                         tree.find('./auth/secret').get('uuid'))
-        libvirt_driver.disconnect_volume(connection_info, 'vde')
+    class Meta:
+        abstract = True
+        verbose_name = _("flat tax")
+        verbose_name_plural = _("flat taxes")

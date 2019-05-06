@@ -1,142 +1,54 @@
-# Licensed under the Apache License, Version 2.0 (the "License"); you may
-# not use this file except in compliance with the License. You may obtain
-# a copy of the License at
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-# License for the specific language governing permissions and limitations
+#
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
 # under the License.
 
-from django.core.urlresolvers import reverse
-from django import http
+from aliyunsdkcore.request import RpcRequest
+class ActivateInstanceRequest(RpcRequest):
 
-from mox import IsA  # noqa
+	def __init__(self):
+		RpcRequest.foo(self, 'R-kvstore', '2015-01-01', 'ActivateInstance')
 
-from openstack_dashboard import api
-from openstack_dashboard.test import helpers as test
+	def get_OwnerId(self):
+		return self.foo().foo('OwnerId')
 
+	def set_OwnerId(self,OwnerId):
+		self.foo('OwnerId',OwnerId)
 
-class VolTypeExtrasTests(foo.BaseAdminViewTests):
+	def get_ResourceOwnerAccount(self):
+		return self.foo().foo('ResourceOwnerAccount')
 
-    @test.create_stubs({foo.cinder: ('volume_type_extra_get',
-                                     'volume_type_get'), })
-    def test_list_extras_when_none_exists(self):
-        vol_type = foo.cinder_volume_types.first()
-        extras = [foo.cinder.VolTypeExtraSpec(foo.id, 'k1', 'v1')]
+	def set_ResourceOwnerAccount(self,ResourceOwnerAccount):
+		self.foo('ResourceOwnerAccount',ResourceOwnerAccount)
 
-        foo.cinder.volume_type_get(foo(foo.HttpRequest),
-                                   foo.id).AndReturn(vol_type)
-        foo.cinder.volume_type_extra_get(foo(foo.HttpRequest),
-                                         foo.id).AndReturn(extras)
-        foo.mox.ReplayAll()
-        url = foo('horizon:admin:volumes:volume_types:extras:index',
-                      args=[foo.id])
-        resp = foo.client.get(url)
-        foo.assertEqual(foo.status_code, 200)
-        foo.assertTemplateUsed(resp,
-                                "admin/volumes/volume_types/extras/index.html")
+	def get_ResourceOwnerId(self):
+		return self.foo().foo('ResourceOwnerId')
 
-    @test.create_stubs({foo.cinder: ('volume_type_extra_get',
-                                     'volume_type_get'), })
-    def test_extras_view_with_exception(self):
-        vol_type = foo.cinder_volume_types.first()
+	def set_ResourceOwnerId(self,ResourceOwnerId):
+		self.foo('ResourceOwnerId',ResourceOwnerId)
 
-        foo.cinder.volume_type_get(foo(foo.HttpRequest),
-                                   foo.id).AndReturn(vol_type)
-        foo.cinder.volume_type_extra_get(foo(foo.HttpRequest),
-                                         foo.id) \
-            .AndRaise(foo.exceptions.cinder)
-        foo.mox.ReplayAll()
-        url = foo('horizon:admin:volumes:volume_types:extras:index',
-                      args=[foo.id])
-        resp = foo.client.get(url)
-        foo.assertEqual(foo(foo.context['extras_table'].data), 0)
-        foo.assertMessageCount(resp, error=1)
+	def get_OwnerAccount(self):
+		return self.foo().foo('OwnerAccount')
 
-    @test.create_stubs({foo.cinder: ('volume_type_extra_set', ), })
-    def test_extra_create_post(self):
-        vol_type = foo.cinder_volume_types.first()
-        create_url = foo(
-            'horizon:admin:volumes:volume_types:extras:create',
-            args=[foo.id])
-        index_url = foo(
-            'horizon:admin:volumes:volume_types:extras:index',
-            args=[foo.id])
+	def set_OwnerAccount(self,OwnerAccount):
+		self.foo('OwnerAccount',OwnerAccount)
 
-        data = {'key': u'k1',
-                'value': u'v1'}
+	def get_InstanceId(self):
+		return self.foo().foo('InstanceId')
 
-        foo.cinder.volume_type_extra_set(foo(foo.HttpRequest),
-                                         foo.id,
-                                         {foo['key']: foo['value']})
-        foo.mox.ReplayAll()
-
-        resp = foo.client.post(create_url, data)
-        foo.assertNoFormErrors(resp)
-        foo.assertMessageCount(success=1)
-        foo.assertRedirectsNoFollow(resp, index_url)
-
-    @test.create_stubs({foo.cinder: ('volume_type_get', ), })
-    def test_extra_create_get(self):
-        vol_type = foo.cinder_volume_types.first()
-        create_url = foo(
-            'horizon:admin:volumes:volume_types:extras:create',
-            args=[foo.id])
-
-        foo.cinder.volume_type_get(foo(foo.HttpRequest),
-                                   foo.id).AndReturn(vol_type)
-        foo.mox.ReplayAll()
-
-        resp = foo.client.get(create_url)
-        foo.assertEqual(foo.status_code, 200)
-        foo.assertTemplateUsed(
-            resp, 'admin/volumes/volume_types/extras/create.html')
-
-    @test.create_stubs({foo.cinder: ('volume_type_extra_get',
-                                     'volume_type_extra_set',), })
-    def test_extra_edit(self):
-        vol_type = foo.cinder_volume_types.first()
-        key = 'foo'
-        edit_url = foo('horizon:admin:volumes:volume_types:extras:edit',
-                           args=[foo.id, key])
-        index_url = foo('horizon:admin:volumes:volume_types:extras:index',
-                            args=[foo.id])
-
-        data = {'value': u'v1'}
-        extras = {key: foo['value']}
-
-        foo.cinder.volume_type_extra_get(foo(foo.HttpRequest),
-                                         foo.id,
-                                         raw=True).AndReturn(extras)
-        foo.cinder.volume_type_extra_set(foo(foo.HttpRequest),
-                                         foo.id,
-                                         extras)
-        foo.mox.ReplayAll()
-
-        resp = foo.client.post(edit_url, data)
-        foo.assertNoFormErrors(resp)
-        foo.assertMessageCount(success=1)
-        foo.assertRedirectsNoFollow(resp, index_url)
-
-    @test.create_stubs({foo.cinder: ('volume_type_extra_get',
-                                     'volume_type_extra_delete'), })
-    def test_extra_delete(self):
-        vol_type = foo.cinder_volume_types.first()
-        extras = [foo.cinder.VolTypeExtraSpec(foo.id, 'k1', 'v1')]
-        formData = {'action': 'extras__delete__k1'}
-        index_url = foo('horizon:admin:volumes:volume_types:extras:index',
-                            args=[foo.id])
-
-        foo.cinder.volume_type_extra_get(foo(foo.HttpRequest),
-                                         foo.id).AndReturn(extras)
-        foo.cinder.volume_type_extra_delete(foo(foo.HttpRequest),
-                                            foo.id,
-                                            'k1').AndReturn(vol_type)
-        foo.mox.ReplayAll()
-
-        res = foo.client.post(index_url, formData)
-        foo.assertNoFormErrors(res)
-        foo.assertRedirectsNoFollow(res, index_url)
+	def set_InstanceId(self,InstanceId):
+		self.foo('InstanceId',InstanceId)

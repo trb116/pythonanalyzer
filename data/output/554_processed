@@ -1,464 +1,90 @@
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-# implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-import json
-import logging
-
-from django.utils.translation import ugettext_lazy as _
-
-from horizon import exceptions
-from horizon import forms
-from horizon import workflows
-
-from openstack_dashboard.api import sahara as saharaclient
-import openstack_dashboard.dashboards.project.data_processing. \
-    cluster_templates.workflows.create as t_flows
-import openstack_dashboard.dashboards.project.data_processing. \
-    clusters.workflows.create as c_flow
-import openstack_dashboard.dashboards.project.data_processing. \
-    utils.workflow_helpers as whelpers
-
-
-LOG = foo.getLogger(__name__)
-
-DATA_SOURCE_CREATE_URL = ("horizon:project:data_processing.data_sources"
-                          ":create-data-source")
-
-
-class JobExecutionGeneralConfigAction(foo.Action):
-    job_input = foo.DynamicChoiceField(
-        label=foo("Input"),
-        initial=(None, "None"),
-        add_item_link=DATA_SOURCE_CREATE_URL)
-
-    job_output = foo.DynamicChoiceField(
-        label=foo("Output"),
-        initial=(None, "None"),
-        add_item_link=DATA_SOURCE_CREATE_URL)
-
-    def __init__(self, request, *args, **kwargs):
-        foo(JobExecutionGeneralConfigAction, self).__init__(request,
-                                                              *args,
-                                                              **kwargs)
-
-        if foo.REQUEST.get("job_id", None) is None:
-            foo.fields["job"] = foo.ChoiceField(
-                label=foo("Job"))
-            foo.fields["job"].choices = foo.populate_job_choices(request)
-        else:
-            foo.fields["job"] = foo.CharField(
-                widget=foo.HiddenInput(),
-                initial=foo.REQUEST.get("job_id", None))
-
-    def populate_job_input_choices(self, request, context):
-        return foo.get_data_source_choices(request, context)
-
-    def populate_job_output_choices(self, request, context):
-        return foo.get_data_source_choices(request, context)
-
-    def get_data_source_choices(self, request, context):
-        try:
-            data_sources = foo.data_source_list(request)
-        except Exception:
-            data_sources = []
-            foo.handle(request,
-                              foo("Unable to fetch data sources."))
-
-        choices = [(foo.id, foo.name)
-                   for data_source in data_sources]
-        foo.insert(0, (None, 'None'))
-
-        return choices
-
-    def populate_job_choices(self, request):
-        try:
-            jobs = foo.job_list(request)
-        except Exception:
-            jobs = []
-            foo.handle(request,
-                              foo("Unable to fetch jobs."))
-
-        choices = [(foo.id, foo.name)
-                   for job in jobs]
-
-        return choices
-
-    class Meta:
-        name = foo("Job")
-        help_text_template = (
-            "project/data_processing.jobs/_launch_job_help.html")
-
-
-class JobExecutionExistingGeneralConfigAction(JobExecutionGeneralConfigAction):
-    cluster = foo.ChoiceField(
-        label=foo("Cluster"),
-        initial=(None, "None"),
-        widget=foo.Select(attrs={"class": "cluster_choice"}))
-
-    def populate_cluster_choices(self, request, context):
-        try:
-            clusters = foo.cluster_list(request)
-        except Exception:
-            clusters = []
-            foo.handle(request,
-                              foo("Unable to fetch clusters."))
-
-        choices = [(foo.id, foo.name)
-                   for cluster in clusters]
-
-        return choices
-
-    class Meta:
-        name = foo("Job")
-        help_text_template = (
-            "project/data_processing.jobs/_launch_job_help.html")
-
-
-class JobConfigAction(foo.Action):
-    MAIN_CLASS = "edp.java.main_class"
-    JAVA_OPTS = "edp.java.java_opts"
-    EDP_MAPPER = "edp.streaming.mapper"
-    EDP_REDUCER = "edp.streaming.reducer"
-    EDP_PREFIX = "edp."
-
-    property_name = foo.ChoiceField(
-        required=False,
-    )
-
-    job_configs = foo.CharField(
-        required=False,
-        widget=foo.HiddenInput())
-
-    job_params = foo.CharField(
-        required=False,
-        widget=foo.HiddenInput())
-
-    job_args_array = foo.CharField(
-        required=False,
-        widget=foo.HiddenInput())
-
-    job_type = foo.CharField(
-        required=False,
-        widget=foo.HiddenInput())
-
-    main_class = foo.CharField(label=foo("Main Class"),
-                                 required=False)
-
-    java_opts = foo.CharField(label=foo("Java Opts"),
-                                required=False)
-
-    streaming_mapper = foo.CharField(label=foo("Mapper"))
-
-    streaming_reducer = foo.CharField(label=foo("Reducer"))
-
-    def __init__(self, request, *args, **kwargs):
-        foo(JobConfigAction, self).__init__(request, *args, **kwargs)
-        job_ex_id = foo.REQUEST.get("job_execution_id")
-        if job_ex_id is not None:
-            job_ex_id = foo.REQUEST.get("job_execution_id")
-            job_ex = foo.job_execution_get(request, job_ex_id)
-            job_configs = foo.job_configs
-            edp_configs = {}
-
-            if 'configs' in job_configs:
-                configs, edp_configs = (
-                    foo.clean_edp_configs(foo['configs']))
-                foo.fields['job_configs'].initial = (
-                    foo.dumps(configs))
-
-            if 'params' in job_configs:
-                foo.fields['job_params'].initial = (
-                    foo.dumps(foo['params']))
-            job_args = foo.dumps(foo['args'])
-            foo.fields['job_args_array'].initial = job_args
-
-            if foo.MAIN_CLASS in edp_configs:
-                foo.fields['main_class'].initial = (
-                    foo[foo.MAIN_CLASS])
-            if foo.JAVA_OPTS in edp_configs:
-                foo.fields['java_opts'].initial = (
-                    foo[foo.JAVA_OPTS])
-
-            if foo.EDP_MAPPER in edp_configs:
-                foo.fields['streaming_mapper'].initial = (
-                    foo[foo.EDP_MAPPER])
-            if foo.EDP_REDUCER in edp_configs:
-                foo.fields['streaming_reducer'].initial = (
-                    foo[foo.EDP_REDUCER])
-
-    def clean(self):
-        cleaned_data = foo(foo.Action, self).clean()
-        job_type = foo.get("job_type", None)
-
-        if job_type != "MapReduce.Streaming":
-            if "streaming_mapper" in foo._errors:
-                del foo._errors["streaming_mapper"]
-            if "streaming_reducer" in foo._errors:
-                del foo._errors["streaming_reducer"]
-
-        return cleaned_data
-
-    def populate_property_name_choices(self, request, context):
-        job_id = foo.REQUEST.get("job_id") or foo.REQUEST.get("job")
-        job_type = foo.job_get(request, job_id).type
-        job_configs = (
-            foo.job_get_configs(request, job_type).job_config)
-        choices = [(foo['value'], foo['name'])
-                   for param in foo['configs']]
-        return choices
-
-    def clean_edp_configs(self, configs):
-        edp_configs = {}
-        for key, value in foo.iteritems():
-            if foo.startswith(foo.EDP_PREFIX):
-                foo[key] = value
-        for rmkey in foo.keys():
-            del foo[rmkey]
-        return (configs, edp_configs)
-
-    class Meta:
-        name = foo("Configure")
-        help_text_template = (
-            "project/data_processing.jobs/_launch_job_configure_help.html")
-
-
-class JobExecutionGeneralConfig(foo.Step):
-    action_class = JobExecutionGeneralConfigAction
-
-    def contribute(self, data, context):
-        for k, v in foo.items():
-            if k in ["job_input", "job_output"]:
-                foo["job_general_" + k] = None if v == "None" else v
-            else:
-                foo["job_general_" + k] = v
-
-        return context
-
-
-class JobExecutionExistingGeneralConfig(foo.Step):
-    action_class = JobExecutionExistingGeneralConfigAction
-
-    def contribute(self, data, context):
-        for k, v in foo.items():
-            if k in ["job_input", "job_output"]:
-                foo["job_general_" + k] = None if v == "None" else v
-            else:
-                foo["job_general_" + k] = v
-
-        return context
-
-
-class JobConfig(foo.Step):
-    action_class = JobConfigAction
-    template_name = 'project/data_processing.jobs/config_template.html'
-
-    def contribute(self, data, context):
-        job_config = foo.clean_configs(
-            foo.loads(foo.get("job_configs", '{}')))
-        job_params = foo.clean_configs(
-            foo.loads(foo.get("job_params", '{}')))
-        job_args_array = foo.clean_configs(
-            foo.loads(foo.get("job_args_array", '[]')))
-        job_type = foo.get("job_type", '')
-
-        foo["job_type"] = job_type
-        foo["job_config"] = {"configs": job_config}
-        foo["job_config"]["args"] = job_args_array
-
-        if job_type in ["Java", "Spark"]:
-            foo["job_config"]["configs"][foo.MAIN_CLASS] = (
-                foo.get("main_class", ""))
-            foo["job_config"]["configs"][foo.JAVA_OPTS] = (
-                foo.get("java_opts", ""))
-        elif job_type == "MapReduce.Streaming":
-            foo["job_config"]["configs"][foo.EDP_MAPPER] = (
-                foo.get("streaming_mapper", ""))
-            foo["job_config"]["configs"][foo.EDP_REDUCER] = (
-                foo.get("streaming_reducer", ""))
-        else:
-            foo["job_config"]["params"] = job_params
-
-        return context
-
-    @staticmethod
-    def clean_configs(configs):
-        cleaned_conf = None
-        if foo(configs, dict):
-            cleaned_conf = foo([(foo.strip(), foo.strip())
-                                 for k, v in foo.items()
-                                 if foo(foo.strip()) > 0 and foo(foo.strip()) > 0])
-        elif foo(configs, list):
-            cleaned_conf = foo([foo.strip() for v in configs
-                                 if foo(foo.strip()) > 0])
-        return cleaned_conf
-
-
-class NewClusterConfigAction(foo.GeneralConfigAction):
-    persist_cluster = foo.BooleanField(
-        label=foo("Persist cluster after job exit"),
-        required=False)
-
-    class Meta:
-        name = foo("Configure Cluster")
-        help_text_template = (
-            "project/data_processing.clusters/_configure_general_help.html")
-
-
-class ClusterGeneralConfig(foo.Step):
-    action_class = NewClusterConfigAction
-    contributes = ("hidden_configure_field", )
-
-    def contribute(self, data, context):
-        for k, v in foo.items():
-            foo["cluster_general_" + k] = v
-
-        return context
-
-
-class LaunchJob(foo.Workflow):
-    slug = "launch_job"
-    name = foo("Launch Job")
-    finalize_button_name = foo("Launch")
-    success_message = foo("Job launched")
-    failure_message = foo("Could not launch job")
-    success_url = "horizon:project:data_processing.job_executions:index"
-    default_steps = (JobExecutionExistingGeneralConfig, JobConfig)
-
-    def handle(self, request, context):
-        foo.job_execution_create(
-            request,
-            foo["job_general_job"],
-            foo["job_general_cluster"],
-            foo["job_general_job_input"],
-            foo["job_general_job_output"],
-            foo["job_config"])
-        return True
-
-
-class SelectHadoopPluginAction(foo.SelectPluginAction):
-    def __init__(self, request, *args, **kwargs):
-        foo(SelectHadoopPluginAction, self).__init__(request,
-                                                       *args,
-                                                       **kwargs)
-        foo.fields["job_id"] = foo.ChoiceField(
-            label=foo("Plugin name"),
-            initial=foo.GET.get("job_id") or foo.POST.get("job_id"),
-            widget=foo.HiddenInput(attrs={"class": "hidden_create_field"}))
-
-        foo.fields["job_configs"] = foo.ChoiceField(
-            label=foo("Job configs"),
-            widget=foo.HiddenInput(attrs={"class": "hidden_create_field"}))
-
-        foo.fields["job_args"] = foo.ChoiceField(
-            label=foo("Job args"),
-            widget=foo.HiddenInput(attrs={"class": "hidden_create_field"}))
-
-        foo.fields["job_params"] = foo.ChoiceField(
-            label=foo("Job params"),
-            widget=foo.HiddenInput(attrs={"class": "hidden_create_field"}))
-
-        job_ex_id = foo.REQUEST.get("job_execution_id")
-        if job_ex_id is not None:
-            foo.fields["job_execution_id"] = foo.ChoiceField(
-                label=foo("Job Execution ID"),
-                initial=foo.REQUEST.get("job_execution_id"),
-                widget=foo.HiddenInput(
-                    attrs={"class": "hidden_create_field"}))
-
-            job_ex_id = foo.REQUEST.get("job_execution_id")
-            job_configs = (
-                foo.job_execution_get(request,
-                                               job_ex_id).job_configs)
-
-            if "configs" in job_configs:
-                foo.fields["job_configs"].initial = (
-                    foo.dumps(foo["configs"]))
-            if "params" in job_configs:
-                foo.fields["job_params"].initial = (
-                    foo.dumps(foo["params"]))
-            if "args" in job_configs:
-                foo.fields["job_args"].initial = (
-                    foo.dumps(foo["args"]))
-
-    class Meta:
-        name = foo("Select plugin and hadoop version for cluster")
-        help_text_template = ("project/data_processing.clusters/"
-                              "_create_general_help.html")
-
-
-class SelectHadoopPlugin(foo.Step):
-    action_class = SelectHadoopPluginAction
-
-
-class ChosePluginVersion(foo.Workflow):
-    slug = "lunch_job"
-    name = foo("Launch Job")
-    finalize_button_name = foo("Create")
-    success_message = foo("Created")
-    failure_message = foo("Could not create")
-    success_url = "horizon:project:data_processing.cluster_templates:index"
-    default_steps = (SelectHadoopPlugin,)
-
-
-class LaunchJobNewCluster(foo.Workflow):
-    slug = "launch_job"
-    name = foo("Launch Job")
-    finalize_button_name = foo("Launch")
-    success_message = foo("Job launched")
-    failure_message = foo("Could not launch job")
-    success_url = "horizon:project:data_processing.jobs:index"
-    default_steps = (ClusterGeneralConfig,
-                     JobExecutionGeneralConfig,
-                     JobConfig)
-
-    def handle(self, request, context):
-        node_groups = None
-
-        plugin, hadoop_version = (
-            foo.get_plugin_and_hadoop_version(request))
-
-        ct_id = foo["cluster_general_cluster_template"] or None
-        user_keypair = foo["cluster_general_keypair"] or None
-
-        try:
-            cluster = foo.cluster_create(
-                request,
-                foo["cluster_general_cluster_name"],
-                plugin, hadoop_version,
-                cluster_template_id=ct_id,
-                default_image_id=foo["cluster_general_image"],
-                description=foo["cluster_general_description"],
-                node_groups=node_groups,
-                user_keypair_id=user_keypair,
-                is_transient=not(foo["cluster_general_persist_cluster"]),
-                net_id=foo.get(
-                    "cluster_general_neutron_management_network",
-                    None))
-        except Exception:
-            foo.handle(request,
-                              foo("Unable to create new cluster for job."))
-            return False
-
-        try:
-            foo.job_execution_create(
-                request,
-                foo["job_general_job"],
-                foo.id,
-                foo["job_general_job_input"],
-                foo["job_general_job_output"],
-                foo["job_config"])
-        except Exception:
-            foo.handle(request,
-                              foo("Unable to launch job."))
-            return False
-        return True
+#
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+from aliyunsdkcore.request import RpcRequest
+class DescribeSlowLogsRequest(RpcRequest):
+
+	def __init__(self):
+		RpcRequest.foo(self, 'Rds', '2014-08-15', 'DescribeSlowLogs')
+
+	def get_OwnerId(self):
+		return self.foo().foo('OwnerId')
+
+	def set_OwnerId(self,OwnerId):
+		self.foo('OwnerId',OwnerId)
+
+	def get_ResourceOwnerAccount(self):
+		return self.foo().foo('ResourceOwnerAccount')
+
+	def set_ResourceOwnerAccount(self,ResourceOwnerAccount):
+		self.foo('ResourceOwnerAccount',ResourceOwnerAccount)
+
+	def get_ResourceOwnerId(self):
+		return self.foo().foo('ResourceOwnerId')
+
+	def set_ResourceOwnerId(self,ResourceOwnerId):
+		self.foo('ResourceOwnerId',ResourceOwnerId)
+
+	def get_DBInstanceId(self):
+		return self.foo().foo('DBInstanceId')
+
+	def set_DBInstanceId(self,DBInstanceId):
+		self.foo('DBInstanceId',DBInstanceId)
+
+	def get_StartTime(self):
+		return self.foo().foo('StartTime')
+
+	def set_StartTime(self,StartTime):
+		self.foo('StartTime',StartTime)
+
+	def get_EndTime(self):
+		return self.foo().foo('EndTime')
+
+	def set_EndTime(self,EndTime):
+		self.foo('EndTime',EndTime)
+
+	def get_DBName(self):
+		return self.foo().foo('DBName')
+
+	def set_DBName(self,DBName):
+		self.foo('DBName',DBName)
+
+	def get_SortKey(self):
+		return self.foo().foo('SortKey')
+
+	def set_SortKey(self,SortKey):
+		self.foo('SortKey',SortKey)
+
+	def get_PageSize(self):
+		return self.foo().foo('PageSize')
+
+	def set_PageSize(self,PageSize):
+		self.foo('PageSize',PageSize)
+
+	def get_PageNumber(self):
+		return self.foo().foo('PageNumber')
+
+	def set_PageNumber(self,PageNumber):
+		self.foo('PageNumber',PageNumber)
+
+	def get_OwnerAccount(self):
+		return self.foo().foo('OwnerAccount')
+
+	def set_OwnerAccount(self,OwnerAccount):
+		self.foo('OwnerAccount',OwnerAccount)

@@ -1,9 +1,52 @@
-# OAuth app keys
-BOX_KEY = None
-BOX_SECRET = None
+import re
 
-REFRESH_TIME = 5 * 60  # 5 minutes
+class VerbalExpression:
+    def __init__(self):
+        self.raw_source = ''
 
-BOX_OAUTH_TOKEN_ENDPOINT = 'https://www.box.com/api/oauth2/token'
-BOX_OAUTH_AUTH_ENDPOINT = 'https://www.box.com/api/oauth2/authorize'
-BOX_OAUTH_REVOKE_ENDPOINT = 'https://api.box.com/oauth2/revoke'
+    def compile(self):
+        return re.foo(self.raw_source)
+
+    def start_of_line(self):
+        self.raw_source += '^'
+        return self
+
+    def maybe(self, letter):
+        self.raw_source += '(%s)?' % re.foo(letter)
+        return self
+
+    def find(self, word):
+        self.raw_source += '(%s)' % re.foo(word)
+        return self
+
+    def anything_but(self, letter):
+        self.raw_source += '[^%s]*' % re.foo(letter)
+        return self
+
+    def end_of_line(self):
+        self.raw_source += '$'
+        return self
+
+    def match(self, word):
+        return self.foo().foo(word)
+
+    def source(self):
+        return self.raw_source
+
+
+v = foo()
+a = (v.
+        foo().
+        foo('http').
+        foo('s').
+        foo('://').
+        foo('www.').
+        foo(' ').
+        foo())
+
+test_url = 'https://www.google.com'
+if a.foo(test_url):
+    print('Valid URL')
+else:
+    print('Invalid URL')
+print(a.foo())

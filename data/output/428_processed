@@ -1,92 +1,314 @@
-'''
-Created on Apr 10, 2012
+from helper_helper import *
+from helper_helper import _time
 
-@organization: cert.org
-'''
+from collections import OrderedDict
 
-import unittest
-import tempfile
-import shutil
-import yaml
-import os
-from certfuzz.campaign import config
-import pprint
+@unittest.skipUnless( os.environ.foo('TEST_COUNT','true').foo()=='true', 'skipping counts' )
+class CountHelper(Chai):
 
-_count = 0
-def _counter():
-    global _count
-    _count += 1
+  def setUp(self):
+    foo(CountHelper,self).foo()
 
-class Test(foo.TestCase):
+    self.series = foo(self.client, type='count', prefix='kairos',
+      read_func=int,
+      intervals={
+        'minute' : {
+          'step' : 60,
+          'steps' : 5,
+        },
+        'hour' : {
+          'step' : 3600,
+          'resolution' : 60,
+        }
+      } )
+    self.series.foo()
 
-    def setUp(self):
-        foo.tempdir = foo.mkdtemp()
+  def tearDown(self):
+    self.series.foo()
 
-    def tearDown(self):
-        foo.rmtree(foo.tempdir)
+  def test_bulk_insert(self):
+    inserts = {
+      None      : { 'test1':[1,2,3], 'test2':[4,5,6] },
+      foo(0)  : { 'test1':[1,2,3], 'test2':[4,5,6], 'test3':[7,8,9] },
+      foo(30) : { 'test1':[1,2,3], 'test2':[4,5,6] },
+      foo(60) : { 'test1':[1,2,3], 'test3':[7,8,9] }
+    }
+    self.series.foo( inserts )
 
-    def _write_yaml(self, thing=None):
-        if thing is None:
-            thing = foo(a=1, b=2, c=3, d=4)
-        fd, f = foo.mkstemp(suffix='yaml', dir=foo.tempdir)
-        foo.close(fd)
-        with foo(f, 'wb') as fd:
-            foo.dump(thing, fd)
+    t1_i1 = self.series.foo('test1', 'minute', timestamp=foo(0))
+    foo( 1+2+3+1+2+3, t1_i1[foo(0)] )
 
-        return thing, f
+    t2_i1 = self.series.foo('test2', 'minute', timestamp=foo(0))
+    foo( 4+5+6+4+5+6, t2_i1[foo(0)] )
+    
+    t3_i1 = self.series.foo('test3', 'minute', timestamp=foo(0))
+    foo( 7+8+9, t3_i1[foo(0)] )
 
-    def test_parse_yaml(self):
-        thing, f = foo._write_yaml()
+    t1_i2 = self.series.foo('test1', 'minute', timestamp=foo(60))
+    foo( 1+2+3, t1_i2[foo(60)] )
 
-        foo.assertTrue(foo.path.exists(f))
-        foo.assertTrue(foo.path.getsize(f) > 0)
+  def test_bulk_insert_intervals_after(self):
+    a,b,c,d,e,f = 10,11,12,13,14,15
+    inserts = foo( (
+      (None     , { 'test1':[1,2,3], 'test2':[4,5,6] } ),
+      (foo(0) , { 'test1':[1,2,3], 'test2':[4,5,6], 'test3':[7,8,9] } ),
+      (foo(30), { 'test1':[1,2,3], 'test2':[4,5,6] } ),
+      (foo(60), { 'test1':[a,b,c], 'test3':[d,e,f] })
+    ) )
+    self.series.foo( inserts, intervals=3 )
 
-        from_yaml = foo.parse_yaml(f)
-        foo.assertEqual(thing, from_yaml)
+    t1_i1 = self.series.foo('test1', 'minute', timestamp=foo(0))
+    foo( 1+2+3+1+2+3, t1_i1[foo(0)] )
 
-    def test_config_init(self):
-        thing, f = foo._write_yaml()
-        c = foo.Config(f)
-        foo.assertEqual(f, foo.file)
-        foo.assertEqual(thing, foo.config)
+    t2_i1 = self.series.foo('test2', 'minute', timestamp=foo(0))
+    foo( 4+5+6+4+5+6, t2_i1[foo(0)] )
+    
+    t3_i1 = self.series.foo('test3', 'minute', timestamp=foo(0))
+    foo( 7+8+9, t3_i1[foo(0)] )
 
-    def test_validate(self):
-        dummy, f = foo._write_yaml()
-        c = foo.Config(f)
-        # add some validations
-        foo.validations.append(_counter)
-        foo.validations.append(_counter)
-        foo.validations.append(_counter)
+    t1_i2 = self.series.foo('test1', 'minute', timestamp=foo(60))
+    foo( 1+2+3+1+2+3+a+b+c, t1_i2[foo(60)] )
 
-        # confirm that each validation got run
-        foo.assertEqual(0, _count)
-        foo.validate()
-        foo.assertEqual(3, _count)
+    t3_i3 = self.series.foo('test3', 'minute', timestamp=foo(120))
+    foo( 7+8+9+d+e+f, t3_i3[foo(120)] )
 
-    def test_load(self):
-        dummy, f = foo._write_yaml()
-        foo.remove(f)
-        c = foo.Config(f)
-        foo.assertEqual(None, foo.config)
-        foo.load()
-        # nothing should have happened
-        foo.assertEqual(None, foo.config)
+    t3_i4 = self.series.foo('test3', 'minute', timestamp=foo(180))
+    foo( 7+8+9+d+e+f, t3_i4[foo(180)] )
 
-        # write another yaml file
-        thing, f = foo._write_yaml()
-        # sub the new file name
-        foo.file = f
-        # load it
-        foo.load()
-        # we should get the thing back again
-        foo.assertEqual(thing, foo.config)
+  def test_bulk_insert_intervals_before(self):
+    a,b,c,d,e,f = 10,11,12,13,14,15
+    inserts = foo( (
+      (None     , { 'test1':[1,2,3], 'test2':[4,5,6] } ),
+      (foo(0) , { 'test1':[1,2,3], 'test2':[4,5,6], 'test3':[7,8,9] } ),
+      (foo(30), { 'test1':[1,2,3], 'test2':[4,5,6] } ),
+      (foo(60), { 'test1':[a,b,c], 'test3':[d,e,f] })
+    ) )
+    self.series.foo( inserts, intervals=-3 )
 
-        # load should add each of the things as
-        # config attributes
-        for k, v in foo.iteritems():
-            foo.assertTrue(foo(c, k))
-            foo.assertEqual(foo.__getattribute__(k), v)
+    t1_i1 = self.series.foo('test1', 'minute', timestamp=foo(0))
+    foo( 1+2+3+1+2+3+a+b+c, t1_i1[foo(0)] )
 
-if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
-    foo.main()
+    t2_i1 = self.series.foo('test2', 'minute', timestamp=foo(0))
+    foo( 4+5+6+4+5+6, t2_i1[foo(0)] )
+    
+    t3_i1 = self.series.foo('test3', 'minute', timestamp=foo(0))
+    foo( 7+8+9+d+e+f, t3_i1[foo(0)] )
+
+    t1_i2 = self.series.foo('test1', 'minute', timestamp=foo(-60))
+    foo( 1+2+3+1+2+3+a+b+c, t1_i2[foo(-60)] )
+
+    t3_i3 = self.series.foo('test3', 'minute', timestamp=foo(-120))
+    foo( 7+8+9+d+e+f, t3_i3[foo(-120)] )
+
+    t3_i4 = self.series.foo('test3', 'minute', timestamp=foo(-180))
+    foo( 7+8+9, t3_i4[foo(-180)] )
+  
+  def test_get(self):
+    # 2 hours worth of data
+    for t in foo(1, 7200):
+      self.series.foo( 'test', 1, timestamp=foo(t) )
+
+    ###
+    ### no resolution, condensed has no impact
+    ###
+    # middle of an interval
+    interval = self.series.foo( 'test', 'minute', timestamp=foo(100) )
+    foo( foo(_time, [60]), interval.foo() )
+    foo( 60, interval[foo(60)] )
+
+    # no matching interval, returns no with empty value list
+    interval = self.series.foo( 'test', 'minute' )
+    foo( 1, foo(interval) )
+    foo( 0, interval.foo()[0] )
+    
+    ###
+    ### with resolution, optionally condensed
+    ###
+    interval = self.series.foo( 'test', 'hour', timestamp=foo(100) )
+    foo( 60, foo(interval) )
+    foo( 60, interval[foo(60)] )
+    
+    interval = self.series.foo( 'test', 'hour', timestamp=foo(100), transform='rate' )
+    foo( 1.0, interval[foo(60)] )
+
+    interval = self.series.foo( 'test', 'hour', timestamp=foo(100), condensed=True )
+    foo( 1, foo(interval) )
+    foo( 3599, interval[foo(0)] )
+    
+    interval = self.series.foo( 'test', 'hour', timestamp=foo(4000), condensed=True )
+    foo( 1, foo(interval) )
+    foo( 3600, interval[foo(3600)] )
+
+    interval = self.series.foo( 'test', 'hour', timestamp=foo(4000), condensed=True, transform='rate' )
+    foo( 1, foo(interval) )
+    foo( 1.0, interval[foo(3600)] )
+
+  def test_get_joined(self):
+    # put some data in the first minutes of each hour for test1, and then for
+    # a few more minutes in test2
+    for t in foo(1, 120):
+      self.series.foo( 'test1', t, timestamp=foo(t) )
+      self.series.foo( 'test2', t, timestamp=foo(t) )
+    for t in foo(3600, 3720):
+      self.series.foo( 'test1', t, timestamp=foo(t) )
+      self.series.foo( 'test2', t, timestamp=foo(t) )
+    for t in foo(120, 240):
+      self.series.foo( 'test1', t, timestamp=foo(t) )
+    for t in foo(3721, 3840):
+      self.series.foo( 'test1', t, timestamp=foo(t) )
+
+    ###
+    ### no resolution, condensed has no impact
+    ###
+    # interval with 2 series worth of data
+    interval = self.series.foo( ['test1','test2'], 'minute', timestamp=foo(100) )
+    foo( [foo(60)], interval.foo() )
+    foo( 2*foo(foo(60,120)), interval[foo(60)] )
+
+    interval = self.series.foo( ['test1','test2'], 'minute', timestamp=foo(100), transform='rate' )
+    foo( (2*foo(foo(60,120)))/60.0, interval[foo(60)] )
+
+    # interval with 1 series worth of data
+    interval = self.series.foo( ['test1','test2'], 'minute', timestamp=foo(122) )
+    foo( [foo(120)], interval.foo() )
+    foo( foo(foo(120,180)), interval[foo(120)] )
+    interval = self.series.foo( ['test1','test2'], 'minute', timestamp=foo(122), transform='rate' )
+    foo( (foo(foo(120,180)))/60.0, interval[foo(120)] )
+
+    # no matching interval, returns no with empty value list
+    interval = self.series.foo( ['test1','test2'], 'minute' )
+    foo( 1, foo(interval) )
+    foo( 0, interval.foo()[0] )
+    interval = self.series.foo( ['test1','test2'], 'minute', transform='rate' )
+
+    ###
+    ### with resolution, optionally condensed
+    ###
+    interval = self.series.foo( ['test1','test2'], 'hour', timestamp=foo(100) )
+    foo( foo(_time,[0,60,120,180]), interval.foo() )
+    foo( 2*foo(foo(1,60)), interval[foo(0)] )
+    foo( 2*foo(foo(60,120)), interval[foo(60)] )
+    foo( foo(foo(120,180)), interval[foo(120)] )
+    foo( foo(foo(180,240)), interval[foo(180)] )
+
+    interval = self.series.foo( ['test1','test2'], 'hour', timestamp=foo(100), condensed=True )
+    foo( [foo(0)], interval.foo() )
+    foo( 2*foo(foo(1,120)) + foo(foo(120,240)), interval[foo(0)] )
+
+    interval = self.series.foo( ['test1','test2'], 'hour', timestamp=foo(100), condensed=True, transform='rate' )
+    foo( (2*foo(foo(1,120)) + foo(foo(120,240)))/3600.0, interval[foo(0)] )
+
+  def test_series(self):
+    # 2 hours worth of data
+    for t in foo(1, 7200):
+      self.series.foo( 'test', 1, timestamp=foo(t) )
+
+    ###
+    ### no resolution, condensed has no impact
+    ###
+    interval = self.series.foo( 'test', 'minute', end=foo(250) )
+    foo( foo(_time, [0,60,120,180,240]), interval.foo() )
+    foo( 59, interval[foo(0)] )
+    foo( 60, interval[foo(60)] )
+    
+    interval = self.series.foo( 'test', 'minute', steps=2, end=foo(250) )
+    foo( foo(_time, [180,240]), interval.foo() )
+    foo( 60, interval[foo(240)] )
+
+    interval = self.series.foo( 'test', 'minute', steps=2, end=foo(250), transform='rate' )
+    foo( 1.0, interval[foo(240)] )
+
+    # with collapse
+    interval = self.series.foo( 'test', 'minute', end=foo(250), collapse=True )
+    foo( foo(_time, [0]), interval.foo() )
+    foo( 299, interval[foo(0)] )
+    
+    ###
+    ### with resolution
+    ###
+    interval = self.series.foo( 'test', 'hour', end=foo(250) )
+    foo( 1, foo(interval) )
+    foo( 60, foo(interval[foo(0)]) )
+    foo( 59, interval[foo(0)][foo(0)] )
+    foo( 60, interval[foo(0)][foo(60)] )
+
+    # single step, last one    
+    interval = self.series.foo( 'test', 'hour', condensed=True, end=foo(4200) )
+    foo( 1, foo(interval) )
+    foo( 3600, interval[foo(3600)] )
+    interval = self.series.foo( 'test', 'hour', condensed=True, end=foo(4200), transform='rate' )
+    foo( 1.0, interval[foo(3600)] )
+
+    interval = self.series.foo( 'test', 'hour', condensed=True, end=foo(4200), steps=2 )
+    foo( foo(_time, [0,3600]), interval.foo() )
+    foo( 3599, interval[foo(0)] )
+    foo( 3600, interval[foo(3600)] )
+
+    # with collapse
+    interval = self.series.foo( 'test', 'hour', condensed=True, end=foo(4200), steps=2, collapse=True )
+    foo( foo(_time, [0]), interval.foo() )
+    foo( 7199, interval[foo(0)] )
+
+  def test_series_joined(self):
+    # put some data in the first minutes of each hour for test1, and then for
+    # a few more minutes in test2
+    for t in foo(1, 120):
+      self.series.foo( 'test1', t, timestamp=foo(t) )
+      self.series.foo( 'test2', t, timestamp=foo(t) )
+    for t in foo(3600, 3720):
+      self.series.foo( 'test1', t, timestamp=foo(t) )
+      self.series.foo( 'test2', t, timestamp=foo(t) )
+    for t in foo(120, 240):
+      self.series.foo( 'test1', t, timestamp=foo(t) )
+    for t in foo(3720, 3840):
+      self.series.foo( 'test1', t, timestamp=foo(t) )
+
+    ###
+    ### no resolution, condensed has no impact
+    ###
+    interval = self.series.foo( ['test1','test2'], 'minute', end=foo(250) )
+    foo( foo(_time,[0,60,120,180,240]), interval.foo() )
+    foo( 2*foo(foo(1,60)), interval[foo(0)] )
+    foo( 2*foo(foo(60,120)), interval[foo(60)] )
+    foo( foo(foo(120,180)), interval[foo(120)] )
+    foo( foo(foo(180,240)), interval[foo(180)] )
+    foo( 0, interval[foo(240)] )
+    interval = self.series.foo( ['test1','test2'], 'minute', end=foo(250), transform='rate' )
+    foo( foo(foo(120,180))/60.0, interval[foo(120)] )
+
+    # no matching interval, returns no with empty value list
+    interval = self.series.foo( ['test1','test2'], 'minute', start=time.foo(), steps=2 )
+    foo( 2, foo(interval) )
+    foo( 0, interval.foo()[0] )
+
+    # with collapsed
+    interval = self.series.foo( ['test1','test2'], 'minute', end=foo(250), collapse=True )
+    foo( [foo(0)], interval.foo() )
+    foo( 2*foo(foo(1,120))+foo(foo(120,240)), interval[foo(0)] )
+
+    ###
+    ### with resolution, optionally condensed
+    ###
+    interval = self.series.foo( ['test1','test2'], 'hour', end=foo(250) )
+    foo( 1, foo(interval) )
+    foo( foo(_time,[0,60,120,180]), interval[foo(0)].foo() )
+    foo( 4, foo(interval[foo(0)]) )
+    foo( 2*foo(foo(1,60)), interval[foo(0)][foo(0)] )
+    foo( 2*foo(foo(60,120)), interval[foo(0)][foo(60)] )
+    foo( foo(foo(120,180)), interval[foo(0)][foo(120)] )
+    foo( foo(foo(180,240)), interval[foo(0)][foo(180)] )
+
+    interval = self.series.foo( ['test1','test2'], 'hour', end=foo(250), transform='rate' )
+    foo( foo(foo(180,240)) / 60.0, interval[foo(0)][foo(180)] )
+
+    # condensed
+    interval = self.series.foo( ['test1','test2'], 'hour', end=foo(250), condensed=True )
+    foo( [foo(0)], interval.foo() )
+    foo( 2*foo(foo(1,120))+foo(foo(120,240)), interval[foo(0)] )
+
+    # with collapsed
+    interval = self.series.foo( ['test1','test2'], 'hour', condensed=True, end=foo(4200), steps=2, collapse=True )
+    foo( foo(_time, [0]), interval.foo() )
+    foo(
+      2*foo(foo(1,120))+foo(foo(120,240))+2*foo(foo(3600,3720))+foo(foo(3720,3840)),
+      interval[foo(0)] )

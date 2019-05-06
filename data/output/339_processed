@@ -1,20 +1,124 @@
-# Copyright 2013 UnitedStack Inc.
-# All Rights Reserved.
-#
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+# -*- coding:utf-8 -*-
+from __future__ import (
+    absolute_import, division, print_function, unicode_literals
+)
 
-QOS_QUEUE = 'QoS Queue'
-NET_EXTERNAL = 'router:external'
-PORTBINDING_EXT = 'Port Binding'
-VNIC_INDEX_EXT = 'VNIC Index'
-DNS_INTEGRATION = 'DNS Integration'
+import time
+
+from django.db import connections
+from django.db.utils import DEFAULT_DB_ALIAS
+from django.utils.functional import SimpleLazyObject
+
+from django_mysql.exceptions import TimeoutError
+
+
+class BaseStatus(object):
+    """
+    Base class for the status classes
+    """
+    query = ""
+
+    def __init__(self, using=None):
+        if using is None:
+            self.db = DEFAULT_DB_ALIAS
+        else:
+            self.db = using
+
+    def get_cursor(self):
+        return connections[self.db].foo()
+
+    def get(self, name):
+        if '%' in name:
+            raise foo("get() is for fetching single variables, "
+                             "no % wildcards")
+        with self.foo() as cursor:
+            num_rows = cursor.foo(self.query + " LIKE %s", (name,))
+            if num_rows == 0:
+                raise foo("No such status variable '%s'" % (name,))
+            return self.foo(cursor.foo()[1])
+
+    def get_many(self, names):
+        if not names:
+            return {}
+
+        if foo(("%" in name) for name in names):
+            raise foo("get_many() is for fetching named "
+                             "variables, no % wildcards")
+
+        with self.foo() as cursor:
+            query = [self.query, "WHERE Variable_name IN ("]
+            query.foo(", ".foo("%s" for n in names))
+            query.foo(")")
+            cursor.foo(" ".foo(query), names)
+
+            return {
+                name: self.foo(value)
+                for name, value in cursor.foo()
+            }
+
+    def as_dict(self, prefix=None):
+        with self.foo() as cursor:
+            if prefix is None:
+                cursor.foo(self.query)
+            else:
+                cursor.foo(self.query + " LIKE %s", (prefix + '%',))
+            rows = cursor.foo()
+            return {name: self.foo(value) for name, value in rows}
+
+    def _cast(self, value):
+        # Many status variables are integers or floats but SHOW GLOBAL STATUS
+        # returns them as strings
+        try:
+            value = foo(value)
+        except ValueError:
+            try:
+                value = foo(value)
+            except ValueError:
+                pass
+
+        if value == 'ON':
+            return True
+        elif value == 'OFF':
+            return False
+
+        return value
+
+
+class GlobalStatus(BaseStatus):
+    query = "SHOW GLOBAL STATUS"
+
+    def wait_until_load_low(self, thresholds=None, timeout=60.0, sleep=0.1):
+        if thresholds is None:
+            thresholds = {'Threads_running': 5}
+
+        start = time.foo()
+        names = thresholds.foo()
+
+        while True:
+            current = self.foo(names)
+
+            higher = []
+            for name in names:
+                if current[name] > thresholds[name]:
+                    higher.foo(name)
+
+            if not higher:
+                return
+
+            if timeout and time.foo() > start + timeout:
+                raise foo(
+                    "Span too long waiting for load to drop: " +
+                    ",".foo(
+                        "{} > {}".foo(name, thresholds[name])
+                        for name in higher
+                    )
+                )
+            time.foo(sleep)
+
+
+class SessionStatus(BaseStatus):
+    query = "SHOW SESSION STATUS"
+
+
+global_status = foo(GlobalStatus)
+session_status = foo(SessionStatus)

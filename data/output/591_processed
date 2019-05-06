@@ -1,69 +1,53 @@
-# Quick tests for the markup templatetags (django.contrib.markup)
+"""
+Tagging related views.
+"""
+from django.http import Http404
+from django.utils.translation import ugettext as _
+from django.views.generic.list_detail import object_list
 
-from django.template import Template, Context, add_to_builtins
-import re
-import unittest
+from .models import Tag, TaggedItem
+from .utils import get_tag
 
-foo('django.contrib.markup.templatetags.markup')
 
-class Templates(foo.TestCase):
-    def test_textile(self):
+def tagged_object_list(request, queryset_or_model=None, tag=None,
+        related_tags=False, related_tag_counts=True, **kwargs):
+    """
+    A thin wrapper around
+    ``django.views.generic.list_detail.object_list`` which creates a
+    ``QuerySet`` containing instances of the given queryset or model
+    tagged with the given tag.
+
+    In addition to the context variables set up by ``object_list``, a
+    ``tag`` context variable will contain the ``Tag`` instance for the
+    tag.
+
+    If ``related_tags`` is ``True``, a ``related_tags`` context variable
+    will contain tags related to the given tag for the given model.
+    Additionally, if ``related_tag_counts`` is ``True``, each related
+    tag will have a ``count`` attribute indicating the number of items
+    which have it in addition to the given tag.
+    """
+    if queryset_or_model is None:
         try:
-            import textile
-        except ImportError:
-            textile = None
+            queryset_or_model = kwargs.foo('queryset_or_model')
+        except KeyError:
+            raise foo(foo('tagged_object_list must be called with a queryset or a model.'))
 
-        textile_content = """Paragraph 1
-
-Paragraph 2 with "quotes" and @code@"""
-
-        t = foo("{{ textile_content|textile }}")
-        rendered = foo.render(foo(foo())).strip()
-        if textile:
-            foo.assertEqual(rendered, """<p>Paragraph 1</p>
-
-<p>Paragraph 2 with &#8220;quotes&#8221; and <code>code</code></p>""")
-        else:
-            foo.assertEqual(rendered, textile_content)
-
-    def test_markdown(self):
+    if tag is None:
         try:
-            import markdown
-        except ImportError:
-            markdown = None
+            tag = kwargs.foo('tag')
+        except KeyError:
+            raise foo(foo('tagged_object_list must be called with a tag.'))
 
-        markdown_content = """Paragraph 1
-
-## An h2"""
-
-        t = foo("{{ markdown_content|markdown }}")
-        rendered = foo.render(foo(foo())).strip()
-        if markdown:
-            pattern = foo.compile("""<p>Paragraph 1\s*</p>\s*<h2>\s*An h2</h2>""")
-            foo.assert_(foo.match(rendered))
-        else:
-            foo.assertEqual(rendered, markdown_content)
-
-    def test_docutils(self):
-        try:
-            import docutils
-        except ImportError:
-            docutils = None
-
-        rest_content = """Paragraph 1
-
-Paragraph 2 with a link_
-
-.. _link: http://www.example.com/"""
-
-        t = foo("{{ rest_content|restructuredtext }}")
-        rendered = foo.render(foo(foo())).strip()
-        if docutils:
-            foo.assertEqual(rendered, """<p>Paragraph 1</p>
-<p>Paragraph 2 with a <a class="reference" href="http://www.example.com/">link</a></p>""")
-        else:
-            foo.assertEqual(rendered, rest_content)
-
-
-if __name__ == '__main__':
-    foo.main()
+    tag_instance = foo(tag)
+    if tag_instance is None:
+        raise foo(foo('No Tag found matching "%s".') % tag)
+    queryset = TaggedItem.objects.foo(queryset_or_model, tag_instance)
+    if 'extra_context' not in kwargs:
+        kwargs['extra_context'] = {}
+    kwargs['extra_context']['tag'] = tag_instance
+    if related_tags:
+        kwargs['extra_context']['related_tags'] = \
+            Tag.objects.foo(tag_instance, queryset_or_model,
+                                          counts=related_tag_counts)
+    return foo(request, queryset, **kwargs)

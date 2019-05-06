@@ -1,192 +1,100 @@
-from colorbarpanel import ColorBarPanel
-from dbconnect import DBConnect, UniqueImageClause, image_key_columns
-from platemappanel import *
-import imagetools
-from properties import Properties
-import numpy as np
-import os
-import re
-import wx
-from PlotPanelTS import *
+from markdown import markdown
+
+from django.template import loader
+from django.db.models import *
+from django.contrib.auth.models import User
+from django.core.urlresolvers import reverse
+
+from settings import MEDIA_URL, STATIC_URL
+from shared.utils import *
+
+btn_tpl  = "<div class='%s' id='%s_%s'><img class='btn' src='%simg/admin/icon-%s.gif' /></div>"
+namelink = "<a href='%s'>%s</a> <a style='float:right; font-size:0.6em;' href='%s'>edit</a>"
+dellink  = "<a href='%s'>Delete</a>"
 
 
-p = Properties.getInstance()
-# Hack the properties module so it doesn't require the object table.
-#properties.optional_vars += ['object_table']
-db = DBConnect.getInstance()
+class Project(BaseModel):
+    creator = ForeignKey(User, related_name="projects", blank=True, null=True)
+    project = CharField(max_length=60)
+
+    def __unicode__(self):
+        return self.project
+
+class IssueTag(BaseModel):
+    creator = ForeignKey(User, related_name="tags", blank=True, null=True)
+    tag     = CharField(max_length=30)
+
+    def __unicode__(self):
+        return self.tag
 
 
-ID_IMPORT = 1001
-ID_ADDPOINTS = 1002
-ID_TABLE_SELECT = 1003
-ID_REMOVEPOINTS = 1004
+class Issue(BaseModel):
+    name       = CharField(max_length=60)
+    creator    = ForeignKey(User, related_name="created_issues", blank=True, null=True)
+    body       = TextField(max_length=3000, default='', blank=True)
+    body_html  = TextField(blank=True, null=True)
 
-class DataSourcePanel(wx.Panel):
-    
-    def __init__(self, parent, figurepanel, **kwargs):
-        wx.Panel.__init__(self, parent, **kwargs)
-        
-        #the panel to draw charts on
-        self.figurepanel = figurepanel
-        
-        self.sizer = wx.BoxSizer(wx.VERTICAL)
-        
+    owner      = ForeignKey(User, related_name="issues", blank=True, null=True)
+    priority   = IntegerField(default=0, blank=True, null=True)
+    difficulty = IntegerField(default=0, blank=True, null=True)
+    progress   = IntegerField(default=0)
 
-        testpanel = wx.Panel(self, style=wx.BORDER)
-        sizer2 = wx.BoxSizer(wx.VERTICAL)
+    closed     = BooleanField(default=False)
+    created    = DateTimeField(auto_now_add=True)
+    project    = ForeignKey(Project, related_name="issues", blank=True, null=True)
+    tags       = ManyToManyField(IssueTag, related_name="issues", blank=True, null=True)
 
+    def get_absolute_url(self):
+        return reverse2("issue", dpk=self.pk)
 
-        import_button = wx.Button(testpanel, ID_IMPORT, "Import Properties File")
-        self.importpathtext = wx.StaticText(testpanel, -1, "Please specify a properties file to import")
-        self.tabledropdown = wx.Choice(testpanel, ID_TABLE_SELECT)
-        
-        
-        wx.EVT_BUTTON(import_button, ID_IMPORT, self.loadproperties)        
-        wx.EVT_CHOICE(self.tabledropdown, ID_TABLE_SELECT, self.selecttable)
-        
-        sizer2.Add(import_button)
-        sizer2.Add(self.importpathtext)
-        sizer2.Add(self.tabledropdown)        
-        testpanel.SetSizer(sizer2)
-        
+    def save(self):
+        self.body_html = markdown(self.body)
+        super(Issue, self).save()
 
-        
-        testpanel2 = wx.Panel(self, style=wx.BORDER)
-        sizer3 = wx.BoxSizer(wx.VERTICAL)
+    def name_(self):
+        link    = reverse2("issue", dpk=self.pk)
+        editlnk = reverse2("update_issue_detail", mfpk=self.pk)
+        return namelink % (link, self.name, editlnk)
+    name_.allow_tags = True
 
-        self.field1dropdown = wx.Choice(testpanel2)
-        self.field2dropdown = wx.Choice(testpanel2)        
-        self.addtochartbutton = wx.Button(testpanel2, ID_ADDPOINTS, "Add to Chart")
+    def progress_(self):
+        return loader.render_to_string("progress.html", dict(pk=self.pk))
+    progress_.allow_tags = True
+    progress_.admin_order_field = "progress"
 
-        sizer3.Add(wx.StaticText(testpanel2, -1, "Charting Selections"))
-        sizer3.Add(wx.StaticText(testpanel2, -1, "x-axis:"))        
-        sizer3.Add(self.field1dropdown)
-        sizer3.Add(wx.StaticText(testpanel2, -1, "y-axis:"))                
-        sizer3.Add(self.field2dropdown) 
-        sizer3.Add(self.addtochartbutton) 
-     
-        wx.EVT_BUTTON(self.addtochartbutton, ID_ADDPOINTS, self.addtochart)   
-    
-        testpanel2.SetSizer(sizer3)
-        
-        
-        
-        
-        testpanel3 = wx.Panel(self, style=wx.BORDER)
-        
-        self.plotfieldslistbox = wx.ListBox(testpanel3)
-        self.removechartbutton = wx.Button(testpanel3, ID_REMOVEPOINTS, "Remove")
-        
-        
-        sizer4 = wx.BoxSizer(wx.VERTICAL)
-        sizer4.Add(self.plotfieldslistbox)
-        sizer4.Add(self.removechartbutton)
+    def closed_(self):
+        onoff = "on" if self.closed else "off"
+        return btn_tpl % ("toggle closed", 'd', self.pk, STATIC_URL, onoff)
+    closed_.allow_tags = True
+    closed_.admin_order_field = "closed"
 
-        wx.EVT_BUTTON(self.removechartbutton, ID_REMOVEPOINTS, self.removefromchart)          
-        
-        testpanel3.SetSizer(sizer4)
-        
-        self.sizer.Add(testpanel, 1, wx.EXPAND)
-        self.sizer.Add(testpanel2, 1, wx.EXPAND)
-        self.sizer.Add(testpanel3, 1, wx.EXPAND)        
-        
-        #Layout sizers
-        self.SetSizer(self.sizer)
-        self.SetAutoLayout(1)
-        self.sizer.Fit(self)
-        self.Show(1)
+    def created_(self):
+        return self.created.strftime("%b %d %Y")
+    created_.admin_order_field = "created"
+
+    def owner_(self):
+        return self.owner or ''
+    owner_.admin_order_field = "owner"
+
+    def project_(self):
+        return self.project or ''
+    project_.admin_order_field = "project"
+
+    def delete_(self):
+        return dellink % reverse2("update_issue", self.pk, "delete")
+    delete_.allow_tags = True
 
 
-    def loadproperties(self, event):
-        dlg = wx.FileDialog(None, "Select the file containing your properties.", style=wx.OPEN)
-        if dlg.ShowModal() == wx.ID_OK:
-            filename = dlg.GetPath()
-            os.chdir(os.path.split(filename)[0])      # wx.FD_CHANGE_DIR doesn't seem to work in the FileDialog, so I do it explicitly
-            p.LoadFile(filename)
-            self.importpathtext.SetLabel(filename)
-            table_list = db.GetTableNames()
-            self.tabledropdown.Clear()
-            self.tabledropdown.AppendItems(table_list)
-            
-            
-        else:
-            print 'CellDistributionViewer requires a properties file.  Don\'t make me exit :-(.'
+class IssueComment(BaseModel):
+    creator   = ForeignKey(User, related_name="comments", blank=True, null=True)
+    issue     = ForeignKey(Issue, related_name="comments", blank=True, null=True)
+    created   = DateTimeField(auto_now_add=True)
+    body      = TextField(max_length=3000)
+    body_html = TextField()
 
-    def selecttable(self, event):
-        tablename = event.GetString()
-        #ok now fetch the list of fields from the database
-        fieldnames = db.GetColumnNames(tablename)
-        self.field1dropdown.Clear()
-        self.field1dropdown.AppendItems(fieldnames)
-        self.field1dropdown.SetSelection(0)
-        self.field2dropdown.Clear()
-        self.field2dropdown.AppendItems(fieldnames)
-        self.field2dropdown.SetSelection(0)
-        
-    
-    def addtochart(self, event):        
-        addition = self.field1dropdown.GetStringSelection() + '  -  ' + self.field2dropdown.GetStringSelection()
-        pointstuple = (self.tabledropdown.GetStringSelection(),
-                       self.field1dropdown.GetStringSelection(),
-                       self.field2dropdown.GetStringSelection())
-        self.plotfieldslistbox.Append(addition, clientData=pointstuple)
-        
-        points = self.loadpoints(pointstuple[0], pointstuple[1], pointstuple[2])
-        self.plotpoints(points)
+    def save(self):
+        self.body_html = markdown(self.body)
+        super(IssueComment, self).save()
 
-
-    def removefromchart(self, event):
-        selected = self.plotfieldslistbox.GetSelection()
-        self.plotfieldslistbox.Delete(selected)
-
-
-    def loadpoints(self, tablename, xpoints, ypoints):
-        #loads points from the database
-        points = db.execute('SELECT %s, %s FROM %s LIMIT 5000'%(xpoints, ypoints, tablename)) 
-        return [points]
-        
-    def plotpoints(self, points):
-        self.figurepanel.setpointslists(points)
-        self.figurepanel.draw()
-        self.figurepanel.Refresh()
-
-
-if __name__ == "__main__":
-
-    theta = np.arange(0, 45 * 2 * np.pi, 0.02)
-
-    rad0 = (0.8 * theta / (2 * np.pi) + 1)
-    r0 = rad0 * (8 + np.sin(theta * 7 + rad0 / 1.8))
-    x0 = r0 * np.cos(theta)
-    y0 = r0 * np.sin(theta)
-
-    rad1 = (0.8 * theta / (2 * np.pi) + 1)
-    r1 = rad1 * (6 + np.sin(theta * 7 + rad1 / 1.9))
-    x1 = r1 * np.cos(theta)
-    y1 = r1 * np.sin(theta)
-
-    points = [[(1, 1)],
-              [(2, 2)],
-              [(3, 3)],
-              [(4, 4)],
-              [(5, 5)]
-              ]
-    clrs = [[225, 200, 160], [219, 112, 147], [219, 112, 147], [219, 112, 147], [219, 112, 147]]
-
-    app = wx.PySimpleApp()
-    frame = wx.Frame(None, -1, " Demo with Notebook")
-    nb = wx.Notebook(frame, -1)
-    simplepanel = wx.Panel(nb, style=wx.BORDER)
-    figpanel = FigurePanel(simplepanel, points, clrs)
-        
-    sizer = wx.BoxSizer()
-    sizer.Add(figpanel, 1, wx.EXPAND)
-    simplepanel.SetSizer(sizer)
-    
-        
-    nb.AddPage(simplepanel, "Display")
-    nb.AddPage(DataSourcePanel(nb, figpanel), "Data Sources") 
-    
-    frame.Show(1)
-    app.MainLoop()
-
+    def __unicode__(self):
+        return unicode(self.issue.name if self.issue else '') + " : " + self.body[:20]

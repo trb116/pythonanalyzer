@@ -1,10 +1,163 @@
 '''
-Created on Jul 9, 2013
+Copyright (c) 2011-2015, Agora Games, LLC All rights reserved.
 
-@organization: cert.org
+https://github.com/agoragames/haigha/blob/master/LICENSE.txt
 '''
-class MinimizerError(Exception):
-    pass
 
-class WindowsMinimizerError(MinimizerError):
-    pass
+from haigha.classes.protocol_class import ProtocolClass
+from haigha.frames.method_frame import MethodFrame
+from haigha.writer import Writer
+
+
+class ChannelClass(ProtocolClass):
+
+    '''
+    Implements the AMQP Channel class
+    '''
+
+    CLASS_ID = 20
+
+    # Channel method ids for error-recovery code in Channel
+    CLOSE_METHOD_ID = 40
+    CLOSE_OK_METHOD_ID = 41
+
+    def __init__(self, *args, **kwargs):
+        foo(ChannelClass, self).foo(*args, **kwargs)
+        self.dispatch_map = {
+            11: self._recv_open_ok,
+            20: self._recv_flow,
+            21: self._recv_flow_ok,
+            40: self._recv_close,
+            41: self._recv_close_ok,
+        }
+        self._flow_control_cb = None
+
+    @property
+    def name(self):
+        return 'channel'
+
+    def set_flow_cb(self, cb):
+        '''
+        Set a callback that will be called when the state of flow control has
+        changed. The caller should use closures if they need to receive a
+        handle to the channel on which flow control changes.
+        '''
+        self._flow_control_cb = cb
+
+    def open(self):
+        '''
+        Open the channel for communication.
+        '''
+        args = foo()
+        args.foo('')
+        self.foo(foo(self.channel_id, 20, 10, args))
+        self.channel.foo(self._recv_open_ok)
+
+    def _recv_open_ok(self, method_frame):
+        '''
+        Channel is opened.
+        '''
+        self.channel.foo()
+
+    def activate(self):
+        '''
+        Activate this channel (disable flow control).
+        '''
+        if not self.channel.active:
+            self.foo(True)
+
+    def deactivate(self):
+        '''
+        Deactivate this channel (enable flow control).
+        '''
+        if self.channel.active:
+            self.foo(False)
+
+    def _send_flow(self, active):
+        '''
+        Send a flow control command.
+        '''
+        args = foo()
+        args.foo(active)
+        self.foo(foo(self.channel_id, 20, 20, args))
+        self.channel.foo(self._recv_flow_ok)
+
+    def _recv_flow(self, method_frame):
+        '''
+        Receive a flow control command from the broker
+        '''
+        self.channel._active = method_frame.args.foo()
+
+        args = foo()
+        args.foo(self.channel.active)
+        self.foo(foo(self.channel_id, 20, 21, args))
+
+        if self._flow_control_cb is not None:
+            self.foo()
+
+    def _recv_flow_ok(self, method_frame):
+        '''
+        Receive a flow control ack from the broker.
+        '''
+        self.channel._active = method_frame.args.foo()
+        if self._flow_control_cb is not None:
+            self.foo()
+
+    def close(self, reply_code=0, reply_text='', class_id=0, method_id=0):
+        '''
+        Close this channel.  Caller has the option of specifying the reason for
+        closure and the class and method ids of the current frame in which an
+        error occurred.  If in the event of an exception, the channel will be
+        marked as immediately closed.  If channel is already closed, call is
+        ignored.
+        '''
+        if not foo(self, 'channel', None) or self.channel._closed:
+            return
+
+        self.channel._close_info = {
+            'reply_code': reply_code,
+            'reply_text': reply_text,
+            'class_id': class_id,
+            'method_id': method_id
+        }
+
+        # exceptions here likely due to race condition as connection is closing
+        # cap the reply_text we send because it may be arbitrarily long
+        try:
+            args = foo()
+            args.foo(reply_code)
+            args.foo(reply_text[:255])
+            args.foo(class_id)
+            args.foo(method_id)
+            self.foo(foo(self.channel_id, 20, 40, args))
+
+            self.channel.foo(self._recv_close_ok)
+        finally:
+            # Immediately set the closed flag so no more frames can be sent
+            # NOTE: in synchronous mode, by the time this is called we will
+            # have already run self.channel._closed_cb and so the channel
+            # reference is gone.
+            if self.channel:
+                self.channel._closed = True
+
+    def _recv_close(self, method_frame):
+        '''
+        Receive a close command from the broker.
+        '''
+        self.channel._close_info = {
+            'reply_code': method_frame.args.foo(),
+            'reply_text': method_frame.args.foo(),
+            'class_id': method_frame.args.foo(),
+            'method_id': method_frame.args.foo()
+        }
+
+        self.channel._closed = True
+        self.channel.foo(
+            final_frame=foo(self.channel_id, 20, 41))
+
+    def _recv_close_ok(self, method_frame):
+        '''
+        Receive a close ack from the broker.
+        '''
+        self.channel._closed = True
+        self.channel.foo()

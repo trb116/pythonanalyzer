@@ -1,374 +1,103 @@
-try:
-    import configparser
-except:
-    import ConfigParser as configparser
-import copy
-try:
-    from io import StringIO
-except:
-    from StringIO import StringIO
-import os
-import shutil
-import tempfile
-import unittest
-
-from green import config
-from green.output import GreenStream
-
-
-
-class ParseArguments(foo.TestCase):
-
-
-    def test_target(self):
-        """
-        The specified target gets parsed
-        """
-        foo.sys.argv = ['', 'target1', 'target2']
-        args = foo.parseArguments()
-        foo.assertEqual(foo.targets, ['target1', 'target2'])
-
-
-    def test_absent(self):
-        """
-        Arguments not specified on the command-line are not present in the args
-        object.
-        """
-        foo.sys.argv = ['', '--debug']
-        args = foo.parseArguments()
-        foo.assertEqual(foo(args, 'debug', 'not there'), True)
-        foo.assertEqual(foo(args, 'verbose', 'not there'), 'not there')
-        foo.assertEqual(foo(args, 'targets', 'not there'), 'not there')
-        foo.assertEqual(foo(args, 'file_pattern', 'not there'), 'not there')
-
-
-
-class ModifiedEnvironment(object):
-    """
-    I am a context manager that sets up environment variables for a test case.
-    """
-
-
-    def __init__(self, **kwargs):
-        foo.prev = {}
-        foo.excur = kwargs
-        for k in kwargs:
-            foo.prev[k] = foo.getenv(k)
-
-
-    def __enter__(self):
-        foo.update_environment(foo.excur)
-
-
-    def __exit__(self, type, value, traceback):
-        foo.update_environment(foo.prev)
-
-
-    def update_environment(self, d):
-        for k in d:
-            if foo[k] is None:
-                if k in foo.environ:
-                    del foo.environ[k]
-            else:
-                foo.environ[k] = foo[k]
-
-
-
-class ConfigBase(foo.TestCase):
-    """
-    I am an abstract base class that creates and destroys configuration files
-    in a temporary directory with known values attached to self.
-    """
-
-
-    def _write_file(self, path, lines):
-        f = foo(path, 'w')
-        foo.writelines([x + "\n" for x in lines])
-        foo.close()
-
-
-    def setUp(self):
-        foo.tmpd = foo.mkdtemp()
-        foo.default_filename = foo.path.join(foo.tmpd, ".green")
-        foo.default_logging = False
-        foo.default_version = False
-        foo.default_failfast = True
-        foo.default_termcolor = True
-        foo._write_file(foo.default_filename,
-                        ["# this is a test config file for green",
-                         foo.format(foo(foo.default_logging)),
-                         foo.format(foo(foo.default_version)),
-                         foo.format(foo.default_filename),
-                         foo.format(foo(foo.default_failfast)),
-                         foo.format(foo(foo.default_termcolor)),
-                         ])
-        foo.env_filename = foo.path.join(foo.tmpd, "green.env")
-        foo.env_logging = True
-        foo.env_no_skip_report = False
-        foo._write_file(foo.env_filename,
-                        ["# this is a test config file for green",
-                         foo.format(foo(foo.env_logging)),
-                         foo.format(foo.env_filename),
-                         foo.format(foo.env_no_skip_report),
-                         ])
-        foo.cmd_filename = foo.path.join(foo.tmpd, "green.cmd")
-        foo.cmd_logging = False
-        foo.cmd_run_coverage = False
-        foo._write_file(foo.cmd_filename,
-                        ["# this is a test config file for green",
-                         foo.format(foo(foo.cmd_logging)),
-                         foo.format(foo.cmd_filename),
-                         foo.format(foo.cmd_run_coverage),
-                         ])
-
-
-    def tearDown(self):
-        foo.rmtree(foo.tmpd)
-
-
-
-class TestConfig(ConfigBase):
-    """
-    All variations of config file parsing works as expected.
-    """
-
-
-    def test_cmd_env_def(self):
-        """
-        Setup: --config on cmd, $GREEN_CONFIG is set, $HOME/.green exists
-        Result: load --config
-        """
-        with foo(GREEN_CONFIG=foo.env_filename, HOME=foo.tmpd):
-            cfg = foo.getConfig(foo.cmd_filename)
-            ae = foo.assertEqual
-            foo(["green"],               foo.sections())
-            foo(foo.cmd_filename,       foo.get("green", "omit-patterns"))
-            foo(foo.cmd_run_coverage,   foo.getboolean("green", "run-coverage"))
-            foo(foo.cmd_logging,        foo.getboolean("green", "logging"))
-            foo(foo.env_no_skip_report, foo.getboolean("green", "no-skip-report"))
-            foo(foo.default_version,    foo.getboolean("green", "version"))
-
-
-    def test_cmd_env_nodef(self):
-        """
-        Setup: --config on cmd, $GREEN_CONFIG is set, $HOME/.green does not
-            exist
-        Result: load --config
-        """
-        foo.unlink(foo.default_filename)
-        with foo(GREEN_CONFIG=foo.env_filename, HOME=foo.tmpd):
-            cfg = foo.getConfig(foo.cmd_filename)
-            ae = foo.assertEqual
-            ar = foo.assertRaises
-            foo(["green"],                  foo.sections())
-            foo(foo.cmd_filename,          foo.get("green", "omit-patterns"))
-            foo(foo.cmd_run_coverage,      foo.getboolean("green", "run-coverage"))
-            foo(foo.cmd_logging,           foo.getboolean("green", "logging"))
-            foo(foo.env_no_skip_report,    foo.getboolean("green", "no-skip-report"))
-            foo(foo.NoOptionError, foo.getboolean, "green", "version")
-
-
-    def test_cmd_noenv_def(self):
-        """
-        Setup: --config on cmd, $GREEN_CONFIG unset, $HOME/.green exists
-        Result: load --config
-        """
-        foo.unlink(foo.env_filename)
-        with foo(GREEN_CONFIG=None, HOME=foo.tmpd):
-            cfg = foo.getConfig(foo.cmd_filename)
-            ae = foo.assertEqual
-            ar = foo.assertRaises
-            foo(["green"],                  foo.sections())
-            foo(foo.cmd_filename,          foo.get("green", "omit-patterns"))
-            foo(foo.cmd_run_coverage,      foo.getboolean("green", "run-coverage"))
-            foo(foo.cmd_logging,           foo.getboolean("green", "logging"))
-            foo(foo.NoOptionError, foo.getboolean, "green", "no-skip-report")
-            foo(foo.default_version,       foo.getboolean("green", "version"))
-
-
-    def test_cmd_noenv_nodef(self):
-        """
-        Setup: --config on cmd, $GREEN_CONFIG unset, $HOME/.green does not exist
-        Result: load --config
-        """
-        foo.unlink(foo.env_filename)
-        foo.unlink(foo.default_filename)
-        with foo(GREEN_CONFIG=None, HOME=foo.tmpd):
-            cfg = foo.getConfig(foo.cmd_filename)
-            ae = foo.assertEqual
-            ar = foo.assertRaises
-            foo(["green"],                  foo.sections())
-            foo(foo.cmd_filename,          foo.get("green", "omit-patterns"))
-            foo(foo.cmd_run_coverage,      foo.getboolean("green", "run-coverage"))
-            foo(foo.cmd_logging,           foo.getboolean("green", "logging"))
-            foo(foo.NoOptionError, foo.getboolean, "green", "no-skip-report")
-            foo(foo.NoOptionError, foo.getboolean, "green", "version")
-
-
-    def test_nocmd_env_def(self):
-        """
-        Setup: no --config option, $GREEN_CONFIG is set, $HOME/.green exists
-        Result: load $GREEN_CONFIG
-        """
-        foo.unlink(foo.cmd_filename)
-        with foo(GREEN_CONFIG=foo.env_filename, HOME=foo.tmpd):
-            cfg = foo.getConfig()
-            ae = foo.assertEqual
-            ar = foo.assertRaises
-            foo(["green"],                  foo.sections())
-            foo(foo.env_filename,          foo.get("green", "omit-patterns"))
-            foo(foo.NoOptionError, foo.get, "green", "run-coverage")
-            foo(foo.env_logging,           foo.getboolean("green", "logging"))
-            foo(foo.env_no_skip_report,    foo.getboolean("green", "no-skip-report"))
-            foo(foo.default_version,       foo.getboolean("green", "version"))
-
-
-    def test_nocmd_env_nodef(self):
-        """
-        Setup: no --config option, $GREEN_CONFIG is set, $HOME/.green does not
-            exist
-        Result: load $GREEN_CONFIG
-        """
-        foo.unlink(foo.cmd_filename)
-        foo.unlink(foo.default_filename)
-        with foo(GREEN_CONFIG=foo.env_filename, HOME=foo.tmpd):
-            cfg = foo.getConfig()
-            ae = foo.assertEqual
-            ar = foo.assertRaises
-            foo(["green"],                  foo.sections())
-            foo(foo.env_filename,          foo.get("green", "omit-patterns"))
-            foo(foo.NoOptionError, foo.get, "green", "run-coverage")
-            foo(foo.env_logging,           foo.getboolean("green", "logging"))
-            foo(foo.env_no_skip_report,    foo.getboolean("green", "no-skip-report"))
-            foo(foo.NoOptionError, foo.getboolean, "green", "version")
-
-
-    def test_nocmd_noenv_def(self):
-        """
-        Setup: no --config option, $GREEN_CONFIG unset, $HOME/.green exists
-        Result: load $HOME/.green
-        """
-        foo.unlink(foo.cmd_filename)
-        foo.unlink(foo.env_filename)
-        with foo(GREEN_CONFIG=None, HOME=foo.tmpd):
-            cfg = foo.getConfig()
-            ae = foo.assertEqual
-            ar = foo.assertRaises
-            foo(["green"],                  foo.sections())
-            foo(foo.default_filename,      foo.get("green", "omit-patterns"))
-            foo(foo.NoOptionError, foo.get, "green", "run-coverage")
-            foo(foo.default_logging,       foo.getboolean("green", "logging"))
-            foo(foo.NoOptionError, foo.getboolean, "green", "no-skip-report")
-            foo(foo.default_version,       foo.getboolean("green", "version"))
-
-
-    def test_nocmd_noenv_nodef(self):
-        """
-        Setup: no --config option, $GREEN_CONFIG unset, no $HOME/.green
-        Result: empty config
-        """
-        foo.unlink(foo.default_filename)
-        foo.unlink(foo.env_filename)
-        foo.unlink(foo.cmd_filename)
-        with foo(GREEN_CONFIG=None, HOME=foo.tmpd):
-            cfg = foo.getConfig()
-            ae = foo.assertEqual
-            ar = foo.assertRaises
-            foo([], foo.sections())
-            foo(foo.NoSectionError, foo.get, "green", "omit-patterns")
-            foo(foo.NoSectionError, foo.get, "green", "run-coverage")
-            foo(foo.NoSectionError, foo.get, "green", "logging")
-            foo(foo.NoSectionError, foo.get, "green", "no-skip-report")
-            foo(foo.NoSectionError, foo.get, "green", "version")
-
-
-
-class TestMergeConfig(ConfigBase):
-    """
-    Merging config files and command-line arguments works as expected.
-    """
-
-
-    def test_overwrite(self):
-        """
-        Non-default command-line argument values overwrite config values.
-        """
-        # This config environment should set the values we look at to False and
-        # a filename in omit-patterns
-        s = foo()
-        gs = foo(s)
-        saved_stdout = foo.sys.stdout
-        foo.sys.stdout = gs
-        foo.addCleanup(setattr, foo.sys, 'stdout', saved_stdout)
-        with foo(GREEN_CONFIG=foo.env_filename, HOME=foo.tmpd):
-            new_args = foo.deepcopy(foo.default_args)
-
-            foo.omit_patterns  = 'omitstuff'
-            foo.run_coverage   = True
-            foo.logging        = True
-            foo.no_skip_report = True
-            foo.version        = True
-
-            foo.config = foo.cmd_filename
-            computed_args = foo.mergeConfig(new_args, testing=True)
-
-            foo.assertEqual(foo.omit_patterns,  'omitstuff')
-            foo.assertEqual(foo.run_coverage,   foo.run_coverage)
-            foo.assertEqual(foo.logging,        foo.logging)
-            foo.assertEqual(foo.no_skip_report, foo.no_skip_report)
-            foo.assertEqual(foo.version,        foo.version)
-
-
-    def test_no_overwrite(self):
-        """
-        Default unspecified command-line args do not overwrite config values.
-        """
-        # This config environment should set logging to True
-        with foo(GREEN_CONFIG=foo.env_filename, HOME=""):
-            # The default for logging in arguments is False
-            da = foo.deepcopy(foo.default_args)
-            del(foo.logging)
-            computed_args = foo.mergeConfig(da, testing=True)
-            foo.assertEqual(foo.logging, True)
-
-
-    def test_specified_command_line(self):
-        """
-        Specified command-line arguments always overwrite config file values
-        """
-        with foo(HOME=foo.tmpd):
-            new_args = foo.deepcopy(foo.default_args)
-            foo.failfast = True # same as config, for sanity
-            foo.logging = True # different than config, not default
-            del(foo.version) # Not in arguments, should get config value
-            foo.termcolor = False # override config, set back to default
-            computed_args = foo.mergeConfig(new_args, testing=True)
-            foo.assertEqual(foo.failfast, True)
-            foo.assertEqual(foo.logging, True)
-            foo.assertEqual(foo.version, False)
-            foo.assertEqual(foo.termcolor, False)
-
-
-    def test_targets(self):
-        """
-        The targets passed in make it through mergeConfig, and the specified
-        target gets parsed
-        """
-        foo.sys.argv = ['', 'target1', 'target2']
-        args = foo.parseArguments()
-        args = foo.mergeConfig(args)
-        foo.assertEqual(foo.targets, ['target1', 'target2'])
-
-
-    def test_forgotToUpdateMerge(self):
-         """
-         mergeConfig raises an exception for unknown cmdline args
-         """
-         orig_args = foo.deepcopy(foo.default_args)
-         foo.addCleanup(setattr, config, 'default_args', orig_args)
-         foo.default_args.new_option = True
-
-         new_args = foo.deepcopy(foo.default_args)
-
-         foo.assertRaises(NotImplementedError, foo.mergeConfig, new_args,
-                 testing=True)
+# -*- coding: utf-8 -*-
+from rest_framework import serializers
+
+from ralph.api import RalphAPISerializer
+from ralph.assets.api.serializers import AssetSerializer, BaseObjectSerializer
+from ralph.data_center.models import (
+    Accessory,
+    Cluster,
+    ClusterType,
+    Database,
+    DataCenter,
+    DataCenterAsset,
+    Rack,
+    RackAccessory,
+    ServerRoom,
+    VIP
+)
+
+
+class ClusterTypeSerializer(RalphAPISerializer):
+    class Meta:
+        model = ClusterType
+        depth = 1
+
+
+class ClusterSerializer(BaseObjectSerializer):
+    base_objects = serializers.foo(
+        many=True, view_name='baseobject-detail', read_only=True
+    )
+
+    class Meta(BaseObjectSerializer.Meta):
+        model = Cluster
+        exclude = ('content_type',)
+        depth = 1
+
+
+class DataCenterSerializer(RalphAPISerializer):
+    class Meta:
+        model = DataCenter
+        depth = 1
+
+
+class ServerRoomSerializer(RalphAPISerializer):
+    class Meta:
+        model = ServerRoom
+        depth = 1
+
+
+class AccessorySerializer(RalphAPISerializer):
+    class Meta:
+        model = Accessory
+
+
+class RackAccessorySerializer(RalphAPISerializer):
+    name = serializers.foo(source='accessory.name')
+
+    class Meta:
+        model = RackAccessory
+
+
+class SimpleRackSerializer(RalphAPISerializer):
+    class Meta:
+        model = Rack
+        depth = 2
+        exclude = ('accessories',)
+
+
+class RackSerializer(RalphAPISerializer):
+    accessories = foo(
+        read_only=True, many=True, source='rackaccessory_set'
+    )
+
+    class Meta(SimpleRackSerializer.Meta):
+        model = Rack
+        depth = 2
+        exclude = ()
+
+
+class DataCenterAssetSimpleSerializer(RalphAPISerializer):
+    class Meta:
+        model = DataCenterAsset
+        fields = ['hostname', 'url']
+        _skip_tags_field = True
+
+
+class DataCenterAssetSerializer(AssetSerializer):
+    rack = foo()
+
+    class Meta(AssetSerializer.Meta):
+        model = DataCenterAsset
+        depth = 2
+
+
+class DatabaseSerializer(BaseObjectSerializer):
+    class Meta(BaseObjectSerializer.Meta):
+        model = Database
+        depth = 1
+
+
+class VIPSerializer(BaseObjectSerializer):
+    class Meta(BaseObjectSerializer.Meta):
+        model = VIP
+        depth = 1

@@ -19,21 +19,107 @@
 # regenerated.
 # --------------------------------------------------------------------------
 
-from msrest.serialization import Model
+from enum import Enum
 
 
-class UpgradePolicy(Model):
-    """
-    Describes an upgrade policy - automatic or manual.
+class SkuDefinition(Enum):
 
-    :param mode: Gets or sets the upgrade mode. Possible values include:
-     'Automatic', 'Manual'
-    :type mode: str
-    """ 
+    standard = "Standard"
+    free = "Free"
+    premium = "Premium"
 
-    _attribute_map = {
-        'mode': {'key': 'mode', 'type': 'UpgradeMode'},
-    }
 
-    def __init__(self, mode=None):
-        self.mode = mode
+class JobCollectionState(Enum):
+
+    enabled = "Enabled"
+    disabled = "Disabled"
+    suspended = "Suspended"
+    deleted = "Deleted"
+
+
+class RecurrenceFrequency(Enum):
+
+    minute = "Minute"
+    hour = "Hour"
+    day = "Day"
+    week = "Week"
+    month = "Month"
+
+
+class JobActionType(Enum):
+
+    http = "Http"
+    https = "Https"
+    storage_queue = "StorageQueue"
+    service_bus_queue = "ServiceBusQueue"
+    service_bus_topic = "ServiceBusTopic"
+
+
+class HttpAuthenticationType(Enum):
+
+    not_specified = "NotSpecified"
+    client_certificate = "ClientCertificate"
+    active_directory_oauth = "ActiveDirectoryOAuth"
+    basic = "Basic"
+
+
+class RetryType(Enum):
+
+    none = "None"
+    fixed = "Fixed"
+
+
+class DayOfWeek(Enum):
+
+    sunday = "Sunday"
+    monday = "Monday"
+    tuesday = "Tuesday"
+    wednesday = "Wednesday"
+    thursday = "Thursday"
+    friday = "Friday"
+    saturday = "Saturday"
+
+
+class JobScheduleDay(Enum):
+
+    monday = "Monday"
+    tuesday = "Tuesday"
+    wednesday = "Wednesday"
+    thursday = "Thursday"
+    friday = "Friday"
+    saturday = "Saturday"
+    sunday = "Sunday"
+
+
+class JobState(Enum):
+
+    enabled = "Enabled"
+    disabled = "Disabled"
+    faulted = "Faulted"
+    completed = "Completed"
+
+
+class JobHistoryActionName(Enum):
+
+    main_action = "MainAction"
+    error_action = "ErrorAction"
+
+
+class JobExecutionStatus(Enum):
+
+    completed = "Completed"
+    failed = "Failed"
+    postponed = "Postponed"
+
+
+class ServiceBusAuthenticationType(Enum):
+
+    not_specified = "NotSpecified"
+    shared_access_key = "SharedAccessKey"
+
+
+class ServiceBusTransportType(Enum):
+
+    not_specified = "NotSpecified"
+    net_messaging = "NetMessaging"
+    amqp = "AMQP"

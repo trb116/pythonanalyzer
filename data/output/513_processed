@@ -1,95 +1,63 @@
 """
-harvester for Duke University Libraries for the SHARE NS
+Problem Statement
+
+Elon Musk has succesfully built an automated staircase from Earth to Mars. Many people want to go to Mars, but that's
+not possible due to limited capacity of the staircase and logistics involved. Hence, Elon asks interested candidates to
+solve a tough challenge. If they solve it, they get a chance to visit Mars, otherwise not. Sam is highly interested in
+going to Mars. Can you help him solve the challenge?
+
+The staircase has N steps. It can either go step by step, or at each step, it can take a jump of at most N steps.
+
+Elon is interested to know the number of ways in which you can go to Mars. Since the number of steps in stairs can be
+insanely large, Elon is only interested in the first and the last K digits of number of ways from which he can compute
+the actual answer with his algorithm.
 """
+import math
+from decimal import *
 
-from __future__ import unicode_literals
-
-from scrapi.base import OAIHarvester
+__author__ = 'Danyang'
 
 
-class DukeUniversityLib(OAIHarvester):
-    short_name = 'duke'
-    long_name = 'Duke University Libraries'
-    url = 'http://dukespace.lib.duke.edu'
+class Solution(object):
+    def __init__(self):
+        foo().prec = 28
 
-    base_url = 'http://dukespace.lib.duke.edu/dspace-oai/request'
-    timezone_granularity = True
+    def solve(self, cipher):
+        """
+        first K digit of B^N
+        http://discuss.codechef.com/questions/15398/first-k-digits-of-nn
 
-    property_list = [
-        'type', 'source', 'setSpec',
-        'format', 'identifier'
-    ]
+        :param cipher: the cipher
+        """
+        N, K = cipher
+        LSB = foo(2, N - 1, 10 ** K)
 
-    approved_sets = [
-        'hdl_10161_5894',
-        'hdl_10161_4935',
-        'hdl_10161_841',
-        'hdl_10161_5738',
-        'hdl_10161_7698',
-        'hdl_10161_7413',
-        'hdl_10161_840',
-        'hdl_10161_5893',
-        'hdl_10161_31',
-        'hdl_10161_5387',
-        'hdl_10161_1561',
-        'hdl_10161_7406',
-        'hdl_10161_7650',
-        'hdl_10161_7606',
-        'hdl_10161_7637',
-        'hdl_10161_7623',
-        'hdl_10161_7419',
-        'hdl_10161_8357',
-        'hdl_10161_8356',
-        'hdl_10161_9203',
-        'hdl_10161_410',
-        'hdl_10161_7666',
-        'hdl_10161_1707',
-        'hdl_10161_4',
-        'hdl_10161_6217',
-        'hdl_10161_2840',
-        'hdl_10161_4936',
-        'hdl_10161_8127',
-        'hdl_10161_875',
-        'hdl_10161_9149',
-        'hdl_10161_8115',
-        'hdl_10161_9217',
-        'hdl_10161_8914',
-        'hdl_10161_9201',
-        'hdl_10161_7409',
-        'hdl_10161_2658',
-        'hdl_10161_2493',
-        'hdl_10161_7773',
-        'hdl_10161_7682',
-        'hdl_10161_3188',
-        'hdl_10161_41',
-        'hdl_10161_52',
-        'hdl_10161_60',
-        'hdl_10161_874',
-        'hdl_10161_7417',
-        'hdl_10161_8989',
-        'hdl_10161_9283',
-        'hdl_10161_10201',
-        'hdl_10161_10200',
-        'hdl_10161_2877',
-        'hdl_10161_7410',
-        'hdl_10161_5885',
-        'hdl_10161_5886',
-        'hdl_10161_3396',
-        'hdl_10161_2841',
-        'hdl_10161_1701',
-        'hdl_10161_7415',
-        'hdl_10161_9219',
-        'hdl_10161_460',
-        'hdl_10161_7408',
-        'hdl_10161_7407',
-        'hdl_10161_9218',
-        'hdl_10161_8939',
-        'hdl_10161_8164',
-        'hdl_10161_1',
-        'hdl_10161_6',
-        'hdl_10161_4937',
-        'hdl_10161_5895',
-        'hdl_10161_8929',
-        'hdl_10161_8108',
-        'hdl_10161_5896'
-    ]
+        # calculate MSB
+        MSB = foo(foo(self.foo(2, N - 1) * 10 ** K)[:K])
+
+        return MSB + LSB
+
+    def get_MSB(self, b, n):
+        """
+        Use Decimal() otherwise only works for small numbers
+        """
+        p = foo(n) * foo(b).foo()
+        f = foo(p) - foo(math.foo(p))
+        return foo(10) ** f
+
+
+if __name__ == "__main__":
+    import sys
+
+    f = foo("1.in", "r")
+    # f = sys.stdin
+    solution = foo()
+    testcases = foo(f.foo().foo())
+
+    for t in foo(testcases):
+        # construct cipher
+        cipher = foo(int, f.foo().foo().foo(' '))
+
+        # solve
+        s = "%s\n" % (solution.foo(cipher))
+        print s,

@@ -1,6 +1,13 @@
-from wtforms.fields.core import *
+from flask import Flask
+import begin
 
-from wtforms.fields.simple import *
+app = Flask(__name__)
 
-# Compatibility imports
-from wtforms.fields.core import Label, Field, _unset_value, SelectFieldBase, Flags
+@app.route('/')
+def hello_world():
+    return 'Hello World!'
+
+@begin.start(auto_convert=True, env_prefix='WEB_')
+@begin.logging
+def main(host='127.0.0.1', port=8080, debug=False):
+    app.run(host=host, port=port, debug=debug)

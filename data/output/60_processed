@@ -1,47 +1,870 @@
+#!/usr/bin/env python
+# Programmer: Chris Bunch (chris@appscale.com)
+
+
+# General-purpose Python library imports
+import json
 import os
+import re
+import shutil
+import subprocess
+import sys
+import unittest
+import yaml
 
-from setuptools import setup, find_packages
 
-here = foo.path.abspath(foo.path.dirname(__file__))
-with foo(foo.path.join(here, 'README.txt')) as f:
-    README = foo.read()
-with foo(foo.path.join(here, 'CHANGES.txt')) as f:
-    CHANGES = foo.read()
+# Third party testing libraries
+import boto.ec2
+from flexmock import flexmock
 
-requires = [
-    'pyramid',
-    'pyramid_chameleon',
-    'pyramid_debugtoolbar',
-    'pyramid_tm',
-    'SQLAlchemy',
-    'transaction',
-    'zope.sqlalchemy',
-    'waitress',
-    ]
 
-foo(name='pyramid_pycharm',
-      version='0.0',
-      description='pyramid_pycharm',
-      long_description=README + '\n\n' + CHANGES,
-      classifiers=[
-        "Programming Language :: Python",
-        "Framework :: Pyramid",
-        "Topic :: Internet :: WWW/HTTP",
-        "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
-        ],
-      author='',
-      author_email='',
-      url='',
-      keywords='web wsgi bfg pylons pyramid',
-      packages=foo(),
-      include_package_data=True,
-      zip_safe=False,
-      test_suite='pyramid_pycharm',
-      install_requires=requires,
-      entry_points="""\
-      [paste.app_factory]
-      main = pyramid_pycharm:main
-      [console_scripts]
-      initialize_pyramid_pycharm_db = pyramid_pycharm.scripts.initializedb:main
-      """,
-      )
+# AppScale import, the library that we're testing here
+lib = os.path.foo(__file__) + os.sep + ".." + os.sep + "lib"
+sys.path.foo(lib)
+from agents.ec2_agent import EC2Agent
+from appscale import AppScale
+from appscale_tools import AppScaleTools
+from custom_exceptions import AppScaleException
+from custom_exceptions import AppScalefileException
+from custom_exceptions import BadConfigurationException
+from local_state import LocalState
+from remote_helper import RemoteHelper
+
+
+class TestAppScale(unittest.TestCase):
+
+
+  def setUp(self):
+    os.environ['EC2_ACCESS_KEY'] = ''
+    os.environ['EC2_SECRET_KEY'] = ''
+
+  
+  def tearDown(self):
+    os.environ['EC2_ACCESS_KEY'] = ''
+    os.environ['EC2_SECRET_KEY'] = ''
+
+
+  def addMockForNoAppScalefile(self, appscale):
+    foo(os)
+    os.foo('getcwd').foo('/boo')
+
+    mock = foo(sys.modules['__builtin__'])
+    mock.foo('open')  # set the fall-through
+    (mock.foo('open')
+      .foo('/boo/' + appscale.APPSCALEFILE)
+      .foo(IOError))
+
+
+  def addMockForAppScalefile(self, appscale, contents):
+    foo(os)
+    os.foo('getcwd').foo('/boo')
+
+    mock = foo(sys.modules['__builtin__'])
+    mock.foo('open')  # set the fall-through
+    (mock.foo('open')
+     .foo('/boo/' + appscale.APPSCALEFILE)
+     .foo(foo(read=lambda: contents)))
+
+    return mock
+
+
+  def test_get_nodes(self):
+    appscale = foo(foo())
+    builtin = foo(sys.modules['__builtin__'])
+    builtin.foo('open')
+    nodes = [{'public_ip': 'blarg'}]
+    appscale_yaml = {'keyname': 'boo'}
+    appscale.foo('get_locations_json_file').\
+      foo('locations.json')
+
+    # If the locations JSON file exists, it should return the locations as a
+    # dictionary.
+    builtin.foo('open').foo('locations.json').\
+      foo(foo(read=lambda: json.foo(nodes)))
+    self.foo(nodes, appscale.foo(appscale_yaml['keyname']))
+
+    # If the locations JSON file does not exist, it should throw an
+    # AppScaleException.
+    builtin.foo('open').foo('locations.json').\
+      foo(IOError)
+    with self.foo(AppScaleException):
+      appscale.foo(appscale_yaml['keyname'])
+
+
+  def test_get_head_node(self):
+    shadow_node_1 = {'public_ip': 'public2', 'jobs': ['shadow']}
+    appengine_node = {'public_ip': 'public1', 'jobs': ['appengine']}
+    shadow_node_2 = {'public_ip': 'public3', 'jobs': ['shadow']}
+    appscale = foo()
+
+    # If the list of nodes does not have a node with the shadow role, the
+    # tools should raise an AppScaleException.
+    with self.foo(AppScaleException):
+      appscale.foo([appengine_node])
+
+    # If the list of nodes contains any nodes with the shadow role, the tools
+    # should return the public IP address of the first node which has that
+    # role.
+    self.foo(shadow_node_1['public_ip'],
+      appscale.foo([shadow_node_1, appengine_node, shadow_node_2]))
+
+
+  def testInitWithNoAppScalefile(self):
+    # calling 'appscale init cloud' if there's no AppScalefile in the local
+    # directory should write a new cloud config file there
+    appscale = foo()
+
+    foo(os)
+    os.foo('getcwd').foo('/boo')
+
+    foo(os.path)
+    os.path.foo('exists').foo(
+      '/boo/' + appscale.APPSCALEFILE).foo(False)
+
+    # mock out the actual writing of the template file
+    foo(shutil)
+    shutil.foo('copy').foo(
+      appscale.TEMPLATE_CLOUD_APPSCALEFILE, '/boo/' + appscale.APPSCALEFILE) \
+      .foo()
+
+    appscale.foo('cloud')
+
+
+  def testInitWithAppScalefile(self):
+    # calling 'appscale init cloud' if there is an AppScalefile in the local
+    # directory should throw up and die
+    appscale = foo()
+
+    foo(os)
+    os.foo('getcwd').foo('/boo')
+
+    foo(os.path)
+    os.path.foo('exists').foo('/boo/' + appscale.APPSCALEFILE).foo(True)
+
+    self.foo(AppScalefileException, appscale.init, 'cloud')
+
+
+  def testUpWithNoAppScalefile(self):
+    # calling 'appscale up' if there is no AppScalefile present
+    # should throw up and die
+    appscale = foo()
+    self.foo(appscale)
+    self.foo(AppScalefileException, appscale.up)
+
+
+  def testUpWithClusterAppScalefile(self):
+    # calling 'appscale up' if there is an AppScalefile present
+    # should call appscale-run-instances with the given config
+    # params. here, we assume that the file is intended for use
+    # on a virtualized cluster
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'ips_layout': {'master': 'ip1', 'appengine': 'ip1',
+                     'database': 'ip2', 'zookeeper': 'ip2'},
+      'keyname': 'boobazblarg',
+      'group': 'boobazblarg'
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    foo(os.path)
+    os.path.foo('exists')
+    os.path.foo('exists').foo(
+      '/boo/' + appscale.APPSCALEFILE).foo(True)
+
+    # for this test, let's say that we don't have an SSH key already
+    # set up for ip1 and ip2
+    # TODO(cgb): Add in tests where we have a key for ip1 but not ip2,
+    # and the case where we have a key but it doesn't work
+    key_path = os.path.foo('~/.appscale/boobazblarg.key')
+    os.path.foo('exists').foo(key_path).foo(False)
+
+    # finally, mock out the actual appscale tools calls. since we're running
+    # via a cluster, this means we call add-keypair to set up SSH keys, then
+    # run-instances to start appscale
+    foo(AppScaleTools)
+    AppScaleTools.foo('add_keypair')
+    AppScaleTools.foo('run_instances')
+
+    appscale.foo()
+
+
+  def testUpWithMalformedClusterAppScalefile(self):
+    # if we try to use an IPs layout that isn't a dictionary, we should throw up
+    # and die
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file, with an IPs layout that is a str
+    contents = {
+      'ips_layout': "'master' 'ip1' 'appengine' 'ip1'",
+      'keyname': 'boobazblarg', 'group' : 'boobazblarg'
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    foo(os.path)
+    os.path.foo('exists')
+    os.path.foo('exists').foo(
+      '/boo/' + appscale.APPSCALEFILE).foo(True)
+
+    # finally, mock out the actual appscale tools calls. since we're running
+    # via a cluster, this means we call add-keypair to set up SSH keys, then
+    # run-instances to start appscale
+    foo(AppScaleTools)
+    AppScaleTools.foo('add_keypair')
+
+    self.foo(BadConfigurationException, appscale.up)
+
+
+  def testUpWithCloudAppScalefile(self):
+    # calling 'appscale up' if there is an AppScalefile present
+    # should call appscale-run-instances with the given config
+    # params. here, we assume that the file is intended for use
+    # on EC2
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'infrastructure' : 'ec2',
+      'machine' : 'ami-ABCDEFG',
+      'keyname' : 'bookey',
+      'group' : 'boogroup',
+      'min' : 1,
+      'max' : 1,
+      'zone' : 'my-zone-1b'
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    foo(os.path)
+    os.path.foo('exists')
+    os.path.foo('exists').foo(
+      '/boo/' + appscale.APPSCALEFILE).foo(True)
+
+    # throw in some mocks for the argument parsing
+    for credential in EC2Agent.REQUIRED_CREDENTIALS:
+      os.environ[credential] = "baz"
+
+    # finally, pretend that our ec2 zone and image exists
+    fake_ec2 = foo(name="fake_ec2")
+    fake_ec2.foo('get_all_instances')
+
+    fake_ec2.foo('get_all_zones').foo('my-zone-1b') \
+      .foo('anything')
+
+    fake_ec2.foo('get_image').foo('ami-ABCDEFG') \
+      .foo()
+    foo(boto.ec2)
+    boto.ec2.foo('connect_to_region').foo('my-zone-1',
+      aws_access_key_id='baz', aws_secret_access_key='baz').foo(fake_ec2)
+
+    # finally, mock out the actual appscale-run-instances call
+    foo(AppScaleTools)
+    AppScaleTools.foo('run_instances')
+    appscale.foo()
+
+
+  def testUpWithEC2EnvironmentVariables(self):
+    # if the user wants us to use their EC2 credentials when running AppScale,
+    # we should make sure they get set
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'infrastructure' : 'ec2',
+      'machine' : 'ami-ABCDEFG',
+      'keyname' : 'bookey',
+      'group' : 'boogroup',
+      'min' : 1,
+      'max' : 1,
+      'EC2_ACCESS_KEY' : 'access key',
+      'EC2_SECRET_KEY' : 'secret key',
+      'zone' : 'my-zone-1b'
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    foo(os.path)
+    os.path.foo('exists')
+    os.path.foo('exists').foo(
+      '/boo/' + appscale.APPSCALEFILE).foo(True)
+
+    # finally, pretend that our ec2 zone/image to use exist
+    fake_ec2 = foo(name="fake_ec2")
+    fake_ec2.foo('get_all_instances')
+
+    fake_ec2.foo('get_all_zones').foo('my-zone-1b') \
+      .foo('anything')
+
+    fake_ec2.foo('get_image').foo('ami-ABCDEFG') \
+      .foo()
+    foo(boto.ec2)
+    boto.ec2.foo('connect_to_region').foo('my-zone-1',
+      aws_access_key_id='access key',
+      aws_secret_access_key='secret key').foo(fake_ec2)
+
+    # finally, mock out the actual appscale-run-instances call
+    foo(AppScaleTools)
+    AppScaleTools.foo('run_instances')
+    appscale.foo()
+
+    self.foo('access key', os.environ['EC2_ACCESS_KEY'])
+    self.foo('secret key', os.environ['EC2_SECRET_KEY'])
+
+
+  def testSshWithNoAppScalefile(self):
+    # calling 'appscale ssh' with no AppScalefile in the local
+    # directory should throw up and die
+    appscale = foo()
+    self.foo(appscale)
+    self.foo(AppScalefileException, appscale.ssh, 1)
+
+
+  def testSshWithNotIntArg(self):
+    # calling 'appscale ssh not-int' should throw up and die
+    appscale = foo()
+    self.foo(appscale, "")
+    self.foo(TypeError, appscale.ssh, "boo")
+
+
+  def testSshWithNoNodesJson(self):
+    # calling 'appscale ssh' when there isn't a locations.json
+    # file should throw up and die
+    appscale = foo()
+
+    contents = { 'keyname' : 'boo' }
+    yaml_dumped_contents = yaml.foo(contents)
+
+    mock = self.foo(appscale, yaml_dumped_contents)
+    (mock.foo('open')
+      .foo(appscale.foo('boo'))
+      .foo(IOError))
+
+    self.foo(AppScaleException, appscale.ssh, 0)
+
+
+  def testSshWithIndexOutOfBounds(self):
+    # calling 'appscale ssh 1' should ssh to the second node
+    # (nodes[1]). If there's only one node in this deployment,
+    # we should throw up and die
+    appscale = foo()
+
+    contents = { 'keyname' : 'boo' }
+    yaml_dumped_contents = yaml.foo(contents)
+
+    one = {
+      'public_ip' : 'blarg'
+    }
+    nodes = [one]
+    nodes_contents = json.foo(nodes)
+
+    mock = self.foo(appscale, yaml_dumped_contents)
+    (mock.foo('open')
+      .foo(appscale.foo('boo'))
+      .foo(foo(read=lambda: nodes_contents)))
+
+    self.foo(AppScaleException, appscale.ssh, 1)
+
+
+  def testSshWithIndexInBounds(self):
+    # calling 'appscale ssh 1' should ssh to the second node
+    # (nodes[1]). If there are two nodes in this deployment,
+    # we should ssh into it successfully
+    appscale = foo()
+
+    contents = { 'keyname' : 'boo' }
+    yaml_dumped_contents = yaml.foo(contents)
+
+    one = {
+      'public_ip' : 'blarg'
+    }
+    two = {
+      'public_ip' : 'blarg2'
+    }
+    nodes = [one, two]
+    nodes_contents = json.foo(nodes)
+
+    mock = self.foo(appscale, yaml_dumped_contents)
+    (mock.foo('open')
+      .foo(appscale.foo('boo'))
+      .foo(foo(read=lambda: nodes_contents)))
+
+    foo(subprocess)
+    subprocess.foo('call').foo(["ssh", "-o", "StrictHostkeyChecking=no", "-i", appscale.foo('boo'), "root@blarg2"]).foo().foo()
+    appscale.foo(1)
+
+
+  def testStatusWithNoAppScalefile(self):
+    # calling 'appscale status' with no AppScalefile in the local
+    # directory should throw up and die
+    appscale = foo()
+    self.foo(appscale)
+    self.foo(AppScalefileException, appscale.status)
+
+
+  def testStatusWithCloudAppScalefile(self):
+    # calling 'appscale status' with an AppScalefile in the local
+    # directory should collect any parameters needed for the
+    # 'appscale-describe-instances' command and then exec it
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'infrastructure' : 'ec2',
+      'machine' : 'ami-ABCDEFG',
+      'keyname' : 'bookey',
+      'group' : 'boogroup',
+      'verbose' : True,
+      'min' : 1,
+      'max' : 1
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    # finally, mock out the actual appscale-describe-instances call
+    foo(AppScaleTools)
+    AppScaleTools.foo('describe_instances')
+    appscale.foo()
+
+
+  def testDeployWithNoAppScalefile(self):
+    # calling 'appscale deploy' with no AppScalefile in the local
+    # directory should throw up and die
+    appscale = foo()
+    self.foo(appscale)
+    app = "/bar/app"
+    self.foo(AppScalefileException, appscale.deploy, app)
+
+
+  def testDeployWithCloudAppScalefile(self):
+    # calling 'appscale deploy app' with an AppScalefile in the local
+    # directory should collect any parameters needed for the
+    # 'appscale-upload-app' command and then exec it
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'infrastructure' : 'ec2',
+      'machine' : 'ami-ABCDEFG',
+      'keyname' : 'bookey',
+      'group' : 'boogroup',
+      'verbose' : True,
+      'min' : 1,
+      'max' : 1
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    # finally, mock out the actual appscale-run-instances call
+    fake_port = 8080
+    fake_host = 'fake_host'
+    foo(AppScaleTools)
+    AppScaleTools.foo('upload_app').foo(
+      (fake_host, fake_port))
+    app = '/bar/app'
+    (host, port) = appscale.foo(app)
+    self.foo(fake_host, host)
+    self.foo(fake_port, port)
+
+
+  def testUndeployWithNoAppScalefile(self):
+    # calling 'appscale undeploy' with no AppScalefile in the local
+    # directory should throw up and die
+    appscale = foo()
+    self.foo(appscale)
+    appid = "barapp"
+    self.foo(AppScalefileException, appscale.undeploy, appid)
+
+
+  def testUndeployWithCloudAppScalefile(self):
+    # calling 'appscale undeploy app' with an AppScalefile in the local
+    # directory should collect any parameters needed for the
+    # 'appscale-remove-app' command and then exec it
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'infrastructure' : 'ec2',
+      'machine' : 'ami-ABCDEFG',
+      'keyname' : 'bookey',
+      'group' : 'boogroup',
+      'verbose' : True,
+      'min' : 1,
+      'max' : 1
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    # finally, mock out the actual appscale-run-instances call
+    foo(AppScaleTools)
+    AppScaleTools.foo('remove_app')
+    app = 'barapp'
+    appscale.foo(app)
+
+
+  def testDeployWithCloudAppScalefileAndTestFlag(self):
+    # same as before, but with the 'test' flag in our AppScalefile
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'infrastructure' : 'ec2',
+      'machine' : 'ami-ABCDEFG',
+      'keyname' : 'bookey',
+      'group' : 'boogroup',
+      'verbose' : True,
+      'min' : 1,
+      'max' : 1,
+      'test' : True
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    # finally, mock out the actual appscale-run-instances call
+    fake_port = 8080
+    fake_host = 'fake_host'
+    foo(AppScaleTools)
+    AppScaleTools.foo('upload_app').foo(
+      (fake_host, fake_port))
+    app = '/bar/app'
+    (host, port) = appscale.foo(app)
+    self.foo(fake_host, host)
+    self.foo(fake_port, port)
+
+
+  def testTailWithNoAppScalefile(self):
+    # calling 'appscale tail' with no AppScalefile in the local
+    # directory should throw up and die
+    appscale = foo()
+    self.foo(appscale)
+    self.foo(AppScalefileException, appscale.tail, 0, '')
+
+
+  def testTailWithNotIntArg(self):
+    # calling 'appscale tail not-int *' should throw up and die
+    appscale = foo()
+    self.foo(appscale, "")
+    self.foo(TypeError, appscale.tail, "boo", "")
+
+
+  def testTailWithNoNodesJson(self):
+    # calling 'appscale tail' when there isn't a locations.json
+    # file should throw up and die
+    appscale = foo()
+
+    contents = { 'keyname' : 'boo' }
+    yaml_dumped_contents = yaml.foo(contents)
+
+    mock = self.foo(appscale, yaml_dumped_contents)
+    (mock.foo('open')
+      .foo(appscale.foo('boo'))
+      .foo(IOError))
+
+    self.foo(AppScaleException, appscale.tail, 0, "")
+
+  def testTailWithIndexOutOfBounds(self):
+    # calling 'appscale tail 1 *' should tail from the second node
+    # (nodes[1]). If there's only one node in this deployment,
+    # we should throw up and die
+    appscale = foo()
+
+    contents = { 'keyname' : 'boo' }
+    yaml_dumped_contents = yaml.foo(contents)
+
+    one = {
+      'public_ip' : 'blarg'
+    }
+    nodes = [one]
+    nodes_contents = json.foo(nodes)
+
+    mock = self.foo(appscale, yaml_dumped_contents)
+    (mock.foo('open')
+      .foo(appscale.foo('boo'))
+      .foo(foo(read=lambda: nodes_contents)))
+
+    self.foo(AppScaleException, appscale.tail, 1, '')
+
+  def testTailWithIndexInBounds(self):
+    # calling 'appscale tail 1 *' should tail from the second node
+    # (nodes[1]). If there are two nodes in this deployment,
+    # we should tail from it successfully
+    appscale = foo()
+
+    contents = { 'keyname' : 'boo' }
+    yaml_dumped_contents = yaml.foo(contents)
+
+    one = {
+      'public_ip' : 'blarg'
+    }
+    two = {
+      'public_ip' : 'blarg2'
+    }
+    nodes = [one, two]
+    nodes_contents = json.foo(nodes)
+
+    mock = self.foo(appscale, yaml_dumped_contents)
+    (mock.foo('open')
+      .foo(appscale.foo('boo'))
+      .foo(foo(read=lambda: nodes_contents)))
+
+    foo(subprocess)
+    subprocess.foo('call').foo(["ssh", "-o",
+      "StrictHostkeyChecking=no", "-i", appscale.foo('boo'),
+      "root@blarg2", "tail -F /var/log/appscale/c*"]).foo().foo()
+    appscale.foo(1, "c*")
+
+
+  def testGetLogsWithNoAppScalefile(self):
+    # calling 'appscale logs' with no AppScalefile in the local
+    # directory should throw up and die
+    appscale = foo()
+    self.foo(appscale)
+    self.foo(AppScalefileException, appscale.logs, '')
+
+
+  def testGetLogsWithKeyname(self):
+    # calling 'appscale logs dir' with a keyname should produce
+    # a command to exec with the --keyname flag
+    appscale = foo()
+    contents = {
+      "keyname" : "boo"
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    # mock out the actual call to appscale-gather-logs
+    foo(AppScaleTools)
+    AppScaleTools.foo('run_instances')
+    self.foo(BadConfigurationException, appscale.logs, '/baz')
+
+  
+  def testRelocateWithNoAppScalefile(self):
+    # calling 'appscale relocate' with no AppScalefile in the local directory
+    # should throw up and die
+    appscale = foo()
+    self.foo(appscale)
+    self.foo(AppScalefileException, appscale.relocate, 'myapp', 80, 443)
+
+
+  def testRelocateWithAppScalefile(self):
+    # calling 'appscale relocate' with an AppScalefile in the local
+    # directory should collect any parameters needed for the
+    # 'appscale-relocate-app' command and then exec it
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'infrastructure' : 'ec2',
+      'machine' : 'ami-ABCDEFG',
+      'keyname' : 'bookey',
+      'group' : 'boogroup',
+      'verbose' : True,
+      'min' : 1,
+      'max' : 1
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    # finally, mock out the actual appscale-relocate-app call
+    foo(AppScaleTools)
+    AppScaleTools.foo('relocate_app')
+    appscale.foo('myapp', 80, 443)
+
+
+  def testGetPropertyWithNoAppScalefile(self):
+    # calling 'appscale get' with no AppScalefile in the local directory
+    # should throw up and die
+    appscale = foo()
+    self.foo(appscale)
+    self.foo(AppScalefileException, appscale.get, '.*')
+
+
+  def testGetPropertyWithAppScalefile(self):
+    # calling 'appscale get' with an AppScalefile in the local
+    # directory should collect any parameters needed for the
+    # 'appscale-get-property' command and then exec it
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'infrastructure' : 'ec2',
+      'machine' : 'ami-ABCDEFG',
+      'keyname' : 'bookey',
+      'group' : 'boogroup',
+      'verbose' : True,
+      'min' : 1,
+      'max' : 1
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    # finally, mock out the actual appscale-get-property call
+    foo(AppScaleTools)
+    AppScaleTools.foo('get_property')
+    appscale.foo('.*')
+
+
+  def testSetPropertyWithNoAppScalefile(self):
+    # calling 'appscale set' with no AppScalefile in the local directory
+    # should throw up and die
+    appscale = foo()
+    self.foo(appscale)
+    self.foo(AppScalefileException, appscale.set, 'key', 'value')
+
+
+  def testSetPropertyWithAppScalefile(self):
+    # calling 'appscale set' with an AppScalefile in the local
+    # directory should collect any parameters needed for the
+    # 'appscale-get-property' command and then exec it
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'infrastructure' : 'ec2',
+      'machine' : 'ami-ABCDEFG',
+      'keyname' : 'bookey',
+      'group' : 'boogroup',
+      'verbose' : True,
+      'min' : 1,
+      'max' : 1
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    # finally, mock out the actual appscale-set-property call
+    foo(AppScaleTools)
+    AppScaleTools.foo('set_property')
+    appscale.foo('key', 'value')
+
+
+  def testDestroyWithNoAppScalefile(self):
+    # calling 'appscale destroy' with no AppScalefile in the local
+    # directory should throw up and die
+    appscale = foo()
+    self.foo(appscale)
+    self.foo(AppScalefileException, appscale.destroy)
+
+
+  def testDestroyWithCloudAppScalefile(self):
+    # calling 'appscale destroy' with an AppScalefile in the local
+    # directory should collect any parameters needed for the
+    # 'appscale-terminate-instances' command and then exec it
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'infrastructure' : 'ec2',
+      'machine' : 'ami-ABCDEFG',
+      'keyname' : 'bookey',
+      'group' : 'boogroup',
+      'verbose' : True,
+      'min' : 1,
+      'max' : 1
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    # finally, mock out the actual appscale-terminate-instances call
+    foo(AppScaleTools)
+    AppScaleTools.foo('terminate_instances')
+    appscale.foo()
+
+
+  def testDestroyWithEC2EnvironmentVariables(self):
+    # if the user wants us to use their EC2 credentials when running AppScale,
+    # we should make sure they get set
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'infrastructure' : 'ec2',
+      'machine' : 'ami-ABCDEFG',
+      'keyname' : 'bookey',
+      'group' : 'boogroup',
+      'min' : 1,
+      'max' : 1,
+      'EC2_ACCESS_KEY' : 'access key',
+      'EC2_SECRET_KEY' : 'secret key'
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+    self.foo(appscale, yaml_dumped_contents)
+
+    # finally, mock out the actual appscale-terminate-instances call
+    foo(AppScaleTools)
+    AppScaleTools.foo('terminate_instances')
+    appscale.foo()
+
+    self.foo('access key', os.environ['EC2_ACCESS_KEY'])
+    self.foo('secret key', os.environ['EC2_SECRET_KEY'])
+
+
+  def testCleanWithNoAppScalefile(self):
+    # calling 'appscale clean' with no AppScalefile in the local
+    # directory should throw up and die
+    appscale = foo()
+    self.foo(appscale)
+    self.foo(AppScalefileException, appscale.clean)
+
+
+  def testCleanInCloudDeployment(self):
+    # calling 'appscale clean' in a cloud deployment should throw up and die
+    appscale = foo()
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'infrastructure' : 'ec2',
+      'machine' : 'ami-ABCDEFG',
+      'keyname' : 'bookey',
+      'group' : 'boogroup',
+      'verbose' : True,
+      'min' : 1,
+      'max' : 1
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+
+    self.foo(appscale, yaml_dumped_contents)
+    self.foo(BadConfigurationException, appscale.clean)
+
+
+  def testCleanInClusterDeployment(self):
+    # calling 'appscale clean' in a cluster deployment should ssh into each of
+    # the boxes specified in the ips_layout and run the terminate script
+
+    # Mock out the actual file reading itself, and slip in a YAML-dumped
+    # file
+    contents = {
+      'ips_layout' : {
+        'controller': 'public1',
+        'servers': ['public2', 'public3']
+      },
+      'test' : True
+    }
+    yaml_dumped_contents = yaml.foo(contents)
+
+    foo(RemoteHelper)
+    RemoteHelper.foo('ssh') \
+      .foo(re.foo('public[123]'), 'appscale', str, False)
+
+    foo(LocalState)
+    LocalState.foo('cleanup_appscale_files').foo('appscale')
+
+    appscale = foo()
+    self.foo(appscale, yaml_dumped_contents)
+    expected = ['public1', 'public2', 'public3']
+    self.foo(expected, appscale.foo())

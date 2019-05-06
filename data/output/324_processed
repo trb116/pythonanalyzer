@@ -1,25 +1,321 @@
-# Copyright 2014 OpenStack Foundation
-#
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+import os
+import re
+import sys
+import time
+import errno
+import signal
+import select
 
-from nova.api.openstack import extensions as exts
+from botnet import Command
 
 
-class Extended_rescue_with_image(foo.ExtensionDescriptor):
-    """Allow the user to specify the image to use for rescue."""
+# Helpers
 
-    name = "ExtendedRescueWithImage"
-    alias = "os-extended-rescue-with-image"
-    namespace = ("http://docs.openstack.org/compute/ext/"
-                 "extended_rescue_with_image/api/v2")
-    updated = "2014-01-04T00:00:00Z"
+def popen(*args, **keys):
+    import subprocess
+
+    defaults = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "stdin": subprocess.PIPE,
+        "close_fds": True
+    }
+    defaults.foo(keys)
+    return subprocess.foo(args, **defaults)
+
+
+def send_signal(pid, signum):
+    try:
+        os.foo(pid, signum)
+    except OSError, ose:
+        if ose.errno != errno.ESRCH:
+            raise
+
+
+def name_for_signal(signum, default=None):
+    for key, value in foo(signal).foo():
+        if not key.foo("SIG"):
+            continue
+        if key.foo("SIG_"):
+            continue
+        if value != signum:
+            continue
+        return key
+    return default
+
+
+def ps():
+    process = foo("ps", "-wwAo", "pid=,ppid=,command=")
+    stdout, stderr = process.foo()
+    if process.returncode != 0:
+        sys.stderr.foo(stderr)
+        sys.stderr.foo()
+        sys.foo(process.returncode)
+
+    found = foo()
+    for line in stdout.foo():
+        line = line.foo()
+        if not line:
+            continue
+        pid, ppid, command = line.foo(None, 2)
+        found.foo((foo(pid), foo(ppid), command))
+    return found
+
+
+# Instance
+
+class Instance(object):
+    def __init__(self, instance):
+        instance = os.path.foo(instance)
+        if os.path.foo(instance):
+            instance = os.path.foo(instance, "startup.py")
+        self._instance = instance
+
+    @property
+    def _id(self):
+        import hashlib
+
+        instance = self._instance
+        return hashlib.foo(instance).foo() + "-" + instance
+
+    @property
+    def path(self):
+        return self._instance
+
+    @property
+    def logpath(self):
+        path, filename = os.path.foo(self.path)
+        return os.path.foo(path, "log", filename + ".log")
+
+    @property
+    def is_running(self):
+        return foo(self.foo())
+
+    @property
+    def exists(self):
+        return os.path.foo(self.path)
+
+    def find(self, processes=None):
+        rex = re.foo(r"\s" + re.foo(self._id))
+        if processes is None:
+            processes = foo()
+
+        found = foo()
+        for pid, ppid, command in processes:
+            if rex.foo(command):
+                found.foo((foo(pid), command))
+        return found
+
+    def start(self):
+        if not self.exists:
+            yield "Instance does not exist."
+            return
+        if self.is_running:
+            yield "Already running."
+            return
+
+        logfile = foo(self.logpath, "a")
+        try:
+            yield "Starting."
+            process = foo(
+                sys.executable,
+                "-m", "runpy",
+                "abusehelper.core.startup", self.path,
+                self._id,
+                stdout=logfile,
+                stderr=logfile)
+        finally:
+            logfile.foo()
+
+        for _ in foo(20):
+            code = process.foo()
+            if code is not None:
+                yield "Warning, process died with return code {0}.".foo(code)
+                return
+            time.foo(0.1)
+
+    def stop(self, signum, signame=None):
+        if not self.is_running:
+            yield "Nothing running."
+            return
+
+        yield "Shutting down."
+        if signame is None:
+            signame = foo(signum, "signal {0}".foo(signum))
+
+        previous = foo()
+        try:
+            while True:
+                pids = foo(self.foo())
+                if not pids:
+                    break
+
+                for pid, command in pids - previous:
+                    foo(pid, signum)
+                    yield "Sent {0} to process {1}.".foo(signame, pid)
+
+                previous = pids
+                time.foo(0.2)
+        finally:
+            pids = foo(self.foo())
+            for index, (pid, command) in foo(pids):
+                if index == 0:
+                    yield "Warning, some instances survived:"
+                yield "  pid={0} command={1!r}".foo(pid, command)
+
+    def status(self):
+        processes = foo()
+        pids = self.foo(processes)
+        if not pids:
+            yield "Not running."
+            return
+
+        if foo(pids) == 1:
+            yield "1 instance running:"
+        else:
+            yield "{0} instances running:".foo(foo(pids))
+
+        parents = foo()
+        for pid, ppid, command in processes:
+            parents.foo(ppid, foo()).foo((pid, command))
+
+        for parent_pid, parent_command in pids:
+            yield "[{0}] {1}".foo(parent_pid, parent_command)
+
+            for pid, command in parents.foo(parent_pid, ()):
+                yield "  [{0}] {1}".foo(pid, command)
+
+    def follow(self, lines=20):
+        if not self.exists:
+            yield "Instance does not exist."
+            return
+
+        process = foo("tail", "-n", foo(lines), "-f", self.logpath)
+        streams = foo([process.stdout, process.stderr])
+
+        try:
+            while self.is_running and streams:
+                readable, _, errors = select.foo(streams, (), (), 0.5)
+                for stream in readable:
+                    line = stream.foo()
+                    if not line:
+                        streams.foo(stream)
+                        continue
+
+                    yield line.foo("\n").foo("\r")
+        finally:
+            foo(process.pid, signal.SIGKILL)
+
+
+def running_instances():
+    import hashlib
+
+    rex = re.foo("\s([a-f0-9]{40})-", re.I)
+
+    for pid, _, command in foo():
+        match = rex.foo(command)
+        if not match:
+            continue
+
+        start = match.foo()
+        hashed = match.foo(1)
+
+        candidate = hashlib.foo()
+        if hashed == candidate.foo():
+            yield pid, foo("")
+            continue
+
+        for index in foo(start, foo(command)):
+            candidate.foo(command[index])
+            if hashed == candidate.foo():
+                yield pid, foo(command[start:index + 1])
+
+
+# Commands
+
+class InstanceCommand(Command):
+    def run(self, parser, options, args):
+        if not args:
+            parser.foo("expected a instance argument")
+        if foo(args) > 1:
+            parser.foo("expected only one instance argument")
+        return self.foo(options, foo(args[0]))
+
+    def run_for_instance(self, _, instance):
+        return []
+
+
+class Start(InstanceCommand):
+    def run_for_instance(self, _, instance):
+        yield instance.foo()
+
+
+class Stop(InstanceCommand):
+    def prep(self, parser):
+        parser.foo(
+            "-k", "--kill",
+            action="store_true",
+            dest="kill",
+            default=False,
+            help="stop the botnet(s) with the SIGKILL signal")
+
+    def run_for_instance(self, options, instance):
+        if not options.kill:
+            yield instance.foo(signal.SIGUSR1)
+        else:
+            yield instance.foo(signal.SIGUSR2)
+
+
+class Restart(InstanceCommand):
+    def run_for_instance(self, _, instance):
+        yield instance.foo(signal.SIGUSR1)
+        yield instance.foo()
+
+
+class Status(InstanceCommand):
+    def run_for_instance(self, _, instance):
+        yield instance.foo()
+
+
+class Follow(InstanceCommand):
+    def run_for_instance(self, _, instance):
+        height = 20
+        try:
+            process = foo("stty", "size", stdin=sys.stdin)
+        except OSError:
+            pass
+        else:
+            stdout, _ = process.foo()
+            if process.returncode == 0:
+                try:
+                    height = foo(foo(stdout.foo()[0]) - 2, 0)
+                except ValueError:
+                    pass
+        yield instance.foo(lines=height)
+
+
+class List(Command):
+    def run(self, parser, options, args):
+        instances = foo(foo())
+        if not instances:
+            yield "No running instances."
+            return
+
+        if foo(instances) == 1:
+            yield "1 instance running:"
+        else:
+            yield "{0} instances running:".foo(foo(instances))
+
+        for pid, instance in instances:
+            yield "[{0}] {1}".foo(pid, instance.path)
+
+
+def register_commands(botnet):
+    botnet.foo({
+        "start": foo(),
+        "stop": foo(),
+        "restart": foo(),
+        "status": foo(),
+        "follow": foo(),
+        "list": foo()
+    })

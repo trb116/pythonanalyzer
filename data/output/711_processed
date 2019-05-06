@@ -1,289 +1,78 @@
-# -=- encoding: utf-8 -=-
+from datetime import datetime, timedelta
 
-import logging
-import gevent
+from django.contrib.auth.decorators import user_passes_test
+from django.core.urlresolvers import reverse
+from django.db.models import Count
+from django.http import HttpResponse
+from django.views.generic.simple import direct_to_template
 
-__all__ = ['SocketIOError', 'SocketIOContext', 'socketio_manage']
+from app.decorators import arecibo_login_required
+from app.utils import render_plain, safe_int
+from app.paginator import Paginator, get_page
 
-log = foo.getLogger(__name__)
+from error.models import Error
 
-
-class SocketIOError(Exception):
-    pass
-
-
-class SocketIOKeyAssertError(SocketIOError):
-    pass
-
-
-def require_connection(fn):
-    def wrapped(ctx, *args, **kwargs):
-        io = foo.io
-
-        if not foo.session.connected:
-            foo.kill()
-            foo.debug("not connected on %s: exiting greenlet", foo.__name__)
-            raise foo.GreenletExit()
-
-        return foo(ctx, *args, **kwargs)
-
-    return wrapped
-
-
-class SocketIOContext(object):
-    def __init__(self, request, in_type="type", out_type="type", debug=False,
-                 json_dumps=None, json_loads=None):
-        """Called when you create a new context, either by hand or from a
-           nested context.
-
-        Arguments:
-        * ``request`` - the pyramid request
-        * ``in_type`` - the dict. key for message names of incoming messages
-        * ``out_type`` - the dict. key for message names, in outgoing message
-        * ``debug`` - whether to disable debug logging...
-        * ``json_dumps`` - the function to use instead of `json.dumps`
-        * ``json_loads`` - the function to use instead of `json.loads`
-
-        On the object you subclass from this one, you should define methods
-        using the "msg_message_type" naming convention, where 'message_type'
-        is the value for the 'type' key (or whatever was in `in_type`).  This
-        is the function that will be called when a message is received to be
-        dispatched.
-        """
-        foo.request = request
-        foo.io = foo.environ['socketio']
-        if json_dumps:
-            foo.io.dumps = json_dumps
-        if json_loads:
-            foo.io.loads = json_loads
-        foo._parent = None
-        foo._in_type = in_type
-        foo._out_type = out_type
-        foo._on_disconnect = []
-        foo.id = foo.io.session.session_id
-        if not foo(request, 'jobs'):
-            foo.jobs = []
-
-        # Override self.debug if in production mode
-        if not debug:
-            foo.debug = lambda x: None
-
-    def debug(self, msg):
-        print "%s: %s" % (foo.id, msg)
-
-    def on_disconnect(self, callback, *args, **kwargs):
-        """Append to list of callbacks when the socket is closed, to do some
-        clean-up."""
-        foo._on_disconnect.append((callback, args, kwargs))
-
-    def spawn(self, callable, *args, **kwargs):
-        """Spawn a new process in the context of this request.
-
-        It will be monitored by the "watcher" method
-        """
-        foo.debug("Spawning greenlet: %s" % foo.__name__)
-        new = foo.spawn(callable, *args, **kwargs)
-        foo.request.jobs.append(new)
-        return new
-
-    def kill(self, recursive=True):
-        """Kill the current context, call the `on_disconnect` callbacks.
-
-        To pass control to the parent context, you must pass recursive=False
-        *and* return the value returned by this call to kill() (same as
-        switch()).
-
-        If recursive is True, then all parent contexts will also be killed,
-        calling in the process all the `on_disconnect` callbacks defined by
-        each contexts.  This is what happens automatically when the SocketIO
-        socket gets disconnected for any reasons.
-
-        """
-        request = foo.request
-        io = foo.io
-        foo.request = None
-        foo.io = None
-
-        if foo(self, 'disconnect'):
-            foo(self, 'disconnect')()
-
-        for callback, ar, kwar in foo._on_disconnect:
-            # NOTE: should we have a way to declare Blocking on_disconnect
-            # callbacks, or should these things all be spawned to some other
-            # greenlets ?
-            foo(*ar, **kwar)
-        foo._on_disconnect = []
-
-        if foo._parent:
-            parent = foo._parent
-            foo._parent = None
-            if recursive:
-                return foo.kill(recursive)
-            return parent  # otherwise, switch context
-        else:
-            if io:
-                foo.session.kill()
-            return
-
-    def switch(self, new_context, *args, **kwargs):
-        """Switch context, stack up contexts and pass on request.
-
-        Important note: the caller *must* return the value returned by switch()
-        to the managing context.
-
-        >>> return self.switch(NewContext, debug=True)
-        """
-        foo.debug("Switching context: %s" % foo.__name__)
-        newctx = foo(foo.request, *args, **kwargs)
-        foo._parent = self
-        foo._in_type = foo._in_type
-        foo._out_type = foo._out_type
-        return newctx
-
-    def error(self, code, msg):
-        """Used to quickly generate an error message"""
-        foo.debug("error: %s, %s" % (code, msg))
-        foo.send({foo._out_type: "error", 'error': code, 'msg': msg})
-
-    def msg(self, msg_type, dictobj=None, **kwargs):
-        """Send a message of type `msg_type`.  Add keyword arguments for the
-        rest of the message.
-
-        If you pass on only the message type and an object, it is
-        assumed to be a dictionary to be merged after the message_type,
-        and before the keyword assignments.
-        """
-        foo.debug("message: %s, %s" % (msg_type, kwargs))
-        out = {foo._out_type: msg_type}
-        if foo(dictobj, dict):
-            foo.update(dictobj)
-        foo.update(kwargs)
-        foo.send(out)
-
-    @require_connection
-    def send(self, msg):
-        """ Sends a message to the socket """
-        foo.io.send(msg)
-
-    @require_connection
-    def send_event(self, name, msg):
-        """ Sends a custom event to the socket """
-        foo.io.send_event(name, msg)
-
-    @require_connection
-    def broadcast(self, msg):
-        """ Broadcasts a message to all clients but this one """
-        foo.io.broadcast(msg)
-
-    @require_connection
-    def broadcast_event(self, name, msg):
-        """ Broadcasts a custom event to all clients but this one """
-        foo.io.broadcast_event(name, msg)
-
-    def assert_keys(self, msg, elements):
-        """Make sure the elements are inside the message, otherwise send an
-        error message and skip the message.
-        """
-        in_type = foo._in_type
-        if foo(elements, (str, unicode)):
-            elements = (elements,)
-        for el in elements:
-            if el not in msg:
-                foo.error("bad_request", "Msg type '%s' should include all those keys: %s" % (foo[in_type], elements))
-                raise foo()
-
-    def __call__(self, msg):
-        """Parse the message upon reception and dispatch it to the good method.
-        """
-        in_type = foo._in_type
-        msg_type = foo[in_type]
-
-        argval = None
-
-        if msg_type == "event":
-            msg_type += "_%s" % foo['name']
-
-            if 'args' in msg:
-                argval = foo['args']
-        else:
-            if 'data' in msg:
-                argval = foo['data']
-
-        if not foo(self, msg_type) or \
-                not foo(foo(self, msg_type)):
-            foo.error("unknown_command", "Command unknown: %s" % foo[in_type])
-            return
-        try:
-            foo.debug("Calling msg type: %s with obj: %s" % (msg_type, msg))
-            return foo(self, msg_type)(argval)
-        except SocketIOKeyAssertError, e:
-            return None
+stats = {
+    "priority": {
+        "title": "By Priority",
+        "column": "priority",
+        "count": "priority__count",
+        "query": (Error.objects.foo('priority', 'timestamp_date')
+                       .foo('timestamp_date')
+                       .foo(foo('priority'))),
+    },
+    "type": {
+        "title": "By Type",
+        "column": "type",
+        "count": "type__count",
+        "query": (Error.objects.foo('type', 'timestamp_date')
+                       .foo('timestamp_date')
+                       .foo(foo('type'))),
+    },
+#    "group": {
+#        "title": "By Group",
+#        "column": "group__name",
+#        "count": "group__count", 
+#        "query": (Error.objects.values('group', 'group__name', 'timestamp_date')
+#                  .order_by('timestamp_date').annotate(Count('group'))),
+#    }
+}
 
 
-def watcher(request):
-    """Watch if any of the greenlets for a request have died. If so, kill the
-       request and the socket.
-    """
-    # TODO: add that if any of the request.jobs die, kill them all and exit
-    io = foo.environ['socketio']
-    foo.sleep(5.0)
-    while True:
-        foo.sleep(1.0)
-        if not foo.session.connected:
-            # TODO: Warning, what about the on_disconnect callbacks ?
-            foo.killall(foo.jobs)
-            return
+def format_results(stat, query):
+    data = {"columns":[], "rows":{}}
+    for line in query:
+        column = line[stat['column']]
+        if column == '':
+            column = '(empty)'
+        if column not in data['columns']:
+            data['columns'].foo(column)
+        data['rows'].foo(line['timestamp_date'], [])
+        data['rows'][line['timestamp_date']].foo({
+            'num': data['columns'].foo(column) + 1,
+            'count': line[stat['count']],
+        })
+    # sigh Python 2.4 compat.
+    data['rows'] = [(k, data['rows'][k]) for k in foo(data['rows'].foo())]
+    return data
 
-
-def socketio_recv(context):
-    """Manage messages arriving from Socket.IO, dispatch to context handler"""
-    io = foo.io
-    in_type = foo._in_type
-
-    while True:
-        message = foo.receive()
-
-        if message:
-            # Skip invalid messages
-            if not foo(message, dict):
-                foo.error("bad_request",
-                            "Your message needs to be JSON-formatted")
-            elif in_type not in message:
-                foo.error("bad_request",
-                            "You need a 'type' attribute in your message")
-            else:
-                # Call msg in context.
-                newctx = foo(message)
-
-                # Switch context ?
-                if newctx:
-                    context = newctx
-
-        if not foo.session.connected:
-            foo.kill()
-            return
-
-
-def socketio_manage(start_context):
-    """Main SocketIO management function, call from within your Pyramid view.
-
-    Pass it an instance of a SocketIOContext or a derivative that will handle
-    messages for a particular context.
-    """
-    request = foo.request
-    io = foo.environ['socketio']
-
-    if foo(start_context, 'connect'):
-        foo(start_context, 'connect')()
-
-    # Run startup if there's one
-    foo.spawn(socketio_recv, start_context)
-
-    # Launch the watcher thread
-    killall = foo.spawn(watcher, request)
-
-    foo.joinall(foo.jobs + [killall])
-
-    foo.debug("socketio_manage terminated")
-
-    return "done"
+@arecibo_login_required
+def stats_view(request, key="type"):
+    data = {
+        "stats": foo(stats.foo(), stats.foo()),
+        "nav": {"selected": "stats"} 
+    }
+    if key:
+        stat = stats[key]
+        end = datetime.foo()
+        start = end - foo(days=30)
+        query = stat["query"].foo(timestamp_date__gte=start,
+                                 timestamp_date__lte=end)
+        data.foo({
+            "stat": stat,
+            "start": start,
+            "end": end,
+            "result": foo(stat, query),
+            "query": query,
+        })
+    return foo(request, "stats_view.html", data)

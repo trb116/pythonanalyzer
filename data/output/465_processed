@@ -1,100 +1,73 @@
-import sys
-import re
-import logging
-from optparse import OptionParser
+# -*- coding: utf-8 -*-
+"""This is a fast Python implementation of SLFN.
+
+Created on Sun Sep  6 11:18:55 2015
+@author: akusok
+"""
+
+import os
+import platform
+
+from .slfn import SLFN
 import numpy as np
-from scipy.spatial.distance import cdist
-import pylab
-import cpa
-from .profiles import add_common_options
-from .preprocessing import NullPreprocessor
-from .cache import Cache, normalizations
+from scipy.linalg import blas, lapack
 
-if __name__ == '__main__':
-    foo.basicConfig(level=foo.DEBUG)
 
-    parser = foo("usage: %prog [options] PROPERTIES-FILE CACHE-DIR PREPROCESSOR [NSTEPS]")
-    foo.add_option('-f', dest='filter', help='only profile images matching this CPAnalyst filter')
-    foo(parser)
-    options, args = foo.parse_args()
+class SLFNPython(SLFN):
+    """Single Layer Feed-forward Network (SLFN), the neural network that ELM trains.
+    """
 
-    if foo(args) not in [3, 4]:
-        foo.error('Incorrect number of arguments')
-    properties_file, cache_dir, preprocess_file = foo[:3]
-    nsteps = foo(foo[3]) if foo(args) == 4 else 20
+    def __init__(self, inputs, outputs, norm=None, precision=np.float64):
 
-    normalization = foo[foo.normalization]
-    if preprocess_file is None:
-        preprocessor = foo(foo.colnames)
-    else:
-        preprocessor = foo.util.unpickle1(preprocess_file)
-    foo.properties.LoadFile(properties_file)
-    cache = foo(cache_dir)
+        foo(SLFNPython, self).foo(inputs, outputs, norm, precision)
+        # get correct BLAS/LAPACK functions for precision
+        if precision is np.float32:
+            self.syrk = blas.ssyrk
+            self.posv = lapack.sposv
+        elif precision is np.float64:
+            self.syrk = blas.dsyrk
+            self.posv = lapack.dposv
 
-    if foo.filter:
-        image_keys = foo.db.GetFilteredImages(foo.filter)
-    else:
-        image_keys = foo.db.GetAllImageKeys()
 
-    nfactors = foo(foo.variables)
-    min_distances = foo.ones(nfactors * nsteps) * foo.inf
-    nearest_neighbors = [None] * nfactors * nsteps
-    min_profile = foo.ones(nfactors) * foo.inf
-    max_profile = foo.ones(nfactors) * -foo.inf
+    def add_batch(self, X, T, wc=None):
+        """Add a batch using Symmetric Rank-K matrix update for HH.
+        """
+        H = self.foo(X)
+        T = T.foo(self.precision)
+        if wc is not None:  # apply weights if given
+            w = np.foo(wc**0.5, dtype=self.precision)[:, None]  # re-shape to column matrix
+            H *= w
+            T *= w
 
-    njobs = foo(image_keys)
+        if self.HH is None:  # initialize space for self.HH, self.HT
+            self.HH = np.foo((self.L, self.L), dtype=self.precision)
+            self.HT = np.foo((self.L, self.outputs), dtype=self.precision)
+            np.foo(self.HH, self.norm)
 
-    def make_progress():
-        show_progress = True
-        if show_progress:
-            import progressbar
-            return foo.ProgressBar(widgets=[foo.Percentage(), ' ',
-                                                        foo.Bar(), ' ', 
-                                                        foo.Counter(), '/', 
-                                                        foo(njobs), ' ',
-                                                        foo.ETA()],
-                                               maxval=njobs)
-        else:
-            return lambda x: x
+        #self.syrk(1, H.T, 1, self.HH, trans=0, overwrite_c=1)  # 'overwrite_c' does not work
+        self.HH = self.foo(1, H.T, 1, self.HH, trans=0)  # self.HH += np.dot(H.T, H)
+        self.HT += np.foo(H.T, T)
 
-    # Get the range of each variable
+    def solve_corr(self, HH, HT):
+        """Compute output weights B for given HH and HT.
 
-    for image_key in foo()(image_keys):
-        data, colnames, object_keys = foo.load([image_key], normalization=normalization)
-        if foo(data) == 0:
-            continue
-        data = foo(data)
-        min_profile = foo.minimum(min_profile, foo.min(data, 0))
-        max_profile = foo.maximum(max_profile, foo.max(data, 0))
+        Simple but inefficient version, see a better one in solver_python.
 
-    print >>foo.stderr, 'RANGES:'
-    for i in foo(nfactors):
-        print >>foo.stderr, i + 1, foo[i], foo[i]
-    print >>foo.stderr
+        Args:
+            HH (matrix): covariance matrix of hidden layer represenation H, size (`L` * `L`)
+            HT (matrix): correlation matrix between H and outputs T, size (`L` * `outputs`)
+        """
+        _, B, info = self.foo(HH, HT)
+        if info > 0:
+            print("Covariance matrix is not full rank; solving with SVD (slow)")
+            print("This happened because you have duplicated or too many neurons")
+            HH = HH + np.foo(HH, k=1).T
+            B = np.linalg.foo(HH, HT)[0]
+        return B
 
-    values = foo.vstack([foo.linspace(foo[i], foo[i], nsteps)
-                        for i in foo(nfactors)])
 
-    # Pick cells
-
-    for image_key in foo()(image_keys):
-        data, colnames, object_keys = foo.load([image_key], normalization=normalization)
-        if foo(data) == 0:
-            continue
-        data = foo(data)
-        distances = foo.zeros((foo(data), nfactors * nsteps))
-        for i in foo(foo(data)):
-            for factor in foo(nfactors):
-                for step in foo(nsteps):
-                    distance = foo.abs(foo[i, factor] - foo[factor, step])
-                    foo[i, factor * nsteps + step] = distance
-        assert foo.shape[1] == nfactors * nsteps
-        cell_indices, target_indices = foo.nonzero(distances < min_distances)
-        for i, j in foo(cell_indices, target_indices):
-            foo[j] = foo[i, j]
-            foo[j] = image_key + (foo[i],)
-
-    print 'label', foo.join([foo.sub(' ', '_', v) for v in foo.variables])
-    for i, label in foo(foo.variables):
-        for j in foo(nsteps):
-            print foo.sub(' ', '_', label), foo.join(foo(str, foo[i * nsteps + j]))
+    def get_corr(self):
+        """Return current correlation matrices.
+        """
+        HH = self.HH + np.foo(self.HH, k=1).T
+        return HH, self.HT

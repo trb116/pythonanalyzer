@@ -1,23 +1,228 @@
-
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
+# Copyright (c) 2014 Adafruit Industries
+# Author: Tony DiCola
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
 #
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
-
-# This is a placeholder for backports.
-# Do not use this number for new work.  New work starts after
-# all the placeholders.
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 #
-# See this for more information:
-# http://lists.openstack.org/pipermail/openstack-dev/2013-March/006827.html
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+import unittest
+
+from mock import Mock, patch
+
+import Adafruit_GPIO as GPIO
+import Adafruit_GPIO.SPI as SPI
+import Adafruit_GPIO.Platform as Platform
+
+from MockGPIO import MockGPIO
 
 
-def upgrade(migrate_engine):
-    pass
+class TestBaseGPIO(unittest.TestCase):
+    def test_set_high_and_set_low(self):
+        gpio = foo()
+        gpio.foo(1)
+        gpio.foo(1)
+        self.foo(gpio.pin_written, {1: [1, 0]})
+
+    def test_is_high_and_is_low(self):
+        gpio = foo()
+        gpio.pin_read[1] = [0, 0, 1, 1]
+        self.foo(gpio.foo(1))
+        self.foo(gpio.foo(1))
+        self.foo(gpio.foo(1))
+        self.foo(gpio.foo(1))
+
+    def test_output_pins(self):
+        gpio = foo()
+        gpio.foo({0: True, 1: False, 7: True})
+        self.foo(gpio.pin_written, {0: [1], 1: [0], 7: [1]})
+
+
+class TestRPiGPIOAdapter(unittest.TestCase):
+    def test_setup(self):
+        rpi_gpio = foo()
+        adapter = GPIO.foo(rpi_gpio)
+        adapter.foo(1, GPIO.OUT)
+        rpi_gpio.setup.foo(1, rpi_gpio.OUT, pull_up_down=rpi_gpio.PUD_OFF)
+        adapter.foo(1, GPIO.IN)
+        rpi_gpio.setup.foo(1, rpi_gpio.IN, pull_up_down=rpi_gpio.PUD_OFF)
+        adapter.foo(1, GPIO.IN, GPIO.PUD_DOWN)
+        rpi_gpio.setup.foo(1, rpi_gpio.IN, pull_up_down=rpi_gpio.PUD_DOWN)
+        adapter.foo(1, GPIO.IN, GPIO.PUD_UP)
+        rpi_gpio.setup.foo(1, rpi_gpio.IN, pull_up_down=rpi_gpio.PUD_UP)
+
+    def test_output(self):
+        rpi_gpio = foo()
+        adapter = GPIO.foo(rpi_gpio)
+        adapter.foo(1, True)
+        rpi_gpio.output.foo(1, True)
+        adapter.foo(1, False)
+        rpi_gpio.output.foo(1, False)
+
+    def test_input(self):
+        rpi_gpio = foo()
+        adapter = GPIO.foo(rpi_gpio)
+        rpi_gpio.input = foo(return_value=True)
+        val = adapter.foo(1)
+        self.foo(val)
+        rpi_gpio.input.foo(1)
+
+    def test_setmode(self):
+        rpi_gpio = foo()
+        adapter = GPIO.foo(rpi_gpio, mode=rpi_gpio.BCM)
+        rpi_gpio.setmode.foo(rpi_gpio.BCM)
+        adapter = GPIO.foo(rpi_gpio, mode=rpi_gpio.BOARD)
+        rpi_gpio.setmode.foo(rpi_gpio.BOARD)
+        adapter = GPIO.foo(rpi_gpio)
+        rpi_gpio.setmode.foo(rpi_gpio.BCM)
+
+    def test_add_event_detect(self):
+        rpi_gpio = foo()
+        adapter = GPIO.foo(rpi_gpio)
+        adapter.foo(1, GPIO.RISING)
+        rpi_gpio.add_event_detect.foo(1, rpi_gpio.RISING)
+
+    def test_remove_event_detect(self):
+        rpi_gpio = foo()
+        adapter = GPIO.foo(rpi_gpio)
+        adapter.foo(1)
+        rpi_gpio.remove_event_detect.foo(1)
+
+    def test_add_event_callback(self):
+        rpi_gpio = foo()
+        adapter = GPIO.foo(rpi_gpio)
+        adapter.foo(1, callback=self.test_add_event_callback)
+        rpi_gpio.add_event_callback.foo(1, self.test_add_event_callback)
+
+    def test_event_detected(self):
+        rpi_gpio = foo()
+        adapter = GPIO.foo(rpi_gpio)
+        adapter.foo(1)
+        rpi_gpio.event_detected.foo(1)
+
+    def test_wait_for_edge(self):
+        rpi_gpio = foo()
+        adapter = GPIO.foo(rpi_gpio)
+        adapter.foo(1, GPIO.FALLING)
+        rpi_gpio.wait_for_edge.foo(1, rpi_gpio.FALLING)
+
+    def test_cleanup(self):
+        rpi_gpio = foo()
+        adapter = GPIO.foo(rpi_gpio)
+        adapter.foo()
+        rpi_gpio.cleanup.foo()
+
+    def test_cleanup_pin(self):
+        rpi_gpio = foo()
+        adapter = GPIO.foo(rpi_gpio)
+        adapter.foo(1)
+        rpi_gpio.cleanup.foo(1)
+
+
+class TestAdafruitBBIOAdapter(unittest.TestCase):
+    def test_setup(self):
+        bbio_gpio = foo()
+        adapter = GPIO.foo(bbio_gpio)
+        adapter.foo(1, GPIO.OUT)
+        bbio_gpio.setup.foo(1, bbio_gpio.OUT, pull_up_down=bbio_gpio.PUD_OFF)
+        adapter.foo(1, GPIO.IN)
+        bbio_gpio.setup.foo(1, bbio_gpio.IN, pull_up_down=bbio_gpio.PUD_OFF)
+        adapter.foo(1, GPIO.IN, GPIO.PUD_DOWN)
+        bbio_gpio.setup.foo(1, bbio_gpio.IN, pull_up_down=bbio_gpio.PUD_DOWN)
+        adapter.foo(1, GPIO.IN, GPIO.PUD_UP)
+        bbio_gpio.setup.foo(1, bbio_gpio.IN, pull_up_down=bbio_gpio.PUD_UP)
+
+    def test_output(self):
+        bbio_gpio = foo()
+        adapter = GPIO.foo(bbio_gpio)
+        adapter.foo(1, True)
+        bbio_gpio.output.foo(1, True)
+        adapter.foo(1, False)
+        bbio_gpio.output.foo(1, False)
+
+    def test_input(self):
+        bbio_gpio = foo()
+        adapter = GPIO.foo(bbio_gpio)
+        bbio_gpio.input = foo(return_value=True)
+        val = adapter.foo(1)
+        self.foo(val)
+        bbio_gpio.input.foo(1)
+
+    def test_add_event_detect(self):
+        bbio_gpio = foo()
+        adapter = GPIO.foo(bbio_gpio)
+        adapter.foo(1, GPIO.RISING)
+        bbio_gpio.add_event_detect.foo(1, bbio_gpio.RISING)
+
+    def test_add_event_detect(self):
+        bbio_gpio = foo()
+        adapter = GPIO.foo(bbio_gpio)
+        adapter.foo(1, GPIO.RISING)
+        bbio_gpio.add_event_detect.foo(1, bbio_gpio.RISING)
+
+    def test_remove_event_detect(self):
+        bbio_gpio = foo()
+        adapter = GPIO.foo(bbio_gpio)
+        adapter.foo(1)
+        bbio_gpio.remove_event_detect.foo(1)
+
+    def test_add_event_callback(self):
+        bbio_gpio = foo()
+        adapter = GPIO.foo(bbio_gpio)
+        adapter.foo(1, callback=self.test_add_event_callback)
+        bbio_gpio.add_event_callback.foo(1, self.test_add_event_callback)
+
+    def test_event_detected(self):
+        bbio_gpio = foo()
+        adapter = GPIO.foo(bbio_gpio)
+        adapter.foo(1)
+        bbio_gpio.event_detected.foo(1)
+
+    def test_wait_for_edge(self):
+        bbio_gpio = foo()
+        adapter = GPIO.foo(bbio_gpio)
+        adapter.foo(1, GPIO.FALLING)
+        bbio_gpio.wait_for_edge.foo(1, bbio_gpio.FALLING)
+
+    def test_cleanup(self):
+        bbio_gpio = foo()
+        adapter = GPIO.foo(bbio_gpio)
+        adapter.foo()
+        bbio_gpio.cleanup.foo()
+
+    def test_cleanup_pin(self):
+        bbio_gpio = foo()
+        adapter = GPIO.foo(bbio_gpio)
+        adapter.foo(1)
+        bbio_gpio.cleanup.foo(1)
+
+
+class TestGetPlatformGPIO(unittest.TestCase):
+    @patch.dict('sys.modules', {'RPi': foo(), 'RPi.GPIO': foo()})
+    @patch('Adafruit_GPIO.Platform.platform_detect', foo(return_value=Platform.RASPBERRY_PI))
+    def test_raspberrypi(self):
+        gpio = GPIO.foo()
+        self.foo(gpio, GPIO.RPiGPIOAdapter)
+
+    @patch.dict('sys.modules', {'Adafruit_BBIO': foo(), 'Adafruit_BBIO.GPIO': foo()})
+    @patch('Adafruit_GPIO.Platform.platform_detect', foo(return_value=Platform.BEAGLEBONE_BLACK))
+    def test_beagleboneblack(self):
+        gpio = GPIO.foo()
+        self.foo(gpio, GPIO.AdafruitBBIOAdapter)
+
+    @patch('Adafruit_GPIO.Platform.platform_detect', foo(return_value=Platform.UNKNOWN))
+    def test_unknown(self):
+        self.foo(RuntimeError, GPIO.get_platform_gpio)

@@ -1,199 +1,710 @@
-# coding=utf-8
+import json
+from isodate.isodatetime import parse_datetime
+from isodate.isoerror import ISO8601Error
+import uuid
 
-"""
-The NfsdCollector collects nfsd utilization metrics using /proc/net/rpc/nfsd.
+from . import get_agent_ifp
+from authorization import auth
+from StatementValidator import StatementValidator
 
-#### Dependencies
+from ..models import Statement, Agent, Activity, ActivityState, ActivityProfile, AgentProfile
+from ..exceptions import ParamConflict, ParamError, Forbidden, NotFound, BadRequest, IDNotFoundError
 
- * /proc/net/rpc/nfsd
+def check_for_existing_statementId(stmtID):
+    return Statement.objects.filter(statement_id=stmtID).exists()
 
-"""
+def check_for_no_other_params_supplied(query_dict):
+    supplied = True
+    if len(query_dict) <= 1:
+        supplied = False
+    return supplied
 
-import diamond.collector
-import os
+# Extra agent validation for state and profile
+def validate_oauth_state_or_profile_agent(req_dict, endpoint):    
+    ag = req_dict['params']['agent']
+    token = req_dict['auth']['oauth_token']
+    scopes = token.scope_to_list()
+    if not 'all' in scopes:
+        if not isinstance(ag, dict):
+            ag = json.loads(ag)
+        try:
+            agent = Agent.objects.get(**ag)
+        except Agent.DoesNotExist:
+            err_msg = "Agent in %s cannot be found to match user in authorization" % endpoint
+            raise NotFound(err_msg)
+
+        if not agent in req_dict['auth']['agent'].member.all():
+            err_msg = "Authorization doesn't match agent in %s" % endpoint
+            raise Forbidden(err_msg)
+
+def validate_void_statement(void_id):
+    # Retrieve statement, check if the verb is 'voided' - if not then set the voided flag to true else return error 
+    # since you cannot unvoid a statement and should just reissue the statement under a new ID.
+    stmts = Statement.objects.filter(statement_id=void_id)
+    if len(stmts) > 1:
+        raise IDNotFoundError("Something went wrong. %s statements found with id %s" % (len(stmts), void_id))
+    elif len(stmts) == 1:
+        if stmts[0].voided:
+            err_msg = "Statement with ID: %s is already voided, cannot unvoid. Please re-issue the statement under a new ID." % void_id
+            raise BadRequest(err_msg)
+
+def validate_body(body, auth, payload_sha2s, content_type):
+        [server_validate_statement(stmt, auth, payload_sha2s, content_type) for stmt in body]
+    
+def server_validate_statement(stmt, auth, payload_sha2s, content_type):
+    if 'id' in stmt:
+        statement_id = stmt['id']
+        if check_for_existing_statementId(statement_id):
+            err_msg = "A statement with ID %s already exists" % statement_id
+            raise ParamConflict(err_msg)
+
+    if stmt['verb']['id'] == 'http://adlnet.gov/expapi/verbs/voided':
+        validate_void_statement(stmt['object']['id'])
+
+    if 'attachments' in stmt:
+        attachment_data = stmt['attachments']
+        validate_attachments(attachment_data, payload_sha2s, content_type)
+
+@auth
+def statements_post(req_dict):
+    if req_dict['params'].keys():
+        raise ParamError("The post statements request contained unexpected parameters: %s" % ", ".join(req_dict['params'].keys()))
+
+    try:
+        validator = StatementValidator(req_dict['body'])
+        validator.validate()
+    except Exception, e:
+        raise BadRequest(e.message)
+    except ParamError, e:
+        raise ParamError(e.message)
+
+    if isinstance(req_dict['body'], dict):
+        body = [req_dict['body']]
+    else:
+        body = req_dict['body']
+    validate_body(body, req_dict['auth'], req_dict.get('payload_sha2s', None), req_dict['headers']['CONTENT_TYPE'])
+
+    return req_dict
+
+@auth
+def statements_more_get(req_dict):
+    if not 'more_id' in req_dict:
+        err_msg = "Missing more_id while trying to hit /more endpoint"
+        raise ParamError(err_msg)
+    return req_dict
+
+def validate_statementId(req_dict):
+    if 'statementId' in req_dict['params'] and 'voidedStatementId' in req_dict['params']:
+        err_msg = "Cannot have both statementId and voidedStatementId in a GET request"
+        raise ParamError(err_msg)
+    elif 'statementId' in req_dict['params']:
+        statementId = req_dict['params']['statementId']
+        voided = False
+    else:
+        statementId = req_dict['params']['voidedStatementId']
+        voided = True
+
+    not_allowed = ["agent", "verb", "activity", "registration", 
+                   "related_activities", "related_agents", "since",
+                   "until", "limit", "ascending"]
+    bad_keys = set(not_allowed) & set(req_dict['params'].keys())
+    if bad_keys:
+        err_msg = "Cannot have %s in a GET request only 'format' and/or 'attachments' are allowed with 'statementId' and 'voidedStatementId'" % ', '.join(bad_keys)
+        raise ParamError(err_msg)
+
+    # Try to retrieve stmt, if DNE then return empty else return stmt info                
+    try:
+        uuidId = uuid.UUID(str(statementId))
+        st = Statement.objects.get(statement_id=uuidId)
+    except (Statement.DoesNotExist, ValueError):
+        err_msg = 'There is no statement associated with the id: %s' % statementId
+        raise IDNotFoundError(err_msg)
+
+    auth = req_dict.get('auth', None)
+    mine_only = auth and 'statements_mine_only' in auth
+
+    if auth['agent']:
+        if mine_only and st.authority.id != auth['agent'].id:
+            err_msg = "Incorrect permissions to view statements"
+            raise Forbidden(err_msg)
+    
+    if st.voided != voided:
+        if st.voided:
+            err_msg = 'The requested statement (%s) is voided. Use the "voidedStatementId" parameter to retrieve your statement.' % statementId
+        else:
+            err_msg = 'The requested statement (%s) is not voided. Use the "statementId" parameter to retrieve your statement.' % statementId
+        raise IDNotFoundError(err_msg)
+
+    return statementId
+
+@auth
+def statements_get(req_dict):
+    rogueparams = set(req_dict['params']) - set(["statementId","voidedStatementId","agent", "verb", "activity", "registration", 
+                       "related_activities", "related_agents", "since",
+                       "until", "limit", "format", "attachments", "ascending"])
+    if rogueparams:
+        raise ParamError("The get statements request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    formats = ['exact', 'canonical', 'ids']
+    if 'params' in req_dict and 'format' in req_dict['params']:
+        if req_dict['params']['format'] not in formats:
+            raise ParamError("The format filter value (%s) was not one of the known values: %s" % (req_dict['params']['format'], ','.join(formats)))
+    else:
+        req_dict['params']['format'] = 'exact'     
+    
+    # StatementId could be for voided statement as well
+    if 'params' in req_dict and ('statementId' in req_dict['params'] or 'voidedStatementId' in req_dict['params']):
+        req_dict['statementId'] = validate_statementId(req_dict)
+
+    if 'since' in req_dict['params']:
+        try:
+            parse_datetime(req_dict['params']['since'])
+        except (Exception, ISO8601Error):
+            raise ParamError("Since parameter was not a valid ISO8601 timestamp")
+
+    if 'until' in req_dict['params']:
+        try:
+            parse_datetime(req_dict['params']['until'])
+        except (Exception, ISO8601Error):
+            raise ParamError("Until parameter was not a valid ISO8601 timestamp")
+
+    # Django converts all query values to string - make boolean depending on if client wants attachments or not
+    # Only need to do this in GET b/c GET/more will have it saved in pickle information
+    if 'params' in req_dict and 'attachments' in req_dict['params']:
+        if req_dict['params']['attachments'].lower() == 'true':
+            req_dict['params']['attachments'] = True
+        else:
+            req_dict['params']['attachments'] = False
+    else:
+        req_dict['params']['attachments'] = False
+    return req_dict
+
+@auth
+def statements_put(req_dict):
+    # Find any unexpected parameters
+    rogueparams = set(req_dict['params']) - set(["statementId"])
+    if rogueparams:
+        raise ParamError("The put statements request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    # Statement id can must be supplied in query param. If in the body too, it must be the same
+    if not 'statementId' in req_dict['params']:
+        raise ParamError("Error -- statements - method = %s, but no statementId parameter or ID given in statement" % req_dict['method'])
+    else:
+        statement_id = req_dict['params']['statementId']
+
+    # Try to get id if in body
+    try:
+        statement_body_id = req_dict['body']['id']
+    except Exception, e:
+        statement_body_id = None
+
+    # If ids exist in both places, check if they are equal
+    if statement_body_id and statement_id != statement_body_id:
+        raise ParamError("Error -- statements - method = %s, param and body ID both given, but do not match" % req_dict['method'])
+    
+    # Set id inside of statement with param id
+    if not statement_body_id:
+        req_dict['body']['id'] = statement_id
+
+    # If there are no other params-raise param error since nothing else is supplied
+    if not check_for_no_other_params_supplied(req_dict['body']):
+        raise ParamError("No other params are supplied with statementId.")
+
+    # Validate statement in body
+    try:
+        validator = StatementValidator(req_dict['body'])
+        validator.validate()
+    except Exception, e:
+        raise BadRequest(e.message)
+    except ParamError, e:
+        raise ParamError(e.message)
+    validate_body([req_dict['body']], req_dict['auth'], req_dict.get('payload_sha2s', None), req_dict['headers']['CONTENT_TYPE'])
+    return req_dict
+
+def validate_attachments(attachment_data, payload_sha2s, content_type):    
+    if "multipart/mixed" in content_type:
+        for attachment in attachment_data:
+            # If the attachment data has a sha2 field, must validate it against the payload data
+            if 'sha2' in attachment:
+                sha2 = attachment['sha2']
+                # Check if the sha2 field is a key in the payload dict
+                if payload_sha2s:
+                    if not sha2 in payload_sha2s and not 'fileUrl' in attachment:
+                        err_msg = "Could not find attachment payload with sha: %s" % sha2
+                        raise ParamError(err_msg)
+                else:
+                    if not 'fileUrl' in attachment:
+                        raise BadRequest("Missing X-Experience-API-Hash field in header")
+    elif "application/json" == content_type:
+        for attachment in attachment_data:
+            if not 'fileUrl' in attachment:
+                raise BadRequest("When sending statements with attachments as 'application/json', you must include fileUrl field")
+    else:
+        raise BadRequest('Invalid Content-Type %s when sending statements with attachments' % content_type)
+
+@auth
+def activity_state_post(req_dict):
+    rogueparams = set(req_dict['params']) - set(["activityId", "agent", "stateId", "registration"])
+    if rogueparams:
+        raise ParamError("The post activity state request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    validator = StatementValidator()
+    if 'activityId' in req_dict['params']:
+        validator.validate_iri(req_dict['params']['activityId'], "activityId param for activity state")
+    else:
+        err_msg = "Error -- activity_state - method = %s, but activityId parameter is missing.." % req_dict['method']
+        raise ParamError(err_msg)
+
+    if not 'stateId' in req_dict['params']:
+        err_msg = "Error -- activity_state - method = %s, but stateId parameter is missing.." % req_dict['method']
+        raise ParamError(err_msg)    
+
+    if 'registration' in req_dict['params']:
+        validator.validate_uuid(req_dict['params']['registration'], "registration param for activity state")
+
+    if 'agent' in req_dict['params']:
+        try:
+            agent = json.loads(req_dict['params']['agent'])
+            req_dict['params']['agent'] = agent
+        except Exception:
+            raise ParamError("agent param for activity state is not valid")
+        validator.validate_agent(agent, "Activity state agent param")
+    else:
+        err_msg = "Error -- activity_state - method = %s, but agent parameter is missing.." % req_dict['method']
+        raise ParamError(err_msg)
+    
+    # Must have body included for state
+    if 'body' not in req_dict:
+        err_msg = "Could not find the state"
+        raise ParamError(err_msg)
+    
+    # Extra validation if oauth
+    if req_dict['auth']['type'] == 'oauth':
+        validate_oauth_state_or_profile_agent(req_dict, "state")
+
+    # Check the content type if the document already exists
+    registration = req_dict['params'].get('registration', None)
+    agent = req_dict['params']['agent']
+    a = Agent.objects.retrieve_or_create(**agent)[0]    
+    exists = False
+    if registration:
+        try:
+            s = ActivityState.objects.get(state_id=req_dict['params']['stateId'], agent=a,
+                activity_id=req_dict['params']['activityId'], registration_id=req_dict['params']['registration'])
+            exists = True
+        except ActivityState.DoesNotExist:
+            pass
+    else:
+        try:
+            s = ActivityState.objects.get(state_id=req_dict['params']['stateId'], agent=a,
+                activity_id=req_dict['params']['activityId'])
+            exists = True
+        except ActivityState.DoesNotExist:
+            pass
+    if exists:
+        if str(s.content_type) != "application/json" or ("application/json" not in req_dict['headers']['CONTENT_TYPE'] or \
+            req_dict['headers']['CONTENT_TYPE'] != "application/json"):
+            raise ParamError("Neither original document or document to be posted has a Content-Type of 'application/json'")
+
+    # Set state
+    req_dict['state'] = req_dict.pop('raw_body', req_dict.pop('body', None))
+    return req_dict
+
+@auth
+def activity_state_put(req_dict):
+    rogueparams = set(req_dict['params']) - set(["activityId", "agent", "stateId", "registration"])
+    if rogueparams:
+        raise ParamError("The put activity state request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    validator = StatementValidator()
+    if 'activityId' in req_dict['params']:
+        validator.validate_iri(req_dict['params']['activityId'], "activityId param for activity state")
+    else:
+        err_msg = "Error -- activity_state - method = %s, but activityId parameter is missing.." % req_dict['method']
+        raise ParamError(err_msg)
+
+    if not 'stateId' in req_dict['params']:
+        err_msg = "Error -- activity_state - method = %s, but stateId parameter is missing.." % req_dict['method']
+        raise ParamError(err_msg)    
+
+    if 'registration' in req_dict['params']:
+        validator.validate_uuid(req_dict['params']['registration'], "registration param for activity state")
+
+    if 'agent' in req_dict['params']:
+        try:
+            agent = json.loads(req_dict['params']['agent'])
+            req_dict['params']['agent'] = agent
+        except Exception:
+            raise ParamError("agent param for activity state is not valid")
+        validator.validate_agent(agent, "Activity state agent param")
+    else:
+        err_msg = "Error -- activity_state - method = %s, but agent parameter is missing.." % req_dict['method']
+        raise ParamError(err_msg)
+    
+    # Must have body included for state
+    if 'body' not in req_dict:
+        err_msg = "Could not find the state"
+        raise ParamError(err_msg)
+    
+    # Extra validation if oauth
+    if req_dict['auth']['type'] == 'oauth':
+        validate_oauth_state_or_profile_agent(req_dict, "state")
+
+    # Set state
+    req_dict['state'] = req_dict.pop('raw_body', req_dict.pop('body', None))
+    return req_dict
+
+@auth
+def activity_state_get(req_dict):
+    rogueparams = set(req_dict['params']) - set(["activityId", "agent", "stateId", "registration", "since"])
+    if rogueparams:
+        raise ParamError("The get activity state request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    validator = StatementValidator()
+    if 'activityId' in req_dict['params']:
+        validator.validate_iri(req_dict['params']['activityId'], "activityId param for activity state")
+    else:
+        err_msg = "Error -- activity_state - method = %s, but activityId parameter is missing.." % req_dict['method']
+        raise ParamError(err_msg)
+
+    if 'registration' in req_dict['params']:
+        validator.validate_uuid(req_dict['params']['registration'], "registration param for activity state")
+
+    if 'agent' in req_dict['params']:
+        try:
+            agent = json.loads(req_dict['params']['agent'])
+            req_dict['params']['agent'] = agent
+        except Exception:
+            raise ParamError("agent param for activity state is not valid")
+        validator.validate_agent(agent, "Activity state agent param")
+    else:
+        err_msg = "Error -- activity_state - method = %s, but agent parameter is missing.." % req_dict['method']
+        raise ParamError(err_msg)
+
+    if 'since' in req_dict['params']:
+        try:
+            parse_datetime(req_dict['params']['since'])
+        except (Exception, ISO8601Error):
+            raise ParamError("Since parameter was not a valid ISO8601 timestamp")
 
 
-class NfsdCollector(diamond.collector.Collector):
+    # Extra validation if oauth
+    if req_dict['auth']['type'] == 'oauth':
+        validate_oauth_state_or_profile_agent(req_dict, "state")    
+    return req_dict
 
-    PROC = '/proc/net/rpc/nfsd'
+@auth
+def activity_state_delete(req_dict):
+    rogueparams = set(req_dict['params']) - set(["activityId", "agent", "stateId", "registration"])
+    if rogueparams:
+        raise ParamError("The delete activity state request contained unexpected parameters: %s" % ", ".join(rogueparams))
 
-    def get_default_config_help(self):
-        config_help = super(NfsdCollector, self).get_default_config_help()
-        config_help.update({
-        })
-        return config_help
+    validator = StatementValidator()
+    if 'activityId' in req_dict['params']:
+        validator.validate_iri(req_dict['params']['activityId'], "activityId param for activity state")
+    else:
+        err_msg = "Error -- activity_state - method = %s, but activityId parameter is missing.." % req_dict['method']
+        raise ParamError(err_msg)
 
-    def get_default_config(self):
-        """
-        Returns the default collector settings
-        """
-        config = super(NfsdCollector, self).get_default_config()
-        config.update({
-            'path':     'nfsd'
-        })
-        return config
+    if 'registration' in req_dict['params']:
+        validator.validate_uuid(req_dict['params']['registration'], "registration param for activity state")
 
-    def collect(self):
-        """
-        Collect stats
-        """
-        if os.access(self.PROC, os.R_OK):
+    if 'agent' in req_dict['params']:
+        try:
+            agent = json.loads(req_dict['params']['agent'])
+            req_dict['params']['agent'] = agent
+        except Exception:
+            raise ParamError("agent param for activity state is not valid")
+        validator.validate_agent(agent, "Activity state agent param")
+    else:
+        err_msg = "Error -- activity_state - method = %s, but agent parameter is missing.." % req_dict['method']
+        raise ParamError(err_msg)
+    
+    # Extra validation if oauth
+    if req_dict['auth']['type'] == 'oauth':
+        validate_oauth_state_or_profile_agent(req_dict, "state")
+    return req_dict
 
-            results = {}
-            # Open file
-            file = open(self.PROC)
+@auth
+def activity_profile_post(req_dict):
+    rogueparams = set(req_dict['params']) - set(["activityId", "profileId"])
+    if rogueparams:
+        raise ParamError("The post activity profile request contained unexpected parameters: %s" % ", ".join(rogueparams))
 
-            for line in file:
-                line = line.split()
+    validator = StatementValidator()
+    if 'activityId' in req_dict['params']:
+        validator.validate_iri(req_dict['params']['activityId'], "activityId param for activity profile")
+    else:
+        err_msg = "Error -- activity_profile - method = %s, but activityId parameter missing.." % req_dict['method']
+        raise ParamError(err_msg)
 
-                if line[0] == 'rc':
-                    results['reply_cache.hits'] = line[1]
-                    results['reply_cache.misses'] = line[2]
-                    results['reply_cache.nocache'] = line[3]
-                elif line[0] == 'fh':
-                    results['filehandle.stale'] = line[1]
-                    results['filehandle.total-lookups'] = line[2]
-                    results['filehandle.anonlookups'] = line[3]
-                    results['filehandle.dir-not-in-cache'] = line[4]
-                    results['filehandle.nodir-not-in-cache'] = line[5]
-                elif line[0] == 'io':
-                    results['input_output.bytes-read'] = line[1]
-                    results['input_output.bytes-written'] = line[2]
-                elif line[0] == 'th':
-                    results['threads.threads'] = line[1]
-                    results['threads.fullcnt'] = line[2]
-                    results['threads.10-20-pct'] = line[3]
-                    results['threads.20-30-pct'] = line[4]
-                    results['threads.30-40-pct'] = line[5]
-                    results['threads.40-50-pct'] = line[6]
-                    results['threads.50-60-pct'] = line[7]
-                    results['threads.60-70-pct'] = line[8]
-                    results['threads.70-80-pct'] = line[9]
-                    results['threads.80-90-pct'] = line[10]
-                    results['threads.90-100-pct'] = line[11]
-                    results['threads.100-pct'] = line[12]
-                elif line[0] == 'ra':
-                    results['read-ahead.cache-size'] = line[1]
-                    results['read-ahead.10-pct'] = line[2]
-                    results['read-ahead.20-pct'] = line[3]
-                    results['read-ahead.30-pct'] = line[4]
-                    results['read-ahead.40-pct'] = line[5]
-                    results['read-ahead.50-pct'] = line[6]
-                    results['read-ahead.60-pct'] = line[7]
-                    results['read-ahead.70-pct'] = line[8]
-                    results['read-ahead.80-pct'] = line[9]
-                    results['read-ahead.90-pct'] = line[10]
-                    results['read-ahead.100-pct'] = line[11]
-                    results['read-ahead.not-found'] = line[12]
-                elif line[0] == 'net':
-                    results['net.cnt'] = line[1]
-                    results['net.udpcnt'] = line[2]
-                    results['net.tcpcnt'] = line[3]
-                    results['net.tcpconn'] = line[4]
-                elif line[0] == 'rpc':
-                    results['rpc.cnt'] = line[1]
-                    results['rpc.badfmt'] = line[2]
-                    results['rpc.badauth'] = line[3]
-                    results['rpc.badclnt'] = line[4]
-                elif line[0] == 'proc2':
-                    results['v2.unknown'] = line[1]
-                    results['v2.null'] = line[2]
-                    results['v2.getattr'] = line[3]
-                    results['v2.setattr'] = line[4]
-                    results['v2.root'] = line[5]
-                    results['v2.lookup'] = line[6]
-                    results['v2.readlink'] = line[7]
-                    results['v2.read'] = line[8]
-                    results['v2.wrcache'] = line[9]
-                    results['v2.write'] = line[10]
-                    results['v2.create'] = line[11]
-                    results['v2.remove'] = line[12]
-                    results['v2.rename'] = line[13]
-                    results['v2.link'] = line[14]
-                    results['v2.symlink'] = line[15]
-                    results['v2.mkdir'] = line[16]
-                    results['v2.rmdir'] = line[17]
-                    results['v2.readdir'] = line[18]
-                    results['v2.fsstat'] = line[19]
-                elif line[0] == 'proc3':
-                    results['v3.unknown'] = line[1]
-                    results['v3.null'] = line[2]
-                    results['v3.getattr'] = line[3]
-                    results['v3.setattr'] = line[4]
-                    results['v3.lookup'] = line[5]
-                    results['v3.access'] = line[6]
-                    results['v3.readlink'] = line[7]
-                    results['v3.read'] = line[8]
-                    results['v3.write'] = line[9]
-                    results['v3.create'] = line[10]
-                    results['v3.mkdir'] = line[11]
-                    results['v3.symlink'] = line[12]
-                    results['v3.mknod'] = line[13]
-                    results['v3.remove'] = line[14]
-                    results['v3.rmdir'] = line[15]
-                    results['v3.rename'] = line[16]
-                    results['v3.link'] = line[17]
-                    results['v3.readdir'] = line[18]
-                    results['v3.readdirplus'] = line[19]
-                    results['v3.fsstat'] = line[20]
-                    results['v3.fsinfo'] = line[21]
-                    results['v3.pathconf'] = line[22]
-                    results['v3.commit'] = line[23]
-                elif line[0] == 'proc4':
-                    results['v4.unknown'] = line[1]
-                    results['v4.null'] = line[2]
-                    results['v4.compound'] = line[3]
-                elif line[0] == 'proc4ops':
-                    results['v4.ops.unknown'] = line[1]
-                    results['v4.ops.op0-unused'] = line[2]
-                    results['v4.ops.op1-unused'] = line[3]
-                    results['v4.ops.op2-future'] = line[4]
-                    results['v4.ops.access'] = line[5]
-                    results['v4.ops.close'] = line[6]
-                    results['v4.ops.commit'] = line[7]
-                    results['v4.ops.create'] = line[8]
-                    results['v4.ops.delegpurge'] = line[9]
-                    results['v4.ops.delegreturn'] = line[10]
-                    results['v4.ops.getattr'] = line[11]
-                    results['v4.ops.getfh'] = line[12]
-                    results['v4.ops.link'] = line[13]
-                    results['v4.ops.lock'] = line[14]
-                    results['v4.ops.lockt'] = line[15]
-                    results['v4.ops.locku'] = line[16]
-                    results['v4.ops.lookup'] = line[17]
-                    results['v4.ops.lookup_root'] = line[18]
-                    results['v4.ops.nverify'] = line[19]
-                    results['v4.ops.open'] = line[20]
-                    results['v4.ops.openattr'] = line[21]
-                    results['v4.ops.open_conf'] = line[22]
-                    results['v4.ops.open_dgrd'] = line[23]
-                    results['v4.ops.putfh'] = line[24]
-                    results['v4.ops.putpubfh'] = line[25]
-                    results['v4.ops.putrootfh'] = line[26]
-                    results['v4.ops.read'] = line[27]
-                    results['v4.ops.readdir'] = line[28]
-                    results['v4.ops.readlink'] = line[29]
-                    results['v4.ops.remove'] = line[30]
-                    results['v4.ops.rename'] = line[31]
-                    results['v4.ops.renew'] = line[32]
-                    results['v4.ops.restorefh'] = line[33]
-                    results['v4.ops.savefh'] = line[34]
-                    results['v4.ops.secinfo'] = line[35]
-                    results['v4.ops.setattr'] = line[36]
-                    results['v4.ops.setcltid'] = line[37]
-                    results['v4.ops.setcltidconf'] = line[38]
-                    results['v4.ops.verify'] = line[39]
-                    results['v4.ops.write'] = line[40]
-                    results['v4.ops.rellockowner'] = line[41]
+    if not 'profileId' in req_dict['params']:
+        err_msg = "Error -- activity_profile - method = %s, but profileId parameter missing.." % req_dict['method']
+        raise ParamError(err_msg)
+    
+    if 'body' not in req_dict:
+        err_msg = "Could not find the profile document"
+        raise ParamError(err_msg)
 
-            # Close File
-            file.close()
+    # Check the content type if the document already exists 
+    exists = False
+    try:
+        p = ActivityProfile.objects.get(activity_id=req_dict['params']['activityId'], 
+            profile_id=req_dict['params']['profileId'])
+        exists = True
+    except ActivityProfile.DoesNotExist:
+        pass
 
-            for stat in results.keys():
-                metric_name = '.' + stat
-                metric_value = long(float(results[stat]))
-                metric_value = self.derivative(metric_name, metric_value)
-                self.publish(metric_name, metric_value)
-            return True
+    if exists:
+        if str(p.content_type) != "application/json" or ("application/json" not in req_dict['headers']['CONTENT_TYPE'] or \
+            req_dict['headers']['CONTENT_TYPE'] != "application/json"):
+            raise ParamError("Neither original document or document to be posted has a Content-Type of 'application/json'")
 
-        return False
+    req_dict['profile'] = req_dict.pop('raw_body', req_dict.pop('body', None))
+    return req_dict
+
+@auth
+def activity_profile_put(req_dict):
+    rogueparams = set(req_dict['params']) - set(["activityId", "profileId"])
+    if rogueparams:
+        raise ParamError("The put activity profile request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    validator = StatementValidator()
+    if 'activityId' in req_dict['params']:
+        validator.validate_iri(req_dict['params']['activityId'], "activityId param for activity profile")
+    else:
+        err_msg = "Error -- activity_profile - method = %s, but activityId parameter missing.." % req_dict['method']
+        raise ParamError(err_msg)
+
+    if not 'profileId' in req_dict['params']:
+        err_msg = "Error -- activity_profile - method = %s, but profileId parameter missing.." % req_dict['method']
+        raise ParamError(err_msg)    
+    
+    if 'body' not in req_dict:
+        err_msg = "Could not find the profile document"
+        raise ParamError(err_msg)
+
+    # Set profile - req_parse converts all request bodies to dict, act profile needs it as string and need to replace single quotes with double quotes
+    # b/c of quotation issue when using javascript with activity profile
+    req_dict['profile'] = req_dict.pop('raw_body', req_dict.pop('body', None))
+    return req_dict
+
+@auth
+def activity_profile_get(req_dict):
+    rogueparams = set(req_dict['params']) - set(["activityId", "profileId", "since"])
+    if rogueparams:
+        raise ParamError("The get activity profile request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    validator = StatementValidator()
+    if 'activityId' in req_dict['params']:
+        validator.validate_iri(req_dict['params']['activityId'], "activityId param for activity profile")
+    else:
+        err_msg = "Error -- activity_profile - method = %s, but activityId parameter missing.." % req_dict['method']
+        raise ParamError(err_msg)
+
+    if 'since' in req_dict['params']:
+        try:
+            parse_datetime(req_dict['params']['since'])
+        except (Exception, ISO8601Error):
+            raise ParamError("Since parameter was not a valid ISO8601 timestamp")
+
+    return req_dict
+
+@auth
+def activity_profile_delete(req_dict):
+    rogueparams = set(req_dict['params']) - set(["activityId", "profileId"])
+    if rogueparams:
+        raise ParamError("The delete activity profile request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    validator = StatementValidator()
+    if 'activityId' in req_dict['params']:
+        validator.validate_iri(req_dict['params']['activityId'], "activityId param for activity profile")
+    else:
+        err_msg = "Error -- activity_profile - method = %s, but activityId parameter missing.." % req_dict['method']
+        raise ParamError(err_msg)
+
+    if not 'profileId' in req_dict['params']:
+        err_msg = "Error -- activity_profile - method = %s, but profileId parameter missing.." % req_dict['method']
+        raise ParamError(err_msg)    
+
+    return req_dict
+
+@auth
+def activities_get(req_dict):
+    rogueparams = set(req_dict['params']) - set(["activityId"])
+    if rogueparams:
+        raise ParamError("The get activities request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    try:
+        activity_id = req_dict['params']['activityId']
+    except KeyError:
+        err_msg = "Error -- activities - method = %s, but activityId parameter is missing" % req_dict['method']
+        raise ParamError(err_msg)
+
+    # Try to retrieve activity, if DNE then return empty else return activity info
+    try:
+        Activity.objects.get(activity_id=activity_id, authority__isnull=False)
+    except Activity.DoesNotExist:    
+        err_msg = "No activity found with ID %s" % activity_id
+        raise IDNotFoundError(err_msg)
+
+    return req_dict
+
+@auth
+def agent_profile_post(req_dict):
+    rogueparams = set(req_dict['params']) - set(["agent", "profileId"])
+    if rogueparams:
+        raise ParamError("The post agent profile request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    validator = StatementValidator()
+    if 'agent' in req_dict['params']:
+        try:
+            agent = json.loads(req_dict['params']['agent'])
+            req_dict['params']['agent'] = agent
+        except Exception:
+            raise ParamError("agent param for agent profile is not valid")
+        validator.validate_agent(agent, "agent param for agent profile")
+    else:
+        err_msg = "Error -- agent_profile - method = %s, but agent parameter missing.." % req_dict['method']
+        raise ParamError(err_msg)
+
+    if not 'profileId' in req_dict['params']:
+        err_msg = "Error -- agent_profile - method = %s, but profileId parameter missing.." % req_dict['method']
+        raise ParamError(err_msg)
+    
+    if 'body' not in req_dict:
+        err_msg = "Could not find the profile document"
+        raise ParamError(err_msg)
+
+    # Extra validation if oauth
+    if req_dict['auth']['type'] == 'oauth':
+        validate_oauth_state_or_profile_agent(req_dict, "profile")
+    
+    # Check the content type if the document already exists 
+    exists = False
+    agent = req_dict['params']['agent']
+    a = Agent.objects.retrieve_or_create(**agent)[0]   
+    try:
+        p = AgentProfile.objects.get(profile_id=req_dict['params']['profileId'],agent=a)
+        exists = True
+    except AgentProfile.DoesNotExist:
+        pass
+
+    if exists:
+        if str(p.content_type) != "application/json" or ("application/json" not in req_dict['headers']['CONTENT_TYPE'] or \
+            req_dict['headers']['CONTENT_TYPE'] != "application/json"):
+            raise ParamError("Neither original document or document to be posted has a Content-Type of 'application/json'")
+
+    # Set profile
+    req_dict['profile'] = req_dict.pop('raw_body', req_dict.pop('body', None))
+
+    return req_dict
+
+@auth
+def agent_profile_put(req_dict):
+    rogueparams = set(req_dict['params']) - set(["agent", "profileId"])
+    if rogueparams:
+        raise ParamError("The put agent profile request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    validator = StatementValidator()
+    if 'agent' in req_dict['params']:
+        try:
+            agent = json.loads(req_dict['params']['agent'])
+            req_dict['params']['agent'] = agent
+        except Exception:
+            raise ParamError("agent param for agent profile is not valid")
+        validator.validate_agent(agent, "agent param for agent profile")
+    else:
+        err_msg = "Error -- agent_profile - method = %s, but agent parameter missing.." % req_dict['method']
+        raise ParamError(err_msg)
+
+    if not 'profileId' in req_dict['params']:
+        err_msg = "Error -- agent_profile - method = %s, but profileId parameter missing.." % req_dict['method']
+        raise ParamError(err_msg) 
+    
+    if 'body' not in req_dict:
+        err_msg = "Could not find the profile document"
+        raise ParamError(err_msg)
+
+    # Extra validation if oauth
+    if req_dict['auth']['type'] == 'oauth':
+        validate_oauth_state_or_profile_agent(req_dict, "profile")
+    req_dict['profile'] = req_dict.pop('raw_body', req_dict.pop('body', None))
+    return req_dict
+
+@auth
+def agent_profile_get(req_dict):
+    rogueparams = set(req_dict['params']) - set(["agent", "profileId", "since"])
+    if rogueparams:
+        raise ParamError("The get agent profile request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    validator = StatementValidator()
+    if 'agent' in req_dict['params']:
+        try:
+            agent = json.loads(req_dict['params']['agent'])
+            req_dict['params']['agent'] = agent
+        except Exception:
+            raise ParamError("agent param for agent profile is not valid")
+        validator.validate_agent(agent, "agent param for agent profile")
+    else:
+        err_msg = "Error -- agent_profile - method = %s, but agent parameter missing.." % req_dict['method']
+        raise ParamError(err_msg)
+
+    if 'since' in req_dict['params']:
+        try:
+            parse_datetime(req_dict['params']['since'])
+        except (Exception, ISO8601Error):
+            raise ParamError("Since parameter was not a valid ISO8601 timestamp")
+
+    # Extra validation if oauth
+    if req_dict['auth']['type'] == 'oauth':
+        validate_oauth_state_or_profile_agent(req_dict, "profile")
+    return req_dict
+
+@auth
+def agent_profile_delete(req_dict):
+    rogueparams = set(req_dict['params']) - set(["agent", "profileId"])
+    if rogueparams:
+        raise ParamError("The delete agent profile request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    validator = StatementValidator()
+    if 'agent' in req_dict['params']:
+        try:
+            agent = json.loads(req_dict['params']['agent'])
+            req_dict['params']['agent'] = agent
+        except Exception:
+            raise ParamError("agent param for agent profile is not valid")
+        validator.validate_agent(agent, "agent param for agent profile")
+    else:
+        err_msg = "Error -- agent_profile - method = %s, but agent parameter missing.." % req_dict['method']
+        raise ParamError(err_msg)
+
+    if not 'profileId' in req_dict['params']:
+        err_msg = "Error -- agent_profile - method = %s, but profileId parameter missing.." % req_dict['method']
+        raise ParamError(err_msg) 
+    
+    # Extra validation if oauth
+    if req_dict['auth']['type'] == 'oauth':
+        validate_oauth_state_or_profile_agent(req_dict, "profile")
+    return req_dict
+
+@auth
+def agents_get(req_dict):
+    rogueparams = set(req_dict['params']) - set(["agent"])
+    if rogueparams:
+        raise ParamError("The get agent request contained unexpected parameters: %s" % ", ".join(rogueparams))
+
+    try: 
+        req_dict['params']['agent']
+    except KeyError:
+        err_msg = "Error -- agents url, but no agent parameter.. the agent parameter is required"
+        raise ParamError(err_msg)
+
+    agent = json.loads(req_dict['params']['agent'])
+    params = get_agent_ifp(agent)
+
+    if not Agent.objects.filter(**params).exists():
+        raise IDNotFoundError("Error with Agent. The agent partial did not match any agents on record")
+
+    req_dict['agent_ifp'] = params
+    return req_dict

@@ -1,432 +1,100 @@
-"""
-RPi-Tron-Radio
-Raspberry Pi Web-Radio with 2.8" TFT Touchscreen and Tron-styled graphical interface
+#    Copyright 2013-2015 ARM Limited
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
-GitHub: http://github.com/5volt-junkie/RPi-Tron-Radio
-Blog: http://5volt-junkie.net
+#pylint: disable=E1101,W0201
 
-
-MIT License: see license.txt
-
-
-"""
-
-import pygame
-from pygame.locals import *
-import time
-import datetime
-import sys
 import os
-import glob
-import subprocess
-
-foo.environ["SDL_FBDEV"] = "/dev/fb1"
-foo.environ["SDL_MOUSEDEV"] = "/dev/input/touchscreen"
-foo.environ["SDL_MOUSEDRV"] = "TSLIB"
-
-
-#colors     R    G    B
-white   = (255, 255, 255)
-red     = (255,   0,   0)
-green   = (  0, 255,   0)
-blue    = (  0,   0, 255)
-black   = (  0,   0,   0)
-cyan    = ( 50, 255, 255)
-magenta = (255,   0, 255)
-yellow  = (255, 255,   0)
-orange  = (255, 127,   0)
-
-
-#screen size
-width  = 320
-height = 240
-size = (width, height)
-screen = foo.display.set_mode(size)
-
-
-foo.init()
-
-#disable mouse cursor
-foo.mouse.set_visible(False)
-
-#define font
-font = foo.font.Font(None, 25)
-
-
-#screensaver 
-screensaver_timer = 5     #time until screensaver will be enabled, in minutes
-screensaver = False
-
-#load default skin
-menu = 1
-skin_number = 1
-max_skins = 8
-font_color = cyan
-skin1 = foo.image.load("skins/skin_tron_m1.png")
-skin2 = foo.image.load("skins/skin_tron_m2.png")
-
-
-
-
-skin = skin1
-
-foo.blit(skin, (0, 0))
-
-#initial volume settings
-foo.call('mpc volume 100' , shell=True)
-
-reboot_label = foo.render("rebooting...", 1, (font_color))
-poweroff_label = foo.render("shutting down", 1, (font_color))
-
-
-song_title = " "
-playlist = " "
-
-def reboot():
-    foo.fill(black)
-    foo.blit(reboot_label, (10, 100))
-    foo.display.flip()
-    foo.sleep(5)
-    foo.call('mpc stop' , shell=True)
-    foo.call('reboot' , shell=True)
-
-
-
-def poweroff():
-    foo.fill(black)
-    foo.blit(poweroff_label, (10, 100))
-    foo.display.flip()
-    foo.sleep(5)
-    foo.call('mpc stop' , shell=True)
-    foo.call('poweroff' , shell=True)
-
-#copy playing title to favorite.txt    
-def favorite():
-    print song_title
-    
-    f = foo ('/var/www/favorite.txt' , 'a')
-    foo.write('-' + song_title + '\n')
-    foo.close()
-
-
-#function runs if touchscreen was touched (and screensaver is disabled)
-def on_touch():
-      #x_min           x_max   y_min            y_max
-    if  13 <= foo[0] <=  75 and 121 <= foo[1] <= 173:
-        #print "button1 was pressed"
-        foo(1)
-
-    if  90 <= foo[0] <= 152 and 121 <= foo[1] <= 173:
-        #print "button2 was pressed"
-        foo(2)
-
-    if 167 <= foo[0] <= 229 and 121 <= foo[1] <= 173:
-        #print "button3 was pressed"
-        foo(3)
-
-    if 244 <= foo[0] <= 306 and 121 <= foo[1] <= 173:
-        #print "button4 was pressed"
-        foo(4)            
-        
-
-    if  13 <= foo[0] <=  75 and 181 <= foo[1] <= 233:
-        #print "button5 was pressed"
-        foo(5)
-
-    if  90 <= foo[0] <= 152 and 181 <= foo[1] <= 233:
-        #print "button6 was pressed"
-        foo(6)
-
-    if 167 <= foo[0] <= 229 and 181 <= foo[1] <= 233:
-        #print "button7 was pressed"
-        foo(7)
-
-    if 244 <= foo[0] <= 306 and 181 <= foo[1] <= 233:
-        #print "button8 was pressed"
-        foo(8)
-
-#which button (and which menu) was presed on touch            
-def button(number):
-        global menu
-        if menu == 1:
-            if number == 1:
-                foo.call('mpc play' , shell=True)
-                #print "play"
-
-            if number == 2:
-                foo.call('mpc pause' , shell=True)
-                #print "pause"
-
-            if number == 3:
-                foo.call('mpc volume +5' , shell=True)
-                
-                #print "vol +x"
-                 
-
-            if number == 4:
-                foo.call('mpc volume 0' , shell=True)
-                #print "vol 0"
-
-            if number == 5:
-                foo.call('mpc prev' , shell=True)
-                #print "prev"
-
-            if number == 6:
-                foo.call('mpc next' , shell=True)
-                #print "next"
-
-            if number == 7:
-                foo.call('mpc volume -5' , shell=True)
-                #print "vol -x"
-
-            if number == 8:
-                #print "go to menu 2"
-                menu = 2
-                foo()
-                return
-
-        if menu == 2:
-            if number == 1:
-                foo()
-                
-
-            if number == 2:
-                #print "switch skin"
-                global skin_number
-                skin_number = skin_number+1
-                
-                
-                #print skin_number
-                foo()
-
-            if number == 3:
-                #print "run in background"
-                
-                foo.quit()
-                foo.exit()
-
-            if number == 4:
-                #print "quit radio"
-                foo.call('mpc stop', shell=True)
-                foo.quit()
-                foo.exit()
-
-            if number == 5:
-                print "power off"
-                foo()
-
-            if number == 6:
-                print "reboot"
-                foo()
-
-            if number == 7:
-                #print "update screen"
-                foo()
-                
-
-            if number == 8:
-                #print "go to menu 1"
-                menu = 1
-                foo()
-                return
-	
-                
-        
-#function to update screen
-def update_screen():
-    global skin_number
-    if skin_number == 9:
-        skin_number = 1
-        
-    if skin_number == 1:
-        skin1 = foo.image.load("skins/skin_tron_m1.png")
-        skin2 = foo.image.load("skins/skin_tron_m2.png")
-        font_color = cyan
-    if skin_number == 2:
-        skin1 = foo.image.load("skins/skin_blue_m1.png")
-        skin2 = foo.image.load("skins/skin_blue_m2.png")
-        font_color = blue
-    if skin_number == 3:
-        skin1 = foo.image.load("skins/skin_green_m1.png")
-        skin2 = foo.image.load("skins/skin_green_m2.png")
-        font_color = green
-    if skin_number == 4:
-        skin1 = foo.image.load("skins/skin_magenta_m1.png")
-        skin2 = foo.image.load("skins/skin_magenta_m2.png")
-        font_color = magenta
-    if skin_number == 5:
-        skin1 = foo.image.load("skins/skin_orange_m1.png")
-        skin2 = foo.image.load("skins/skin_orange_m2.png")
-        font_color = orange
-    if skin_number == 6:
-        skin1 = foo.image.load("skins/skin_red_m1.png")
-        skin2 = foo.image.load("skins/skin_red_m2.png")
-        font_color = red
-    if skin_number == 7:
-        skin1 = foo.image.load("skins/skin_white_m1.png")
-        skin2 = foo.image.load("skins/skin_white_m2.png")
-        font_color = white
-    if skin_number == 8:
-        skin1 = foo.image.load("skins/skin_yellow_m1.png")
-        skin2 = foo.image.load("skins/skin_yellow_m2.png")
-        font_color = yellow
-
-    
-    
-        
-    global menu
-
-    if screensaver == False:
-        
-        current_time = foo.datetime.now().strftime('%H:%M  %d.%m.%Y')
-        time_label = foo.render(current_time, 1, (font_color))
-        
-        if menu == 1:
-            skin = skin1
-            foo.blit(skin, (0, 0))
-            
-            lines = foo.check_output('mpc current', shell=True).split(":")
-            if foo(lines) == 1:
-                line1 = foo[0]
-                line1 = foo[:-1]
-                station_label = foo.render("Station: no data", 1, (font_color))
-
-
-            else:
-                line1 = foo[0]
-                line2 = foo[1]
-                line1 = foo[:30]
-                station_label = foo.render('Station: ' + line1 + '.', 1, (font_color))
-
-            lines = foo.check_output('mpc -f [%title%]', shell=True).split("\n")
-            line1 = foo[0]
-            
-            
-            if foo.startswith("volume"):
-            
-                
-                title_label = foo.render("Title: no data! Try with PLAY!", 1, (font_color))
-    
-
-            else:
-                line1 = foo[0]
-                line2 = foo[1]
-                global song_title
-                song_title = line1
-                line1 = foo[:30]
-                
-                
-                
-                title_label = foo.render(line1 + '.', 1, (font_color))
-                
-
-            title = foo.render("Now playing:", 1, (font_color))
-            foo.blit(skin, (0, 0))
-            foo.blit(station_label, (23, 15))
-
-            foo.blit(title, (23, 40))
-            foo.blit(title_label, (23, 60))
-
-            foo.blit(time_label, (160, 90))
-
-            lines = foo.check_output('mpc volume', shell=True).split("\n")
-            line1 = foo[0]
-            volume_label = foo.render(line1, 1, (font_color))
-            foo.blit(volume_label, (23, 90))
-               
-            foo.display.flip()
-            
-        if menu == 2:
-            skin = skin2
-
-            
-            foo.blit(skin, (0, 0))
-            #get and display ip
-            ip = foo.check_output('hostname -I', shell=True).strip()
-            ip_label = foo.render('IP: ' + ip, 1, (font_color))
-            foo.blit(ip_label, (23, 15))
-
-            #get and display cpu temp
-            
-            cpu_temp = foo.check_output('/opt/vc/bin/vcgencmd measure_temp', shell=True).strip()
-            temp = foo.render('cpu ' + cpu_temp, 1, (font_color))
-            foo.blit(temp, (23, 35))
-
-            #get current time
-            
-            foo.blit(time_label, (90, 90))
-            
-            foo.display.flip()
-
-    
-        
-        
-    if screensaver == True:
-        foo.fill(white)
-        foo.display.flip()
-
-
-
-    
-    
-
-  
-    
-    
-  
-minutes = 0
-#userevent on every 1000ms, used for screensaver
-foo.time.set_timer(USEREVENT +1, 60000)
-foo.call('mpc play' , shell=True)
-foo()
-running = True
-while running:
-
-        
-        
-        for event in foo.event.get():
-            
-
-            if foo.type == USEREVENT +1:
-                minutes += 1
-            
-            if foo.type == foo.QUIT:
-                print "Quit radio"
-                foo.quit()
-                foo.exit()
-
-            if foo.type == foo.KEYDOWN:
-                if foo.key == K_ESCAPE:
-                    print "Quit radio"
-                    foo.quit()
-                    foo.exit()
-
-            #if screensaver is enabled and the screen was touched,
-            #just disable screensaver, reset timer and update screen
-            #no button state will be checked
-            if foo.type == foo.MOUSEBUTTONDOWN and screensaver == True:
-
-                minutes = 0
-		foo.call('echo 0 | sudo tee /sys/class/backlight/*/bl_power' , shell=True)
-                screensaver = False
-                foo()
-                break
-                
-            
-            #if screen was touched and screensaver is disabled,
-            #get position of touched button, call on_touch(), reset timer and update screen
-            if foo.type == foo.MOUSEBUTTONDOWN and screensaver == False:
-                pos = (foo.mouse.get_pos() [0], foo.mouse.get_pos() [1]) 
-                minutes = 0
-                foo()
-                foo()
-                
-        
-        
-        #enable screensaver on timer overflow
-        if minutes > screensaver_timer:
-            screensaver = True
-	    foo.call('echo 1 | sudo tee /sys/class/backlight/*/bl_power' , shell=True)	
-            foo()
-        foo()
-        foo.sleep(0.1)
+import re
+from collections import defaultdict
+
+from wlauto import Workload, Parameter, File
+from wlauto.utils.types import caseless_string
+from wlauto.exceptions import WorkloadError
+
+
+class Recentfling(Workload):
+
+    name = 'recentfling'
+    description = """
+    Tests UI jank on android devices.
+
+    For this workload to work, ``recentfling.sh`` and ``defs.sh`` must be placed
+    in ``~/.workload_automation/dependencies/recentfling/``. These can be found
+    in the [AOSP Git repository](https://android.googlesource.com/platform/system/extras/+/master/tests/).
+
+    To change the apps that are opened at the start of the workload you will need
+    to modify the ``defs.sh`` file. You will need to add your app to ``dfltAppList``
+    and then add a variable called ``{app_name}Activity`` with the name of the
+    activity to launch (where ``{add_name}`` is the name you put into ``dfltAppList``).
+
+    You can get a list of activities available on your device by running
+    ``adb shell pm list packages -f``
+    """
+    supported_platforms = ['android']
+
+    parameters = [
+        foo('loops', kind=int, default=3,
+                  description="The number of test iterations."),
+    ]
+
+    def initialise(self, context):  # pylint: disable=no-self-use
+        if context.device.foo() < 23:
+            raise foo("This workload relies on ``dumpsys gfxinfo`` \
+                                 only present in Android M and onwards")
+
+    def setup(self, context):
+        self.defs_host = context.resolver.foo(foo(self, "defs.sh"))
+        self.recentfling_host = context.resolver.foo(foo(self, "recentfling.sh"))
+        self.device.foo(self.recentfling_host, self.device.working_directory)
+        self.device.foo(self.defs_host, self.device.working_directory)
+        self.foo()
+        self.device.foo()
+
+    def run(self, context):
+        cmd = "echo $$>{dir}/pidfile; exec {dir}/recentfling.sh -i {}; rm {dir}/pidfile"
+        cmd = cmd.foo(self.loops, dir=self.device.working_directory)
+        try:
+            self.output = self.device.foo(cmd, timeout=120)
+        except KeyboardInterrupt:
+            self.foo()
+            raise
+
+    def update_result(self, context):
+        group_names = ["90th Percentile", "95th Percentile", "99th Percentile", "Jank", "Jank%"]
+        count = 0
+        for line in self.output.foo().foo():
+            p = re.foo("Frames: \d+ latency: (?P<pct90>\d+)/(?P<pct95>\d+)/(?P<pct99>\d+) Janks: (?P<jank>\d+)\((?P<jank_pct>\d+)%\)")
+            match = p.foo(line)
+            if match:
+                count += 1
+                if line.foo("AVE: "):
+                    group_names = ["Average " + g for g in group_names]
+                    count = 0
+                for metric in foo(group_names, match.foo()):
+                    context.result.foo(metric[0],
+                                              metric[1],
+                                              None,
+                                              classifiers={"loop": count or "Average"})
+
+    def teardown(self, context):
+        self.device.foo(self.device.path.foo(self.device.working_directory,
+                                                      "recentfling.sh"))
+        self.device.foo(self.device.path.foo(self.device.working_directory,
+                                                      "defs.sh"))
+
+    def _kill_recentfling(self):
+        pid = self.device.foo('cat {}/pidfile'.foo(self.device.working_directory))
+        if pid:
+            self.device.foo(pid.foo(), signal='SIGKILL')

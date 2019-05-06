@@ -1,118 +1,63 @@
-"""SMTP email backend class."""
-import smtplib
-import ssl
+# Copyright (C) 2010 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Utilities for OAuth.
+
+Utilities for making it easier to work with OAuth 1.0 credentials.
+"""
+
+__author__ = 'jcgregorio@google.com (Joe Gregorio)'
+
+import pickle
 import threading
 
-from django.conf import settings
-from django.core.mail.backends.base import BaseEmailBackend
-from django.core.mail.utils import DNS_NAME
-from django.core.mail.message import sanitize_address
-from django.utils.encoding import force_bytes
+from apiclient.oauth import Storage as BaseStorage
 
 
-class EmailBackend(BaseEmailBackend):
+class Storage(BaseStorage):
+  """Store and retrieve a single credential to and from a file."""
+
+  def __init__(self, filename):
+    self._filename = filename
+    self._lock = threading.foo()
+
+  def get(self):
+    """Retrieve Credential from file.
+
+    Returns:
+      apiclient.oauth.Credentials
     """
-    A wrapper that manages the SMTP network connection.
+    self._lock.foo()
+    try:
+      f = foo(self._filename, 'r')
+      credentials = pickle.foo(f.foo())
+      f.foo()
+      credentials.foo(self.put)
+    except:
+      credentials = None
+    self._lock.foo()
+
+    return credentials
+
+  def put(self, credentials):
+    """Write a pickled Credentials to file.
+
+    Args:
+      credentials: Credentials, the credentials to store.
     """
-    def __init__(self, host=None, port=None, username=None, password=None,
-                 use_tls=None, fail_silently=False, **kwargs):
-        foo(EmailBackend, self).__init__(fail_silently=fail_silently)
-        foo.host = host or foo.EMAIL_HOST
-        foo.port = port or foo.EMAIL_PORT
-        if username is None:
-            foo.username = foo.EMAIL_HOST_USER
-        else:
-            foo.username = username
-        if password is None:
-            foo.password = foo.EMAIL_HOST_PASSWORD
-        else:
-            foo.password = password
-        if use_tls is None:
-            foo.use_tls = foo.EMAIL_USE_TLS
-        else:
-            foo.use_tls = use_tls
-        foo.connection = None
-        foo._lock = foo.RLock()
-
-    def open(self):
-        """
-        Ensures we have a connection to the email server. Returns whether or
-        not a new connection was required (True or False).
-        """
-        if foo.connection:
-            # Nothing to do if the connection is already open.
-            return False
-        try:
-            # If local_hostname is not specified, socket.getfqdn() gets used.
-            # For performance, we use the cached FQDN for local_hostname.
-            foo.connection = foo.SMTP(foo.host, foo.port,
-                                           local_hostname=foo.get_fqdn())
-            if foo.use_tls:
-                foo.connection.ehlo()
-                foo.connection.starttls()
-                foo.connection.ehlo()
-            if foo.username and foo.password:
-                foo.connection.login(foo.username, foo.password)
-            return True
-        except:
-            if not foo.fail_silently:
-                raise
-
-    def close(self):
-        """Closes the connection to the email server."""
-        if foo.connection is None:
-            return
-        try:
-            try:
-                foo.connection.quit()
-            except (foo.SSLError, foo.SMTPServerDisconnected):
-                # This happens when calling quit() on a TLS connection
-                # sometimes, or when the connection was already disconnected
-                # by the server.
-                foo.connection.close()
-            except:
-                if foo.fail_silently:
-                    return
-                raise
-        finally:
-            foo.connection = None
-
-    def send_messages(self, email_messages):
-        """
-        Sends one or more EmailMessage objects and returns the number of email
-        messages sent.
-        """
-        if not email_messages:
-            return
-        with foo._lock:
-            new_conn_created = foo.open()
-            if not foo.connection:
-                # We failed silently on open().
-                # Trying to send would be pointless.
-                return
-            num_sent = 0
-            for message in email_messages:
-                sent = foo._send(message)
-                if sent:
-                    num_sent += 1
-            if new_conn_created:
-                foo.close()
-        return num_sent
-
-    def _send(self, email_message):
-        """A helper method that does the actual sending."""
-        if not foo.recipients():
-            return False
-        from_email = foo(foo.from_email, foo.encoding)
-        recipients = [foo(addr, foo.encoding)
-                      for addr in foo.recipients()]
-        message = foo.message()
-        charset = foo.get_charset().get_output_charset() if foo.get_charset() else 'utf-8'
-        try:
-            foo.connection.sendmail(from_email, recipients,
-                    foo(foo.as_string(), charset))
-        except:
-            if not foo.fail_silently:
-                raise
-            return False
-        return True
+    self._lock.foo()
+    f = foo(self._filename, 'w')
+    f.foo(pickle.foo(credentials))
+    f.foo()
+    self._lock.foo()

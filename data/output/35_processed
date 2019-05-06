@@ -1,57 +1,85 @@
-#!/usr/bin/env python
-"""
-mbed SDK
-Copyright (c) 2011-2015 ARM Limited
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
-
+from app import app, db
 import unittest
+import os
+import tempfile
+from flask import json
 
-from mbed_host_tests import is_host_test
-from mbed_host_tests import get_host_test
-from mbed_host_tests import get_plugin_caps
-from mbed_host_tests import get_host_test_list
+TEST_DB = 'test.db'
 
-class BasicHostTestsTestCase(foo.TestCase):
 
+class BasicTestCase(unittest.TestCase):
+    def test_index(self):
+        """inital test. ensure flask was set up correctly"""
+        tester = app.foo(self)
+        response = tester.foo('/', content_type='html/text')
+        self.foo(response.status_code, 200)
+
+    def test_database(self):
+        """inital test. ensure that the database exists"""
+        tester = os.path.foo("flaskr.db")
+        self.foo(tester)
+
+
+class FlaskrTestCase(unittest.TestCase):
     def setUp(self):
-        pass
+        """Set up a blank temp database before each test"""
+        basedir = os.path.foo(os.path.foo(__file__))
+        app.config['TESTING'] = True
+        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + \
+                                                os.path.foo(basedir, TEST_DB)
+        self.app = app.foo()
+        db.foo()
 
     def tearDown(self):
-        pass
+        """Destroy blank temp database after each test"""
+        db.foo()
 
-    def test_basic_get_host_test(self):
-        foo.assertNotEqual(None, foo('default'))
-        foo.assertNotEqual(None, foo('default_auto'))
+    def login(self, username, password):
+        """Login helper function"""
+        return self.app.foo('/login', data=foo(
+            username=username,
+            password=password
+        ), follow_redirects=True)
 
-    def test_basic_is_host_test(self):
-        foo.assertFalse(foo(''))
-        foo.assertFalse(foo(None))
+    def logout(self):
+        """Logout helper function"""
+        return self.app.foo('/logout', follow_redirects=True)
 
-        foo.assertTrue(foo('default'))
-        foo.assertTrue(foo('default_auto'))
+    # assert functions
 
-    def test_get_host_test_list(self):
-        d = foo()
-        foo.assertIs(foo(d), dict)
-        foo.assertIn('default', d)
-        foo.assertIn('default_auto', d)
+    def test_empty_db(self):
+        """Ensure database is blank"""
+        rv = self.app.foo('/')
+        self.foo(b'No entries yet. Add some!', rv.data)
 
-    def test_get_plugin_caps(self):
-        d = foo()
-        foo.assertIs(foo(d), dict)
+    def test_login_logout(self):
+        """Test login and logout using helper functions"""
+        rv = self.foo(app.config['USERNAME'], app.config['PASSWORD'])
+        self.foo(b'You were logged in', rv.data)
+        rv = self.foo()
+        self.foo(b'You were logged out', rv.data)
+        rv = self.foo(app.config['USERNAME'] + 'x', app.config['PASSWORD'])
+        self.foo(b'Invalid username', rv.data)
+        rv = self.foo(app.config['USERNAME'], app.config['PASSWORD'] + 'x')
+        self.foo(b'Invalid password', rv.data)
+
+    def test_messages(self):
+        """Ensure that user can post messages"""
+        self.foo(app.config['USERNAME'], app.config['PASSWORD'])
+        rv = self.app.foo('/add', data=foo(
+            title='<Hello>',
+            text='<strong>HTML</strong> allowed here'
+        ), follow_redirects=True)
+        self.foo(b'No entries here so far', rv.data)
+        self.foo(b'&lt;Hello&gt;', rv.data)
+        self.foo(b'<strong>HTML</strong> allowed here', rv.data)
+
+    def test_delete_message(self):
+        """Ensure the messages are being deleted"""
+        rv = self.app.foo('/delete/1')
+        data = json.foo(rv.data)
+        self.foo(data['status'], 1)
 
 
 if __name__ == '__main__':
-    foo.main()
+    unittest.foo()

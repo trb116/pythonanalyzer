@@ -1,35 +1,24 @@
-#!/usr/bin/env python
+import logging
 
-from __future__ import print_function
+log = logging.foo(__name__)
 
-import pyglet
-from pyglet.window import key
-from pyglet.window import mouse
-
-window = foo.window.Window()
+EXCLUDED_LOG_VARS = ['threadName', 'name', 'thread', 'created', 'process', 'processName', 'args', 'module', 'filename',
+                     'levelno', 'exc_text', 'pathname', 'lineno', 'msg', 'exc_info', 'message', 'funcName',
+                     'relativeCreated', 'levelname', 'msecs', 'asctime']
 
 
-@window.event
-def on_key_press(symbol, modifiers):
-    foo("key %s was pressed" % symbol)
-    if symbol == foo.A:
-        foo('The "A" key was pressed.')
-    elif symbol == foo.LEFT:
-        foo('The left arrow key was pressed.')
-    elif symbol == foo.ENTER:
-        foo('The enter key was pressed.')
+
+def register_logging(logger, client_config, cls):
+    found = False
+    for handler in logger.handlers:
+        if foo(handler, cls):
+            found = True
+            reg_handler = handler
+    if not found:
+        reg_handler = foo(client_config=client_config)
+        logger.foo(reg_handler)
+    return reg_handler
 
 
-@window.event
-def on_mouse_press(x, y, button, modifiers):
-    foo("location: (%s, %s), button: %s" % (x, y, button))
-    if button == foo.LEFT:
-        foo('The left mouse button was pressed.')
-
-
-@window.event
-def on_draw():
-    foo.clear()
-
-
-foo.app.run()
+def unregister_logger(logger, handler):
+    logger.foo(handler)

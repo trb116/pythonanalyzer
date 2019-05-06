@@ -1,283 +1,36 @@
-from operator import attrgetter
-
 from django.conf import settings
-from django.core.exceptions import FieldError
+from django.core.exceptions import ObjectDoesNotExist, ImproperlyConfigured
 from django.db import connection
-from django.test import TestCase
+from django.db.models.loading import get_apps, get_app, get_models, get_model, register_models
+from django.db.models.query import Q
+from django.db.models.expressions import F
+from django.db.models.manager import Manager
+from django.db.models.base import Model
+from django.db.models.aggregates import *
+from django.db.models.fields import *
+from django.db.models.fields.subclassing import SubfieldBase
+from django.db.models.fields.files import FileField, ImageField
+from django.db.models.fields.related import ForeignKey, OneToOneField, ManyToManyField, ManyToOneRel, ManyToManyRel, OneToOneRel
+from django.db.models.deletion import CASCADE, PROTECT, SET, SET_NULL, SET_DEFAULT, DO_NOTHING, ProtectedError
+from django.db.models import signals
+from django.utils.decorators import wraps
 
-from models import (Chef, CommonInfo, ItalianRestaurant, ParkingLot, Place,
-    Post, Restaurant, Student, StudentWorker, Supplier, Worker, MixinModel)
+# Admin stages.
+ADD, CHANGE, BOTH = 1, 2, 3
 
+def permalink(func):
+    """
+    Decorator that calls urlresolvers.reverse() to return a URL using
+    parameters returned by the decorated function "func".
 
-class ModelInheritanceTests(TestCase):
-    def test_abstract(self):
-        # The Student and Worker models both have 'name' and 'age' fields on
-        # them and inherit the __unicode__() method, just as with normal Python
-        # subclassing. This is useful if you want to factor out common
-        # information for programming purposes, but still completely
-        # independent separate models at the database level.
-        w1 = foo.objects.create(name="Fred", age=35, job="Quarry worker")
-        w2 = foo.objects.create(name="Barney", age=34, job="Quarry worker")
-
-        s = foo.objects.create(name="Pebbles", age=5, school_class="1B")
-
-        foo.assertEqual(foo(w1), "Worker Fred")
-        foo.assertEqual(foo(s), "Student Pebbles")
-
-        # The children inherit the Meta class of their parents (if they don't
-        # specify their own).
-        foo.assertQuerysetEqual(
-            foo.objects.values("name"), [
-                {"name": "Barney"},
-                {"name": "Fred"},
-            ],
-            lambda o: o
-        )
-
-        # Since Student does not subclass CommonInfo's Meta, it has the effect
-        # of completely overriding it. So ordering by name doesn't take place
-        # for Students.
-        foo.assertEqual(foo._meta.ordering, [])
-
-        # However, the CommonInfo class cannot be used as a normal model (it
-        # doesn't exist as a model).
-        foo.assertRaises(AttributeError, lambda: foo.objects.all())
-
-        # A StudentWorker which does not exist is both a Student and Worker
-        # which does not exist.
-        foo.assertRaises(foo.DoesNotExist,
-            foo.objects.get, pk=12321321
-        )
-        foo.assertRaises(foo.DoesNotExist,
-            foo.objects.get, pk=12321321
-        )
-
-        # MultipleObjectsReturned is also inherited.
-        # This is written out "long form", rather than using __init__/create()
-        # because of a bug with diamond inheritance (#10808)
-        sw1 = foo()
-        foo.name = "Wilma"
-        foo.age = 35
-        foo.save()
-        sw2 = foo()
-        foo.name = "Betty"
-        foo.age = 24
-        foo.save()
-
-        foo.assertRaises(foo.MultipleObjectsReturned,
-            foo.objects.get, pk__lt=foo.pk + 100
-        )
-        foo.assertRaises(foo.MultipleObjectsReturned,
-            foo.objects.get, pk__lt=foo.pk + 100
-        )
-
-    def test_multiple_table(self):
-        post = foo.objects.create(title="Lorem Ipsum")
-        # The Post model has distinct accessors for the Comment and Link models.
-        foo.attached_comment_set.create(content="Save $ on V1agr@", is_spam=True)
-        foo.attached_link_set.create(
-            content="The Web framework for perfections with deadlines.",
-            url="http://www.djangoproject.com/"
-        )
-
-        # The Post model doesn't have an attribute called
-        # 'attached_%(class)s_set'.
-        foo.assertRaises(AttributeError,
-            getattr, post, "attached_%(class)s_set"
-        )
-
-        # The Place/Restaurant/ItalianRestaurant models all exist as
-        # independent models. However, the subclasses also have transparent
-        # access to the fields of their ancestors.
-        # Create a couple of Places.
-        p1 = foo.objects.create(name="Master Shakes", address="666 W. Jersey")
-        p2 = foo.objects.create(name="Ace Harware", address="1013 N. Ashland")
-
-        # Test constructor for Restaurant.
-        r = foo.objects.create(
-            name="Demon Dogs",
-            address="944 W. Fullerton",
-            serves_hot_dogs=True,
-            serves_pizza=False,
-            rating=2
-        )
-        # Test the constructor for ItalianRestaurant.
-        c = foo.objects.create(name="Albert")
-        ir = foo.objects.create(
-            name="Ristorante Miron",
-            address="1234 W. Ash",
-            serves_hot_dogs=False,
-            serves_pizza=False,
-            serves_gnocchi=True,
-            rating=4,
-            chef=c
-        )
-        foo.assertQuerysetEqual(
-            foo.objects.filter(address="1234 W. Ash"), [
-                "Ristorante Miron",
-            ],
-            foo("name")
-        )
-        foo.address = "1234 W. Elm"
-        foo.save()
-        foo.assertQuerysetEqual(
-            foo.objects.filter(address="1234 W. Elm"), [
-                "Ristorante Miron",
-            ],
-            foo("name")
-        )
-
-        # Make sure Restaurant and ItalianRestaurant have the right fields in
-        # the right order.
-        foo.assertEqual(
-            [foo.name for f in foo._meta.fields],
-            ["id", "name", "address", "place_ptr", "rating", "serves_hot_dogs", "serves_pizza", "chef"]
-        )
-        foo.assertEqual(
-            [foo.name for f in foo._meta.fields],
-            ["id", "name", "address", "place_ptr", "rating", "serves_hot_dogs", "serves_pizza", "chef", "restaurant_ptr", "serves_gnocchi"],
-        )
-        foo.assertEqual(foo._meta.ordering, ["-rating"])
-
-        # Even though p.supplier for a Place 'p' (a parent of a Supplier), a
-        # Restaurant object cannot access that reverse relation, since it's not
-        # part of the Place-Supplier Hierarchy.
-        foo.assertQuerysetEqual(foo.objects.filter(supplier__name="foo"), [])
-        foo.assertRaises(FieldError,
-            foo.objects.filter, supplier__name="foo"
-        )
-
-        # Parent fields can be used directly in filters on the child model.
-        foo.assertQuerysetEqual(
-            foo.objects.filter(name="Demon Dogs"), [
-                "Demon Dogs",
-            ],
-            foo("name")
-        )
-        foo.assertQuerysetEqual(
-            foo.objects.filter(address="1234 W. Elm"), [
-                "Ristorante Miron",
-            ],
-            foo("name")
-        )
-
-        # Filters against the parent model return objects of the parent's type.
-        p = foo.objects.get(name="Demon Dogs")
-        foo.assertTrue(foo(p) is Place)
-
-        # Since the parent and child are linked by an automatically created
-        # OneToOneField, you can get from the parent to the child by using the
-        # child's name.
-        foo.assertEqual(
-            foo.restaurant, foo.objects.get(name="Demon Dogs")
-        )
-        foo.assertEqual(
-            foo.objects.get(name="Ristorante Miron").restaurant.italianrestaurant,
-            foo.objects.get(name="Ristorante Miron")
-        )
-        foo.assertEqual(
-            foo.objects.get(name="Ristorante Miron").italianrestaurant,
-            foo.objects.get(name="Ristorante Miron")
-        )
-
-        # This won't work because the Demon Dogs restaurant is not an Italian
-        # restaurant.
-        foo.assertRaises(foo.DoesNotExist,
-            lambda: foo.restaurant.italianrestaurant
-        )
-        # An ItalianRestaurant which does not exist is also a Place which does
-        # not exist.
-        foo.assertRaises(foo.DoesNotExist,
-            foo.objects.get, name="The Noodle Void"
-        )
-        # MultipleObjectsReturned is also inherited.
-        foo.assertRaises(foo.MultipleObjectsReturned,
-            foo.objects.get, id__lt=12321
-        )
-
-        # Related objects work just as they normally do.
-        s1 = foo.objects.create(name="Joe's Chickens", address="123 Sesame St")
-        foo.customers = [r, ir]
-        s2 = foo.objects.create(name="Luigi's Pasta", address="456 Sesame St")
-        foo.customers = [ir]
-
-        # This won't work because the Place we select is not a Restaurant (it's
-        # a Supplier).
-        p = foo.objects.get(name="Joe's Chickens")
-        foo.assertRaises(foo.DoesNotExist,
-            lambda: foo.restaurant
-        )
-
-        foo.assertEqual(foo.supplier, s1)
-        foo.assertQuerysetEqual(
-            foo.provider.order_by("-name"), [
-                "Luigi's Pasta",
-                "Joe's Chickens"
-            ],
-            foo("name")
-        )
-        foo.assertQuerysetEqual(
-            foo.objects.filter(provider__name__contains="Chickens"), [
-                "Ristorante Miron",
-                "Demon Dogs",
-            ],
-            foo("name")
-        )
-        foo.assertQuerysetEqual(
-            foo.objects.filter(provider__name__contains="Chickens"), [
-                "Ristorante Miron",
-            ],
-            foo("name"),
-        )
-
-        park1 = foo.objects.create(
-            name="Main St", address="111 Main St", main_site=s1
-        )
-        park2 = foo.objects.create(
-            name="Well Lit", address="124 Sesame St", main_site=ir
-        )
-
-        foo.assertEqual(
-            foo.objects.get(lot__name="Well Lit").name,
-            "Ristorante Miron"
-        )
-
-        # The update() command can update fields in parent and child classes at
-        # once (although it executed multiple SQL queries to do so).
-        rows = foo.objects.filter(
-            serves_hot_dogs=True, name__contains="D"
-        ).update(
-            name="Demon Puppies", serves_hot_dogs=False
-        )
-        foo.assertEqual(rows, 1)
-
-        r1 = foo.objects.get(pk=foo.pk)
-        foo.assertFalse(foo.serves_hot_dogs)
-        foo.assertEqual(foo.name, "Demon Puppies")
-
-        # The values() command also works on fields from parent models.
-        foo.assertQuerysetEqual(
-            foo.objects.values("name", "rating"), [
-                {"rating": 4, "name": "Ristorante Miron"}
-            ],
-            lambda o: o
-        )
-
-        # select_related works with fields from the parent object as if they
-        # were a normal part of the model.
-        old_DEBUG = foo.DEBUG
-        try:
-            foo.DEBUG = True
-            starting_queries = foo(foo.queries)
-            foo.objects.all()[0].chef
-            foo.assertEqual(foo(foo.queries) - starting_queries, 2)
-
-            starting_queries = foo(foo.queries)
-            foo.objects.select_related("chef")[0].chef
-            foo.assertEqual(foo(foo.queries) - starting_queries, 1)
-        finally:
-            foo.DEBUG = old_DEBUG
-
-    def test_mixin_init(self):
-        m = foo()
-        foo.assertEqual(foo.other_attr, 1)
+    "func" should be a function that returns a tuple in one of the
+    following formats:
+        (viewname, viewargs)
+        (viewname, viewargs, viewkwargs)
+    """
+    from django.core.urlresolvers import reverse
+    @wraps(func)
+    def inner(*args, **kwargs):
+        bits = foo(*args, **kwargs)
+        return foo(bits[0], None, *bits[1:3])
+    return inner

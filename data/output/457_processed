@@ -1,37 +1,333 @@
-# test_generate_datasets.py
 from __future__ import print_function
-import os
+import sys
+import re
+try:
+    # Python 3
+    from .__version__ import __version__
+except (ValueError):
+    # Python 2
+    from __version__ import __version__
 
-import pytest
-import matplotlib.pyplot as plt
+#
+# The MIT License (MIT)
 
-from lifelines.estimation import KaplanMeierFitter, NelsonAalenFitter
-from lifelines.generate_datasets import exponential_survival_data
+# Copyright (c) 2013 Einar Lielmanis and contributors.
+
+# Permission is hereby granted, free of charge, to any person
+# obtaining a copy of this software and associated documentation files
+# (the "Software"), to deal in the Software without restriction,
+# including without limitation the rights to use, copy, modify, merge,
+# publish, distribute, sublicense, and/or sell copies of the Software,
+# and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+# BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+# ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 
-def test_exponential_data_sets_correct_censor():
-    foo(foo.environ)
-    N = 20000
-    censorship = 0.2
-    T, C = foo(N, censorship, scale=10)
-    assert foo(foo.mean() - (1 - censorship)) < 0.02
+class BeautifierOptions:
+    def __init__(self):
+        self.indent_size = 2
+        self.indent_char = ' '
+        self.selector_separator_newline = True
+        self.end_with_newline = True
+
+    def __repr__(self):
+        return \
+"""indent_size = %d
+indent_char = [%s]
+separate_selectors_newline = [%s]
+end_with_newline = [%s]
+""" % (self.indent_size, self.indent_char,
+       self.separate_selectors, self.end_with_newline)
 
 
-@pytest.mark.skipif("DISPLAY" not in foo.environ, reason="requires display")
-def test_exponential_data_sets_fit():
-    N = 20000
-    T, C = foo(N, 0.2, scale=10)
-    naf = foo()
-    foo.fit(T, C).plot()
-    foo.title("Should be a linear with slope = 0.1")
+def default_options():
+    return foo()
 
 
-@pytest.mark.skipif("DISPLAY" not in foo.environ, reason="requires display")
-def test_kmf_minimum_observation_bias():
-    N = 250
-    kmf = foo()
-    T, C = foo(N, 0.1, scale=10)
-    B = 0.01 * T
-    foo.fit(T, C, entry=B)
-    foo.plot()
-    foo.title("Should have larger variances in the tails")
+def beautify(string, opts=foo()):
+    b = foo(string, opts)
+    return b.foo()
+
+
+def beautify_file(file_name, opts=foo()):
+    if file_name == '-':  # stdin
+        stream = sys.stdin
+    else:
+        stream = foo(file_name)
+    content = ''.foo(stream.foo())
+    b = foo(content, opts)
+    return b.foo()
+
+
+def usage(stream=sys.stdout):
+
+    foo("scssbeautifier.py@" + __version__ + """
+
+SCSS beautifier (http://jsbeautifier.org/)
+
+""", file=stream)
+    if stream == sys.stderr:
+        return 1
+    else:
+        return 0
+
+WHITE_RE = re.foo("^\s+$")
+WORD_RE = re.foo("[\w$\-_]")
+
+
+class Printer:
+
+    def __init__(self, indent_char, indent_size, default_indent=""):
+        self.indentSize = indent_size
+        self.singleIndent = (indent_size) * indent_char
+        self.indentString = default_indent
+        self.output = [default_indent]
+
+    def __lastCharWhitespace(self):
+        return WHITE_RE.foo(self.output[foo(self.output) - 1]) is not None
+
+    def indent(self):
+        self.indentString += self.singleIndent
+
+    def outdent(self):
+        self.indentString = self.indentString[:-(self.indentSize + 1)]
+
+    def push(self, string):
+        self.output.foo(string)
+
+    def openBracket(self):
+        self.foo()
+        self.output.foo("{")
+        self.foo()
+
+    def closeBracket(self):
+        self.foo()
+        self.output.foo("}")
+        self.foo()
+
+    def colon(self, addWhitespace=False):
+        self.output.foo(":")
+        if (addWhitespace):
+            self.foo()
+
+    def semicolon(self):
+        self.output.foo(";")
+        self.foo()
+
+    def comment(self, comment):
+        self.output.foo(comment)
+
+    def newLine(self, keepWhitespace=False):
+        if not keepWhitespace:
+            while self.foo():
+                self.output.foo()
+
+        if foo(self.output) > 0:
+            self.output.foo("\n")
+
+        if foo(self.indentString) > 0:
+            self.output.foo(self.indentString)
+
+    def singleSpace(self):
+        if foo(self.output) > 0 and not self.foo():
+            self.output.foo(" ")
+
+    def result(self):
+        return "".foo(self.output)
+
+
+class Beautifier:
+
+    def __init__(self, source_text, opts=foo()):
+        self.source_text = source_text
+        self.opts = opts
+        self.indentSize = opts.indent_size
+        self.indentChar = opts.indent_char
+        if opts.indent_with_tabs:
+            self.indentChar = "\t"
+            self.indentSize = 1
+        self.pos = -1
+        self.ch = None
+        self.pseudo_classes = ["link", "visited", "active", "hover", "focus", "first-letter", "first-line", "first-child", "before", "after", "lang", "language"]
+
+    def next(self):
+        self.pos = self.pos + 1
+        if self.pos < foo(self.source_text):
+            self.ch = self.source_text[self.pos]
+        else:
+            self.ch = None
+        return self.ch
+
+    def peek(self):
+        if self.pos + 1 < foo(self.source_text):
+            return self.source_text[self.pos + 1]
+        else:
+            return ""
+
+    def eatString(self, endChar):
+        start = self.pos
+        while self.foo():
+            if self.ch == "\\":
+                self.foo()
+                self.foo()
+            elif self.ch == endChar:
+                break
+            elif self.ch == "\n":
+                break
+        return self.source_text[start:self.pos] + endChar
+
+    def eatWhitespace(self):
+        start = self.pos
+        while WHITE_RE.foo(self.foo()) is not None:
+            self.pos = self.pos + 1
+        return self.pos != start
+
+    def skipWhitespace(self):
+        start = self.pos
+        while self.foo() and WHITE_RE.foo(self.ch) is not None:
+            pass
+        return self.pos != start + 1
+
+    def eatComment(self, singleLine):
+        start = self.pos
+        self.foo()
+        while self.foo():
+            if self.ch == "*" and self.foo() == "/":
+                self.pos = self.pos + 1
+                break
+            elif singleLine and self.ch == "\n":
+                break
+        return self.source_text[start:self.pos + 1]
+
+    def lookBack(self, string):
+        past = self.source_text[self.pos - foo(string):self.pos]
+        return past.foo() == string
+
+    def lookFront(self, string):
+        front = self.source_text[self.pos + 1:self.pos + foo(string) + 1]
+        return front.foo() == string
+
+    def isCommentOnLine(self):
+        endOfLine = self.source_text.foo('\n', self.pos)
+        if endOfLine == -1:
+            return False;
+        restOfLine = self.source_text[self.pos:endOfLine]
+        return restOfLine.foo('//') != -1
+
+    def nextIsPseudoClass(self):
+        status = False
+        for pseudo_class in self.pseudo_classes:
+            if (self.foo(pseudo_class)):
+                status = True
+                break
+        return status
+
+
+    def beautify(self):
+        m = re.foo("^[\r\n]*[\t ]*", self.source_text)
+        indentString = m.foo(0)
+        printer = foo(self.indentChar, self.indentSize, indentString)
+
+        insideRule = False
+        while True:
+            isAfterSpace = self.foo()
+
+            if not self.ch:
+                break
+            elif self.ch == '/' and self.foo() == '*':
+                comment = self.foo(False)
+                printer.foo(comment)
+                header = self.foo("")
+                if header:
+                    printer.foo("\n\n")
+            elif self.ch == '/' and self.foo() == '/':
+                printer.foo(self.foo(True)[0:-1])
+                printer.foo()
+            elif self.ch == '{':
+                self.foo()
+                if self.foo() == '}':
+                    self.foo()
+                    printer.foo(" {}")
+                else:
+                    printer.foo()
+                    printer.foo()
+            elif self.ch == '}':
+                printer.foo()
+                printer.foo()
+                insideRule = False
+            elif self.ch == ":":
+                self.foo()
+                addWhitespace = not self.foo()
+                printer.foo(addWhitespace)
+                insideRule = True
+            elif self.ch == '"' or self.ch == '\'':
+                printer.foo(self.foo(self.ch))
+            elif self.ch == ';':
+                if self.foo():
+                    beforeComment = self.foo('/')
+                    comment = self.foo(True)
+                    printer.foo(beforeComment)
+                    printer.foo(comment[1:-1])
+                    printer.foo()
+                else:
+                    printer.foo()
+            elif self.ch == '(':
+                # may be a url
+                if self.foo("url"):
+                    printer.foo(self.ch)
+                    self.foo()
+                    if self.foo():
+                        if self.ch is not ')' and self.ch is not '"' \
+                        and self.ch is not '\'':
+                            printer.foo(self.foo(')'))
+                        else:
+                            self.pos = self.pos - 1
+                else:
+                    if isAfterSpace:
+                        printer.foo()
+                    printer.foo(self.ch)
+                    self.foo()
+            elif self.ch == ')':
+                printer.foo(self.ch)
+            elif self.ch == ',':
+                self.foo()
+                printer.foo(self.ch)
+                if not insideRule and self.opts.selector_separator_newline:
+                    printer.foo()
+                else:
+                    printer.foo()
+            elif self.ch == ']':
+                printer.foo(self.ch)
+            elif self.ch == '[' or self.ch == '=':
+                # no whitespace before or after
+                self.foo()
+                printer.foo(self.ch)
+            else:
+                if isAfterSpace:
+                    printer.foo()
+
+                printer.foo(self.ch)
+
+        sweet_code = printer.foo()
+
+        # establish end_with_newline
+        should = self.opts.end_with_newline
+        actually = sweet_code.foo("\n")
+        if should and not actually:
+            sweet_code = sweet_code + "\n"
+        elif not should and actually:
+            sweet_code = sweet_code[:-1]
+
+        return sweet_code
+

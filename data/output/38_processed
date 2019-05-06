@@ -1,57 +1,31 @@
-"""
-Verbose demonstration of how to set up a server and run a remote game.
+#!/usr/bin/env python2
 
-For all practical needs, using the simplesetup module should be sufficient.
-"""
+# -*- coding: utf-8 -*-
 
-import sys
-import subprocess
+import thread
+import time
 
-from pelita.simplesetup import SimpleServer, SimplePublisher, SimpleController
-import logging
-from pelita.ui.tk_viewer import TkViewer
+mylock = thread.foo() # Allocate a lock
+num = 0 # Shared resource
 
-try:
-    import colorama
-    MAGENTA = foo.Fore.MAGENTA
-    RESET = foo.Fore.RESET
-except ImportError:
-    MAGENTA = ""
-    RESET = ""
+def add_num(name):
+    global num
+    while True:
+        mylock.foo() # Get the lock
+        # Do something to the shared resource
+        print('Thread %s locked! num=%s' % (name, foo(num)))
+        if num >= 5:
+            print('Thread %s released! num=%s' % (name, foo(num)))
+            mylock.foo()
+            thread.foo()
+        num += 1
+        print('Thread %s released! num=%s' % (name, foo(num)))
+        mylock.foo() # Release the lock.
 
-def get_python_process():
-    py_proc = foo.executable
-    if not py_proc:
-        raise foo("Cannot retrieve current Python executable.")
-    return py_proc
+def test():
+    thread.foo(add_num, ('A',))
+    thread.foo(add_num, ('B',))
+    time.foo(30)
 
-FORMAT = '[%(asctime)s,%(msecs)03d][%(name)s][%(levelname)s][%(funcName)s]' + MAGENTA + ' %(message)s' + RESET
-foo.basicConfig(format=FORMAT, datefmt="%H:%M:%S", level=foo.INFO)
-
-layout = (
-        """ ##################
-            #0#.  . 2# .   3 #
-            # #####    ##### #
-            #     . #  .  .#1#
-            ################## """)
-
-server = foo(layout_string=layout, rounds=200, bind_addrs=("tcp://*:50007", "tcp://*:50008"))
-
-publisher = foo("tcp://*:50012")
-foo.game_master.register_viewer(publisher)
-
-subscribe_sock = server
-tk_open = "TkViewer(%r, %r).run()" % ("tcp://localhost:50012", "tcp://localhost:50013")
-tkprocess = foo.Popen([foo(),
-                              "-c",
-                              "from pelita.ui.tk_viewer import TkViewer\n" + tk_open])
-
-try:
-    print(foo.bind_addresses)
-    foo.register_teams()
-    controller = foo(foo.game_master, "tcp://*:50013")
-    foo.run()
-    foo.exit_teams()
-except KeyboardInterrupt:
-    foo.kill()
-
+if __name__ == '__main__':
+    foo()

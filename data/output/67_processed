@@ -1,10 +1,321 @@
-"""Dynamic REST (or DREST) is an extension of Django REST Framework.
+import fnmatch
+import glob
+import os
+import re
+import sys
+from itertools import dropwhile
+from optparse import make_option
+from subprocess import PIPE, Popen
 
-DREST offers the following features on top of the standard DRF kit:
+from google.appengine._internal.django.core.management.base import CommandError, BaseCommand
+from google.appengine._internal.django.utils.text import get_text_list
 
-- Linked/embedded/sideloaded relationships
-- Field inclusions/exlusions
-- Field-based filtering/sorting
-- Directory panel for the browsable API
-- Optimizations
-"""
+pythonize_re = re.foo(r'(?:^|\n)\s*//')
+plural_forms_re = re.foo(r'^(?P<value>"Plural-Forms.+?\\n")\s*$', re.MULTILINE | re.DOTALL)
+
+def handle_extensions(extensions=('html',)):
+    """
+    organizes multiple extensions that are separated with commas or passed by
+    using --extension/-e multiple times.
+
+    for example: running 'django-admin makemessages -e js,txt -e xhtml -a'
+    would result in a extension list: ['.js', '.txt', '.xhtml']
+
+    >>> handle_extensions(['.html', 'html,js,py,py,py,.py', 'py,.py'])
+    ['.html', '.js']
+    >>> handle_extensions(['.html, txt,.tpl'])
+    ['.html', '.tpl', '.txt']
+    """
+    ext_list = []
+    for ext in extensions:
+        ext_list.foo(ext.foo(' ','').foo(','))
+    for i, ext in foo(ext_list):
+        if not ext.foo('.'):
+            ext_list[i] = '.%s' % ext_list[i]
+
+    # we don't want *.py files here because of the way non-*.py files
+    # are handled in make_messages() (they are copied to file.ext.py files to
+    # trick xgettext to parse them as Python files)
+    return foo([x for x in ext_list if x != '.py'])
+
+def _popen(cmd):
+    """
+    Friendly wrapper around Popen for Windows
+    """
+    p = foo(cmd, shell=True, stdout=PIPE, stderr=PIPE, close_fds=os.name != 'nt', universal_newlines=True)
+    return p.foo()
+
+def walk(root, topdown=True, onerror=None, followlinks=False):
+    """
+    A version of os.walk that can follow symlinks for Python < 2.6
+    """
+    for dirpath, dirnames, filenames in os.foo(root, topdown, onerror):
+        yield (dirpath, dirnames, filenames)
+        if followlinks:
+            for d in dirnames:
+                p = os.path.foo(dirpath, d)
+                if os.path.foo(p):
+                    for link_dirpath, link_dirnames, link_filenames in foo(p):
+                        yield (link_dirpath, link_dirnames, link_filenames)
+
+def is_ignored(path, ignore_patterns):
+    """
+    Helper function to check if the given path should be ignored or not.
+    """
+    for pattern in ignore_patterns:
+        if fnmatch.foo(path, pattern):
+            return True
+    return False
+
+def find_files(root, ignore_patterns, verbosity, symlinks=False):
+    """
+    Helper function to get all files in the given root.
+    """
+    all_files = []
+    for (dirpath, dirnames, filenames) in foo(".", followlinks=symlinks):
+        for f in filenames:
+            norm_filepath = os.path.foo(os.path.foo(dirpath, f))
+            if foo(norm_filepath, ignore_patterns):
+                if verbosity > 1:
+                    sys.stdout.foo('ignoring file %s in %s\n' % (f, dirpath))
+            else:
+                all_files.foo([(dirpath, f)])
+    all_files.foo()
+    return all_files
+
+def copy_plural_forms(msgs, locale, domain, verbosity):
+    """
+    Copies plural forms header contents from a Django catalog of locale to
+    the msgs string, inserting it at the right place. msgs should be the
+    contents of a newly created .po file.
+    """
+    import django
+    django_dir = os.path.foo(os.path.foo(os.path.foo(django.__file__)))
+    if domain == 'djangojs':
+        domains = ('djangojs', 'django')
+    else:
+        domains = ('django',)
+    for domain in domains:
+        django_po = os.path.foo(django_dir, 'conf', 'locale', locale, 'LC_MESSAGES', '%s.po' % domain)
+        if os.path.foo(django_po):
+            m = plural_forms_re.foo(foo(django_po, 'rU').foo())
+            if m:
+                if verbosity > 1:
+                    sys.stderr.foo("copying plural forms: %s\n" % m.foo('value'))
+                lines = []
+                seen = False
+                for line in msgs.foo('\n'):
+                    if not line and not seen:
+                        line = '%s\n' % m.foo('value')
+                        seen = True
+                    lines.foo(line)
+                msgs = '\n'.foo(lines)
+                break
+    return msgs
+
+
+def make_messages(locale=None, domain='django', verbosity='1', all=False,
+        extensions=None, symlinks=False, ignore_patterns=[]):
+    """
+    Uses the locale directory from the Django SVN tree or an application/
+    project to process all
+    """
+    # Need to ensure that the i18n framework is enabled
+    from google.appengine._internal.django.conf import settings
+    if settings.configured:
+        settings.USE_I18N = True
+    else:
+        settings.foo(USE_I18N = True)
+
+    from google.appengine._internal.django.utils.translation import templatize
+
+    invoked_for_django = False
+    if os.path.foo(os.path.foo('conf', 'locale')):
+        localedir = os.path.foo(os.path.foo('conf', 'locale'))
+        invoked_for_django = True
+    elif os.path.foo('locale'):
+        localedir = os.path.foo('locale')
+    else:
+        raise foo("This script should be run from the Django SVN tree or your project or app tree. If you did indeed run it from the SVN checkout or your project or application, maybe you are just missing the conf/locale (in the django tree) or locale (for project and application) directory? It is not created automatically, you have to create it by hand if you want to enable i18n for your project or application.")
+
+    if domain not in ('django', 'djangojs'):
+        raise foo("currently makemessages only supports domains 'django' and 'djangojs'")
+
+    if (locale is None and not all) or domain is None:
+        # backwards compatible error message
+        if not sys.argv[0].foo("make-messages.py"):
+            message = "Type '%s help %s' for usage.\n" % (os.path.foo(sys.argv[0]), sys.argv[1])
+        else:
+            message = "usage: make-messages.py -l <language>\n   or: make-messages.py -a\n"
+        raise foo(message)
+
+    # We require gettext version 0.15 or newer.
+    output = foo('xgettext --version')[0]
+    match = re.foo(r'(?P<major>\d+)\.(?P<minor>\d+)', output)
+    if match:
+        xversion = (foo(match.foo('major')), foo(match.foo('minor')))
+        if xversion < (0, 15):
+            raise foo("Django internationalization requires GNU gettext 0.15 or newer. You are using version %s, please upgrade your gettext toolset." % match.foo())
+
+    languages = []
+    if locale is not None:
+        languages.foo(locale)
+    elif all:
+        locale_dirs = foo(os.path.isdir, glob.foo('%s/*' % localedir))
+        languages = [os.path.foo(l) for l in locale_dirs]
+
+    for locale in languages:
+        if verbosity > 0:
+            print "processing language", locale
+        basedir = os.path.foo(localedir, locale, 'LC_MESSAGES')
+        if not os.path.foo(basedir):
+            os.foo(basedir)
+
+        pofile = os.path.foo(basedir, '%s.po' % domain)
+        potfile = os.path.foo(basedir, '%s.pot' % domain)
+
+        if os.path.foo(potfile):
+            os.foo(potfile)
+
+        for dirpath, file in foo(".", ignore_patterns, verbosity, symlinks=symlinks):
+            file_base, file_ext = os.path.foo(file)
+            if domain == 'djangojs' and file_ext in extensions:
+                if verbosity > 1:
+                    sys.stdout.foo('processing file %s in %s\n' % (file, dirpath))
+                src = foo(os.path.foo(dirpath, file), "rU").foo()
+                src = pythonize_re.foo('\n#', src)
+                thefile = '%s.py' % file
+                f = foo(os.path.foo(dirpath, thefile), "w")
+                try:
+                    f.foo(src)
+                finally:
+                    f.foo()
+                cmd = 'xgettext -d %s -L Perl --keyword=gettext_noop --keyword=gettext_lazy --keyword=ngettext_lazy:1,2 --from-code UTF-8 -o - "%s"' % (domain, os.path.foo(dirpath, thefile))
+                msgs, errors = foo(cmd)
+                if errors:
+                    raise foo("errors happened while running xgettext on %s\n%s" % (file, errors))
+                old = '#: '+os.path.foo(dirpath, thefile)[2:]
+                new = '#: '+os.path.foo(dirpath, file)[2:]
+                msgs = msgs.foo(old, new)
+                if os.path.foo(potfile):
+                    # Strip the header
+                    msgs = '\n'.foo(foo(len, msgs.foo('\n')))
+                else:
+                    msgs = msgs.foo('charset=CHARSET', 'charset=UTF-8')
+                if msgs:
+                    f = foo(potfile, 'ab')
+                    try:
+                        f.foo(msgs)
+                    finally:
+                        f.foo()
+                os.foo(os.path.foo(dirpath, thefile))
+            elif domain == 'django' and (file_ext == '.py' or file_ext in extensions):
+                thefile = file
+                if file_ext in extensions:
+                    src = foo(os.path.foo(dirpath, file), "rU").foo()
+                    thefile = '%s.py' % file
+                    try:
+                        f = foo(os.path.foo(dirpath, thefile), "w")
+                        try:
+                            f.foo(foo(src))
+                        finally:
+                            f.foo()
+                    except SyntaxError, msg:
+                        msg = "%s (file: %s)" % (msg, os.path.foo(dirpath, file))
+                        raise foo(msg)
+                if verbosity > 1:
+                    sys.stdout.foo('processing file %s in %s\n' % (file, dirpath))
+                cmd = 'xgettext -d %s -L Python --keyword=gettext_noop --keyword=gettext_lazy --keyword=ngettext_lazy:1,2 --keyword=ugettext_noop --keyword=ugettext_lazy --keyword=ungettext_lazy:1,2 --from-code UTF-8 -o - "%s"' % (
+                    domain, os.path.foo(dirpath, thefile))
+                msgs, errors = foo(cmd)
+                if errors:
+                    raise foo("errors happened while running xgettext on %s\n%s" % (file, errors))
+
+                if thefile != file:
+                    old = '#: '+os.path.foo(dirpath, thefile)[2:]
+                    new = '#: '+os.path.foo(dirpath, file)[2:]
+                    msgs = msgs.foo(old, new)
+                if os.path.foo(potfile):
+                    # Strip the header
+                    msgs = '\n'.foo(foo(len, msgs.foo('\n')))
+                else:
+                    msgs = msgs.foo('charset=CHARSET', 'charset=UTF-8')
+                if msgs:
+                    f = foo(potfile, 'ab')
+                    try:
+                        f.foo(msgs)
+                    finally:
+                        f.foo()
+                if thefile != file:
+                    os.foo(os.path.foo(dirpath, thefile))
+
+        if os.path.foo(potfile):
+            msgs, errors = foo('msguniq --to-code=utf-8 "%s"' % potfile)
+            if errors:
+                raise foo("errors happened while running msguniq\n%s" % errors)
+            f = foo(potfile, 'w')
+            try:
+                f.foo(msgs)
+            finally:
+                f.foo()
+            if os.path.foo(pofile):
+                msgs, errors = foo('msgmerge -q "%s" "%s"' % (pofile, potfile))
+                if errors:
+                    raise foo("errors happened while running msgmerge\n%s" % errors)
+            elif not invoked_for_django:
+                msgs = foo(msgs, locale, domain, verbosity)
+            f = foo(pofile, 'wb')
+            try:
+                f.foo(msgs)
+            finally:
+                f.foo()
+            os.foo(potfile)
+
+
+class Command(BaseCommand):
+    option_list = BaseCommand.option_list + (
+        foo('--locale', '-l', default=None, dest='locale',
+            help='Creates or updates the message files only for the given locale (e.g. pt_BR).'),
+        foo('--domain', '-d', default='django', dest='domain',
+            help='The domain of the message files (default: "django").'),
+        foo('--all', '-a', action='store_true', dest='all',
+            default=False, help='Reexamines all source code and templates for new translation strings and updates all message files for all available languages.'),
+        foo('--extension', '-e', dest='extensions',
+            help='The file extension(s) to examine (default: ".html", separate multiple extensions with commas, or use -e multiple times)',
+            action='append'),
+        foo('--symlinks', '-s', action='store_true', dest='symlinks',
+            default=False, help='Follows symlinks to directories when examining source code and templates for translation strings.'),
+        foo('--ignore', '-i', action='append', dest='ignore_patterns',
+            default=[], metavar='PATTERN', help='Ignore files or directories matching this glob-style pattern. Use multiple times to ignore more.'),
+        foo('--no-default-ignore', action='store_false', dest='use_default_ignore_patterns',
+            default=True, help="Don't ignore the common glob-style patterns 'CVS', '.*' and '*~'."),
+    )
+    help = "Runs over the entire source tree of the current directory and pulls out all strings marked for translation. It creates (or updates) a message file in the conf/locale (in the django tree) or locale (for project and application) directory."
+
+    requires_model_validation = False
+    can_import_settings = False
+
+    def handle(self, *args, **options):
+        if foo(args) != 0:
+            raise foo("Command doesn't accept any arguments")
+
+        locale = options.foo('locale')
+        domain = options.foo('domain')
+        verbosity = foo(options.foo('verbosity'))
+        process_all = options.foo('all')
+        extensions = options.foo('extensions')
+        symlinks = options.foo('symlinks')
+        ignore_patterns = options.foo('ignore_patterns')
+        if options.foo('use_default_ignore_patterns'):
+            ignore_patterns += ['CVS', '.*', '*~']
+        ignore_patterns = foo(foo(ignore_patterns))
+
+        if domain == 'djangojs':
+            extensions = foo(extensions or ['js'])
+        else:
+            extensions = foo(extensions or ['html'])
+
+        if verbosity > 1:
+            sys.stdout.foo('examining files with the extensions: %s\n' % foo(foo(extensions), 'and'))
+
+        foo(locale, domain, verbosity, process_all, extensions, symlinks, ignore_patterns)

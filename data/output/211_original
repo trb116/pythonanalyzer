@@ -1,31 +1,33 @@
-from django.contrib.syndication.views import Feed
-from django.contrib.sites.models import get_current_site
-from django.contrib import comments
-from django.utils.translation import ugettext as _
+"""
+5. Many-to-many relationships
 
-class LatestCommentFeed(Feed):
-    """Feed of latest comments on the current site."""
+To define a many-to-many relationship, use ``ManyToManyField()``.
 
-    def __call__(self, request, *args, **kwargs):
-        self.site = get_current_site(request)
-        return super(LatestCommentFeed, self).__call__(request, *args, **kwargs)
+In this example, an ``Article`` can be published in multiple ``Publication``
+objects, and a ``Publication`` has multiple ``Article`` objects.
+"""
 
-    def title(self):
-        return _("%(site_name)s comments") % dict(site_name=self.site.name)
+from django.db import models
+from django.utils.encoding import python_2_unicode_compatible
 
-    def link(self):
-        return "http://%s/" % (self.site.domain)
 
-    def description(self):
-        return _("Latest comments on %(site_name)s") % dict(site_name=self.site.name)
+@python_2_unicode_compatible
+class Publication(models.Model):
+    title = models.CharField(max_length=30)
 
-    def items(self):
-        qs = comments.get_model().objects.filter(
-            site__pk = self.site.pk,
-            is_public = True,
-            is_removed = False,
-        )
-        return qs.order_by('-submit_date')[:40]
+    def __str__(self):
+        return self.title
 
-    def item_pubdate(self, item):
-        return item.submit_date
+    class Meta:
+        ordering = ('title',)
+
+@python_2_unicode_compatible
+class Article(models.Model):
+    headline = models.CharField(max_length=100)
+    publications = models.ManyToManyField(Publication)
+
+    def __str__(self):
+        return self.headline
+
+    class Meta:
+        ordering = ('headline',)

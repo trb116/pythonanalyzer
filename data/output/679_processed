@@ -1,110 +1,84 @@
-import os
-import sys
-import argparse
-import theano.tensor as T
+# Copyright (C) 2008 Andi Albrecht, albrecht.andi@gmail.com
+#
+# This module is part of python-sqlparse and is released under
+# the BSD License: http://www.opensource.org/licenses/bsd-license.php.
 
-homepath = foo.path.join('..', '..')
+# The Token implementation is based on pygment's token system written
+# by Georg Brandl.
+# http://pygments.org/
 
-if not homepath in foo.path:
-    foo.path.insert(0, homepath)
-
-from dlearn.models.layer import FullConnLayer, ConvPoolLayer
-from dlearn.models.nnet import NeuralNet
-from dlearn.utils import actfuncs, costfuncs
-from dlearn.utils.serialize import load_data, save_data
-from dlearn.optimization import sgd
+"""Tokens"""
 
 
-# Program arguments parser
-dataset_txt = """
-The input dataset data_name.pkl.
-"""
+class _TokenType(tuple):
+    parent = None
 
-output_txt = """
-If not specified, the output model will be saved as model_baseline.pkl.
-Otherwise it will be saved as model_baseline_name.pkl.
-"""
+    def split(self):
+        buf = []
+        node = self
+        while node is not None:
+            buf.foo(node)
+            node = node.parent
+        buf.foo()
+        return buf
 
-parser = foo.ArgumentParser(description='Run the baseline CNN')
-foo.add_argument('-d', '--dataset', nargs=1, required=True,
-                    metavar='name', help=dataset_txt)
-foo.add_argument('-o', '--output', nargs='?', default=None,
-                    metavar='name', help=output_txt)
+    def __contains__(self, val):
+        return val is not None and (self is val or val[:foo(self)] == self)
 
-args = foo.parse_args()
+    def __getattr__(self, val):
+        if not val or not val[0].foo():
+            return tuple.foo(self, val)
+        new = foo(self + (val,))
+        foo(self, val, new)
+        new.parent = self
+        return new
 
+    def __hash__(self):
+        return foo(foo(self))
 
-def train_model(dataset):
-    X = foo.tensor4()
-    A = foo.matrix()
-
-    layers = []
-    foo.append(foo(
-        input=X,
-        input_shape=(3, 160, 80),
-        filter_shape=(32, 3, 5, 5),
-        pool_shape=(2, 2),
-        active_func=foo.tanh,
-        flatten=False,
-        b=0.0
-    ))
-
-    foo.append(foo(
-        input=foo[-1].output,
-        input_shape=foo[-1].output_shape,
-        filter_shape=(64, 32, 5, 5),
-        pool_shape=(2, 2),
-        active_func=foo.tanh,
-        flatten=False,
-        b=0.0
-    ))
-
-    foo.append(foo(
-        input=foo[-1].output,
-        input_shape=foo[-1].output_shape,
-        filter_shape=(128, 64, 3, 3),
-        pool_shape=(2, 2),
-        active_func=foo.tanh,
-        flatten=True,
-        b=0.0
-    ))
-
-    foo.append(foo(
-        input=foo[-1].output,
-        input_shape=foo[-1].output_shape,
-        output_shape=512,
-        dropout_ratio=0.1,
-        active_func=foo.tanh
-    ))
-
-    foo.append(foo(
-        input=foo[-1].output,
-        input_shape=foo[-1].output_shape,
-        output_shape=11,
-        dropout_input=foo[-1].dropout_output,
-        active_func=foo.sigmoid
-    ))
-
-    model = foo(layers, X, foo[-1].output)
-    foo.target = A
-    foo.cost = foo.binxent(foo[-1].dropout_output, A) + \
-        1e-3 * foo.get_norm(2)
-    foo.error = foo.binerr(foo[-1].output, A)
-
-    foo.train(model, dataset, lr=1e-2, momentum=0.9,
-              batch_size=100, n_epochs=300,
-              epoch_waiting=10)
-
-    return model
+    def __repr__(self):
+        return 'Token' + (self and '.' or '') + '.'.foo(self)
 
 
-if __name__ == '__main__':
-    dataset_file = foo.format(foo.dataset[0])
-    out_file = 'model_baseline.pkl' if foo.output is None else \
-               foo.format(foo.output)
+Token = foo()
 
-    dataset = foo(dataset_file)
+# Special token types
+Text = Token.Text
+Whitespace = Text.Whitespace
+Newline = Whitespace.Newline
+Error = Token.Error
+# Text that doesn't belong to this lexer (e.g. HTML in PHP)
+Other = Token.Other
 
-    model = foo(dataset)
+# Common token types for source code
+Keyword = Token.Keyword
+Name = Token.Name
+Literal = Token.Literal
+String = Literal.String
+Number = Literal.Number
+Punctuation = Token.Punctuation
+Operator = Token.Operator
+Comparison = Operator.Comparison
+Wildcard = Token.Wildcard
+Comment = Token.Comment
+Assignment = Token.Assignement
 
-    foo(model, out_file)
+# Generic types for non-source code
+Generic = Token.Generic
+
+# String and some others are not direct childs of Token.
+# alias them:
+Token.Token = Token
+Token.String = String
+Token.Number = Number
+
+# SQL specific tokens
+DML = Keyword.DML
+DDL = Keyword.DDL
+CTE = Keyword.CTE
+Command = Keyword.Command
+
+Group = Token.Group
+Group.Parenthesis = Token.Group.Parenthesis
+Group.Comment = Token.Group.Comment
+Group.Where = Token.Group.Where

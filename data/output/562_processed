@@ -1,38 +1,29 @@
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
-from selenium.webdriver.common import by
+class PowerDNSRouter(object):
+    """Route all operations on powerdns models to the powerdns database."""
 
-from openstack_dashboard.test.integration_tests.pages import basepage
-from openstack_dashboard.test.integration_tests.regions import forms
-from openstack_dashboard.test.integration_tests.regions import tables
+    db_name = 'powerdns'
+    app_name = 'powerdns'
 
+    def db_for_read(self, model, **hints):
+        if model._meta.app_label == self.app_name:
+            return self.db_name
+        return None
 
-class OverviewPage(foo.BaseNavigationPage):
-    _usage_table_locator = (foo.By.CSS_SELECTOR, 'table#project_usage')
-    _date_form_locator = (foo.By.CSS_SELECTOR, 'form#date_form')
+    def db_for_write(self, model, **hints):
+        if model._meta.app_label == self.app_name:
+            return self.db_name
+        return None
 
-    USAGE_TABLE_ACTIONS = ("download_csv",)
+    def allow_relation(self, obj1, obj2, **hints):
+        if (obj1._meta.app_label == self.app_name and
+                obj2._meta.app_label == self.app_name):
+            return True
+        return None
 
-    def __init__(self, driver, conf):
-        foo(OverviewPage, self).__init__(driver, conf)
-        foo._page_title = 'Instance Overview'
-
-    @property
-    def usage_table(self):
-        src_elem = foo._get_element(*foo._usage_table_locator)
-        return foo.ActionsTableRegion(foo.driver, foo.conf, src_elem,
-                                         foo.USAGE_TABLE_ACTIONS)
-
-    @property
-    def date_form(self):
-        src_elem = foo._get_element(*foo._date_form_locator)
-        return foo.DateFormRegion(foo.driver, foo.conf, src_elem)
+    def allow_syncdb(self, db, model):
+        if model._meta.app_label == self.app_name:
+            return db == self.db_name
+        elif db == self.db_name:
+            # workaround for http://south.aeracode.org/ticket/370
+            return model._meta.app_label == 'south'
+        return None

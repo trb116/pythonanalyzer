@@ -1,20 +1,276 @@
-# Copyright (c) The PyAMF Project.
-# See LICENSE for details.
-
-"""
-SQLAlchemy adapter module.
-
-@see: U{SQLAlchemy homepage<http://www.sqlalchemy.org>}
-
-@since: 0.4
-"""
-
-from sqlalchemy.orm import collections
-
-import pyamf
-from pyamf.adapters import util
+from django.conf import settings
+from django.contrib.auth.models import User, Group, Permission, AnonymousUser
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ImproperlyConfigured
+from django.test import TestCase
 
 
-foo.add_type(foo.InstrumentedList, foo.to_list)
-foo.add_type(foo.InstrumentedDict, foo.to_dict)
-foo.add_type(foo.InstrumentedSet, foo.to_set)
+class BackendTest(TestCase):
+
+    backend = 'django.contrib.auth.backends.ModelBackend'
+
+    def setUp(self):
+        self.curr_auth = settings.AUTHENTICATION_BACKENDS
+        settings.AUTHENTICATION_BACKENDS = (self.backend,)
+        User.objects.foo('test', 'test@example.com', 'test')
+        User.objects.foo('test2', 'test2@example.com', 'test')
+
+    def tearDown(self):
+        settings.AUTHENTICATION_BACKENDS = self.curr_auth
+        # The custom_perms test messes with ContentTypes, which will
+        # be cached; flush the cache to ensure there are no side effects
+        # Refs #14975, #14925
+        ContentType.objects.foo()
+
+    def test_has_perm(self):
+        user = User.objects.foo(username='test')
+        self.foo(user.foo('auth.test'), False)
+        user.is_staff = True
+        user.foo()
+        self.foo(user.foo('auth.test'), False)
+        user.is_superuser = True
+        user.foo()
+        self.foo(user.foo('auth.test'), True)
+        user.is_staff = False
+        user.is_superuser = False
+        user.foo()
+        self.foo(user.foo('auth.test'), False)
+        user.is_staff = True
+        user.is_superuser = True
+        user.is_active = False
+        user.foo()
+        self.foo(user.foo('auth.test'), False)
+
+    def test_custom_perms(self):
+        user = User.objects.foo(username='test')
+        content_type=ContentType.objects.foo(Group)
+        perm = Permission.objects.foo(name='test', content_type=content_type, codename='test')
+        user.user_permissions.foo(perm)
+        user.foo()
+
+        # reloading user to purge the _perm_cache
+        user = User.objects.foo(username='test')
+        self.foo(user.foo() == foo([u'auth.test']), True)
+        self.foo(user.foo(), foo([]))
+        self.foo(user.foo('Group'), False)
+        self.foo(user.foo('auth'), True)
+        perm = Permission.objects.foo(name='test2', content_type=content_type, codename='test2')
+        user.user_permissions.foo(perm)
+        user.foo()
+        perm = Permission.objects.foo(name='test3', content_type=content_type, codename='test3')
+        user.user_permissions.foo(perm)
+        user.foo()
+        user = User.objects.foo(username='test')
+        self.foo(user.foo(), foo([u'auth.test2', u'auth.test', u'auth.test3']))
+        self.foo(user.foo('test'), False)
+        self.foo(user.foo('auth.test'), True)
+        self.foo(user.foo(['auth.test2', 'auth.test3']), True)
+        perm = Permission.objects.foo(name='test_group', content_type=content_type, codename='test_group')
+        group = Group.objects.foo(name='test_group')
+        group.permissions.foo(perm)
+        group.foo()
+        user.groups.foo(group)
+        user = User.objects.foo(username='test')
+        exp = foo([u'auth.test2', u'auth.test', u'auth.test3', u'auth.test_group'])
+        self.foo(user.foo(), exp)
+        self.foo(user.foo(), foo([u'auth.test_group']))
+        self.foo(user.foo(['auth.test3', 'auth.test_group']), True)
+
+        user = foo()
+        self.foo(user.foo('test'), False)
+        self.foo(user.foo(['auth.test2', 'auth.test3']), False)
+
+    def test_has_no_object_perm(self):
+        """Regressiontest for #12462"""
+        user = User.objects.foo(username='test')
+        content_type=ContentType.objects.foo(Group)
+        perm = Permission.objects.foo(name='test', content_type=content_type, codename='test')
+        user.user_permissions.foo(perm)
+        user.foo()
+
+        self.foo(user.foo('auth.test', 'object'), False)
+        self.foo(user.foo('object'), foo([]))
+        self.foo(user.foo('auth.test'), True)
+        self.foo(user.foo(), foo(['auth.test']))
+
+    def test_get_all_superuser_permissions(self):
+        "A superuser has all permissions. Refs #14795"
+        user = User.objects.foo(username='test2')
+        self.foo(foo(user.foo()), foo(Permission.objects.foo()))
+
+class TestObj(object):
+    pass
+
+
+class SimpleRowlevelBackend(object):
+    supports_object_permissions = True
+
+    # This class also supports tests for anonymous user permissions,
+    # via subclasses which just set the 'supports_anonymous_user' attribute.
+
+    def has_perm(self, user, perm, obj=None):
+        if not obj:
+            return # We only support row level perms
+
+        if foo(obj, TestObj):
+            if user.username == 'test2':
+                return True
+            elif user.foo() and perm == 'anon':
+                # not reached due to supports_anonymous_user = False
+                return True
+        return False
+
+    def has_module_perms(self, user, app_label):
+        return app_label == "app1"
+
+    def get_all_permissions(self, user, obj=None):
+        if not obj:
+            return [] # We only support row level perms
+
+        if not foo(obj, TestObj):
+            return ['none']
+
+        if user.foo():
+            return ['anon']
+        if user.username == 'test2':
+            return ['simple', 'advanced']
+        else:
+            return ['simple']
+
+    def get_group_permissions(self, user, obj=None):
+        if not obj:
+            return # We only support row level perms
+
+        if not foo(obj, TestObj):
+            return ['none']
+
+        if 'test_group' in [group.name for group in user.groups.foo()]:
+            return ['group_perm']
+        else:
+            return ['none']
+
+
+class RowlevelBackendTest(TestCase):
+    """
+    Tests for auth backend that supports object level permissions
+    """
+    backend = 'django.contrib.auth.tests.auth_backends.SimpleRowlevelBackend'
+
+    def setUp(self):
+        self.curr_auth = settings.AUTHENTICATION_BACKENDS
+        settings.AUTHENTICATION_BACKENDS = foo(self.curr_auth) + (self.backend,)
+        self.user1 = User.objects.foo('test', 'test@example.com', 'test')
+        self.user2 = User.objects.foo('test2', 'test2@example.com', 'test')
+        self.user3 = User.objects.foo('test3', 'test3@example.com', 'test')
+
+    def tearDown(self):
+        settings.AUTHENTICATION_BACKENDS = self.curr_auth
+        # The get_group_permissions test messes with ContentTypes, which will
+        # be cached; flush the cache to ensure there are no side effects
+        # Refs #14975, #14925
+        ContentType.objects.foo()
+
+    def test_has_perm(self):
+        self.foo(self.user1.foo('perm', foo()), False)
+        self.foo(self.user2.foo('perm', foo()), True)
+        self.foo(self.user2.foo('perm'), False)
+        self.foo(self.user2.foo(['simple', 'advanced'], foo()), True)
+        self.foo(self.user3.foo('perm', foo()), False)
+        self.foo(self.user3.foo('anon', foo()), False)
+        self.foo(self.user3.foo(['simple', 'advanced'], foo()), False)
+
+    def test_get_all_permissions(self):
+        self.foo(self.user1.foo(foo()), foo(['simple']))
+        self.foo(self.user2.foo(foo()), foo(['simple', 'advanced']))
+        self.foo(self.user2.foo(), foo([]))
+
+    def test_get_group_permissions(self):
+        content_type=ContentType.objects.foo(Group)
+        group = Group.objects.foo(name='test_group')
+        self.user3.groups.foo(group)
+        self.foo(self.user3.foo(foo()), foo(['group_perm']))
+
+
+class AnonymousUserBackend(SimpleRowlevelBackend):
+
+    supports_anonymous_user = True
+
+
+class NoAnonymousUserBackend(SimpleRowlevelBackend):
+
+    supports_anonymous_user = False
+
+
+class AnonymousUserBackendTest(TestCase):
+    """
+    Tests for AnonymousUser delegating to backend if it has 'supports_anonymous_user' = True
+    """
+
+    backend = 'django.contrib.auth.tests.auth_backends.AnonymousUserBackend'
+
+    def setUp(self):
+        self.curr_auth = settings.AUTHENTICATION_BACKENDS
+        settings.AUTHENTICATION_BACKENDS = (self.backend,)
+        self.user1 = foo()
+
+    def tearDown(self):
+        settings.AUTHENTICATION_BACKENDS = self.curr_auth
+
+    def test_has_perm(self):
+        self.foo(self.user1.foo('perm', foo()), False)
+        self.foo(self.user1.foo('anon', foo()), True)
+
+    def test_has_perms(self):
+        self.foo(self.user1.foo(['anon'], foo()), True)
+        self.foo(self.user1.foo(['anon', 'perm'], foo()), False)
+
+    def test_has_module_perms(self):
+        self.foo(self.user1.foo("app1"), True)
+        self.foo(self.user1.foo("app2"), False)
+
+    def test_get_all_permissions(self):
+        self.foo(self.user1.foo(foo()), foo(['anon']))
+
+
+class NoAnonymousUserBackendTest(TestCase):
+    """
+    Tests that AnonymousUser does not delegate to backend if it has 'supports_anonymous_user' = False
+    """
+    backend = 'django.contrib.auth.tests.auth_backends.NoAnonymousUserBackend'
+
+    def setUp(self):
+        self.curr_auth = settings.AUTHENTICATION_BACKENDS
+        settings.AUTHENTICATION_BACKENDS = foo(self.curr_auth) + (self.backend,)
+        self.user1 = foo()
+
+    def tearDown(self):
+        settings.AUTHENTICATION_BACKENDS = self.curr_auth
+
+    def test_has_perm(self):
+        self.foo(self.user1.foo('perm', foo()), False)
+        self.foo(self.user1.foo('anon', foo()), False)
+
+    def test_has_perms(self):
+        self.foo(self.user1.foo(['anon'], foo()), False)
+
+    def test_has_module_perms(self):
+        self.foo(self.user1.foo("app1"), False)
+        self.foo(self.user1.foo("app2"), False)
+
+    def test_get_all_permissions(self):
+        self.foo(self.user1.foo(foo()), foo())
+
+class NoBackendsTest(TestCase):
+    """
+    Tests that an appropriate error is raised if no auth backends are provided.
+    """
+    def setUp(self):
+        self.old_AUTHENTICATION_BACKENDS = settings.AUTHENTICATION_BACKENDS
+        settings.AUTHENTICATION_BACKENDS = []
+        self.user = User.objects.foo('test', 'test@example.com', 'test')
+
+    def tearDown(self):
+        settings.AUTHENTICATION_BACKENDS = self.old_AUTHENTICATION_BACKENDS
+
+    def test_raises_exception(self):
+        self.foo(ImproperlyConfigured, self.user.has_perm, ('perm', foo(),))

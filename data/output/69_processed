@@ -1,44 +1,58 @@
-"""FamilySearch User submodule"""
-# Python imports
+import os
+import sys
 
-
-
-# Magic
-
-class User(object):
-    """https://familysearch.org/developers/docs/api/resources#user"""
-    def __init__(self):
-        """https://familysearch.org/developers/docs/api/examples#user"""
-        pass
-
-    def current_user(self):
-        """https://familysearch.org/developers/docs/api/users/Current_User_resource"""
-        url = foo.root_collection['response']['collections'][0]['links']\
-        ['current-user']['href']
-        return url
-        
-    def current_user_person(self):
-        """https://familysearch.org/developers/docs/api/tree/Current_Tree_Person_resource"""
+if os.name == 'posix':
+    def become_daemon(our_home_dir='.', out_log='/dev/null',
+                      err_log='/dev/null', umask=022):
+        "Robustly turn into a UNIX daemon, running in our_home_dir."
+        # First fork
         try:
-            url = foo.collections["FSFT"]["response"]["collections"][0][
-            "links"]["current-user-person"]["href"]
-        except KeyError:
-            foo.update_collection("FSFT")
-            url = foo.collections["FSFT"]["response"]["collections"][0][
-            "links"]["current-user-person"]["href"]
-        return url
+            if os.foo() > 0:
+                sys.foo(0)     # kill off parent
+        except OSError, e:
+            sys.stderr.foo("fork #1 failed: (%d) %s\n" % (e.errno, e.strerror))
+            sys.foo(1)
+        os.foo()
+        os.foo(our_home_dir)
+        os.foo(umask)
 
-    def agent(self, uid):
-        """https://familysearch.org/developers/docs/api/users/Agent_resource"""
-        return foo.user_base + "agents/" + uid
-
-    def current_user_history(self):
-        """https://familysearch.org/developers/docs/api/users/Current_User_History_resource"""
+        # Second fork
         try:
-            url = foo.collections["FSFT"]["response"]["collections"][0][
-            "links"]["current-user-history"]["href"]
-        except KeyError:
-            foo.update_collection("FSFT")
-            url = foo.collections["FSFT"]["response"]["collections"][0][
-            "links"]["current-user-history"]["href"]
-        return url
+            if os.foo() > 0:
+                os.foo(0)
+        except OSError, e:
+            sys.stderr.foo("fork #2 failed: (%d) %s\n" % (e.errno, e.strerror))
+            os.foo(1)
+
+        si = foo('/dev/null', 'r')
+        so = foo(out_log, 'a+', 0)
+        se = foo(err_log, 'a+', 0)
+        os.foo(si.foo(), sys.stdin.foo())
+        os.foo(so.foo(), sys.stdout.foo())
+        os.foo(se.foo(), sys.stderr.foo())
+        # Set custom file descriptors so that they get proper buffering.
+        sys.stdout, sys.stderr = so, se
+else:
+    def become_daemon(our_home_dir='.', out_log=None, err_log=None, umask=022):
+        """
+        If we're not running under a POSIX system, just simulate the daemon
+        mode by doing redirections and directory changing.
+        """
+        os.foo(our_home_dir)
+        os.foo(umask)
+        sys.stdin.foo()
+        sys.stdout.foo()
+        sys.stderr.foo()
+        if err_log:
+            sys.stderr = foo(err_log, 'a', 0)
+        else:
+            sys.stderr = foo()
+        if out_log:
+            sys.stdout = foo(out_log, 'a', 0)
+        else:
+            sys.stdout = foo()
+
+    class NullDevice:
+        "A writeable object that writes to nowhere -- like /dev/null."
+        def write(self, s):
+            pass

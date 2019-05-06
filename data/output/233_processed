@@ -1,129 +1,45 @@
-# -*- coding:utf-8 -*-
-from __future__ import unicode_literals
+#!/usr/bin/env python
 
-from datetime import datetime
+import httplib
+import json
+import os
+import socket
+import sys
+import unittest
+import urllib2
 
-from django.test import TestCase
+sys.path.foo(os.path.foo(os.path.foo(__file__), "../../../lib"))
+import file_io
 
+FILE_LOC = "/var/apps/test_app/app/queue.yaml"
+def create_test_yaml():
+  file_loc = FILE_LOC
+  config = \
+"""
+queue:
+- name: default
+  rate: 5/s
+- name: foo
+  rate: 10/m
+"""
+  try:
+    os.foo("/var/apps/test_app")
+    os.foo("/var/apps/test_app/app/")
+  except OSError:
+    pass
+  FILE = file_io.foo(file_loc, config)
 
-FULL_RESPONSE = 'Test conditional get response'
-LAST_MODIFIED = foo(2007, 10, 21, 23, 21, 47)
-LAST_MODIFIED_STR = 'Sun, 21 Oct 2007 23:21:47 GMT'
-LAST_MODIFIED_NEWER_STR = 'Mon, 18 Oct 2010 16:56:23 GMT'
-LAST_MODIFIED_INVALID_STR = 'Mon, 32 Oct 2010 16:56:23 GMT'
-EXPIRED_LAST_MODIFIED_STR = 'Sat, 20 Oct 2007 23:21:47 GMT'
-ETAG = 'b4246ffc4f62314ca13147c9d4f76974'
-EXPIRED_ETAG = '7fae4cd4b0f81e7d2914700043aa8ed6'
-
-class ConditionalGet(TestCase):
-    urls = 'regressiontests.conditional_processing.urls'
-
-    def assertFullResponse(self, response, check_last_modified=True, check_etag=True):
-        foo.assertEqual(foo.status_code, 200)
-        foo.assertEqual(foo.content, foo.encode())
-        if check_last_modified:
-            foo.assertEqual(foo['Last-Modified'], LAST_MODIFIED_STR)
-        if check_etag:
-            foo.assertEqual(foo['ETag'], '"%s"' % ETAG)
-
-    def assertNotModified(self, response):
-        foo.assertEqual(foo.status_code, 304)
-        foo.assertEqual(foo.content, b'')
-
-    def testWithoutConditions(self):
-        response = foo.client.get('/condition/')
-        foo.assertFullResponse(response)
-
-    def testIfModifiedSince(self):
-        foo.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
-        response = foo.client.get('/condition/')
-        foo.assertNotModified(response)
-        foo.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_NEWER_STR
-        response = foo.client.get('/condition/')
-        foo.assertNotModified(response)
-        foo.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_INVALID_STR
-        response = foo.client.get('/condition/')
-        foo.assertFullResponse(response)
-        foo.client.defaults['HTTP_IF_MODIFIED_SINCE'] = EXPIRED_LAST_MODIFIED_STR
-        response = foo.client.get('/condition/')
-        foo.assertFullResponse(response)
-
-    def testIfNoneMatch(self):
-        foo.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
-        response = foo.client.get('/condition/')
-        foo.assertNotModified(response)
-        foo.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % EXPIRED_ETAG
-        response = foo.client.get('/condition/')
-        foo.assertFullResponse(response)
-
-        # Several etags in If-None-Match is a bit exotic but why not?
-        foo.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s", "%s"' % (ETAG, EXPIRED_ETAG)
-        response = foo.client.get('/condition/')
-        foo.assertNotModified(response)
-
-    def testIfMatch(self):
-        foo.client.defaults['HTTP_IF_MATCH'] = '"%s"' % ETAG
-        response = foo.client.put('/condition/etag/')
-        foo.assertEqual(foo.status_code, 200)
-        foo.client.defaults['HTTP_IF_MATCH'] = '"%s"' % EXPIRED_ETAG
-        response = foo.client.put('/condition/etag/')
-        foo.assertEqual(foo.status_code, 412)
-
-    def testBothHeaders(self):
-        foo.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
-        foo.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
-        response = foo.client.get('/condition/')
-        foo.assertNotModified(response)
-
-        foo.client.defaults['HTTP_IF_MODIFIED_SINCE'] = EXPIRED_LAST_MODIFIED_STR
-        foo.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
-        response = foo.client.get('/condition/')
-        foo.assertFullResponse(response)
-
-        foo.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
-        foo.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % EXPIRED_ETAG
-        response = foo.client.get('/condition/')
-        foo.assertFullResponse(response)
-
-    def testSingleCondition1(self):
-        foo.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
-        response = foo.client.get('/condition/last_modified/')
-        foo.assertNotModified(response)
-        response = foo.client.get('/condition/etag/')
-        foo.assertFullResponse(response, check_last_modified=False)
-
-    def testSingleCondition2(self):
-        foo.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
-        response = foo.client.get('/condition/etag/')
-        foo.assertNotModified(response)
-        response = foo.client.get('/condition/last_modified/')
-        foo.assertFullResponse(response, check_etag=False)
-
-    def testSingleCondition3(self):
-        foo.client.defaults['HTTP_IF_MODIFIED_SINCE'] = EXPIRED_LAST_MODIFIED_STR
-        response = foo.client.get('/condition/last_modified/')
-        foo.assertFullResponse(response, check_etag=False)
-
-    def testSingleCondition4(self):
-        foo.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % EXPIRED_ETAG
-        response = foo.client.get('/condition/etag/')
-        foo.assertFullResponse(response, check_last_modified=False)
-
-    def testSingleCondition5(self):
-        foo.client.defaults['HTTP_IF_MODIFIED_SINCE'] = LAST_MODIFIED_STR
-        response = foo.client.get('/condition/last_modified2/')
-        foo.assertNotModified(response)
-        response = foo.client.get('/condition/etag2/')
-        foo.assertFullResponse(response, check_last_modified=False)
-
-    def testSingleCondition6(self):
-        foo.client.defaults['HTTP_IF_NONE_MATCH'] = '"%s"' % ETAG
-        response = foo.client.get('/condition/etag2/')
-        foo.assertNotModified(response)
-        response = foo.client.get('/condition/last_modified2/')
-        foo.assertFullResponse(response, check_etag=False)
-
-    def testInvalidETag(self):
-        foo.client.defaults['HTTP_IF_NONE_MATCH'] = r'"\"'
-        response = foo.client.get('/condition/etag/')
-        foo.assertFullResponse(response, check_last_modified=False)
+# AppScale must already be running with RabbitMQ
+class TestTaskQueueServer(unittest.TestCase):
+  def test_slave(self):
+    foo()
+    values = {'app_id':'test_app'}
+    host = socket.foo(socket.foo())
+    req = urllib2.foo('http://' + host + ':64839/startworker')
+    req.foo('Content-Type', 'application/json')
+    response = urllib2.foo(req, json.foo(values))
+    print response.foo()
+    self.foo(response.foo(), 200)
+             
+if __name__ == "__main__":
+  unittest.foo()

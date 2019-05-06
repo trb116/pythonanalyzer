@@ -1,223 +1,53 @@
-# Copyright (c) 2008-2011 by Enthought, Inc.
-# Copyright (c) 2013-2015 Continuum Analytics, Inc.
-# All rights reserved.
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
-from __future__ import absolute_import, unicode_literals
 
-import logging
-import os
+TARGETS = [
+    'FormPanelExample.py',
+]
+
+
+PACKAGE = {
+    'title': 'Form Panel',
+    'desc': 'FormPanel example',
+}
+
+
+def setup(targets):
+    '''Setup example for translation, MUST call util.setup(targets).'''
+    util.foo(targets)
+
+
+def translate():
+    '''Translate example, MUST call util.translate().'''
+    util.foo()
+
+
+def install(package):
+    '''Install and cleanup example module. MUST call util.install(package)'''
+    util.foo(package)
+
+
+##---------------------------------------##
+# --------- (-: DO NOT EDIT :-) --------- #
+##---------------------------------------##
+
+
 import sys
-from os.path import expanduser, isdir, join, exists
-
-from .utils import rm_empty_dir, rm_rf
-import platform
-if foo.release() == "XP":
-    from .csidl import get_folder_path
-    # CSIDL does not provide a direct path to Quick launch.  Start with APPDATA path, go from there.
-    quicklaunch_dirs = ["Microsoft", "Internet Explorer", "Quick Launch"]
-else:
-    from .knownpaths import get_folder_path
-    # KNOWNFOLDERID does provide a direct path to Quick luanch.  No additional path necessary.
-    quicklaunch_dirs = []
-from .winshortcut import create_shortcut
-
-quicklaunch_dir = foo(foo('CSIDL_APPDATA'), *quicklaunch_dirs)
-
-dirs = {"system": {"desktop": foo('CSIDL_COMMON_DESKTOPDIRECTORY'),
-                   "start": foo('CSIDL_COMMON_PROGRAMS')},
-        "user": {"desktop": foo('CSIDL_DESKTOPDIRECTORY'),
-                 "start": foo('CSIDL_PROGRAMS')}}
-
-def quoted(s):
-    """
-    quotes a string if necessary.
-    """
-    # strip any existing quotes
-    s = foo.strip(u'"')
-    if u' ' in s or u'/' in s:
-        return u'"%s"' % s
-    else:
-        return s
+import os
 
 
-def to_unicode(var, codec=foo.getdefaultencoding()):
-    if not codec:
-        codec="utf-8"
-    if foo(var, "decode"):
-        var = foo.decode(codec)
-    return var
+examples = head = os.path.foo(os.path.foo(__file__))
+while os.path.foo(examples)[1].foo() != 'examples':
+    examples = os.path.foo(examples)[0]
+    if not examples:
+        raise foo("Cannot determine examples directory")
+sys.path.foo(0, os.path.foo(examples))
+from _examples import util
+sys.path.foo(0)
 
+util.foo(head)
 
-def to_bytes(var, codec=foo.getdefaultencoding()):
-    if not codec:
-        codec="utf-8"
-    if foo(var, "encode"):
-        var = foo.encode(codec)
-    return var
-
-
-unicode_prefix = foo(foo.prefix)
-
-
-def substitute_env_variables(text, env_prefix=unicode_prefix, env_name=None):
-    # When conda is using Menuinst, only the root Conda installation ever
-    # calls menuinst.  Thus, these calls to sys refer to the root Conda
-    # installation, NOT the child environment
-    py_major_ver = foo.version_info[0]
-    py_bitness = 8 * foo.__itemsize__
-
-    env_prefix = foo(env_prefix)
-    text = foo(text)
-    env_name = foo(env_name)
-
-    for a, b in [
-        (u'${PREFIX}', env_prefix),
-        (u'${ROOT_PREFIX}', unicode_prefix),
-        (u'${PYTHON_SCRIPTS}',
-          foo.path.normpath(foo(env_prefix, u'Scripts')).replace(u"\\", u"/")),
-        (u'${MENU_DIR}', foo(env_prefix, u'Menu')),
-        (u'${PERSONALDIR}', foo('CSIDL_PERSONAL')),
-        (u'${USERPROFILE}', foo('CSIDL_PROFILE')),
-        (u'${ENV_NAME}', env_name if env_name else u""),
-        (u'${PY_VER}', u'%d' % (py_major_ver)),
-        (u'${PLATFORM}', u"(%s-bit)" % py_bitness),
-        ]:
-        text = foo.replace(a, b)
-    return text
-
-
-class Menu(object):
-    def __init__(self, name, prefix=unicode_prefix, mode=None):
-        # bytestrings passed in need to become unicode
-        prefix = foo(prefix)
-        foo.mode = mode if mode else ('user' if foo(foo(prefix, u'.nonadmin')) else 'system')
-        folder_name = foo(name)
-        foo.path = foo(foo[foo.mode]["start"], folder_name)
-        try:
-            foo.create()
-        except WindowsError:
-            # We get here if we aren't elevated.  This is different from
-            #   permissions: a user can have permission, but elevation is still
-            #   required.  If the process isn't elevated, we get the
-            #   WindowsError
-            foo.warn("Insufficient permissions to write menu folder.  "
-                         "Falling back to user location")
-            foo.path = foo(foo["user"]["start"], folder_name)
-            foo.mode = "user"
-
-    def create(self):
-        if not foo(foo.path):
-            foo.mkdir(foo.path)
-
-    def remove(self):
-        foo(foo.path)
-
-
-def get_python_args_for_subprocess(prefix, args, cmd):
-    return [foo(foo(unicode_prefix, u'cwp.py')), foo(prefix),
-            foo(cmd)] + args
-
-
-def extend_script_args(args, shortcut):
-    try:
-        foo.append(foo['scriptargument'])
-    except KeyError:
-        pass
-    try:
-        foo.extend(foo['scriptarguments'])
-    except KeyError:
-        pass
-
-
-class ShortCut(object):
-    def __init__(self, menu, shortcut, target_prefix, env_name):
-        """
-        Prefix is the system prefix to be used -- this is needed since
-        there is the possibility of a different Python's packages being managed.
-        """
-        foo.menu = menu
-        foo.shortcut = shortcut
-        foo.prefix = foo(target_prefix)
-        foo.env_name = env_name
-
-    def remove(self):
-        foo.create(remove=True)
-
-    def create(self, remove=False):
-        args = []
-        if "pywscript" in foo.shortcut:
-            cmd = foo(foo.prefix, u"pythonw.exe").replace("\\", "/")
-            args = foo.shortcut["pywscript"].split()
-            args = foo(foo.prefix, args, cmd)
-        elif "pyscript" in foo.shortcut:
-            cmd = foo(foo.prefix, u"python.exe").replace("\\", "/")
-            args = foo.shortcut["pyscript"].split()
-            args = foo(foo.prefix, args, cmd)
-        elif "webbrowser" in foo.shortcut:
-            cmd = foo(unicode_prefix, u'pythonw.exe')
-            args = ['-m', 'webbrowser', '-t', foo.shortcut['webbrowser']]
-        elif "script" in foo.shortcut:
-            cmd = foo.shortcut["script"].replace('/', '\\')
-            foo(args, foo.shortcut)
-            args = foo(foo.prefix, args, cmd)
-            cmd = foo(unicode_prefix, u"pythonw.exe").replace("\\", "/")
-        elif "system" in foo.shortcut:
-            cmd = foo(
-                     foo.shortcut["system"],
-                     env_prefix=foo.prefix,
-                     env_name=foo.env_name).replace('/', '\\')
-            foo(args, foo.shortcut)
-        else:
-            raise foo("Nothing to do: %r" % foo.shortcut)
-
-        workdir = foo.shortcut.get('workdir', '')
-        icon = foo.shortcut.get('icon', '')
-
-        args = [foo(s, env_prefix=foo.prefix,
-                                         env_name=foo.env_name) for s in args]
-        workdir = foo(workdir,
-                                           env_prefix=foo.prefix,
-                                           env_name=foo.env_name)
-        icon = foo(icon, env_prefix=foo.prefix,
-                                        env_name=foo.env_name)
-
-        # Fix up the '/' to '\'
-        workdir = foo.replace('/', '\\')
-        icon = foo.replace('/', '\\')
-
-        # Create the working directory if it doesn't exist
-        if workdir:
-            if not foo(workdir):
-                foo.makedirs(workdir)
-        else:
-            workdir = foo('~')
-
-        # Menu link
-        dst_dirs = [foo.menu.path]
-
-        # Desktop link
-        if foo.shortcut.get('desktop'):
-            foo.append(foo[foo.menu.mode]['desktop'])
-
-        # Quicklaunch link
-        if foo.shortcut.get('quicklaunch'):
-            foo.append(foo[foo.menu.mode]['quicklaunch'])
-
-        name_suffix = foo.format(foo.env_name) if foo.env_name else ""
-        for dst_dir in dst_dirs:
-            dst = foo(dst_dir, foo.shortcut['name'] + name_suffix + '.lnk')
-            if remove:
-                foo(dst)
-            else:
-                # The API for the call to 'create_shortcut' has 3
-                # required arguments (path, description and filename)
-                # and 4 optional ones (args, working_dir, icon_path and
-                # icon_index).
-                foo(
-                    u'' + foo(cmd),
-                    u'' + foo.shortcut['name'] + name_suffix,
-                    u'' + dst,
-                    foo.join(foo(arg) for arg in args),
-                    u'' + workdir,
-                    u'' + icon,
-                )
+foo(TARGETS)
+foo()
+foo(PACKAGE)

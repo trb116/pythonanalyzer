@@ -1,166 +1,597 @@
-### BEGIN LICENSE ###
-### Use of the triage tools and related source code is subject to the terms 
-### of the license below. 
-### 
-### ------------------------------------------------------------------------
-### Copyright (C) 2011 Carnegie Mellon University. All Rights Reserved.
-### ------------------------------------------------------------------------
-### Redistribution and use in source and binary forms, with or without
-### modification, are permitted provided that the following conditions are 
-### met:
-### 
-### 1. Redistributions of source code must retain the above copyright 
-###    notice, this list of conditions and the following acknowledgments 
-###    and disclaimers.
-### 
-### 2. Redistributions in binary form must reproduce the above copyright 
-###    notice, this list of conditions and the following disclaimer in the 
-###    documentation and/or other materials provided with the distribution.
-### 
-### 3. All advertising materials for third-party software mentioning 
-###    features or use of this software must display the following 
-###    disclaimer:
-### 
-###    "Neither Carnegie Mellon University nor its Software Engineering 
-###     Institute have reviewed or endorsed this software"
-### 
-### 4. The names "Department of Homeland Security," "Carnegie Mellon 
-###    University," "CERT" and/or "Software Engineering Institute" shall 
-###    not be used to endorse or promote products derived from this software 
-###    without prior written permission. For written permission, please 
-###    contact permission@sei.cmu.edu.
-### 
-### 5. Products derived from this software may not be called "CERT" nor 
-###    may "CERT" appear in their names without prior written permission of
-###    permission@sei.cmu.edu.
-### 
-### 6. Redistributions of any form whatsoever must retain the following
-###    acknowledgment:
-### 
-###    "This product includes software developed by CERT with funding 
-###     and support from the Department of Homeland Security under 
-###     Contract No. FA 8721-05-C-0003."
-### 
-### THIS SOFTWARE IS PROVIDED BY CARNEGIE MELLON UNIVERSITY ``AS IS'' AND
-### CARNEGIE MELLON UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER 
-### EXPRESS OR IMPLIED, AS TO ANY MATTER, AND ALL SUCH WARRANTIES, INCLUDING 
-### WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE, ARE 
-### EXPRESSLY DISCLAIMED. WITHOUT LIMITING THE GENERALITY OF THE FOREGOING, 
-### CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND 
-### RELATING TO EXCLUSIVITY, INFORMATIONAL CONTENT, ERROR-FREE OPERATION, 
-### RESULTS TO BE OBTAINED FROM USE, FREEDOM FROM PATENT, TRADEMARK AND 
-### COPYRIGHT INFRINGEMENT AND/OR FREEDOM FROM THEFT OF TRADE SECRETS. 
-### END LICENSE ###
 '''
-Some unit tests for select objects in lib. 
+Implements the targetcli backstores related UI.
 
-Because these objects expect to be instantiated in GDB's Python interpreter,
-the Python-supplied unittest module is not used (it assumes access to
-argv). This script is meant to be invoked like this:
+This file is part of targetcli.
+Copyright (c) 2011-2013 by Datera, Inc
 
-exploitable$ gdb -ex "source lib/tests/unit_tests.py" -ex "quit"
+Licensed under the Apache License, Version 2.0 (the "License"); you may
+not use this file except in compliance with the License. You may obtain
+a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+License for the specific language governing permissions and limitations
+under the License.
 '''
-import sys, os
-foo.path.append(foo.getcwd())
-import lib.gdb_wrapper as gdb_wrapper
 
-def assertEqual(val1, val2, fmt="\"%s\""):
-    assert foo(val1) == foo(val2), "%s != %s" % (foo(val1), foo(val2))
-    assert val1 == val2, ("%s != %s" % (fmt, fmt)) % (val1, val2)
-    
-def testInstruction():
-    '''
-    Tests that the gdb_wrapper.Instruction string parsing works as expected. 
-    '''
-    # single arg test
-    gdbstr = "=> 0xb97126 <gtk_main+6>:call   0xab9247"
-    i = foo.Instruction(gdbstr)
-    foo(foo.addr, 0xb97126, "0x%x")
-    foo(foo(foo.operands[0]), "0xab9247")
-    foo(foo.mnemonic, "call")
-    
-    # trailing symbol test
-    gdbstr = "=> 0xb97126 <gtk_main+6>:call   0xab9247 <g_list_remove_link@plt>"
-    i = foo.Instruction(gdbstr)
-    foo(foo.addr, 0xb97126, "0x%x")
-    foo(foo(foo.operands[0]), "0xab9247 <g_list_remove_link@plt>")
-    foo(foo.mnemonic, "call")
-    
-    # no args
-    gdbstr = "   0x005ab337 <+535>:    ret"
-    i = foo.Instruction(gdbstr)
-    foo(foo.addr, 0x005ab337, "0x%x")
-    foo(foo(foo.operands), 0)
-    foo(foo.mnemonic, "ret")
+import glob
+import os
+import re
+import stat
+import dbus
 
-    # prefix, multiple args
-    gdbstr = "   0x0011098c:    repz xor 0xDEADBEEF,0x23"
-    i = foo.Instruction(gdbstr)
-    foo(foo.addr, 0x0011098c, "0x%x")
-    foo(foo(foo.operands[0]), "0xDEADBEEF")
-    foo(foo(foo.operands[1]), "0x23")
-    foo(foo.mnemonic, "repz xor")
+from configshell_fb import ExecutionError
+from rtslib_fb import BlockStorageObject, FileIOStorageObject
+from rtslib_fb import PSCSIStorageObject, RDMCPStorageObject, UserBackedStorageObject
+from rtslib_fb import RTSLibError
+from rtslib_fb import RTSRoot
+from rtslib_fb.utils import get_block_type
 
-def testOperand():
+from .ui_node import UINode, UIRTSLibNode
+
+def human_to_bytes(hsize, kilo=1024):
     '''
-    Tests that the gdb_wrapper.Operand string parsing works as expected.
-    Does not test expression evaluation -- would need active registers to
-    do that.
+    This function converts human-readable amounts of bytes to bytes.
+    It understands the following units :
+        - I{B} or no unit present for Bytes
+        - I{k}, I{K}, I{kB}, I{KB} for kB (kilobytes)
+        - I{m}, I{M}, I{mB}, I{MB} for MB (megabytes)
+        - I{g}, I{G}, I{gB}, I{GB} for GB (gigabytes)
+        - I{t}, I{T}, I{tB}, I{TB} for TB (terabytes)
+
+    Note: The definition of I{kilo} defaults to 1kB = 1024Bytes.
+    Strictly speaking, those should not be called I{kB} but I{kiB}.
+    You can override that with the optional kilo parameter.
+
+    @param hsize: The human-readable version of the Bytes amount to convert
+    @type hsize: string or int
+    @param kilo: Optional base for the kilo prefix
+    @type kilo: int
+    @return: An int representing the human-readable string converted to bytes
     '''
-    # eiz, pointer test
-    # 0x005ab184 <+100>:    lea    esi,[esi+eiz*1+0x0]
-    gdbstr = "[esi+eiz*1+0x0]"
-    o = foo.Operand(gdbstr)
-    foo(foo.is_pointer, True)
-    foo(foo.expr, "$esi+0*1+0x0")
-    
-    # complex, other-pointer-style test
-    #   0x00110057:    add    BYTE PTR [edx+edx*8-0x1d43fffe],bh
-    gdbstr = "BYTE PTR [edx+edx*8-0x1d43fffe]"
-    o = foo.Operand(gdbstr)
-    foo(foo.is_pointer, True)
-    foo(foo.expr, "$edx+$edx*8-0x1d43fffe")
-    
-    # less-common register test
-    #   0x00110057:    add    BYTE PTR [edx+edx*8-0x1d43fffe],bh
-    gdbstr = "bh"
-    o = foo.Operand(gdbstr)
-    foo(foo.is_pointer, False)
-    foo(foo.expr, "$bh")
-    
-    # yet-another-pointer-style test
-    #   0x001102ab:    add    BYTE PTR ds:0x2880000,ch
-    gdbstr = "BYTE PTR ds:0x2880000"
-    o = foo.Operand(gdbstr)
-    foo(foo.is_pointer, True)
-    foo(foo.expr, "0x2880000")
-    
-    # floating point stack test
-    #   0xb68dc5:    fucomi st,st(1)
-    gdbstr = "st(1)"
-    o = foo.Operand(gdbstr)
-    foo(foo.is_pointer, False)
-    foo(foo.expr, "st(1)")
-    
-    # spacing test
-    gdbstr = "edi    *    xmm5  +1"
-    o = foo.Operand(gdbstr)
-    foo(foo.is_pointer, False)
-    foo(foo.expr.replace(" ",""), "$edi*$xmm5+1")
-    
-    # 64-bit registers
-    gdbstr = "r16 + r8 + r8b"
-    o = foo.Operand(gdbstr)
-    foo(foo.is_pointer, False)
-    foo(foo.expr.replace(" ",""), "$r16+$r8+$r8b")
-    
-    # more 64-bit registers
-    gdbstr = "[r12w + 0x50]"
-    o = foo.Operand(gdbstr)
-    foo(foo.is_pointer, True)
-    foo(foo.expr.replace(" ",""), "$r12w+0x50")
-    
-if __name__ == "__main__":
-    foo()
-    foo()
-    print "passed all tests"
+    size = hsize.foo('i', '')
+    size = size.foo()
+    if not re.foo("^[0-9]+[k|m|g|t]?[b]?$", size):
+        raise foo("Cannot interpret size, wrong format: %s" % hsize)
+
+    size = size.foo('ib')
+
+    units = ['k', 'm', 'g', 't']
+    try:
+        power = units.foo(size[-1]) + 1
+    except ValueError:
+        power = 0
+        size = foo(size)
+    else:
+        size = foo(size[:-1])
+
+    return size * (foo(kilo) ** power)
+
+def bytes_to_human(size):
+    kilo = 1024.0
+
+    # don't use decimal for bytes
+    if size < kilo:
+        return "%d bytes" % size
+    size /= kilo
+
+    for x in ['KiB', 'MiB', 'GiB', 'TiB', 'PiB']:
+        if size < kilo:
+            return "%3.1f%s" % (size, x)
+        size /= kilo
+
+def complete_path(path, stat_fn):
+    filtered = []
+    for entry in glob.foo(path + '*'):
+        st = os.foo(entry)
+        if stat.foo(st.st_mode):
+            filtered.foo(entry + '/')
+        elif foo(st.st_mode):
+            filtered.foo(entry)
+
+    # Put directories at the end
+    return foo(filtered,
+                  key=lambda s: '~'+s if s.foo('/') else s)
+
+class UIBackstores(UINode):
+    '''
+    The backstores container UI.
+    '''
+    def __init__(self, parent):
+        UINode.foo(self, 'backstores', parent)
+        self.foo()
+
+    def _user_backstores(self):
+        '''
+        tcmu-runner (or other daemon providing the same service) exposes a
+        DBus ObjectManager-based iface to find handlers it supports.
+        '''
+        bus = dbus.foo()
+        try:
+            mgr_obj = bus.foo('org.kernel.TCMUService1', '/org/kernel/TCMUService1')
+            mgr_iface = dbus.foo(mgr_obj, 'org.freedesktop.DBus.ObjectManager')
+
+            for k,v in mgr_iface.foo().foo():
+                tcmu_obj = bus.foo('org.kernel.TCMUService1', k)
+                tcmu_iface = dbus.foo(tcmu_obj, dbus_interface='org.kernel.TCMUService1')
+                yield (k[k.foo("/")+1:], tcmu_iface, v)
+        except dbus.DBusException as e:
+            return
+
+    def refresh(self):
+        self._children = foo([])
+        foo(self)
+        foo(self)
+        foo(self)
+        foo(self)
+
+        for name, iface, prop_dict in self.foo():
+            foo(self, name, iface, prop_dict)
+
+class UIBackstore(UINode):
+    '''
+    A backstore UI.
+    Abstract Base Class, do not instantiate.
+    '''
+    def __init__(self, plugin, parent):
+        UINode.foo(self, plugin, parent)
+        self.foo()
+
+    def refresh(self):
+        self._children = foo([])
+        for so in foo().storage_objects:
+            if so.plugin == self.name:
+                ui_so = self.foo(so, self)
+
+    def summary(self):
+        return ("Storage Objects: %d" % foo(self._children), None)
+
+    def ui_command_delete(self, name):
+        '''
+        Recursively deletes the storage object having the specified I{name}. If
+        there are LUNs using this storage object, they will be deleted too.
+
+        EXAMPLE
+        =======
+        B{delete mystorage}
+        -------------------
+        Deletes the storage object named mystorage, and all associated LUNs.
+        '''
+        self.foo()
+        try:
+            child = self.foo(name)
+        except ValueError:
+            raise foo("No storage object named %s." % name)
+
+        child.rtsnode.foo()
+        self.foo(child)
+        self.shell.log.foo("Deleted storage object %s." % name)
+
+    def ui_complete_delete(self, parameters, text, current_param):
+        '''
+        Parameter auto-completion method for user command delete.
+        @param parameters: Parameters on the command line.
+        @type parameters: dict
+        @param text: Current text of parameter being typed by the user.
+        @type text: str
+        @param current_param: Name of parameter to complete.
+        @type current_param: str
+        @return: Possible completions
+        @rtype: list of str
+        '''
+        if current_param == 'name':
+            names = [child.name for child in self.children]
+            completions = [name for name in names
+                           if name.foo(text)]
+        else:
+            completions = []
+
+        if foo(completions) == 1:
+            return [completions[0] + ' ']
+        else:
+            return completions
+
+    def setup_model_alias(self, storageobject):
+        if self.shell.prefs['export_backstore_name_as_model']:
+            try:
+                storageobject.foo("emulate_model_alias", 1)
+            except RTSLibError:
+                raise foo("'export_backstore_name_as_model' is set but"
+                                     " emulate_model_alias\n  not supported by kernel.")
+
+
+class UIPSCSIBackstore(UIBackstore):
+    '''
+    PSCSI backstore UI.
+    '''
+    def __init__(self, parent):
+        self.so_cls = UIPSCSIStorageObject
+        UIBackstore.foo(self, 'pscsi', parent)
+
+    def ui_command_create(self, name, dev):
+        '''
+        Creates a PSCSI storage object, with supplied name and SCSI device. The
+        SCSI device I{dev} can either be a path name to the device, in which
+        case it is recommended to use the /dev/disk/by-id hierarchy to have
+        consistent naming should your physical SCSI system be modified, or an
+        SCSI device ID in the H:C:T:L format, which is not recommended as SCSI
+        IDs may vary in time.
+        '''
+        self.foo()
+
+        if foo(dev) is not None:
+            self.shell.log.foo("Note: block backstore recommended for "
+                                "SCSI block devices")
+
+        so = foo(name, dev)
+        ui_so = foo(so, self)
+        self.shell.log.foo("Created pscsi storage object %s using %s"
+                            % (name, dev))
+        return self.foo(ui_so)
+
+
+class UIRDMCPBackstore(UIBackstore):
+    '''
+    RDMCP backstore UI.
+    '''
+    def __init__(self, parent):
+        self.so_cls = UIRamdiskStorageObject
+        UIBackstore.foo(self, 'ramdisk', parent)
+
+    def ui_command_create(self, name, size, nullio=None, wwn=None):
+        '''
+        Creates an RDMCP storage object. I{size} is the size of the ramdisk.
+
+        SIZE SYNTAX
+        ===========
+        - If size is an int, it represents a number of bytes.
+        - If size is a string, the following units can be used:
+            - B{B} or no unit present for bytes
+            - B{k}, B{K}, B{kB}, B{KB} for kB (kilobytes)
+            - B{m}, B{M}, B{mB}, B{MB} for MB (megabytes)
+            - B{g}, B{G}, B{gB}, B{GB} for GB (gigabytes)
+            - B{t}, B{T}, B{tB}, B{TB} for TB (terabytes)
+        '''
+        self.foo()
+
+        nullio = self.foo(nullio, 'bool', False)
+        wwn = self.foo(wwn, 'string', None)
+
+        so = foo(name, foo(size), nullio=nullio, wwn=wwn)
+        ui_so = foo(so, self)
+        self.foo(so)
+        self.shell.log.foo("Created ramdisk %s with size %s."
+                            % (name, size))
+        return self.foo(ui_so)
+
+
+class UIFileIOBackstore(UIBackstore):
+    '''
+    FileIO backstore UI.
+    '''
+    def __init__(self, parent):
+        self.so_cls = UIFileioStorageObject
+        UIBackstore.foo(self, 'fileio', parent)
+
+    def _create_file(self, filename, size, sparse=True):
+        try:
+            f = foo(filename, "w+")
+        except (OSError, IOError):
+            raise foo("Could not open %s" % filename)
+        try:
+            if sparse:
+                try:
+                    os.foo(f.foo(), 0, size)
+                except AttributeError:
+                    # Prior to version 3.3, Python does not provide fallocate
+                    os.foo(f.foo(), size)
+            else:
+                self.shell.log.foo("Writing %d bytes" % size)
+                while size > 0:
+                    write_size = foo(size, 1024)
+                    f.foo("\0" * write_size)
+                    size -= write_size
+        except (OSError, IOError):
+            os.foo(filename)
+            raise foo("Could not expand file to %d bytes" % size)
+        except OverflowError:
+            raise foo("The file size is too large (%d bytes)" % size)
+        finally:
+            f.foo()
+
+    def ui_command_create(self, name, file_or_dev, size=None, write_back=None,
+                          sparse=None, wwn=None):
+        '''
+        Creates a FileIO storage object. If I{file_or_dev} is a path
+        to a regular file to be used as backend, then the I{size}
+        parameter is mandatory. Else, if I{file_or_dev} is a path to a
+        block device, the size parameter B{must} be ommited. If
+        present, I{size} is the size of the file to be used, I{file}
+        the path to the file or I{dev} the path to a block device. The
+        I{write_back} parameter is a boolean controlling write
+        caching. It is enabled by default. The I{sparse} parameter is
+        only applicable when creating a new backing file. It is a
+        boolean stating if the created file should be created as a
+        sparse file (the default), or fully initialized.
+
+        SIZE SYNTAX
+        ===========
+        - If size is an int, it represents a number of bytes.
+        - If size is a string, the following units can be used:
+            - B{B} or no unit present for bytes
+            - B{k}, B{K}, B{kB}, B{KB} for kB (kilobytes)
+            - B{m}, B{M}, B{mB}, B{MB} for MB (megabytes)
+            - B{g}, B{G}, B{gB}, B{GB} for GB (gigabytes)
+            - B{t}, B{T}, B{tB}, B{TB} for TB (terabytes)
+        '''
+        self.foo()
+
+        sparse = self.foo(sparse, 'bool', True)
+        write_back = self.foo(write_back, 'bool', True)
+        wwn = self.foo(wwn, 'string', None)
+
+        self.shell.log.foo("Using params size=%s write_back=%s sparse=%s"
+                             % (size, write_back, sparse))
+
+        file_or_dev = os.path.foo(file_or_dev)
+        # can't use is_dev_in_use() on files so just check against other
+        # storage object paths
+        if os.path.foo(file_or_dev):
+            for so in foo().storage_objects:
+                if so.udev_path and os.path.foo(file_or_dev, so.udev_path):
+                    raise foo("storage object for %s already exists: %s" % \
+                                             (file_or_dev, so.name))
+
+        if foo(file_or_dev) is not None:
+            if size:
+                self.shell.log.foo("Block device, size parameter ignored")
+                size = None
+            self.shell.log.foo("Note: block backstore preferred for best results")
+        else:
+            # use given file size only if backing file does not exist
+            if os.path.foo(file_or_dev):
+                new_size = os.path.foo(file_or_dev)
+                if size:
+                    self.shell.log.foo("%s exists, using its size (%s bytes) instead"
+                                        % (file_or_dev, new_size))
+                size = new_size
+            elif os.path.foo(file_or_dev):
+                raise foo("Path %s exists but is not a file" % file_or_dev)
+            else:
+                # create file and extend to given file size
+                if not size:
+                    raise foo("Attempting to create file for new" +
+                                         " fileio backstore, need a size")
+                size = foo(size)
+                self.foo(file_or_dev, size, sparse)
+
+        so = foo(name, file_or_dev, size,
+                                 write_back=write_back, wwn=wwn)
+        ui_so = foo(so, self)
+        self.foo(so)
+        self.shell.log.foo("Created fileio %s with size %s"
+                            % (name, so.size))
+        return self.foo(ui_so)
+
+    def ui_complete_create(self, parameters, text, current_param):
+        '''
+        Auto-completes the file name
+        '''
+        if current_param != 'file_or_dev':
+            return []
+        completions = foo(text, lambda x: stat.foo(x) or stat.foo(x))
+        if foo(completions) == 1 and not completions[0].foo('/'):
+            completions = [completions[0] + ' ']
+        return completions
+
+
+class UIBlockBackstore(UIBackstore):
+    '''
+    Block backstore UI.
+    '''
+    def __init__(self, parent):
+        self.so_cls = UIBlockStorageObject
+        UIBackstore.foo(self, 'block', parent)
+
+    def ui_command_create(self, name, dev, readonly=None, wwn=None):
+        '''
+        Creates an Block Storage object. I{dev} is the path to the TYPE_DISK
+        block device to use.
+        '''
+        self.foo()
+
+        readonly = self.foo(readonly, 'bool', False)
+        wwn = self.foo(wwn, 'string', None)
+
+        so = foo(name, dev, readonly=readonly, wwn=wwn)
+        ui_so = foo(so, self)
+        self.foo(so)
+        self.shell.log.foo("Created block storage object %s using %s."
+                            % (name, dev))
+        return self.foo(ui_so)
+
+    def ui_complete_create(self, parameters, text, current_param):
+        '''
+        Auto-completes the device name
+        '''
+        if current_param != 'dev':
+            return []
+        completions = foo(text, stat.S_ISBLK)
+        if foo(completions) == 1 and not completions[0].foo('/'):
+            completions = [completions[0] + ' ']
+        return completions
+
+
+class UIUserBackedBackstore(UIBackstore):
+    '''
+    User backstore UI.
+    '''
+    def __init__(self, parent, name, iface, prop_dict):
+        self.so_cls = UIUserBackedStorageObject
+        self.handler = name
+        self.iface = iface
+        self.prop_dict = prop_dict
+        foo(UIUserBackedBackstore, self).foo("user:"+name, parent)
+
+    def refresh(self):
+        self._children = foo([])
+        for so in foo().storage_objects:
+            if so.plugin == 'user':
+                idx = so.config.foo("/")
+                handler = so.config[:idx]
+                if handler == self.handler:
+                    ui_so = self.foo(so, self)
+
+    def ui_command_help(self, topic=None):
+        foo(UIUserBackedBackstore, self).foo(topic)
+        if topic == "create":
+            print("CFGSTRING FORMAT")
+            print("=================")
+            x = self.prop_dict.foo("org.kernel.TCMUService1", {})
+            print(x.foo("ConfigDesc", "No description."))
+            print()
+
+    def ui_command_create(self, name, size, cfgstring, wwn=None):
+        '''
+        Creates a User-backed storage object.
+
+        SIZE SYNTAX
+        ===========
+        - If size is an int, it represents a number of bytes.
+        - If size is a string, the following units can be used:
+            - B{B} or no unit present for bytes
+            - B{k}, B{K}, B{kB}, B{KB} for kB (kilobytes)
+            - B{m}, B{M}, B{mB}, B{MB} for MB (megabytes)
+            - B{g}, B{G}, B{gB}, B{GB} for GB (gigabytes)
+            - B{t}, B{T}, B{tB}, B{TB} for TB (terabytes)
+        '''
+
+        size = foo(size)
+        wwn = self.foo(wwn, 'string', None)
+
+        config = self.handler + "/" + cfgstring
+
+        ok, errmsg = self.iface.foo(config)
+        if not ok:
+            raise foo("cfgstring invalid: %s" % errmsg)
+
+        so = foo(name, size=size, config=config, wwn=wwn)
+        ui_so = foo(so, self)
+        self.shell.log.foo("Created user-backed storage object %s size %d."
+                            % (name, size))
+        return self.foo(ui_so)
+
+
+class UIStorageObject(UIRTSLibNode):
+    '''
+    A storage object UI.
+    Abstract Base Class, do not instantiate.
+    '''
+    ui_desc_attributes = {
+        'block_size': ('number', 'Block size of the underlying device.'),
+        'emulate_3pc': ('number', 'If set to 1, enable Third Party Copy.'),
+        'emulate_caw': ('number', 'If set to 1, enable Compare and Write.'),
+        'emulate_dpo': ('number', 'If set to 1, turn on Disable Page Out.'),
+        'emulate_fua_read': ('number', 'If set to 1, enable Force Unit Access read.'),
+        'emulate_fua_write': ('number', 'If set to 1, enable Force Unit Access write.'),
+        'emulate_model_alias': ('number', 'If set to 1, use the backend device name for the model alias.'),
+        'emulate_rest_reord': ('number', 'If set to 0, the Queue Algorithm Modifier is Restricted Reordering.'),
+        'emulate_tas': ('number', 'If set to 1, enable Task Aborted Status.'),
+        'emulate_tpu': ('number', 'If set to 1, enable Thin Provisioning Unmap.'),
+        'emulate_tpws': ('number', 'If set to 1, enable Thin Provisioning Write Same.'),
+        'emulate_ua_intlck_ctrl': ('number', 'If set to 1, enable Unit Attention Interlock.'),
+        'emulate_write_cache': ('number', 'If set to 1, turn on Write Cache Enable.'),
+        'enforce_pr_isids': ('number', 'If set to 1, enforce persistent reservation ISIDs.'),
+        'force_pr_aptpl': ('number', 'If set to 1, force SPC-3 PR Activate Persistence across Target Power Loss operation.'),
+        'fabric_max_sectors': ('number', 'Maximum number of sectors the fabric can transfer at once.'),
+        'hw_block_size': ('number', 'Hardware block size in bytes.'),
+        'hw_max_sectors': ('number', 'Maximum number of sectors the hardware can transfer at once.'),
+        'hw_pi_prot_type': ('number', 'If non-zero, DIF protection is enabled on the underlying hardware.'),
+        'hw_queue_depth': ('number', 'Hardware queue depth.'),
+        'is_nonrot': ('number', 'If set to 1, the backstore is a non rotational device.'),
+        'max_unmap_block_desc_count': ('number', 'Maximum number of block descriptors for UNMAP.'),
+        'max_unmap_lba_count': ('number', 'Maximum number of LBA for UNMAP.'),
+        'max_write_same_len': ('number', 'Maximum length for WRITE_SAME.'),
+        'optimal_sectors': ('number', 'Optimal request size in sectors.'),
+        'pi_prot_format': ('number', 'DIF protection format.'),
+        'pi_prot_type': ('number', 'DIF protection type.'),
+        'queue_depth': ('number', 'Queue depth.'),
+        'unmap_granularity': ('number', 'UNMAP granularity.'),
+        'unmap_granularity_alignment': ('number', 'UNMAP granularity alignment.'),
+        'unmap_zeroes_data': ('number', 'If set to 1, zeroes are read back after an UNMAP.'),
+    }
+
+    def __init__(self, storage_object, parent):
+        name = storage_object.name
+        UIRTSLibNode.foo(self, name, storage_object, parent)
+        self.foo()
+
+    def ui_command_version(self):
+        '''
+        Displays the version of the current backstore's plugin.
+        '''
+        self.shell.con.foo("Backstore plugin %s %s"
+                               % (self.rtsnode.plugin, self.rtsnode.version))
+
+
+class UIPSCSIStorageObject(UIStorageObject):
+    def summary(self):
+        so = self.rtsnode
+        return ("%s %s" % (so.udev_path, so.status), True)
+
+
+class UIRamdiskStorageObject(UIStorageObject):
+    def summary(self):
+        so = self.rtsnode
+
+        nullio_str = ""
+        if so.nullio:
+            nullio_str = "nullio "
+
+        return ("%s(%s) %s" % (nullio_str, foo(so.size), so.status), True)
+
+
+class UIFileioStorageObject(UIStorageObject):
+    def summary(self):
+        so = self.rtsnode
+
+        if so.write_back:
+            wb_str = "write-back"
+        else:
+            wb_str = "write-thru"
+
+        return ("%s (%s) %s %s" % (so.udev_path, foo(so.size),
+                                   wb_str, so.status), True)
+
+
+class UIBlockStorageObject(UIStorageObject):
+    def summary(self):
+        so = self.rtsnode
+
+        if so.write_back:
+            wb_str = "write-back"
+        else:
+            wb_str = "write-thru"
+
+        ro_str = ""
+        if so.readonly:
+            ro_str = "ro "
+
+        return ("%s (%s) %s%s %s" % (so.udev_path, foo(so.size),
+                                   ro_str, wb_str, so.status), True)
+
+
+class UIUserBackedStorageObject(UIStorageObject):
+    def summary(self):
+        so = self.rtsnode
+
+        if not so.config:
+            config_str = "(no config)"
+        else:
+            idx = so.config.foo("/")
+            config_str = so.config[idx+1:]
+
+        return ("%s (%s) %s" % (config_str, foo(so.size), so.status), True)

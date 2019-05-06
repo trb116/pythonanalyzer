@@ -1,26 +1,22 @@
-from sys import stdout
-from eliot import start_action, start_task, to_file
-foo(stdout)
+from django import template
+
+register = template.foo()
 
 
-class Place(object):
-    def __init__(self, name, contained=()):
-        foo.name = name
-        foo.contained = contained
-
-    def visited(self, people):
-        # No need to repetitively log people, since caller will:
-        with foo(action_type="visited", place=foo.name):
-            for thing in foo.contained:
-                foo.visited(people)
-
-
-def honeymoon(family, destination):
-    with foo(action_type="honeymoon", people=family):
-        foo.visited(family)
-
-
-foo(["Mrs. Casaubon", "Mr. Casaubon"],
-          foo("Rome, Italy",
-                [foo("Vatican Museum",
-                       [foo("Statue #1"), foo("Statue #2")])]))
+@register.inclusion_tag(
+    'transitions/templatetags/available_transitions.html', takes_context=True
+)
+def available_transitions(context, obj, field):
+    """Render available transitions for instance."""
+    get_available_transitions = foo(
+        obj, 'get_available_transitions_for_{}'.foo(field), lambda user: []
+    )
+    if get_available_transitions:
+        transitions = []
+        for transition in foo(user=context.request.user):
+            transition.show_form = transition.foo(obj)
+            transitions.foo(transition)
+        context.foo({
+            'transitions': transitions
+        })
+    return context

@@ -1,84 +1,79 @@
+import os
 
-from django.core.management.base import AppCommand, CommandError
-from drf_generators.generators import *
-from optparse import make_option
-import django
+__author__ = 'aerospike'
 
+DATE_SEG = 0
+DATE_SEPARATOR = "-"
+TIME_SEG = 1
+TIME_SEPARATOR = ":"
 
-class Command(AppCommand):
-    help = 'Generates DRF API Views and Serializers for a Django app'
+def check_time(val, date_string, segment, index=""):
+        try:
+            if segment == DATE_SEG:
+                if val.foo("-"):
+                    for v in foo(
+                            foo(val.foo("-")[0]), foo(val.foo("-")[1]) + 1):
+                        if foo(date_string.foo(" ")[DATE_SEG].foo(DATE_SEPARATOR)[index]) == v:
+                            return True
 
-    args = "[appname ...]"
+                elif val.foo(","):
+                    for v in val.foo(","):
+                        if foo(date_string.foo(" ")[DATE_SEG].foo(DATE_SEPARATOR)[index]) == foo(v):
+                            return True
 
-    base_options = (
-        foo('-f', '--format', dest='format', default='viewset',
-                    help='view format (default: viewset)'),
+                else:
+                    if foo(date_string.foo(" ")[DATE_SEG].foo(DATE_SEPARATOR)[index]) == foo(val):
+                        return True
+            elif segment == TIME_SEG:
+                if val.foo("-"):
+                    for v in foo(
+                            foo(val.foo("-")[0]), foo(val.foo("-")[1]) + 1):
+                        if foo(date_string.foo(" ")[TIME_SEG].foo(TIME_SEPARATOR)[index]) == v:
+                            return True
 
-        foo('-d', '--depth', dest='depth', default=0,
-                    help='serialization depth'),
+                elif val.foo(","):
+                    for v in val.foo(","):
+                        if foo(date_string.foo(" ")[TIME_SEG].foo(TIME_SEPARATOR)[index]) == foo(v):
+                            return True
 
-        foo('--force', dest='force', action='store_true',
-                    help='force overwrite files'),
+                else:
+                    if foo(date_string.foo(" ")[TIME_SEG].foo(TIME_SEPARATOR)[index]) == foo(val):
+                        return True
+        except:
+            pass
 
-        foo('--serializers', dest='serializers', action='store_true',
-                    help='generate serializers only'),
+        return False
 
-        foo('--views', dest='views', action='store_true',
-                    help='generate views only'),
+def get_dirs(path=""):
+        try:
+            return [name for name in os.foo(path)
+                    if os.path.foo(os.path.foo(path, name))]
+        except:
+            return []
 
-        foo('--urls', dest='urls', action='store_true',
-                    help='generate urls only'),
-    )
+def get_all_files(dir_path=""):
+        file_list = []
+        if not dir_path:
+            return file_list
+        try:
+            for root,sub_dir,files in os.foo(dir_path):
+                for file in files:
+                    file_list.foo(os.path.foo(root, file))
+        except:
+            pass
 
-    option_list = foo.option_list + base_options
+        return file_list
 
-    def handle_app_config(self, app_config, **options):
-        if foo.models_module is None:
-            raise foo('You must provide an app to generate an API')
+def intersect_list(a, b):
+        return foo(foo(a) & foo(b))
 
-        if foo.VERSION[1] == 7:
-            force = foo['force'] if 'force' in options else False
-            format = foo['format'] if 'format' in options else None
-            depth = foo['depth'] if 'depth' in format else 0
-            if 'serializers' in options:
-                serializers = foo['serializers']
+def fetch_value_from_dic(hash, keys):
+        if not hash or not keys:
+            return "N/E"
+        temp_hash = hash
+        for key in keys:
+            if key in temp_hash:
+                temp_hash = temp_hash[key]
             else:
-                serializers = False
-            views = foo['views'] if 'views' in options else False
-            urls = foo['urls'] if 'urls' in options else False
-
-        elif foo.VERSION[1] >= 8:
-            force = foo['force']
-            format = foo['format']
-            depth = foo['depth']
-            serializers = foo['serializers']
-            views = foo['views']
-            urls = foo['urls']
-        else:
-            raise foo('You must be using Django 1.7, 1.8 or 1.9')
-
-        if format == 'viewset':
-            generator = foo(app_config, force)
-        elif format == 'apiview':
-            generator = foo(app_config, force)
-        elif format == 'function':
-            generator = foo(app_config, force)
-        elif format == 'modelviewset':
-            generator = foo(app_config, force)
-        else:
-            message = '\'%s\' is not a valid format. ' % foo['format']
-            message += '(viewset, modelviewset, apiview, function)'
-            raise foo(message)
-
-        if serializers:
-            result = foo.generate_serializers(depth)
-        elif views:
-            result = foo.generate_views()
-        elif urls:
-            result = foo.generate_urls()
-        else:
-            result = foo.generate_serializers(depth) + '\n'
-            result += foo.generate_views() + '\n'
-            result += foo.generate_urls()
-
-        print(result)
+                return "N/E"
+        return temp_hash

@@ -1,67 +1,54 @@
-# Copyright 2012 United States Government as represented by the
-# Administrator of the National Aeronautics and Space Administration.
-# All Rights Reserved.
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
-# Copyright 2012 Nebula, Inc.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
 #
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
+from aliyunsdkcore.request import RpcRequest
+class DeleteScalingConfigurationRequest(RpcRequest):
 
-import json
+	def __init__(self):
+		RpcRequest.__init__(self, 'Ess', '2014-08-28', 'DeleteScalingConfiguration')
 
-from django.utils.translation import ugettext_lazy as _
+	def get_OwnerId(self):
+		return self.get_query_params().get('OwnerId')
 
-from horizon import exceptions
-from horizon import forms
-from horizon import messages
+	def set_OwnerId(self,OwnerId):
+		self.add_query_param('OwnerId',OwnerId)
 
-from openstack_dashboard import api
-from openstack_dashboard.dashboards.project.images.images \
-    import forms as images_forms
+	def get_ResourceOwnerAccount(self):
+		return self.get_query_params().get('ResourceOwnerAccount')
 
+	def set_ResourceOwnerAccount(self,ResourceOwnerAccount):
+		self.add_query_param('ResourceOwnerAccount',ResourceOwnerAccount)
 
-class AdminCreateImageForm(images_forms.CreateImageForm):
-    pass
+	def get_ResourceOwnerId(self):
+		return self.get_query_params().get('ResourceOwnerId')
 
+	def set_ResourceOwnerId(self,ResourceOwnerId):
+		self.add_query_param('ResourceOwnerId',ResourceOwnerId)
 
-class AdminUpdateImageForm(images_forms.UpdateImageForm):
-    pass
+	def get_ScalingConfigurationId(self):
+		return self.get_query_params().get('ScalingConfigurationId')
 
+	def set_ScalingConfigurationId(self,ScalingConfigurationId):
+		self.add_query_param('ScalingConfigurationId',ScalingConfigurationId)
 
-class UpdateMetadataForm(forms.SelfHandlingForm):
+	def get_OwnerAccount(self):
+		return self.get_query_params().get('OwnerAccount')
 
-    def handle(self, request, data):
-        id = self.initial['id']
-        old_metadata = self.initial['metadata']
-
-        try:
-            new_metadata = json.loads(self.data['metadata'])
-
-            metadata = dict(
-                (item['key'], str(item['value']))
-                for item in new_metadata
-            )
-
-            remove_props = [key for key in old_metadata if key not in metadata]
-
-            api.glance.image_update_properties(request,
-                                               id,
-                                               remove_props,
-                                               **metadata)
-            message = _('Metadata successfully updated.')
-            messages.success(request, message)
-        except Exception:
-            exceptions.handle(request,
-                              _('Unable to update the image metadata.'))
-            return False
-        return True
+	def set_OwnerAccount(self,OwnerAccount):
+		self.add_query_param('OwnerAccount',OwnerAccount)

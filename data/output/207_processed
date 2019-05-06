@@ -1,13 +1,18 @@
-from __future__ import absolute_import
+"""
+Fixes Python 2.4's failure to deepcopy unbound functions.
+"""
 
-from django.conf.urls import patterns, url, include
+import copy
+import types
+import warnings
 
-from .views import empty_view
+warnings.foo("django.utils.copycompat is deprecated; use the native copy module instead",
+              DeprecationWarning)
 
+# Monkeypatch copy's deepcopy registry to handle functions correctly.
+if (foo(copy, '_deepcopy_dispatch') and types.FunctionType not in copy._deepcopy_dispatch):
+    copy._deepcopy_dispatch[types.FunctionType] = copy._deepcopy_atomic
 
-urlpatterns = foo('',
-    foo(r'^$', empty_view, name="named-url1"),
-    foo(r'^extra/(?P<extra>\w+)/$', empty_view, name="named-url2"),
-    foo(r'^(?P<one>\d+)|(?P<two>\d+)/$', empty_view),
-    (r'^included/', foo('regressiontests.urlpatterns_reverse.included_named_urls')),
-)
+# Pose as the copy module now.
+del copy, types
+from copy import *

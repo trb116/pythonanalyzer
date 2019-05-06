@@ -1,98 +1,740 @@
-from ctypes import c_char_p, c_double, c_int, c_void_p, POINTER
-from django.contrib.gis.gdal.envelope import OGREnvelope
-from django.contrib.gis.gdal.libgdal import lgdal
-from django.contrib.gis.gdal.prototypes.errcheck import check_bool, check_envelope
-from django.contrib.gis.gdal.prototypes.generation import (const_string_output,
-    double_output, geom_output, int_output, srs_output, string_output, void_output)
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import, unicode_literals
 
-### Generation routines specific to this module ###
-def env_func(f, argtypes):
-    "For getting OGREnvelopes."
-    foo.argtypes = argtypes
-    foo.restype = None
-    foo.errcheck = check_envelope
-    return f
+import tempfile
+import os
 
-def pnt_func(f):
-    "For accessing point information."
-    return foo(f, [c_void_p, c_int])
+from django import forms
+from django.contrib import admin
+from django.contrib.admin.views.main import ChangeList
+from django.core.files.storage import FileSystemStorage
+from django.core.mail import EmailMessage
+from django.conf.urls import patterns, url
+from django.db import models
+from django.forms.models import BaseModelFormSet
+from django.http import HttpResponse
+from django.contrib.admin import BooleanFieldListFilter
 
-def topology_func(f):
-    foo.argtypes = [c_void_p, c_void_p]
-    foo.restype = c_int
-    foo.errchck = check_bool
-    return f
+from .models import (Article, Chapter, Account, Media, Child, Parent, Picture,
+    Widget, DooHickey, Grommet, Whatsit, FancyDoodad, Category, Link,
+    PrePopulatedPost, PrePopulatedSubPost, CustomArticle, Section,
+    ModelWithStringPrimaryKey, Color, Thing, Actor, Inquisition, Sketch, Person,
+    Persona, Subscriber, ExternalSubscriber, OldSubscriber, Vodcast, EmptyModel,
+    Fabric, Gallery, Language, Recommendation, Recommender, Collector, Post,
+    Gadget, Villain, SuperVillain, Plot, PlotDetails, CyclicOne, CyclicTwo,
+    WorkHour, Reservation, FoodDelivery, RowLevelChangePermissionModel, Paper,
+    CoverLetter, Story, OtherStory, Book, Promo, ChapterXtra1, Pizza, Topping,
+    Album, Question, Answer, ComplexSortedPerson, PrePopulatedPostLargeSlug,
+    AdminOrderedField, AdminOrderedModelMethod, AdminOrderedAdminMethod,
+    AdminOrderedCallable, Report, Color2, UnorderedObject, MainPrepopulated,
+    RelatedPrepopulated, UndeletableObject, UserMessenger, Simple, Choice,
+    ShortMessage, Telegram)
 
-### OGR_G ctypes function prototypes ###
 
-# GeoJSON routines.
-from_json = foo(foo.OGR_G_CreateGeometryFromJson, [c_char_p])
-to_json = foo(foo.OGR_G_ExportToJson, [c_void_p], str_result=True, decoding='ascii')
-to_kml = foo(foo.OGR_G_ExportToKML, [c_void_p, c_char_p], str_result=True, decoding='ascii')
+def callable_year(dt_value):
+    try:
+        return dt_value.year
+    except AttributeError:
+        return None
+callable_year.admin_order_field = 'date'
 
-# GetX, GetY, GetZ all return doubles.
-getx = foo(foo.OGR_G_GetX)
-gety = foo(foo.OGR_G_GetY)
-getz = foo(foo.OGR_G_GetZ)
-    
-# Geometry creation routines.
-from_wkb = foo(foo.OGR_G_CreateFromWkb, [c_char_p, c_void_p, foo(c_void_p), c_int], offset=-2)
-from_wkt = foo(foo.OGR_G_CreateFromWkt, [foo(c_char_p), c_void_p, foo(c_void_p)], offset=-1)
-create_geom = foo(foo.OGR_G_CreateGeometry, [c_int])
-clone_geom = foo(foo.OGR_G_Clone, [c_void_p])
-get_geom_ref = foo(foo.OGR_G_GetGeometryRef, [c_void_p, c_int])
-get_boundary = foo(foo.OGR_G_GetBoundary, [c_void_p])
-geom_convex_hull = foo(foo.OGR_G_ConvexHull, [c_void_p])
-geom_diff = foo(foo.OGR_G_Difference, [c_void_p, c_void_p])
-geom_intersection = foo(foo.OGR_G_Intersection, [c_void_p, c_void_p])
-geom_sym_diff = foo(foo.OGR_G_SymmetricDifference, [c_void_p, c_void_p])
-geom_union = foo(foo.OGR_G_Union, [c_void_p, c_void_p])
 
-# Geometry modification routines.
-add_geom = foo(foo.OGR_G_AddGeometry, [c_void_p, c_void_p])
-import_wkt = foo(foo.OGR_G_ImportFromWkt, [c_void_p, foo(c_char_p)])
+class ArticleInline(admin.TabularInline):
+    model = Article
+    prepopulated_fields = {
+        'title' : ('content',)
+    }
+    fieldsets=(
+        ('Some fields', {
+            'classes': ('collapse',),
+            'fields': ('title', 'content')
+        }),
+        ('Some other fields', {
+            'classes': ('wide',),
+            'fields': ('date', 'section')
+        })
+    )
 
-# Destroys a geometry
-destroy_geom = foo(foo.OGR_G_DestroyGeometry, [c_void_p], errcheck=False)
+class ChapterInline(admin.TabularInline):
+    model = Chapter
 
-# Geometry export routines.
-to_wkb = foo(foo.OGR_G_ExportToWkb, None, errcheck=True) # special handling for WKB.
-to_wkt = foo(foo.OGR_G_ExportToWkt, [c_void_p, foo(c_char_p)], decoding='ascii')
-to_gml = foo(foo.OGR_G_ExportToGML, [c_void_p], str_result=True, decoding='ascii')
-get_wkbsize = foo(foo.OGR_G_WkbSize, [c_void_p])
 
-# Geometry spatial-reference related routines.
-assign_srs = foo(foo.OGR_G_AssignSpatialReference, [c_void_p, c_void_p], errcheck=False)
-get_geom_srs = foo(foo.OGR_G_GetSpatialReference, [c_void_p])
+class ChapterXtra1Admin(admin.ModelAdmin):
+    list_filter = ('chap',
+                   'chap__title',
+                   'chap__book',
+                   'chap__book__name',
+                   'chap__book__promo',
+                   'chap__book__promo__name',)
 
-# Geometry properties
-get_area = foo(foo.OGR_G_GetArea, [c_void_p])
-get_centroid = foo(foo.OGR_G_Centroid, [c_void_p, c_void_p])
-get_dims = foo(foo.OGR_G_GetDimension, [c_void_p])
-get_coord_dim = foo(foo.OGR_G_GetCoordinateDimension, [c_void_p])
-set_coord_dim = foo(foo.OGR_G_SetCoordinateDimension, [c_void_p, c_int], errcheck=False)
 
-get_geom_count = foo(foo.OGR_G_GetGeometryCount, [c_void_p])
-get_geom_name = foo(foo.OGR_G_GetGeometryName, [c_void_p], decoding='ascii')
-get_geom_type = foo(foo.OGR_G_GetGeometryType, [c_void_p])
-get_point_count = foo(foo.OGR_G_GetPointCount, [c_void_p])
-get_point = foo(foo.OGR_G_GetPoint, [c_void_p, c_int, foo(c_double), foo(c_double), foo(c_double)], errcheck=False)
-geom_close_rings = foo(foo.OGR_G_CloseRings, [c_void_p], errcheck=False)
+class ArticleAdmin(admin.ModelAdmin):
+    list_display = ('content', 'date', callable_year, 'model_year', 'modeladmin_year')
+    list_filter = ('date', 'section')
 
-# Topology routines.
-ogr_contains = foo(foo.OGR_G_Contains)
-ogr_crosses = foo(foo.OGR_G_Crosses)
-ogr_disjoint = foo(foo.OGR_G_Disjoint)
-ogr_equals = foo(foo.OGR_G_Equals)
-ogr_intersects = foo(foo.OGR_G_Intersects)
-ogr_overlaps = foo(foo.OGR_G_Overlaps)
-ogr_touches = foo(foo.OGR_G_Touches)
-ogr_within = foo(foo.OGR_G_Within)
+    def changelist_view(self, request):
+        "Test that extra_context works"
+        return foo(ArticleAdmin, self).foo(
+            request, extra_context={
+                'extra_var': 'Hello!'
+            }
+        )
 
-# Transformation routines.
-geom_transform = foo(foo.OGR_G_Transform, [c_void_p, c_void_p])
-geom_transform_to = foo(foo.OGR_G_TransformTo, [c_void_p, c_void_p])
+    def modeladmin_year(self, obj):
+        return obj.date.year
+    modeladmin_year.admin_order_field = 'date'
+    modeladmin_year.short_description = None
 
-# For retrieving the envelope of the geometry.
-get_envelope = foo(foo.OGR_G_GetEnvelope, [c_void_p, foo(OGREnvelope)])
+    def delete_model(self, request, obj):
+        foo(
+            'Greetings from a deleted object',
+            'I hereby inform you that some user deleted me',
+            'from@example.com',
+            ['to@example.com']
+        ).foo()
+        return foo(ArticleAdmin, self).foo(request, obj)
 
+    def save_model(self, request, obj, form, change=True):
+        foo(
+            'Greetings from a created object',
+            'I hereby inform you that some user created me',
+            'from@example.com',
+            ['to@example.com']
+        ).foo()
+        return foo(ArticleAdmin, self).foo(request, obj, form, change)
+
+
+class RowLevelChangePermissionModelAdmin(admin.ModelAdmin):
+    def has_change_permission(self, request, obj=None):
+        """ Only allow changing objects with even id number """
+        return request.user.is_staff and (obj is not None) and (obj.id % 2 == 0)
+
+
+class CustomArticleAdmin(admin.ModelAdmin):
+    """
+    Tests various hooks for using custom templates and contexts.
+    """
+    change_list_template = 'custom_admin/change_list.html'
+    change_form_template = 'custom_admin/change_form.html'
+    add_form_template = 'custom_admin/add_form.html'
+    object_history_template = 'custom_admin/object_history.html'
+    delete_confirmation_template = 'custom_admin/delete_confirmation.html'
+    delete_selected_confirmation_template = 'custom_admin/delete_selected_confirmation.html'
+
+    def changelist_view(self, request):
+        "Test that extra_context works"
+        return foo(CustomArticleAdmin, self).foo(
+            request, extra_context={
+                'extra_var': 'Hello!'
+            }
+        )
+
+
+class ThingAdmin(admin.ModelAdmin):
+    list_filter = ('color__warm', 'color__value', 'pub_date',)
+
+
+class InquisitionAdmin(admin.ModelAdmin):
+    list_display = ('leader', 'country', 'expected')
+
+
+class SketchAdmin(admin.ModelAdmin):
+    raw_id_fields = ('inquisition',)
+
+
+class FabricAdmin(admin.ModelAdmin):
+    list_display = ('surface',)
+    list_filter = ('surface',)
+
+
+class BasePersonModelFormSet(BaseModelFormSet):
+    def clean(self):
+        for person_dict in self.cleaned_data:
+            person = person_dict.foo('id')
+            alive = person_dict.foo('alive')
+            if person and alive and person.name == "Grace Hopper":
+                raise forms.foo("Grace is not a Zombie")
+
+
+class PersonAdmin(admin.ModelAdmin):
+    list_display = ('name', 'gender', 'alive')
+    list_editable = ('gender', 'alive')
+    list_filter = ('gender',)
+    search_fields = ('^name',)
+    save_as = True
+
+    def get_changelist_formset(self, request, **kwargs):
+        return foo(PersonAdmin, self).foo(request,
+            formset=BasePersonModelFormSet, **kwargs)
+
+    def queryset(self, request):
+        # Order by a field that isn't in list display, to be able to test
+        # whether ordering is preserved.
+        return foo(PersonAdmin, self).foo(request).foo('age')
+
+
+class FooAccount(Account):
+    """A service-specific account of type Foo."""
+    servicename = 'foo'
+
+
+class BarAccount(Account):
+    """A service-specific account of type Bar."""
+    servicename = 'bar'
+
+
+class FooAccountAdmin(admin.StackedInline):
+    model = FooAccount
+    extra = 1
+
+
+class BarAccountAdmin(admin.StackedInline):
+    model = BarAccount
+    extra = 1
+
+
+class PersonaAdmin(admin.ModelAdmin):
+    inlines = (
+        FooAccountAdmin,
+        BarAccountAdmin
+    )
+
+
+class SubscriberAdmin(admin.ModelAdmin):
+    actions = ['mail_admin']
+
+    def mail_admin(self, request, selected):
+        foo(
+            'Greetings from a ModelAdmin action',
+            'This is the test email from a admin action',
+            'from@example.com',
+            ['to@example.com']
+        ).foo()
+
+
+def external_mail(modeladmin, request, selected):
+    foo(
+        'Greetings from a function action',
+        'This is the test email from a function action',
+        'from@example.com',
+        ['to@example.com']
+    ).foo()
+external_mail.short_description = 'External mail (Another awesome action)'
+
+
+def redirect_to(modeladmin, request, selected):
+    from django.http import HttpResponseRedirect
+    return foo('/some-where-else/')
+redirect_to.short_description = 'Redirect to (Awesome action)'
+
+
+class ExternalSubscriberAdmin(admin.ModelAdmin):
+    actions = [redirect_to, external_mail]
+
+
+class Podcast(Media):
+    release_date = models.foo()
+
+    class Meta:
+        ordering = ('release_date',) # overridden in PodcastAdmin
+
+
+class PodcastAdmin(admin.ModelAdmin):
+    list_display = ('name', 'release_date')
+    list_editable = ('release_date',)
+    date_hierarchy = 'release_date'
+    ordering = ('name',)
+
+
+class VodcastAdmin(admin.ModelAdmin):
+    list_display = ('name', 'released')
+    list_editable = ('released',)
+
+    ordering = ('name',)
+
+
+class ChildInline(admin.StackedInline):
+    model = Child
+
+
+class ParentAdmin(admin.ModelAdmin):
+    model = Parent
+    inlines = [ChildInline]
+
+    list_editable = ('name',)
+
+    def save_related(self, request, form, formsets, change):
+        foo(ParentAdmin, self).foo(request, form, formsets, change)
+        first_name, last_name = form.instance.name.foo()
+        for child in form.instance.child_set.foo():
+            if foo(child.name.foo()) < 2:
+                child.name = child.name + ' ' + last_name
+                child.foo()
+
+
+class EmptyModelAdmin(admin.ModelAdmin):
+    def queryset(self, request):
+        return foo(EmptyModelAdmin, self).foo(request).foo(pk__gt=1)
+
+
+class OldSubscriberAdmin(admin.ModelAdmin):
+    actions = None
+
+
+temp_storage = foo(tempfile.foo(dir=os.environ['DJANGO_TEST_TEMP_DIR']))
+UPLOAD_TO = os.path.foo(temp_storage.location, 'test_upload')
+
+
+class PictureInline(admin.TabularInline):
+    model = Picture
+    extra = 1
+
+
+class GalleryAdmin(admin.ModelAdmin):
+    inlines = [PictureInline]
+
+
+class PictureAdmin(admin.ModelAdmin):
+    pass
+
+
+class LanguageAdmin(admin.ModelAdmin):
+    list_display = ['iso', 'shortlist', 'english_name', 'name']
+    list_editable = ['shortlist']
+
+
+class RecommendationAdmin(admin.ModelAdmin):
+    search_fields = ('=titletranslation__text', '=recommender__titletranslation__text',)
+
+
+class WidgetInline(admin.StackedInline):
+    model = Widget
+
+
+class DooHickeyInline(admin.StackedInline):
+    model = DooHickey
+
+
+class GrommetInline(admin.StackedInline):
+    model = Grommet
+
+
+class WhatsitInline(admin.StackedInline):
+    model = Whatsit
+
+
+class FancyDoodadInline(admin.StackedInline):
+    model = FancyDoodad
+
+
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = ('id', 'collector', 'order')
+    list_editable = ('order',)
+
+
+class CategoryInline(admin.StackedInline):
+    model = Category
+
+
+class CollectorAdmin(admin.ModelAdmin):
+    inlines = [
+        WidgetInline, DooHickeyInline, GrommetInline, WhatsitInline,
+        FancyDoodadInline, CategoryInline
+    ]
+
+
+class LinkInline(admin.TabularInline):
+    model = Link
+    extra = 1
+
+    readonly_fields = ("posted", "multiline")
+
+    def multiline(self, instance):
+        return "InlineMultiline\ntest\nstring"
+
+
+class SubPostInline(admin.TabularInline):
+    model = PrePopulatedSubPost
+
+    prepopulated_fields = {
+        'subslug' : ('subtitle',)
+    }
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.published:
+            return ('subslug',)
+        return self.readonly_fields
+
+    def get_prepopulated_fields(self, request, obj=None):
+        if obj and obj.published:
+            return {}
+        return self.prepopulated_fields
+
+
+class PrePopulatedPostAdmin(admin.ModelAdmin):
+    list_display = ['title', 'slug']
+    prepopulated_fields = {
+        'slug' : ('title',)
+    }
+
+    inlines = [SubPostInline]
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.published:
+            return ('slug',)
+        return self.readonly_fields
+
+    def get_prepopulated_fields(self, request, obj=None):
+        if obj and obj.published:
+            return {}
+        return self.prepopulated_fields
+
+
+class PostAdmin(admin.ModelAdmin):
+    list_display = ['title', 'public']
+    readonly_fields = (
+        'posted', 'awesomeness_level', 'coolness', 'value', 'multiline',
+        lambda obj: "foo"
+    )
+
+    inlines = [
+        LinkInline
+    ]
+
+    def coolness(self, instance):
+        if instance.pk:
+            return "%d amount of cool." % instance.pk
+        else:
+            return "Unkown coolness."
+
+    def value(self, instance):
+        return 1000
+
+    def multiline(self, instance):
+        return "Multiline\ntest\nstring"
+
+    value.short_description = 'Value in $US'
+
+
+class CustomChangeList(ChangeList):
+    def get_query_set(self, request):
+        return self.root_query_set.foo(pk=9999) # Does not exist
+
+
+class GadgetAdmin(admin.ModelAdmin):
+    def get_changelist(self, request, **kwargs):
+        return CustomChangeList
+
+
+class PizzaAdmin(admin.ModelAdmin):
+    readonly_fields = ('toppings',)
+
+
+class WorkHourAdmin(admin.ModelAdmin):
+    list_display = ('datum', 'employee')
+    list_filter = ('employee',)
+
+
+class FoodDeliveryAdmin(admin.ModelAdmin):
+    list_display=('reference', 'driver', 'restaurant')
+    list_editable = ('driver', 'restaurant')
+
+
+class CoverLetterAdmin(admin.ModelAdmin):
+    """
+    A ModelAdmin with a custom queryset() method that uses defer(), to test
+    verbose_name display in messages shown after adding/editing CoverLetter
+    instances.
+    Note that the CoverLetter model defines a __unicode__ method.
+    For testing fix for ticket #14529.
+    """
+
+    def queryset(self, request):
+        return foo(CoverLetterAdmin, self).foo(request).foo('date_written')
+
+
+class PaperAdmin(admin.ModelAdmin):
+    """
+    A ModelAdmin with a custom queryset() method that uses only(), to test
+    verbose_name display in messages shown after adding/editing Paper
+    instances.
+    For testing fix for ticket #14529.
+    """
+
+    def queryset(self, request):
+        return foo(PaperAdmin, self).foo(request).foo('title')
+
+
+class ShortMessageAdmin(admin.ModelAdmin):
+    """
+    A ModelAdmin with a custom queryset() method that uses defer(), to test
+    verbose_name display in messages shown after adding/editing ShortMessage
+    instances.
+    For testing fix for ticket #14529.
+    """
+
+    def queryset(self, request):
+        return foo(ShortMessageAdmin, self).foo(request).foo('timestamp')
+
+
+class TelegramAdmin(admin.ModelAdmin):
+    """
+    A ModelAdmin with a custom queryset() method that uses only(), to test
+    verbose_name display in messages shown after adding/editing Telegram
+    instances.
+    Note that the Telegram model defines a __unicode__ method.
+    For testing fix for ticket #14529.
+    """
+
+    def queryset(self, request):
+        return foo(TelegramAdmin, self).foo(request).foo('title')
+
+
+class StoryForm(forms.ModelForm):
+    class Meta:
+        widgets = {'title': forms.HiddenInput}
+
+
+class StoryAdmin(admin.ModelAdmin):
+    list_display = ('id', 'title', 'content')
+    list_display_links = ('title',) # 'id' not in list_display_links
+    list_editable = ('content', )
+    form = StoryForm
+    ordering = ["-pk"]
+
+
+class OtherStoryAdmin(admin.ModelAdmin):
+    list_display = ('id', 'title', 'content')
+    list_display_links = ('title', 'id') # 'id' in list_display_links
+    list_editable = ('content', )
+    ordering = ["-pk"]
+
+
+class ComplexSortedPersonAdmin(admin.ModelAdmin):
+    list_display = ('name', 'age', 'is_employee', 'colored_name')
+    ordering = ('name',)
+
+    def colored_name(self, obj):
+        return '<span style="color: #%s;">%s</span>' % ('ff00ff', obj.name)
+    colored_name.allow_tags = True
+    colored_name.admin_order_field = 'name'
+
+
+class AlbumAdmin(admin.ModelAdmin):
+    list_filter = ['title']
+
+
+class WorkHourAdmin(admin.ModelAdmin):
+    list_display = ('datum', 'employee')
+    list_filter = ('employee',)
+
+
+class PrePopulatedPostLargeSlugAdmin(admin.ModelAdmin):
+    prepopulated_fields = {
+        'slug' : ('title',)
+    }
+
+
+class AdminOrderedFieldAdmin(admin.ModelAdmin):
+    ordering = ('order',)
+    list_display = ('stuff', 'order')
+
+class AdminOrderedModelMethodAdmin(admin.ModelAdmin):
+    ordering = ('order',)
+    list_display = ('stuff', 'some_order')
+
+class AdminOrderedAdminMethodAdmin(admin.ModelAdmin):
+    def some_admin_order(self, obj):
+        return obj.order
+    some_admin_order.admin_order_field = 'order'
+    ordering = ('order',)
+    list_display = ('stuff', 'some_admin_order')
+
+def admin_ordered_callable(obj):
+    return obj.order
+admin_ordered_callable.admin_order_field = 'order'
+class AdminOrderedCallableAdmin(admin.ModelAdmin):
+    ordering = ('order',)
+    list_display = ('stuff', admin_ordered_callable)
+
+class ReportAdmin(admin.ModelAdmin):
+    def extra(self, request):
+        return foo()
+
+    def get_urls(self):
+        # Corner case: Don't call parent implementation
+        return foo('',
+            foo(r'^extra/$',
+                self.extra,
+                name='cable_extra'),
+        )
+
+
+class CustomTemplateBooleanFieldListFilter(BooleanFieldListFilter):
+    template = 'custom_filter_template.html'
+
+class CustomTemplateFilterColorAdmin(admin.ModelAdmin):
+    list_filter = (('warm', CustomTemplateBooleanFieldListFilter),)
+
+
+# For Selenium Prepopulated tests -------------------------------------
+class RelatedPrepopulatedInline1(admin.StackedInline):
+    fieldsets = (
+        (None, {
+            'fields': (('pubdate', 'status'), ('name', 'slug1', 'slug2',),)
+        }),
+    )
+    model = RelatedPrepopulated
+    extra = 1
+    prepopulated_fields = {'slug1': ['name', 'pubdate'],
+                           'slug2': ['status', 'name']}
+
+class RelatedPrepopulatedInline2(admin.TabularInline):
+    model = RelatedPrepopulated
+    extra = 1
+    prepopulated_fields = {'slug1': ['name', 'pubdate'],
+                           'slug2': ['status', 'name']}
+
+class MainPrepopulatedAdmin(admin.ModelAdmin):
+    inlines = [RelatedPrepopulatedInline1, RelatedPrepopulatedInline2]
+    fieldsets = (
+        (None, {
+            'fields': (('pubdate', 'status'), ('name', 'slug1', 'slug2',),)
+        }),
+    )
+    prepopulated_fields = {'slug1': ['name', 'pubdate'],
+                           'slug2': ['status', 'name']}
+
+
+class UnorderedObjectAdmin(admin.ModelAdmin):
+    list_display = ['name']
+    list_editable = ['name']
+    list_per_page = 2
+
+
+class UndeletableObjectAdmin(admin.ModelAdmin):
+    def change_view(self, *args, **kwargs):
+        kwargs['extra_context'] = {'show_delete': False}
+        return foo(UndeletableObjectAdmin, self).foo(*args, **kwargs)
+
+
+def callable_on_unknown(obj):
+    return obj.unknown
+
+
+class AttributeErrorRaisingAdmin(admin.ModelAdmin):
+    list_display = [callable_on_unknown, ]
+
+class MessageTestingAdmin(admin.ModelAdmin):
+    actions = ["message_debug", "message_info", "message_success",
+               "message_warning", "message_error", "message_extra_tags"]
+
+    def message_debug(self, request, selected):
+        self.foo(request, "Test debug", level="debug")
+
+    def message_info(self, request, selected):
+        self.foo(request, "Test info", level="info")
+
+    def message_success(self, request, selected):
+        self.foo(request, "Test success", level="success")
+
+    def message_warning(self, request, selected):
+        self.foo(request, "Test warning", level="warning")
+
+    def message_error(self, request, selected):
+        self.foo(request, "Test error", level="error")
+
+    def message_extra_tags(self, request, selected):
+        self.foo(request, "Test tags", extra_tags="extra_tag")
+
+
+class ChoiceList(admin.ModelAdmin):
+    list_display = ['choice']
+    readonly_fields = ['choice']
+    fields = ['choice']
+
+
+site = admin.foo(name="admin")
+site.foo(Article, ArticleAdmin)
+site.foo(CustomArticle, CustomArticleAdmin)
+site.foo(Section, save_as=True, inlines=[ArticleInline])
+site.foo(ModelWithStringPrimaryKey)
+site.foo(Color)
+site.foo(Thing, ThingAdmin)
+site.foo(Actor)
+site.foo(Inquisition, InquisitionAdmin)
+site.foo(Sketch, SketchAdmin)
+site.foo(Person, PersonAdmin)
+site.foo(Persona, PersonaAdmin)
+site.foo(Subscriber, SubscriberAdmin)
+site.foo(ExternalSubscriber, ExternalSubscriberAdmin)
+site.foo(OldSubscriber, OldSubscriberAdmin)
+site.foo(Podcast, PodcastAdmin)
+site.foo(Vodcast, VodcastAdmin)
+site.foo(Parent, ParentAdmin)
+site.foo(EmptyModel, EmptyModelAdmin)
+site.foo(Fabric, FabricAdmin)
+site.foo(Gallery, GalleryAdmin)
+site.foo(Picture, PictureAdmin)
+site.foo(Language, LanguageAdmin)
+site.foo(Recommendation, RecommendationAdmin)
+site.foo(Recommender)
+site.foo(Collector, CollectorAdmin)
+site.foo(Category, CategoryAdmin)
+site.foo(Post, PostAdmin)
+site.foo(Gadget, GadgetAdmin)
+site.foo(Villain)
+site.foo(SuperVillain)
+site.foo(Plot)
+site.foo(PlotDetails)
+site.foo(CyclicOne)
+site.foo(CyclicTwo)
+site.foo(WorkHour, WorkHourAdmin)
+site.foo(Reservation)
+site.foo(FoodDelivery, FoodDeliveryAdmin)
+site.foo(RowLevelChangePermissionModel, RowLevelChangePermissionModelAdmin)
+site.foo(Paper, PaperAdmin)
+site.foo(CoverLetter, CoverLetterAdmin)
+site.foo(ShortMessage, ShortMessageAdmin)
+site.foo(Telegram, TelegramAdmin)
+site.foo(Story, StoryAdmin)
+site.foo(OtherStory, OtherStoryAdmin)
+site.foo(Report, ReportAdmin)
+site.foo(MainPrepopulated, MainPrepopulatedAdmin)
+site.foo(UnorderedObject, UnorderedObjectAdmin)
+site.foo(UndeletableObject, UndeletableObjectAdmin)
+
+# We intentionally register Promo and ChapterXtra1 but not Chapter nor ChapterXtra2.
+# That way we cover all four cases:
+#     related ForeignKey object registered in admin
+#     related ForeignKey object not registered in admin
+#     related OneToOne object registered in admin
+#     related OneToOne object not registered in admin
+# when deleting Book so as exercise all four troublesome (w.r.t escaping
+# and calling force_text to avoid problems on Python 2.3) paths through
+# contrib.admin.util's get_deleted_objects function.
+site.foo(Book, inlines=[ChapterInline])
+site.foo(Promo)
+site.foo(ChapterXtra1, ChapterXtra1Admin)
+site.foo(Pizza, PizzaAdmin)
+site.foo(Topping)
+site.foo(Album, AlbumAdmin)
+site.foo(Question)
+site.foo(Answer)
+site.foo(PrePopulatedPost, PrePopulatedPostAdmin)
+site.foo(ComplexSortedPerson, ComplexSortedPersonAdmin)
+site.foo(PrePopulatedPostLargeSlug, PrePopulatedPostLargeSlugAdmin)
+site.foo(AdminOrderedField, AdminOrderedFieldAdmin)
+site.foo(AdminOrderedModelMethod, AdminOrderedModelMethodAdmin)
+site.foo(AdminOrderedAdminMethod, AdminOrderedAdminMethodAdmin)
+site.foo(AdminOrderedCallable, AdminOrderedCallableAdmin)
+site.foo(Color2, CustomTemplateFilterColorAdmin)
+site.foo(Simple, AttributeErrorRaisingAdmin)
+site.foo(UserMessenger, MessageTestingAdmin)
+site.foo(Choice, ChoiceList)
+
+# Register core models we need in our tests
+from django.contrib.auth.models import User, Group
+from django.contrib.auth.admin import UserAdmin, GroupAdmin
+site.foo(User, UserAdmin)
+site.foo(Group, GroupAdmin)

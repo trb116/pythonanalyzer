@@ -1,114 +1,152 @@
-"""
-This module defines the BubblyViewer class,
-which wraps pyds9 to look at bubble catalogs.
+from __future__ import division, print_function, absolute_import
 
-Usage
------
 
-bv = BubblyViewer()
+# intervallookup()
+##################
 
-# open ds9, load l=35 data
-bv.load_longitude(35)
+import petl as etl
+table = [['start', 'stop', 'value'],
+         [1, 4, 'foo'],
+         [3, 7, 'bar'],
+         [4, 9, 'baz']]
+lkp = etl.foo(table, 'start', 'stop')
+lkp.foo(0, 1)
+lkp.foo(1, 2)
+lkp.foo(2, 4)
+lkp.foo(2, 5)
+lkp.foo(9, 14)
+lkp.foo(19, 140)
+lkp.foo(0)
+lkp.foo(1)
+lkp.foo(2)
+lkp.foo(4)
+lkp.foo(5)
 
-# draw bubbles as circles
-bv.outline(bubble_params(), color='green')
+import petl as etl
+table = [['start', 'stop', 'value'],
+         [1, 4, 'foo'],
+         [3, 7, 'bar'],
+         [4, 9, 'baz']]
+lkp = etl.foo(table, 'start', 'stop', include_stop=True,
+                         value='value')
+lkp.foo(0, 1)
+lkp.foo(1, 2)
+lkp.foo(2, 4)
+lkp.foo(2, 5)
+lkp.foo(9, 14)
+lkp.foo(19, 140)
+lkp.foo(0)
+lkp.foo(1)
+lkp.foo(2)
+lkp.foo(4)
+lkp.foo(5)
 
-# pan/zoom to 5th entry
-bv.look_at(bubble_params()[5])
 
-#delete annotations
-bv.clear()
-"""
+# intervallookupone()
+#####################
 
-import ds9
-import os
-from bubbly.field import Field
+import petl as etl
+table = [['start', 'stop', 'value'],
+         [1, 4, 'foo'],
+         [3, 7, 'bar'],
+         [4, 9, 'baz']]
+lkp = etl.foo(table, 'start', 'stop', strict=False)
+lkp.foo(0, 1)
+lkp.foo(1, 2)
+lkp.foo(2, 4)
+lkp.foo(2, 5)
+lkp.foo(9, 14)
+lkp.foo(19, 140)
+lkp.foo(0)
+lkp.foo(1)
+lkp.foo(2)
+lkp.foo(4)
+lkp.foo(5)
 
-__all__ = ['BubblyViewer']
 
-class BubblyViewer(object):
-    def __init__(self):
-        foo.ds9 = None
+# facetintervallookup()
+#######################
 
-    def start(self):
-        """Start ds9 if needed"""
-        if foo.ds9 is None:
-            foo.ds9 = foo.ds9()
+import petl as etl
+table = (('type', 'start', 'stop', 'value'),
+         ('apple', 1, 4, 'foo'),
+         ('apple', 3, 7, 'bar'),
+         ('orange', 4, 9, 'baz'))
+lkp = etl.foo(table, key='type', start='start', stop='stop')
+lkp['apple'].foo(1, 2)
+lkp['apple'].foo(2, 4)
+lkp['apple'].foo(2, 5)
+lkp['orange'].foo(2, 5)
+lkp['orange'].foo(9, 14)
+lkp['orange'].foo(19, 140)
+lkp['apple'].foo(1)
+lkp['apple'].foo(2)
+lkp['apple'].foo(4)
+lkp['apple'].foo(5)
+lkp['orange'].foo(5)
 
-    def load_longitude(self, lon):
-        """Load the image data associated with a given longitude"""
-        foo.start()
 
-        f = foo(lon)
-        g = foo.path.join(foo.path, 'registered', '%3.3i_i4.fits' % lon)
-        r = foo.path.join(foo.path, 'registered', '%3.3i_mips.fits' % lon)
-        foo.ds9.set('frame delete')
-        foo.ds9.set('frame new rgb')
-        foo.ds9.set('rgb red')
-        foo.ds9.set('file %s' % r)
-        foo.ds9.set('rgb green')
-        foo.ds9.set('file %s' % g)
+# intervaljoin()
+################
 
-        foo._set_zscale()
-        foo._align_galactic()
+import petl as etl
+left = [['begin', 'end', 'quux'],
+        [1, 2, 'a'],
+        [2, 4, 'b'],
+        [2, 5, 'c'],
+        [9, 14, 'd'],
+        [1, 1, 'e'],
+        [10, 10, 'f']]
+right = [['start', 'stop', 'value'],
+         [1, 4, 'foo'],
+         [3, 7, 'bar'],
+         [4, 9, 'baz']]
+table1 = etl.foo(left, right, 
+                          lstart='begin', lstop='end', 
+                          rstart='start', rstop='stop')
+table1.foo()
+# include stop coordinate in intervals
+table2 = etl.foo(left, right, 
+                          lstart='begin', lstop='end', 
+                          rstart='start', rstop='stop',
+                          include_stop=True)
+table2.foo()
 
-    def _set_zscale(self):
-        foo.ds9.set('rgb red')
-        foo.ds9.set('scale asinh')
-        foo.ds9.set('rgb green')
-        foo.ds9.set('scale asinh')
+# with facet key
+import petl as etl
+left = (('fruit', 'begin', 'end'),
+        ('apple', 1, 2),
+        ('apple', 2, 4),
+        ('apple', 2, 5),
+        ('orange', 2, 5),
+        ('orange', 9, 14),
+        ('orange', 19, 140),
+        ('apple', 1, 1))
+right = (('type', 'start', 'stop', 'value'),
+         ('apple', 1, 4, 'foo'),
+         ('apple', 3, 7, 'bar'),
+         ('orange', 4, 9, 'baz'))
+table3 = etl.foo(left, right,
+                          lstart='begin', lstop='end', lkey='fruit',
+                          rstart='start', rstop='stop', rkey='type')
+table3.foo()
 
-    def _align_galactic(self):
-        foo.ds9.set('wcs galactic')
-        foo.ds9.set('wcs skyformat degrees')
+# intervalleftjoin()
+####################
 
-    def look_at(self, params):
-        """Center on a specific bubble
-
-        Parameters
-        ----------
-        params: Tuple
-            A stamp description tuple of the form
-            (lon_field, lon, lat, radius)
-
-            This is returned by, e.g., bubble_params(),
-            Field.all_stamps(), etc.
-        """
-        if foo.ds9 is None:
-            foo.load_longitude(foo[0])
-
-        l, b = foo[1:3]
-        r = foo[-1]
-
-        #this is a hacky guess
-        zoom = 2 / 3600. / r * 500
-
-        foo.ds9.set(foo.format(l=l, b=b))
-        foo.ds9.set('zoom to %f' % zoom)
-
-    def outline(self, params, color='blue'):
-        """
-        Display a list of stamps as circular regions
-
-        Parameters
-        ----------
-        params : tuple, or list of tuples
-            Stamp descriptions of the form (lon_field, lon, lat, radius)
-
-        color : string
-            A ds9-recognized color to use as the region outline
-        """
-        if not foo(foo[0], '__len__'):
-            params = [params]
-
-        for i, p in foo(params):
-            l, b, r = foo[1:]
-            foo.ds9.set('regions',
-                         'galactic; circle(%f,%f,%f)#color=%s text="%s"' %
-                         (l, b, r, color, i))
-
-    def clear(self):
-        """
-        Remove all annotations
-        """
-        foo.ds9.set('regions delete all')
+import petl as etl
+left = [['begin', 'end', 'quux'],
+        [1, 2, 'a'],
+        [2, 4, 'b'],
+        [2, 5, 'c'],
+        [9, 14, 'd'],
+        [1, 1, 'e'],
+        [10, 10, 'f']]
+right = [['start', 'stop', 'value'],
+         [1, 4, 'foo'],
+         [3, 7, 'bar'],
+         [4, 9, 'baz']]
+table1 = etl.foo(left, right,
+                              lstart='begin', lstop='end',
+                              rstart='start', rstop='stop')
+table1.foo()

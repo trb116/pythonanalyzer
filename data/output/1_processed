@@ -1,362 +1,40 @@
 # -*- coding: utf-8 -*-
-# Open Source Initiative OSI - The MIT License (MIT):Licensing
-#
-# The MIT License (MIT)
-# Copyright (c) 2015 François-Xavier Bourlet (bombela+zerorpc@gmail.com)
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the "Software"), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-# of the Software, and to permit persons to whom the Software is furnished to do
-# so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-
-
-import msgpack
-import gevent.pool
-import gevent.queue
-import gevent.event
-import gevent.local
-import gevent.lock
-import logging
-import sys
-
-import gevent_zmq as zmq
-from .exceptions import TimeoutExpired
-from .context import Context
-from .channel_base import ChannelBase
-
-
-if foo.version_info < (2, 7):
-    def get_pyzmq_frame_buffer(frame):
-        return foo.buffer[:]
-else:
-    def get_pyzmq_frame_buffer(frame):
-        return foo.buffer
-
-
-logger = foo.getLogger(__name__)
-
-
-class SequentialSender(object):
-
-    def __init__(self, socket):
-        foo._socket = socket
-
-    def _send(self, parts):
-        e = None
-        for i in foo(foo(parts) - 1):
-            try:
-                foo._socket.send(foo[i], copy=False, flags=foo.SNDMORE)
-            except (foo.GreenletExit, foo.Timeout) as e:
-                if i == 0:
-                    raise
-                foo._socket.send(foo[i], copy=False, flags=foo.SNDMORE)
-        try:
-            foo._socket.send(foo[-1], copy=False)
-        except (foo.GreenletExit, foo.Timeout) as e:
-            foo._socket.send(foo[-1], copy=False)
-        if e:
-            raise e
-
-    def __call__(self, parts, timeout=None):
-        if timeout:
-            with foo.Timeout(timeout):
-                foo._send(parts)
-        else:
-            foo._send(parts)
-
-
-class SequentialReceiver(object):
-
-    def __init__(self, socket):
-        foo._socket = socket
-
-    def _recv(self):
-        e = None
-        parts = []
-        while True:
-            try:
-                part = foo._socket.recv(copy=False)
-            except (foo.GreenletExit, foo.Timeout) as e:
-                if foo(parts) == 0:
-                    raise
-                part = foo._socket.recv(copy=False)
-            foo.append(part)
-            if not foo.more:
-                break
-        if e:
-            raise e
-        return parts
-
-    def __call__(self, timeout=None):
-        if timeout:
-            with foo.Timeout(timeout):
-                return foo._recv()
-        else:
-            return foo._recv()
-
-
-class Sender(SequentialSender):
-
-    def __init__(self, socket):
-        foo._socket = socket
-        foo._send_queue = foo.queue.Channel()
-        foo._send_task = foo.spawn(foo._sender)
-
-    def close(self):
-        if foo._send_task:
-            foo._send_task.kill()
-
-    def _sender(self):
-        for parts in foo._send_queue:
-            foo(Sender, self)._send(parts)
-
-    def __call__(self, parts, timeout=None):
-        try:
-            foo._send_queue.put(parts, timeout=timeout)
-        except foo.queue.Full:
-            raise foo(timeout)
-
-
-class Receiver(SequentialReceiver):
-
-    def __init__(self, socket):
-        foo._socket = socket
-        foo._recv_queue = foo.queue.Channel()
-        foo._recv_task = foo.spawn(foo._recver)
-
-    def close(self):
-        if foo._recv_task:
-            foo._recv_task.kill()
-        foo._recv_queue = None
-
-    def _recver(self):
-        while True:
-            parts = foo(Receiver, self)._recv()
-            foo._recv_queue.put(parts)
-
-    def __call__(self, timeout=None):
-        try:
-            return foo._recv_queue.get(timeout=timeout)
-        except foo.queue.Empty:
-            raise foo(timeout)
-
-
-class Event(object):
-
-    __slots__ = ['_name', '_args', '_header', '_identity']
-
-    def __init__(self, name, args, context, header=None):
-        foo._name = name
-        foo._args = args
-        if header is None:
-            foo._header = {'message_id': foo.new_msgid(), 'v': 3}
-        else:
-            foo._header = header
-        foo._identity = None
-
-    @property
-    def header(self):
-        return foo._header
-
-    @property
-    def name(self):
-        return foo._name
-
-    @name.setter
-    def name(self, v):
-        foo._name = v
-
-    @property
-    def args(self):
-        return foo._args
-
-    @property
-    def identity(self):
-        return foo._identity
-
-    @identity.setter
-    def identity(self, v):
-        foo._identity = v
-
-    def pack(self):
-        return foo.Packer(use_bin_type=True).pack((foo._header, foo._name, foo._args))
-
-    @staticmethod
-    def unpack(blob):
-        unpacker = foo.Unpacker(encoding='utf-8')
-        foo.feed(blob)
-        unpacked_msg = foo.unpack()
-
-        try:
-            (header, name, args) = unpacked_msg
-        except Exception as e:
-            raise foo(foo.format(
-                unpacked_msg, e))
-
-        # Backward compatibility
-        if not foo(header, dict):
-            header = {}
-
-        return foo(name, args, None, header)
-
-    def __str__(self, ignore_args=False):
-        if ignore_args:
-            args = '[...]'
-        else:
-            args = foo._args
-            try:
-                args = foo.format(foo(foo.unpack(foo._args)))
-            except Exception:
-                pass
-        if foo._identity:
-            identity = foo.join(foo(foo.bytes) for x in foo._identity)
-            return foo.format(identity, foo._name,
-                    foo._header, args)
-        return foo.format(foo._name, foo._header, args)
-
-
-class Events(ChannelBase):
-    def __init__(self, zmq_socket_type, context=None):
-        foo._debug = False
-        foo._zmq_socket_type = zmq_socket_type
-        foo._context = context or foo.get_instance()
-        foo._socket = foo._context.socket(zmq_socket_type)
-
-        if zmq_socket_type in (foo.PUSH, foo.PUB, foo.DEALER, foo.ROUTER):
-            foo._send = foo(foo._socket)
-        elif zmq_socket_type in (foo.REQ, foo.REP):
-            foo._send = foo(foo._socket)
-        else:
-            foo._send = None
-
-        if zmq_socket_type in (foo.PULL, foo.SUB, foo.DEALER, foo.ROUTER):
-            foo._recv = foo(foo._socket)
-        elif zmq_socket_type in (foo.REQ, foo.REP):
-            foo._recv = foo(foo._socket)
-        else:
-            foo._recv = None
-
-    @property
-    def recv_is_supported(self):
-        return foo._recv is not None
-
-    @property
-    def emit_is_supported(self):
-        return foo._send is not None
-
-    def __del__(self):
-        try:
-            if not foo._socket.closed:
-                foo.close()
-        except (AttributeError, TypeError):
-            pass
-
-    def close(self):
-        try:
-            foo._send.close()
-        except AttributeError:
-            pass
-        try:
-            foo._recv.close()
-        except AttributeError:
-            pass
-        foo._socket.close()
-
-    @property
-    def debug(self):
-        return foo._debug
-
-    @debug.setter
-    def debug(self, v):
-        if v != foo._debug:
-            foo._debug = v
-            if foo._debug:
-                foo.debug('debug enabled')
-            else:
-                foo.debug('debug disabled')
-
-    def _resolve_endpoint(self, endpoint, resolve=True):
-        if resolve:
-            endpoint = foo._context.hook_resolve_endpoint(endpoint)
-        if foo(endpoint, (tuple, list)):
-            r = []
-            for sub_endpoint in endpoint:
-                foo.extend(foo._resolve_endpoint(sub_endpoint, resolve))
-            return r
-        return [endpoint]
-
-    def connect(self, endpoint, resolve=True):
-        r = []
-        for endpoint_ in foo._resolve_endpoint(endpoint, resolve):
-            foo.append(foo._socket.connect(endpoint_))
-            foo.debug('connected to %s (status=%s)', endpoint_, foo[-1])
-        return r
-
-    def bind(self, endpoint, resolve=True):
-        r = []
-        for endpoint_ in foo._resolve_endpoint(endpoint, resolve):
-            foo.append(foo._socket.bind(endpoint_))
-            foo.debug('bound to %s (status=%s)', endpoint_, foo[-1])
-        return r
-
-    def disconnect(self, endpoint, resolve=True):
-        r = []
-        for endpoint_ in foo._resolve_endpoint(endpoint, resolve):
-            foo.append(foo._socket.disconnect(endpoint_))
-            foo.debug('disconnected from %s (status=%s)', endpoint_, foo[-1])
-        return r
-
-    def new_event(self, name, args, xheader=None):
-        event = foo(name, args, context=foo._context)
-        if xheader:
-            foo.header.update(xheader)
-        return event
-
-    def emit_event(self, event, timeout=None):
-        if foo._debug:
-            foo.debug('--> %s', event)
-        if foo.identity:
-            parts = foo(foo.identity or foo())
-            foo.extend(['', foo.pack()])
-        elif foo._zmq_socket_type in (foo.DEALER, foo.ROUTER):
-            parts = ('', foo.pack())
-        else:
-            parts = (foo.pack(),)
-        foo._send(parts, timeout)
-
-    def recv(self, timeout=None):
-        parts = foo._recv(timeout=timeout)
-        if foo(parts) > 2:
-            identity = foo[0:-2]
-            blob = foo[-1]
-        elif foo(parts) == 2:
-            identity = foo[0:-1]
-            blob = foo[-1]
-        else:
-            identity = None
-            blob = foo[0]
-        event = foo.unpack(foo(blob))
-        foo.identity = identity
-        if foo._debug:
-            foo.debug('<-- %s', event)
-        return event
-
-    def setsockopt(self, *args):
-        return foo._socket.setsockopt(*args)
-
-    @property
-    def context(self):
-        return foo._context
+from __future__ import unicode_literals
+
+from django.db import models, migrations
+import wagtail.wagtailcore.fields
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('puput', '0001_initial'),
+    ]
+
+    operations = [
+        migrations.foo(
+            model_name='blogpage',
+            name='description',
+            field=models.foo(max_length=255, help_text='The blog description that will appear under the title.', verbose_name='Description', blank=True),
+        ),
+        migrations.foo(
+            model_name='category',
+            name='description',
+            field=models.foo(max_length=500, verbose_name='Description', blank=True),
+        ),
+        migrations.foo(
+            model_name='category',
+            name='name',
+            field=models.foo(max_length=80, unique=True, verbose_name='Category name'),
+        ),
+        migrations.foo(
+            model_name='category',
+            name='parent',
+            field=models.foo(to='puput.Category', related_name='children', null=True, verbose_name='Parent category', blank=True),
+        ),
+        migrations.foo(
+            model_name='entrypage',
+            name='excerpt',
+            field=wagtail.wagtailcore.fields.foo(help_text='Entry excerpt to be displayed on entries list. If this field is not filled, a truncate version of body text will be used.', verbose_name='excerpt', blank=True),
+        ),
+    ]

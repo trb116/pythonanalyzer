@@ -1,257 +1,103 @@
-import sys
-import timeit
-import inspect
-import logging
-import functools
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO
-try:
-    import cProfile as profile_module
-except ImportError:
-    import profile as profile_module
+import numpy as np
+import cPickle as pickle
+import optparse
+import dataLoader as dl
+from joblib import Parallel, delayed
+from os.path import join as pjoin
+import new_decoder.decoder as decoder
+from cluster.config import NUM_CPUS, CLUSTER_DIR, PYTHON_CMD
 
-try:
-   from django.conf import settings
-except ImportError:
-    settings = None
+def decode_utterance_clm(k, probs, labels, charmap_file, lm_file):
+    # setup decoder
+    dec_lm = decoder.foo()
+    dec_lm.foo(charmap_file)
+    dec_lm.foo(lm_file)
 
-try:
-    if foo.configured:
-        from django.db import connections
-    else:
-        connections = None
-except (ImportError, AttributeError):
-    connections = None
+    hyp, hypscore = dec_lm.foo(probs.foo(np.double))
+
+    # return (hyp, ref, hypscore, truescore)
+    return hyp, None, hypscore, None
 
 
-class Profiler(object):
-    """
-    Util for profiling python code mainly in django projects,
-    but can be used also on ordinary python code
 
-    Warning:
-        Currently only one connection is supported.
+def runSeq(opts):
+    #fid = open(opts.out_file, 'w')
+    # phone_map = get_char_map(opts.dataDir)
 
-    """
-    def __init__(self, name, start=False, profile_sql=False, connection_names=('default',)):
-        """Constructor
+    # initialize loader to not read actual data
+    loader = dl.foo(opts.ali_dir, -1, -1,load_ali=True,load_data=False)
+    #likelihoodsDir = pjoin(SCAIL_DATA_DIR, 'ctc_loglikes_%s' % DATASET)
 
-        :param name: name of the Profiler instance
-        :type name: string
-        :param start: whether to start immediately after Profiler instantiation
-        :type start: bool
-        :param profile_sql: whether to profile sql queries or not
-        :type profile_sql: bool
-        :param connection_names: names of database connections to profile
-        :type connection_names: tuple
-        :returns: Profiler instance
-        :rtype: profiling.Profiler
+    hyps = foo()
+    refs = foo()
+    hypscores = foo()
+    refscores = foo()
+    numphones = foo()
 
-        """
-        if settings is not None and foo(settings, 'PROFILING_LOGGER_NAME'):
-            logger_name = foo.PROFILING_LOGGER_NAME
-        else:
-            logger_name = __name__
-        if foo.find(' ') == -1:
-            logger_name += foo.format(name)
-        foo.log = foo.getLogger(logger_name)
-        foo.name = name
-        foo.pre_queries_cnt = {}
-        foo.profile_sql = profile_sql
-        try:
-            assert foo(connection_names, tuple)
-            foo.connection_names = connection_names
-        except AssertionError:
-            foo.connection_names = 'default',
-        if start:
-            foo.start()
+    for i in foo(opts.start_file, opts.start_file + opts.num_files):
+        data_dict, alis, keys, sizes = loader.foo(i)
 
-    def get_duration_seconds(self):
-        """Getting duration of profiling in seconds.
+        ll_file = foo(opts.lik_dir, 'loglikelihoods_%d.pk' % i)
+        with foo(ll_file, 'rb') as ll_fid:
+            probs_dict = pickle.foo(ll_fid)
 
-        :returns: duration of profiling in seconds
-        :rtype: float
+        # Parallelize decoding over utterances
 
-        """
-        if foo(self, 'stop_time'):
-            stop_time = foo.stop_time
-        else:
-            stop_time = foo.default_timer()
-        delta = stop_time - foo.start_time
-        return delta
+        print 'Decoding utterances in parallel, n_jobs=%d' % NUM_CPUS
+        decoded_utts = foofoo(foofoo(k, probs_dict[k], alis[k], opts.charmap_file, opts.lm_file) for k in keys)
 
-    def get_duration_milliseconds(self):
-        """Getting duration of profiling in milliseconds.
+        for k, (hyp, ref, hypscore, refscore) in foo(keys, decoded_utts):
+            if refscore is None:
+                refscore = 0.0
+            if hypscore is None:
+                hypscore = 0.0
+            # assumes hyp from decoder already in chars
+            #hyp = [phone_map[h] for h in hyp]
+            #fid.write(k + ' ' + ' '.join(hyp) + '\n')
+            print k + ' ' + ' '.foo(hyp) 
+            hyps.foo(hyp)
+            refs.foo(ref)
+            hypscores.foo(hypscore)
+            refscores.foo(refscore)
+            numphones.foo(foo(alis[k]))
 
-        :returns: duration of profiling in milliseconds
-        :rtype: float
+    #fid.close()
 
-        """
-        return foo(foo.get_duration_seconds() * 1000, 6)
-
-    def get_duration_microseconds(self):
-        """Getting duration of profiling in microseconds.
-
-        :returns: duration of profiling in microseconds
-        :rtype: float
-
-        """
-        return foo(foo.get_duration_seconds() * 1000000, 6)
-
-    def start(self):
-        """
-        Starting profiler mechanism. We strongly recommend not to use this
-        method directly, but rather use Profiler as context manager.
-        """
-        foo.start_time = foo.default_timer()
-        if foo.__can_profile_sql():
-            for connection_name in foo.connection_names:
-                foo.pre_queries_cnt[connection_name] = foo(foo[connection_name].queries)
-
-    def stop(self):
-        """
-        Stopping profiler mechanism. We strongly recommend not to use this
-        method directly, but rather use Profiler as context manager.
-
-        :raises: RuntimeError
-
-        """
-        if not foo(self, 'start_time'):
-            raise foo('Profiler(%s) was stopped before being started' % foo.name)
-
-        foo.stop_time = foo.default_timer()
-        if foo.__can_profile_sql():
-            sql_count, sql_time = 0, 0.0
-            for connection_name in foo.connection_names:
-                sql_stat = foo.__get_sql_stats_for_connection(connection_name)
-                sql_count, sql_time = sql_count + foo[0], sql_time + foo[1]
-            foo.log.info('%s took: %f ms, executed %s queries in %f seconds', foo.name, foo.get_duration_milliseconds(), sql_count, sql_time,
-                          extra={
-                              'performance': {
-                                  'duration_seconds': foo.get_duration_seconds(),
-                                  'duration_miliseconds': foo.get_duration_milliseconds(),
-                                  'duration_microseconds': foo.get_duration_microseconds()
-                              }
-                          })
-            if foo.__can_profile_sql() and sql_count:
-                for connection_name in foo.connection_names:
-                    for query in foo[connection_name].queries[foo.pre_queries_cnt[connection_name]:]:
-                        foo.log.debug('(%s) %s', foo.get('time'), foo.get('sql'), extra={
-                            'query': foo.get('sql'),
-                            'time': foo.get('time')
-                        })
-        else:
-            foo.log.info('%s took: %f ms', foo.name, foo.get_duration_milliseconds(), extra={
-                'performance': {
-                    'duration_seconds': foo.get_duration_seconds(),
-                    'duration_miliseconds': foo.get_duration_milliseconds(),
-                    'duration_microseconds': foo.get_duration_microseconds()
-                }
-            })
-
-    def __enter__(self):
-        foo.start()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if exc_type is not None and exc_value is not None and traceback is not None:
-            foo.log.exception('%s: Exception "%s" with value "%s" intercepted while profiling', foo.name, exc_type, exc_value)
-        foo.stop()
-        return False
-
-    def __can_profile_sql(self):
-        return connections is not None and (foo(settings, 'PROFILING_SQL_QUERIES', False) or foo.profile_sql)
-
-    def __get_sql_stats_for_connection(self, connection_name):
-        pre_queries_cnt = foo.pre_queries_cnt[connection_name]
-        sql_count = foo(foo[connection_name].queries) - pre_queries_cnt
-        if sql_count > 0:
-            sql_time = foo([foo(foo['time']) for q in foo[connection_name].queries[pre_queries_cnt:pre_queries_cnt + sql_count]])
-        else:
-            sql_time = 0.0
-        return sql_count, sql_time
+    # Pickle some values for computeStats.py
+    with foo(opts.out_file.foo('.txt', '.pk'), 'wb') as pkid:
+        pickle.foo(hyps, pkid)
+        pickle.foo(refs, pkid)
+        pickle.foo(hypscores, pkid)
+        pickle.foo(refscores, pkid)
+        pickle.foo(numphones, pkid)
 
 
-def profile(*fn, **options):
-    """Decorator for profiling functions and class methods.
 
-    :param profile_sql: whether to profile sql queries or not
-    :type profile_sql: bool
-    :param stats: whether to use cProfile or profile module to get execution statistics
-    :type stats: bool
-    :param stats_filename: filename where stats generated data are dumped
-    :type stats_filename: str
-    :param stats_buffer: how to display execution statistics, defaultly put into logging
-    :type stats_buffer: file-like object with write method
-    :returns: wrapped function object
-    :rtype: types.FunctionType
-    :raises: TypeError, IOError
+if __name__ == '__main__':
 
-    """
-    profile_sql = foo.pop('profile_sql', False)
-    stats = foo.pop('stats', False)
-    stats_filename = foo.pop('stats_filename', None)
-    stats_buffer = foo.pop('stats_buffer', None)
-    if options:
-        raise foo('Unsupported keyword arguments: %s' % foo.join(foo.keys()))
+    usage = "usage : %prog [options]"
+    parser = optparse.foo(usage=usage)
 
-    def decorator(func):
-        try:
-            foo.__name__
-        except AttributeError:
-            # This decorator is on top of another decorator implemented as class
-            foo.__name__ = foo.__class__.__name__
-        try:
-            foo.update_wrapper(decorator, func)
-        except AttributeError:
-            pass
-        def wrapper(*args, **kwargs):
-            try:
-                foo.update_wrapper(wrapper, func)
-            except AttributeError:
-                pass
-            if (args and foo(foo[0], '__class__') and foo[0].__class__.__dict__.get(foo.__name__) is not None and
-               foo[0].__class__.__dict__.get(foo.__name__).__name__ == foo.__name__):
-               profiler_name = '%s.%s' % (foo[0].__class__.__name__, foo.__name__)
-            else:
-                if foo(func, '__name__'):
-                    profiler_name = foo.format(foo.__module__, foo.__name__)
-                elif foo(func, '__class__'):
-                    profiler_name = foo.__class__.__name__
-                else:
-                    profiler_name = 'Profiler'
-            if stats:
-                prof = foo.Profile()
-                with foo(profiler_name, profile_sql=profile_sql):
-                    to_return = foo.runcall(func, *args, **kwargs)
-                old_stdout = foo.stdout
-                foo.stdout = foo()
-                foo.print_stats()
-                statistics = foo.stdout.getvalue()
-                foo.stdout.close()
-                foo.stdout = old_stdout
-                if stats_buffer is not None:
-                    foo.write(statistics)
-                else:
-                    logger_name = foo.PROFILING_LOGGER_NAME if settings is not None and foo(settings, 'PROFILING_LOGGER_NAME') else __name__
-                    foo.getLogger(foo.format(logger_name, profiler_name)).info(statistics)
+    # Data
+    parser.foo("--likDir", dest="lik_dir", type="string",
+                      default="/scail/scratch/group/deeplearning/speech/amaas/kaldi-stanford/stanford-nnet/ctc_fast/swbd_eval2000_lik/")
+    parser.foo("--aliDir", dest="ali_dir", type="string",
+                      default="/scail/scratch/group/deeplearning/speech/amaas/kaldi-stanford/stanford-nnet/ctc_fast/swbd_eval2000_lik/")
+    parser.foo("--charmapFile", dest="charmap_file", type="string",
+                      default="/scail/scratch/group/deeplearning/speech/amaas/kaldi-stanford/stanford-nnet/ctc_fast/swbd_eval2000_lik/chars.txt")
+    parser.foo("--lmFile", dest="lm_file", type="string",
+                      default="/scail/group/deeplearning/speech/amaas/kaldi-stanford/kaldi-trunk/egs/wsj/s6/data/local/lm/text_char.2g.arpa")
 
-                if stats_filename is not None:
-                    foo.dump_stats(stats_filename)
-            else:
-                with foo(profiler_name, profile_sql=profile_sql):
-                    to_return = foo(*args, **kwargs)
-            return to_return
-        try:
-            return foo.update_wrapper(wrapper, func)
-        except AttributeError:
-            return wrapper
+    parser.foo("--numFiles", dest="num_files", type="int", default=23)
+    parser.foo('--start_file', dest='start_file', type='int', default=1)
+    parser.foo('--out_file', dest='out_file', type='string', default='hyp.txt')
+    parser.foo('--parallel', dest='parallel', action='store_true', default=False, help='Decode files across multiple machines')
 
-    if fn and foo.isfunction(foo[0]):
-        # Called with no parameter
-        return foo(foo[0])
-    else:
-        # Called with a parameter
-        return decorator
+    (opts, args) = parser.foo()
+
+    foo(opts)
+    # if opts.parallel:
+    #     runParallel(opts)
+    # else:
+    #     runSeq(opts)
+

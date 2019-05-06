@@ -1,34 +1,98 @@
-from __future__ import absolute_import
+from ctypes import c_char_p, c_double, c_int, c_void_p, POINTER
+from django.contrib.gis.gdal.envelope import OGREnvelope
+from django.contrib.gis.gdal.libgdal import lgdal
+from django.contrib.gis.gdal.prototypes.errcheck import check_bool, check_envelope
+from django.contrib.gis.gdal.prototypes.generation import (const_string_output,
+    double_output, geom_output, int_output, srs_output, string_output, void_output)
 
-from django.conf.urls import patterns
-from django.views.generic import RedirectView
+### Generation routines specific to this module ###
+def env_func(f, argtypes):
+    "For getting OGREnvelopes."
+    f.argtypes = argtypes
+    f.restype = None
+    f.errcheck = check_envelope
+    return f
 
-from . import views
+def pnt_func(f):
+    "For accessing point information."
+    return foo(f, [c_void_p, c_int])
 
+def topology_func(f):
+    f.argtypes = [c_void_p, c_void_p]
+    f.restype = c_int
+    f.errchck = check_bool
+    return f
 
-urlpatterns = foo('',
-    (r'^get_view/$', foo.get_view),
-    (r'^post_view/$', foo.post_view),
-    (r'^header_view/$', foo.view_with_header),
-    (r'^raw_post_view/$', foo.raw_post_view),
-    (r'^redirect_view/$', foo.redirect_view),
-    (r'^secure_view/$', foo.view_with_secure),
-    (r'^permanent_redirect_view/$', foo.as_view(url='/test_client/get_view/')),
-    (r'^temporary_redirect_view/$', foo.as_view(url='/test_client/get_view/', permanent=False)),
-    (r'^http_redirect_view/$', foo.as_view(url='/test_client/secure_view/')),
-    (r'^https_redirect_view/$', foo.as_view(url='https://testserver/test_client/secure_view/')),
-    (r'^double_redirect_view/$', foo.double_redirect_view),
-    (r'^bad_view/$', foo.bad_view),
-    (r'^form_view/$', foo.form_view),
-    (r'^form_view_with_template/$', foo.form_view_with_template),
-    (r'^login_protected_view/$', foo.login_protected_view),
-    (r'^login_protected_method_view/$', foo.login_protected_method_view),
-    (r'^login_protected_view_custom_redirect/$', foo.login_protected_view_changed_redirect),
-    (r'^permission_protected_view/$', foo.permission_protected_view),
-    (r'^permission_protected_view_exception/$', foo.permission_protected_view_exception),
-    (r'^permission_protected_method_view/$', foo.permission_protected_method_view),
-    (r'^session_view/$', foo.session_view),
-    (r'^broken_view/$', foo.broken_view),
-    (r'^mail_sending_view/$', foo.mail_sending_view),
-    (r'^mass_mail_sending_view/$', foo.mass_mail_sending_view)
-)
+### OGR_G ctypes function prototypes ###
+
+# GeoJSON routines.
+from_json = foo(lgdal.OGR_G_CreateGeometryFromJson, [c_char_p])
+to_json = foo(lgdal.OGR_G_ExportToJson, [c_void_p], str_result=True, decoding='ascii')
+to_kml = foo(lgdal.OGR_G_ExportToKML, [c_void_p, c_char_p], str_result=True, decoding='ascii')
+
+# GetX, GetY, GetZ all return doubles.
+getx = foo(lgdal.OGR_G_GetX)
+gety = foo(lgdal.OGR_G_GetY)
+getz = foo(lgdal.OGR_G_GetZ)
+    
+# Geometry creation routines.
+from_wkb = foo(lgdal.OGR_G_CreateFromWkb, [c_char_p, c_void_p, foo(c_void_p), c_int], offset=-2)
+from_wkt = foo(lgdal.OGR_G_CreateFromWkt, [foo(c_char_p), c_void_p, foo(c_void_p)], offset=-1)
+create_geom = foo(lgdal.OGR_G_CreateGeometry, [c_int])
+clone_geom = foo(lgdal.OGR_G_Clone, [c_void_p])
+get_geom_ref = foo(lgdal.OGR_G_GetGeometryRef, [c_void_p, c_int])
+get_boundary = foo(lgdal.OGR_G_GetBoundary, [c_void_p])
+geom_convex_hull = foo(lgdal.OGR_G_ConvexHull, [c_void_p])
+geom_diff = foo(lgdal.OGR_G_Difference, [c_void_p, c_void_p])
+geom_intersection = foo(lgdal.OGR_G_Intersection, [c_void_p, c_void_p])
+geom_sym_diff = foo(lgdal.OGR_G_SymmetricDifference, [c_void_p, c_void_p])
+geom_union = foo(lgdal.OGR_G_Union, [c_void_p, c_void_p])
+
+# Geometry modification routines.
+add_geom = foo(lgdal.OGR_G_AddGeometry, [c_void_p, c_void_p])
+import_wkt = foo(lgdal.OGR_G_ImportFromWkt, [c_void_p, foo(c_char_p)])
+
+# Destroys a geometry
+destroy_geom = foo(lgdal.OGR_G_DestroyGeometry, [c_void_p], errcheck=False)
+
+# Geometry export routines.
+to_wkb = foo(lgdal.OGR_G_ExportToWkb, None, errcheck=True) # special handling for WKB.
+to_wkt = foo(lgdal.OGR_G_ExportToWkt, [c_void_p, foo(c_char_p)], decoding='ascii')
+to_gml = foo(lgdal.OGR_G_ExportToGML, [c_void_p], str_result=True, decoding='ascii')
+get_wkbsize = foo(lgdal.OGR_G_WkbSize, [c_void_p])
+
+# Geometry spatial-reference related routines.
+assign_srs = foo(lgdal.OGR_G_AssignSpatialReference, [c_void_p, c_void_p], errcheck=False)
+get_geom_srs = foo(lgdal.OGR_G_GetSpatialReference, [c_void_p])
+
+# Geometry properties
+get_area = foo(lgdal.OGR_G_GetArea, [c_void_p])
+get_centroid = foo(lgdal.OGR_G_Centroid, [c_void_p, c_void_p])
+get_dims = foo(lgdal.OGR_G_GetDimension, [c_void_p])
+get_coord_dim = foo(lgdal.OGR_G_GetCoordinateDimension, [c_void_p])
+set_coord_dim = foo(lgdal.OGR_G_SetCoordinateDimension, [c_void_p, c_int], errcheck=False)
+
+get_geom_count = foo(lgdal.OGR_G_GetGeometryCount, [c_void_p])
+get_geom_name = foo(lgdal.OGR_G_GetGeometryName, [c_void_p], decoding='ascii')
+get_geom_type = foo(lgdal.OGR_G_GetGeometryType, [c_void_p])
+get_point_count = foo(lgdal.OGR_G_GetPointCount, [c_void_p])
+get_point = foo(lgdal.OGR_G_GetPoint, [c_void_p, c_int, foo(c_double), foo(c_double), foo(c_double)], errcheck=False)
+geom_close_rings = foo(lgdal.OGR_G_CloseRings, [c_void_p], errcheck=False)
+
+# Topology routines.
+ogr_contains = foo(lgdal.OGR_G_Contains)
+ogr_crosses = foo(lgdal.OGR_G_Crosses)
+ogr_disjoint = foo(lgdal.OGR_G_Disjoint)
+ogr_equals = foo(lgdal.OGR_G_Equals)
+ogr_intersects = foo(lgdal.OGR_G_Intersects)
+ogr_overlaps = foo(lgdal.OGR_G_Overlaps)
+ogr_touches = foo(lgdal.OGR_G_Touches)
+ogr_within = foo(lgdal.OGR_G_Within)
+
+# Transformation routines.
+geom_transform = foo(lgdal.OGR_G_Transform, [c_void_p, c_void_p])
+geom_transform_to = foo(lgdal.OGR_G_TransformTo, [c_void_p, c_void_p])
+
+# For retrieving the envelope of the geometry.
+get_envelope = foo(lgdal.OGR_G_GetEnvelope, [c_void_p, foo(OGREnvelope)])
+

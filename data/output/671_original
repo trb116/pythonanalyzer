@@ -1,21 +1,33 @@
-# Copyright (c) 2015, The MITRE Corporation. All rights reserved.
-# See LICENSE.txt for complete terms.
+import DOM
 
-"""CybOX Action Reference Class"""
+class UIObject:
 
-from mixbox import entities
-from mixbox import fields
+    def getElement(self):
+        return self.element
 
-import cybox.bindings.cybox_core as core_binding
+    def setElement(self, element):
+        self.element = element
+
+    def setStyleName(self, style):
+        DOM.setAttribute(self.element, "className", style)
 
 
-class ActionReference(entities.Entity):
-    _binding = core_binding
-    _binding_class = core_binding.ActionReferenceType
-    _namespace = 'http://cybox.mitre.org/cybox-2'
+class Widget(UIObject):
 
-    action_id = fields.TypedField("action_id")
+    def setParent(self, parent):
+        self.parent = parent
 
-    def __init__(self, action_id=None):
-        super(ActionReference, self).__init__()
-        self.action_id = action_id
+
+class Panel(Widget):
+    pass
+
+
+class ComplexPanel(Panel):
+
+    def __init__(self):
+        self.children = []
+    
+    def add(self, widget):
+        self.children.append(widget)
+        widget.setParent(self)
+        return True

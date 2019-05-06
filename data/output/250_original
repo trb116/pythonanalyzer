@@ -1,104 +1,77 @@
+from axelrod import Actions, Player
 
-class Token(object):
-    def __init__(self, start_mark, end_mark):
-        self.start_mark = start_mark
-        self.end_mark = end_mark
-    def __repr__(self):
-        attributes = [key for key in self.__dict__
-                if not key.endswith('_mark')]
-        attributes.sort()
-        arguments = ', '.join(['%s=%r' % (key, getattr(self, key))
-                for key in attributes])
-        return '%s(%s)' % (self.__class__.__name__, arguments)
+C, D = Actions.C, Actions.D
 
-#class BOMToken(Token):
-#    id = '<byte order mark>'
+class MindController(Player):
+    """A player that changes the opponents strategy to cooperate."""
 
-class DirectiveToken(Token):
-    id = '<directive>'
-    def __init__(self, name, value, start_mark, end_mark):
-        self.name = name
-        self.value = value
-        self.start_mark = start_mark
-        self.end_mark = end_mark
+    name = 'Mind Controller'
+    classifier = {
+        'memory_depth': -10,
+        'stochastic': False,
+        'makes_use_of': set(),
+        'inspects_source': False,
+        'manipulates_source': True,  # Finds out what opponent will do
+        'manipulates_state': False
+    }
 
-class DocumentStartToken(Token):
-    id = '<document start>'
+    @staticmethod
+    def strategy(opponent):
+        """
+        Alters the opponents strategy method to be a lambda function which
+        always returns C. This player will then always return D to take
+        advantage of this
+        """
 
-class DocumentEndToken(Token):
-    id = '<document end>'
+        opponent.strategy = lambda opponent: C
+        return D
 
-class StreamStartToken(Token):
-    id = '<stream start>'
-    def __init__(self, start_mark=None, end_mark=None,
-            encoding=None):
-        self.start_mark = start_mark
-        self.end_mark = end_mark
-        self.encoding = encoding
 
-class StreamEndToken(Token):
-    id = '<stream end>'
+class MindWarper(Player):
+    """
+    A player that changes the opponent's strategy but blocks changes to
+    its own.
+    """
 
-class BlockSequenceStartToken(Token):
-    id = '<block sequence start>'
+    name = 'Mind Warper'
+    classifier = {
+        'memory_depth': -10,
+        'stochastic': False,
+        'makes_use_of': set(),
+        'inspects_source': False,
+        'manipulates_source': True,  # changes what opponent will do
+        'manipulates_state': False
+    }
 
-class BlockMappingStartToken(Token):
-    id = '<block mapping start>'
+    def __setattr__(self, name, val):
+        if name == 'strategy':
+            pass
+        else:
+            self.__dict__[name] = val
 
-class BlockEndToken(Token):
-    id = '<block end>'
+    @staticmethod
+    def strategy(opponent):
+        opponent.strategy = lambda opponent: C
+        return D
 
-class FlowSequenceStartToken(Token):
-    id = '['
 
-class FlowMappingStartToken(Token):
-    id = '{'
+class MindBender(MindWarper):
+    """
+    A player that changes the opponent's strategy by modifying the internal
+    dictionary.
+    """
 
-class FlowSequenceEndToken(Token):
-    id = ']'
+    name = 'Mind Bender'
+    classifier = {
+        'memory_depth': -10,
+        'makes_use_of': set(),
+        'stochastic': False,
+        'inspects_source': False,
+        'manipulates_source': True,  # changes what opponent will do
+        'manipulates_state': False
+    }
 
-class FlowMappingEndToken(Token):
-    id = '}'
-
-class KeyToken(Token):
-    id = '?'
-
-class ValueToken(Token):
-    id = ':'
-
-class BlockEntryToken(Token):
-    id = '-'
-
-class FlowEntryToken(Token):
-    id = ','
-
-class AliasToken(Token):
-    id = '<alias>'
-    def __init__(self, value, start_mark, end_mark):
-        self.value = value
-        self.start_mark = start_mark
-        self.end_mark = end_mark
-
-class AnchorToken(Token):
-    id = '<anchor>'
-    def __init__(self, value, start_mark, end_mark):
-        self.value = value
-        self.start_mark = start_mark
-        self.end_mark = end_mark
-
-class TagToken(Token):
-    id = '<tag>'
-    def __init__(self, value, start_mark, end_mark):
-        self.value = value
-        self.start_mark = start_mark
-        self.end_mark = end_mark
-
-class ScalarToken(Token):
-    id = '<scalar>'
-    def __init__(self, value, plain, start_mark, end_mark, style=None):
-        self.value = value
-        self.plain = plain
-        self.start_mark = start_mark
-        self.end_mark = end_mark
-        self.style = style
-
+    @staticmethod
+    def strategy(opponent):
+        opponent.__dict__['strategy'] = lambda opponent: C
+        return D

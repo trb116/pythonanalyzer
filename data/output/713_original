@@ -1,41 +1,126 @@
-from paython.exceptions import GatewayError
-from paython.lib.utils import parse_xml, is_valid_email
+#!/usr/bin/env python
 
-from nose.tools import assert_equals, raises
+from ..surveyor import Surveyor
+from . import Explorer
 
-@raises(GatewayError)
-def test_parse_xml():
-    """Testing our parse xml util"""
-    result = parse_xml("<lol test=\"woot\">waaa<inside>heh</inside></lol>")
-    expected = {u'lol': {'attribute': {u'test': u'woot'},
-                      'meta': {'#text': u'waaa', u'inside': u'heh'}}}
+import logging
 
-    assert_equals(result, expected)
-
-    parse_xml("<lol>testing invalid xml<lol>")
+l = logging.getLogger("angr.surveyors.Escaper")
 
 
-def test_cdata_parse_xml():
-    """testing when we pass cdata to the xml"""
-    result = parse_xml("<lol><inside><![CDATA[???]]></inside></lol>")
-    expected = {u'lol': {u'inside': u'???'}}
+class Escaper(Surveyor):
+    """
+    Escaper implements loop escaping!
 
-    assert_equals(result, expected)
+    normal - any found normal paths from the loop
+    forced - forced paths from the loop, if a normal wasn't found
+    """
 
-def test_multiple_child_nodes():
-    """testing multiple child nodes"""
-    result = parse_xml("<lol><first>text 1</first><second>text 2</second></lol>")
-    expected = {u'lol': {u'first': u'text 1', u'second': u'text 2'}}
+    def __init__(self, project, loop_addresses, start=None, max_concurrency=None, max_active=None, pickle_paths=None,
+                 loop_iterations=0, iteration_depth=100, unconstrain_memory=True, unconstrain_registers=True):
+        """
+        Creates an Escaper. Most options are for Surveyor (separate docs).
 
-    assert_equals(result, expected)
+        :param loop_addresses: the addresses of all the basic blocks in the loop, to know the
+                               instructions to which the analysis should be restricted
+        :param loop_iterations: the number of times to run the loop before escaping
+        :param iteration_depth: the maximum depth (in SimRuns) of a path through the loop
+        """
+        Surveyor.__init__(self, project, start=start, max_concurrency=max_concurrency, max_active=max_active,
+                          pickle_paths=pickle_paths)
 
-def test_append_to_root():
-    """testing append to root entity"""
-    result = parse_xml("<lol><first>text 1</first><first>text 2</first></lol>")
-    expected = {u'lol': {u'first': [u'text 1', u'text 2']}}
+        self._loop_addresses = loop_addresses
+        self._loop_iterations = loop_iterations
+        self._iteration_depth = iteration_depth
+        self._current_iteration = 0
+        self._done = False
 
-    assert_equals(result, expected)
+        self._unconstrain_memory = unconstrain_memory
+        self._unconstrain_registers = unconstrain_registers
 
-def test_valid_email():
-    """testing our email validation"""
-    assert_equals(is_valid_email("lol@lol.com") is None, False)
+        self.normal = []
+        self.forced = []
+
+    def _tick_loop(self, start=None):
+        results = Explorer(self._project, start=start, find=self._loop_addresses[0], restrict=self._loop_addresses,
+                           min_depth=2, max_depth=self._iteration_depth, max_repeats=1,
+                           max_concurrency=self._max_concurrency, num_find=self._num_find).run()
+
+        self.deadended += results.deadended
+        return results
+
+    def unconstrain_loop(self, constrained_entry):
+        """
+        Unconstrains an exit to the loop header by looping one more time
+        and replacing all modified variables with unconstrained versions.
+        """
+
+        constrained_state = constrained_entry.state.copy()
+
+        # first, go through the loop normally, one more time
+        constrained_results = self._tick_loop(start=constrained_entry)
+        l.debug("%d paths to header found", len(constrained_results.found))
+
+        # then unconstrain differences between the original state and any new
+        # head states
+        unconstrained_states = []
+        for p in constrained_results.found:
+            # because the head_entry might actually point partway *through* the
+            # loop header, in the cases of a loop starting between
+            # the counter-increment and the condition check (because the
+            # counter is only incremented at the end of the loop, and the
+            # end is placed in the beginning for optimization), so we run the
+            # loop through to the *end* of the header
+            new_state = p.state.copy()
+            if self._unconstrain_registers:
+                new_state.registers.unconstrain_differences(constrained_state.registers)
+            if self._unconstrain_memory:
+                new_state.memory.unconstrain_differences(constrained_state.memory)
+
+            unconstrained_states.append(new_state)
+        l.debug("%d unconstrained states", len(unconstrained_states))
+
+        unconstrained_exits = []
+        unconstrained_entry = constrained_entry
+        for s in unconstrained_states:
+            unconstrained_entry.state = s
+            unconstrained_results = self._tick_loop(start=unconstrained_entry)
+
+            unconstrained_exits += unconstrained_results.deviating
+
+        return unconstrained_exits
+
+    def tick(self):
+        """
+        Makes one run through the loop.
+        """
+        if self._current_iteration < self._loop_iterations:
+            l.debug("Currently at iteration %d of %d", self._current_iteration, self._loop_iterations)
+
+            results = self._tick_loop(start=self.active_exits(reachable=True))
+
+            l.debug("... found %d exiting paths", len(results.deviating))
+            self.normal += results.deviating
+            self.active = results.found
+
+            self._current_iteration += 1
+        else:
+            all_exits = self.active_exits(reachable=True)
+            l.debug("Unconstraining %d heads.", len(all_exits))
+            for e in all_exits:
+                self.forced += self.unconstrain_loop(e)
+
+            self._done = True
+
+    @property
+    def done(self):
+        return self._done
+
+    def __repr__(self):
+        return "<Escaper with paths: %s, %d normal, %d forced>" % (
+        Surveyor.__repr__(self), len(self.normal), len(self.forced))
+
+
+from . import all_surveyors
+
+all_surveyors['Escaper'] = Escaper

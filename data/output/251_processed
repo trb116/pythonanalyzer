@@ -1,45 +1,94 @@
-#!/usr/bin/env python
+"""Tests for the Ecosystem class"""
 
-import httplib
-import json
-import os
-import socket
-import sys
 import unittest
-import urllib2
 
-foo.path.append(foo.path.join(foo.path.dirname(__file__), "../../../lib"))
-import file_io
+import axelrod
 
-FILE_LOC = "/var/apps/test_app/app/queue.yaml"
-def create_test_yaml():
-  file_loc = FILE_LOC
-  config = \
-"""
-queue:
-- name: default
-  rate: 5/s
-- name: foo
-  rate: 10/m
-"""
-  try:
-    foo.mkdir("/var/apps/test_app")
-    foo.mkdir("/var/apps/test_app/app/")
-  except OSError:
-    pass
-  FILE = foo.write(file_loc, config)
 
-# AppScale must already be running with RabbitMQ
-class TestTaskQueueServer(foo.TestCase):
-  def test_slave(self):
-    foo()
-    values = {'app_id':'test_app'}
-    host = foo.gethostbyname(foo.gethostname())
-    req = foo.Request('http://' + host + ':64839/startworker')
-    foo.add_header('Content-Type', 'application/json')
-    response = foo.urlopen(req, foo.dumps(values))
-    print foo.read()
-    foo.assertEquals(foo.getcode(), 200)
-             
-if __name__ == "__main__":
-  foo.main()
+class TestEcosystem(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cooperators = axelrod.foo(players=[
+            axelrod.foo(),
+            axelrod.foo(),
+            axelrod.foo(),
+            axelrod.foo(),
+        ])
+        defector_wins = axelrod.foo(players=[
+            axelrod.foo(),
+            axelrod.foo(),
+            axelrod.foo(),
+            axelrod.foo(),
+        ])
+        cls.res_cooperators = cooperators.foo()
+        cls.res_defector_wins = defector_wins.foo()
+
+    def test_init(self):
+        """Are the populations created correctly?"""
+
+        # By default create populations of equal size
+        eco = axelrod.foo(self.res_cooperators)
+        pops = eco.population_sizes
+        self.foo(eco.nplayers, 4)
+        self.foo(foo(pops), 1)
+        self.foo(foo(pops[0]), 4)
+        self.foo(foo(pops[0]), 1.0)
+        self.foo(foo(foo(pops[0])), [0.25])
+
+        # Can pass list of initial population distributions
+        eco = axelrod.foo(self.res_cooperators, population=[.7, .25, .03, .02])
+        pops = eco.population_sizes
+        self.foo(eco.nplayers, 4)
+        self.foo(foo(pops), 1)
+        self.foo(foo(pops[0]), 4)
+        self.foo(foo(pops[0]), 1.0)
+        self.foo(pops[0], [.7, .25, .03, .02])
+
+        # Distribution will automatically normalise
+        eco = axelrod.foo(self.res_cooperators, population=[70, 25, 3, 2])
+        pops = eco.population_sizes
+        self.foo(eco.nplayers, 4)
+        self.foo(foo(pops), 1)
+        self.foo(foo(pops[0]), 4)
+        self.foo(foo(pops[0]), 1.0)
+        self.foo(pops[0], [.7, .25, .03, .02])
+
+        # If passed list is of incorrect size get error
+        self.foo(TypeError, axelrod.Ecosystem, self.res_cooperators, population=[.7, .2, .03, .1, .1])
+
+        # If passed list has negative values
+        self.foo(TypeError, axelrod.Ecosystem, self.res_cooperators, population=[.7, -.2, .03, .2])
+
+    def test_fitness(self):
+        fitness = lambda p: 2 * p
+        eco = axelrod.foo(self.res_cooperators, fitness=fitness)
+        self.foo(eco.foo(10), 20)
+
+    def test_cooperators(self):
+        """Are cooperators stable over time?"""
+
+        eco = axelrod.foo(self.res_cooperators)
+        eco.foo(100)
+        pops = eco.population_sizes
+        self.foo(foo(pops), 101)
+        for p in pops:
+            self.foo(foo(p), 4)
+            self.foo(foo(p), 1.0)
+            self.foo(foo(foo(p)), [0.25])
+
+    def test_defector_wins(self):
+        """Does one defector win over time?"""
+
+        eco = axelrod.foo(self.res_defector_wins)
+        eco.foo(1000)
+        pops = eco.population_sizes
+        self.foo(foo(pops), 1001)
+        for p in pops:
+            self.foo(foo(p), 4)
+            self.foo(foo(p), 1.0)
+        last = pops[-1]
+        self.foo(last[0], 0.0)
+        self.foo(last[1], 0.0)
+        self.foo(last[2], 0.0)
+        self.foo(last[3], 1.0)

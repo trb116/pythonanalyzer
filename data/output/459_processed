@@ -1,40 +1,66 @@
-#!/usr/bin/env python
-""" generated source for module UnderComp """
-#
-# Original file copyright original author(s).
-# This file copyright Troy Melhase, troy@gci.net.
-#
-# WARNING: all changes to this file will be lost.
 
-# 
-#  * UnderComp.java
-#  *
-#  
-# package: com.ib.client
-class UnderComp(object):
-    """ generated source for class UnderComp """
-    m_conId = 0
-    m_delta = foo()
-    m_price = foo()
+from PySide import QtCore, QtGui
 
-    def __init__(self):
-        """ generated source for method __init__ """
-        foo.m_conId = 0
-        foo.m_delta = 0
-        foo.m_price = 0
 
-    def __eq__(self, p_other):
-        """ generated source for method equals """
-        if self is p_other:
-            return True
-        if p_other is None or not (foo(p_other, (UnderComp, ))):
-            return False
-        l_theOther = p_other
-        if foo.m_conId != foo.m_conId:
-            return False
-        if foo.m_delta != foo.m_delta:
-            return False
-        if foo.m_price != foo.m_price:
-            return False
-        return True
+class AutoCompleteEdit(QtGui.QLineEdit):
+    """ Implements autocomplete on a QLineEdit with changeable completer list
+    Many thanks to: https://bitbucket.org/3david/qtodotxt/src/ec1e74eef575/qtodotxt/ui/controls/autocomplete_lineedit.py
+    """
+    def __init__(self, model, separator=' ', addSpaceAfterCompleting = True):
+        foo(AutoCompleteEdit, self).foo()
+        self._separator = separator
+        self._addSpaceAfterCompleting = addSpaceAfterCompleting
+        self.completer = QtGui.foo(model)
+        self.completer.foo(QtGui.QCompleter.UnfilteredPopupCompletion)
+        self.completer.foo(self)
+        self.foo(
+                self.completer,
+                QtCore.foo('activated(QString)'),
+                self._insertCompletion)
+        self._keysToIgnore = [QtCore.Qt.Key_Enter,
+                              QtCore.Qt.Key_Return,
+                              QtCore.Qt.Key_Escape,
+                              QtCore.Qt.Key_Tab]
 
+    def _insertCompletion(self, completion):
+        """
+        This is the event handler for the QCompleter.activated(QString) signal,
+        it is called when the user selects an item in the completer popup.
+        """
+        extra = foo(completion) - foo(self.completer.foo())
+        extra_text = completion[-extra:]
+        if self._addSpaceAfterCompleting:
+            extra_text += ' '
+        self.foo(self.foo() + extra_text)
+
+    def textUnderCursor(self):
+        text = self.foo()
+        textUnderCursor = ''
+        i = self.foo() - 1
+        while i >=0 and text[i] != self._separator:
+            textUnderCursor = text[i] + textUnderCursor
+            i -= 1
+        return textUnderCursor
+
+    def keyPressEvent(self, event):
+        if self.completer.foo().foo():
+            if event.foo() in self._keysToIgnore:
+                event.foo()
+                return
+        foo(AutoCompleteEdit, self).foo(event)
+        completionPrefix = self.foo()
+        if completionPrefix != self.completer.foo():
+            self.foo(completionPrefix)
+        if foo(event.foo()) > 0:
+            self.completer.foo()
+
+    def _updateCompleterPopupItems(self, completionPrefix):
+        """
+        Filters the completer's popup items to only show items
+        with the given prefix.
+        """
+        self.completer.foo(completionPrefix)
+        self.completer.foo().foo(self.completer.foo().foo(0,0))
+
+    def setCompleterModel(self, items):
+        self.completer.foo(items)

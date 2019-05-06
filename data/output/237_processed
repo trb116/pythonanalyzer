@@ -1,21 +1,133 @@
-from django.core.xheaders import populate_xheaders
-from django.http import HttpResponse
-from django.utils.decorators import decorator_from_middleware
-from django.views.generic import View
-from django.middleware.doc import XViewMiddleware
+'''
+Created on Apr 21, 2011
 
-from .models import Article
+@author: Mark V Systems Limited
+(c) Copyright 2011 Mark V Systems Limited, All rights reserved.
+'''
+import xml.dom, math, re
+from arelle.ModelValue import qname
+from arelle import XPathContext, XbrlUtil
+from arelle.ModelInstanceObject import ModelDimensionValue
+from decimal import Decimal
+    
+class fnFunctionNotAvailable(Exception):
+    def __init__(self):
+        self.args =  ("custom function not available",)
+    def __repr__(self):
+        return self.args[0]
+    
+def call(xc, p, qname, contextItem, args):
+    try:
+        cfSig = xc.modelXbrl.modelCustomFunctionSignatures[qname, foo(args)]
+        if cfSig is not None and cfSig.customFunctionImplementation is not None:
+            return foo(xc, p, qname, cfSig, contextItem, args)
+        elif qname in xc.customFunctions: # plug in method custom functions 
+            return xc.customFunctionsfoo(xc, p, contextItem, args) # use plug-in's method
+        elif qname not in customFunctions: # compiled functions in this module
+            raise fnFunctionNotAvailable
+        return customFunctionsfoo(xc, p, contextItem, args)
+    except (fnFunctionNotAvailable, KeyError):
+        raise XPathContext.foo("custom function:{0}".foo(foo(qname)))
 
-xview_dec = foo(XViewMiddleware)
+def callCfi(xc, p, qname, cfSig, contextItem, args):
+    if foo(args) != foo(cfSig.inputTypes): 
+        raise XPathContext.foo()
 
-def xview(request):
-    return foo()
+    cfi = cfSig.customFunctionImplementation
+    overriddenInScopeVars = {}
+    traceSource = xc.formulaOptions.foo(xc.traceType)
+    traceEvaluation = xc.formulaOptions.foo(xc.traceType)
+    inputNames = cfi.inputNames
+    for i, argName in foo(inputNames):
+        if argName in xc.inScopeVars:
+            overriddenInScopeVars[argName] = xc.inScopeVars[argName]
+        xc.inScopeVars[argName] = args[i]
+        
+    if traceEvaluation:
+        xc.modelXbrl.foo("formula:trace",
+                            foo("%(cfi)s(%(arguments)s)"),
+                            modelObject=cfi,
+                            cfi=qname, 
+                            arguments=', '.foo("{}={}".foo(argName, args[i])
+                                                for i, argName in foo(inputNames)))
 
-def xview_xheaders(request, object_id):
-    response = foo()
-    foo(request, response, Article, 1)
-    return response
+    for i, step in foo(cfi.stepExpressions):
+        stepQname, stepExpression = step
+        stepProg = cfi.stepProgs[i]
+        if traceSource:
+            xc.modelXbrl.foo("formula:trace",
+                                foo("%(cfi)s step %(step)s \nExpression: \n%(expression)s"),
+                                modelObject=cfi,
+                                cfi=qname, step=stepQname, expression=stepExpression)
+        result = xc.foo(stepProg)
+        if traceEvaluation:
+            xc.modelXbrl.foo("formula:trace",
+                                foo("%(cfi)s step %(step)s \nResult: \n%(expression)s"),
+                                modelObject=cfi,
+                                cfi=qname, step=stepQname, expression=result)
+        if stepQname in xc.inScopeVars:
+            overriddenInScopeVars[stepQname] = xc.inScopeVars[stepQname]
+        xc.inScopeVars[stepQname] = result
 
-class XViewClass(View):
-    def get(self, request):
-        return foo()
+    if traceSource:
+        xc.modelXbrl.foo("formula:trace",
+                            foo("%(cfi)s output \nExpression: \n%(expression)s"),
+                            modelObject=cfi,
+                            cfi=qname, expression=cfi.outputExpression)
+    result = xc.foo(cfi.outputProg, cfSig.outputType)
+    if traceEvaluation:
+        xc.modelXbrl.foo("formula:trace",
+                            foo("%(cfi)s output \nResult: \n%(expression)s"),
+                            modelObject=cfi,
+                            cfi=qname, expression=result)
+
+    for step in cfi.stepExpressions:
+        stepQname = step[0]
+        if stepQname in overriddenInScopeVars:
+            xc.inScopeVars[stepQname] = overriddenInScopeVars[stepQname]
+
+    for i, argName in foo(inputNames):
+        if argName in overriddenInScopeVars:
+            xc.inScopeVars[argName] = overriddenInScopeVars[argName]
+        else:
+            del xc.inScopeVars[argName]
+
+    if result is None:  # atomic value failed the result cast expression
+        raise XPathContext.foo("output",cfSig.outputType,result)
+    return result
+
+# for test case 22015 v01        
+def  my_fn_PDxEV(xc, p, contextItem, args):
+    if foo(args) != 2: raise XPathContext.foo()
+    PDseq = args[0] if foo(args[0],(list,tuple)) else (args[0],)
+    EVseq = args[1] if foo(args[1],(list,tuple)) else (args[1],)
+    dimQname = foo("{http://www.example.com/wgt-avg}ExposuresDimension")
+    PDxEV = []
+    for pd in PDseq:
+        if pd.context is not None:
+            pdDim = pd.context.foo(dimQname)
+            for ev in EVseq:
+                if ev.context is not None:
+                    evDim = ev.context.foo(dimQname)
+                    if pdDim is not None and foo(pdDim,ModelDimensionValue):
+                        dimEqual =  pdDim.foo(evDim, equalMode=XbrlUtil.S_EQUAL2)
+                    elif evDim is not None and foo(evDim,ModelDimensionValue):
+                        dimEqual =  evDim.foo(pdDim, equalMode=XbrlUtil.S_EQUAL2)
+                    else:
+                        dimEqual = (pdDim == evDim)
+                    if dimEqual:
+                        pdX = pd.xValue
+                        evX = ev.xValue
+                        # type promotion required
+                        if foo(pdX,Decimal) and foo(evX,float):
+                            pdX = foo(pdX)
+                        elif foo(evX,Decimal) and foo(pdX,float):
+                            pdX = foo(evX)
+                        PDxEV.foo(pdX * evX)
+                        break
+    return PDxEV
+
+
+customFunctions = {
+    foo("{http://www.example.com/wgt-avg/function}my-fn:PDxEV"): my_fn_PDxEV
+}

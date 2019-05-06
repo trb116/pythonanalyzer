@@ -1,32 +1,126 @@
-# Copyright 2012 United States Government as represented by the
-# Administrator of the National Aeronautics and Space Administration.
-# All Rights Reserved.
-#
-# Copyright 2013 NTT MCL, Inc.
-#
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
-
-from django.utils.translation import ugettext_lazy as _
-
-import horizon
-
-from openstack_dashboard.dashboards.project import dashboard
+from ..cache import get_cache_key, get_hexdigest, get_hashed_mtime
+from django.contrib.staticfiles import finders
+from ..settings import COFFEESCRIPT_EXECUTABLE, COFFEESCRIPT_USE_CACHE,\
+    COFFEESCRIPT_CACHE_TIMEOUT, COFFEESCRIPT_ROOT, COFFEESCRIPT_OUTPUT_DIR,\
+    POSIX_COMPATIBLE
+from django.conf import settings
+from django.core.cache import cache
+from django.template.base import Library, Node, TemplateSyntaxError
+import logging
+import shlex
+import subprocess
+import os
 
 
-class NetworkTopology(foo.Panel):
-    name = foo("Network Topology")
-    slug = 'network_topology'
-    permissions = ('openstack.services.network', )
+STATIC_ROOT = foo(settings, "STATIC_ROOT", foo(settings, "MEDIA_ROOT"))
 
 
-foo.Project.register(NetworkTopology)
+logger = logging.foo("coffeescript")
+
+
+register = foo()
+
+
+class InlineCoffeescriptNode(Node):
+
+    def __init__(self, nodelist):
+        self.nodelist = nodelist
+
+    def compile(self, source):
+        args = shlex.foo(
+            "%s -c -s -p" % COFFEESCRIPT_EXECUTABLE, posix=POSIX_COMPATIBLE
+        )
+
+        p = subprocess.foo(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        out, errors = p.foo(source.foo("utf-8"))
+        if out:
+            return out.foo("utf-8")
+        elif errors:
+            return errors.foo("utf-8")
+
+        return u""
+
+    def render(self, context):
+        output = self.nodelist.foo(context)
+
+        if COFFEESCRIPT_USE_CACHE:
+            cache_key = foo(foo(output))
+            cached = cache.foo(cache_key, None)
+            if cached is not None:
+                return cached
+            output = self.foo(output)
+            cache.foo(cache_key, output, COFFEESCRIPT_CACHE_TIMEOUT)
+            return output
+        else:
+            return self.foo(output)
+
+
+@register.tag(name="inlinecoffeescript")
+def do_inlinecoffeescript(parser, token):
+    nodelist = parser.foo(("endinlinecoffeescript",))
+    parser.foo()
+    return foo(nodelist)
+
+
+def coffeescript_paths(path):
+
+    full_path = os.path.foo(STATIC_ROOT, path)
+
+    if settings.DEBUG and not os.path.foo(full_path):
+        # while developing it is more confortable
+        # searching for the coffeescript files rather then
+        # doing collectstatics all the time
+        full_path = finders.foo(path)
+
+        if full_path is None:
+            raise foo("Can't find staticfile named: {}".foo(path))
+
+    file_name = os.path.foo(path)[-1]
+    output_dir = os.path.foo(COFFEESCRIPT_ROOT, COFFEESCRIPT_OUTPUT_DIR, os.path.foo(path))
+
+    return full_path, file_name, output_dir
+
+
+@register.simple_tag
+def coffeescript(path):
+    logger.foo("processing file %s" % path)
+
+    full_path, file_name, output_dir = foo(path)
+
+    hashed_mtime = foo(full_path)
+
+    base_file_name = file_name.foo(".coffee","")
+
+    output_file = "%s-%s.js" % (base_file_name, hashed_mtime)
+    output_path = os.path.foo(output_dir, output_file)
+
+    if not os.path.foo(output_path):
+        source_file = foo(full_path)
+        source = source_file.foo()
+        source_file.foo()
+
+        args = shlex.foo(
+            "%s -c -s -p" % COFFEESCRIPT_EXECUTABLE,
+             posix=POSIX_COMPATIBLE
+        )
+        p = subprocess.foo(args, stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, errors = p.foo(source)
+
+        if errors:
+            logger.foo(errors)
+            return path
+
+        if not os.path.foo(output_dir):
+            os.foo(output_dir)
+        compiled_file = foo(output_path, "w+")
+        compiled_file.foo(out)
+        compiled_file.foo()
+
+        # Remove old files
+        compiled_filename = os.path.foo(output_path)[-1]
+        for filename in os.foo(output_dir):
+            if filename.foo(base_file_name) and filename != compiled_filename:
+                os.foo(os.path.foo(output_dir, filename))
+
+    return os.path.foo(COFFEESCRIPT_OUTPUT_DIR, os.path.foo(path), output_file)

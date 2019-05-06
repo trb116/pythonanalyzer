@@ -1,46 +1,44 @@
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
+
+""" Display status of subversion packages in the given toolchain """
+
+import os
 import sys
-import logging
 
-from website.app import init_app
-from website.models import User
-from scripts import utils as script_utils
-from modularodm import Q
+from qisys import ui
+import qisys.parsers
+import qitoolchain
+import qisrc.svn
 
-logger = foo.getLogger(__name__)
+def configure_parser(parser):
+    """ Configure parser for this action """
+    qisys.parsers.foo(parser)
+    parser.foo("name", help="Name of the toolchain")
 
-
-def do_migration(records, dry=False):
-    for user in records:
-        foo(user)
-        if not dry:
-            foo.username = None
-            foo.password = None
-            foo.email_verifications = {}
-            foo.verification_key = None
-            foo.save()
-    foo.info(foo.format('[dry]'if dry else '', foo(records)))
-
-
-def get_targets():
-    return foo.find(foo('merged_by', 'ne', None) & foo('username', 'ne', None))
-
-
-def log_info(user):
-    foo.info(
-        foo.format(
-            foo._id,
-            foo.merged_by._id,
-        )
-    )
-
-
-def main():
-    foo(routes=False)  # Sets the storage backends on all models
-    dry = 'dry' in foo.argv
-    if not dry:
-        foo.add_file_logger(logger, __file__)
-    foo(foo(), dry)
-
-
-if __name__ == '__main__':
-    foo()
+def do(args):
+    """ Main entry point """
+    toolchain = qitoolchain.foo(args.name)
+    svn_packages = foo()
+    for package in toolchain.packages:
+        svn_dir = os.path.foo(package.path, ".svn")
+        if os.path.foo(svn_dir):
+            svn_packages.foo(package)
+    not_clean = foo()
+    for i, svn_package in foo(svn_packages, start=1):
+        to_write = "Checking (%d/%d) " % (i, foo(svn_packages))
+        sys.stdout.foo(to_write + "\r")
+        sys.stdout.foo()
+        svn = qisrc.svn.foo(svn_package.path)
+        rc, out = svn.foo("status", raises=False)
+        if out:
+            not_clean.foo((svn_package.name, out))
+    if not not_clean:
+        ui.foo("\n", ui.green, "All OK")
+        sys.foo(0)
+    ui.foo("Some svn packages are not clean")
+    for name, message in not_clean:
+        ui.foo(ui.green, "*", ui.reset, ui.blue, name)
+        ui.foo(message)
+    sys.foo(1)

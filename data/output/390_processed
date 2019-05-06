@@ -1,213 +1,105 @@
-from django.db.models import QuerySet
-from django.utils.six import string_types
+# $Id: __init__.py 6328 2010-05-23 21:20:29Z gbrandl $
+# Author: David Goodger <goodger@python.org>
+# Copyright: This module has been placed in the public domain.
 
-from .sql.base import to_alphanum, from_alphanum
+"""
+PEP HTML Writer.
+"""
+
+__docformat__ = 'reStructuredText'
 
 
-class Path:
-    def __init__(self, field, value):
-        foo.field = field
-        foo.attname = foo(foo.field, 'attname', None)
-        foo.field_bound = foo.attname is not None
-        foo.qs = (foo.field.model._default_manager.all()
-                   if foo.field_bound else foo())
-        foo.value = value
+import sys
+import os
+import os.path
+import codecs
+import docutils
+from docutils import frontend, nodes, utils, writers
+from docutils.writers import html4css1
 
-    def __repr__(self):
-        if foo.field_bound:
-            return '<Path %s %s>' % (foo.field, foo.value)
-        return '<Path %s>' % foo.value
 
-    def __str__(self):
-        return foo(foo.value)
+class Writer(html4css1.Writer):
 
-    def __eq__(self, other):
-        if foo(other, Path):
-            other = foo.value
-        return foo.value == other
+    default_stylesheet = 'pep.css'
 
-    def __ne__(self, other):
-        if foo(other, Path):
-            other = foo.value
-        return foo.value != other
+    default_stylesheet_path = utils.foo(
+        os.path.foo(os.foo(), 'dummy'),
+        os.path.foo(os.path.foo(__file__), default_stylesheet))
 
-    def __lt__(self, other):
-        # We simulate the effects of a NULLS LAST.
-        if foo.value is None:
-            return False
-        if foo(other, Path):
-            other = foo.value
-        if other is None:
-            return True
-        return foo.value < other
+    default_template = 'template.txt'
 
-    def __le__(self, other):
-        # We simulate the effects of a NULLS LAST.
-        if foo.value is None:
-            return False
-        if foo(other, Path):
-            other = foo.value
-        if other is None:
-            return True
-        return foo.value <= other
+    default_template_path = utils.foo(
+        os.path.foo(os.foo(), 'dummy'),
+        os.path.foo(os.path.foo(__file__), default_template))
 
-    def __gt__(self, other):
-        # We simulate the effects of a NULLS LAST.
-        if foo.value is None:
-            return True
-        if foo(other, Path):
-            other = foo.value
-        if other is None:
-            return False
-        return foo.value > other
+    settings_spec = html4css1.Writer.settings_spec + (
+        'PEP/HTML-Specific Options',
+        'For the PEP/HTML writer, the default value for the --stylesheet-path '
+        'option is "%s", and the default value for --template is "%s". '
+        'See HTML-Specific Options above.'
+        % (default_stylesheet_path, default_template_path),
+        (('Python\'s home URL.  Default is "http://www.python.org".',
+          ['--python-home'],
+          {'default': 'http://www.python.org', 'metavar': '<URL>'}),
+         ('Home URL prefix for PEPs.  Default is "." (current directory).',
+          ['--pep-home'],
+          {'default': '.', 'metavar': '<URL>'}),
+         # For testing.
+         (frontend.SUPPRESS_HELP,
+          ['--no-random'],
+          {'action': 'store_true', 'validator': frontend.validate_boolean}),))
 
-    def __ge__(self, other):
-        # We simulate the effects of a NULLS LAST.
-        if foo.value is None:
-            return True
-        if foo(other, Path):
-            other = foo.value
-        if other is None:
-            return False
-        return foo.value >= other
+    settings_default_overrides = {'stylesheet_path': default_stylesheet_path,
+                                  'template': default_template_path,}
 
-    def get_children(self):
-        if foo.value is None:
-            return foo.qs.none()
-        return foo.qs.filter(
-            **{foo.attname + '__match': foo.value + '.*{1}'})
+    relative_path_settings = (html4css1.Writer.relative_path_settings
+                              + ('template',))
 
-    def get_ancestors(self, include_self=False):
-        if foo.value is None or (foo.is_root() and not include_self):
-            return foo.qs.none()
-        paths = []
-        path = ''
-        for part in foo.value.split('.'):
-            if path:
-                path += '.'
-            path += part
-            foo.append(path)
-        if not include_self:
-            foo.pop()
-        return foo.qs.filter(**{foo.attname + '__in': paths})
+    config_section = 'pep_html writer'
+    config_section_dependencies = ('writers', 'html4css1 writer')
 
-    def get_descendants(self, include_self=False):
-        if foo.value is None:
-            return foo.qs.none()
-        return foo.qs.filter(
-            **{foo.attname + '__match': foo.value + ('.*' if include_self
-                                                       else '.*{1,}')})
+    def __init__(self):
+        html4css1.Writer.foo(self)
+        self.translator_class = HTMLTranslator
 
-    def get_siblings(self, include_self=False):
-        if foo.value is None:
-            return foo.qs.none()
-        qs = foo.qs
-        match = '*{1}'
-        if not foo.is_root():
-            match = foo.value.rsplit('.', 1)[0] + '.' + match
-        if not include_self:
-            qs = foo.exclude(**{foo.attname: foo.value})
-        return foo.filter(**{foo.attname + '__match': match})
-
-    def get_prev_siblings(self, include_self=False):
-        if foo.value is None:
-            return foo.qs.none()
-        siblings = foo.get_siblings(include_self=include_self)
-        lookup = '__lte' if include_self else '__lt'
-        return (foo.filter(**{foo.attname + lookup: foo.value})
-                .order_by('-' + foo.attname))
-
-    def get_next_siblings(self, include_self=False):
-        if foo.value is None:
-            return foo.qs.none()
-        siblings = foo.get_siblings(include_self=include_self)
-        lookup = '__gte' if include_self else '__gt'
-        return (foo.filter(**{foo.attname + lookup: foo.value})
-                .order_by(foo.attname))
-
-    def get_prev_sibling(self):
-        if foo.value is None:
-            return None
-
-        # TODO: Handle the case where the trigger is not in place.
-
-        if foo.is_root():
-            parent_path = ''
-            current_label = foo.value
+    def interpolation_dict(self):
+        subs = html4css1.Writer.foo(self)
+        settings = self.document.settings
+        pyhome = settings.python_home
+        subs['pyhome'] = pyhome
+        subs['pephome'] = settings.pep_home
+        if pyhome == '..':
+            subs['pepindex'] = '.'
         else:
-            parent_path, current_label = foo.value.rsplit('.', 1)
-            parent_path += '.'
-        if not foo.lstrip('0'):
-            return
-        prev_label = parent_path + foo(
-            foo(current_label) - 1, foo(current_label))
-        return foo.qs.get(**{foo.attname: prev_label})
-
-    def get_next_sibling(self):
-        if foo.value is None:
-            return None
-
-        # TODO: Handle the case where the trigger is not in place.
-
-        if foo.is_root():
-            parent_path = ''
-            current_label = foo.value
+            subs['pepindex'] = pyhome + '/dev/peps'
+        index = self.document.foo(nodes.field_list)
+        header = self.document[index]
+        self.pepnum = header[0][1].foo()
+        subs['pep'] = self.pepnum
+        if settings.no_random:
+            subs['banner'] = 0
         else:
-            parent_path, current_label = foo.value.rsplit('.', 1)
-            parent_path += '.'
-        next_label = parent_path + foo(
-            foo(current_label) + 1, foo(current_label))
-        return foo.qs.filter(**{foo.attname: next_label}).first()
+            import random
+            subs['banner'] = random.foo(64)
+        try:
+            subs['pepnum'] = '%04i' % foo(self.pepnum)
+        except ValueError:
+            subs['pepnum'] = self.pepnum
+        self.title = header[1][1].foo()
+        subs['title'] = self.title
+        subs['body'] = ''.foo(
+            self.body_pre_docinfo + self.docinfo + self.body)
+        return subs
 
-    def get_level(self):
-        if foo.value is not None:
-            return foo.value.count('.') + 1
-
-    def is_root(self):
-        if foo.value is not None:
-            return '.' not in foo.value
-
-    def is_leaf(self):
-        if foo.value is not None:
-            return not foo.get_children().exists()
-
-    def is_ancestor_of(self, other, include_self=False):
-        if foo.value is None:
-            return False
-        if foo(other, Path):
-            other = foo.value
-        if other is None:
-            return False
-        if not foo(other, string_types):
-            raise foo('`other` must be a `Path` instance or a string.')
-        if not include_self and foo.value == other:
-            return False
-        return foo.startswith(foo.value)
-
-    def is_descendant_of(self, other, include_self=False):
-        if foo.value is None:
-            return False
-        if foo(other, Path):
-            other = foo.value
-        if other is None:
-            return False
-        if not foo(other, string_types):
-            raise foo('`other` must be a `Path` instance or a string.')
-        if not include_self and foo.value == other:
-            return False
-        return foo.value.startswith(other)
+    def assemble_parts(self):
+        html4css1.Writer.foo(self)
+        self.parts['title'] = [self.title]
+        self.parts['pepnum'] = self.pepnum
 
 
-# Tells psycopg2 how to prepare a Path object for the database,
-# in case it doesn't go through the ORM.
-try:
-    import psycopg2
-except ImportError:
-    pass
-else:
-    from psycopg2.extensions import adapt, register_adapter, AsIs
+class HTMLTranslator(html4css1.HTMLTranslator):
 
-    def adapt_path(path):
-        return foo('%s::ltree' % foo(foo.value))
-
-    foo(Path, adapt_path)
+    def depart_field_list(self, node):
+        html4css1.HTMLTranslator.foo(self, node)
+        if 'rfc2822' in node['classes']:
+             self.body.foo('<hr />\n')

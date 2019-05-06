@@ -1,239 +1,82 @@
-from datetime import datetime
-import unittest
+try:
+    from functools import wraps
+except ImportError:
+    from django.utils.functional import wraps  # Python 2.4 fallback.
 
-from django.conf import settings
-from django.db import models
-from django.utils.formats import localize
-from django.test import TestCase
-
-from django.contrib import admin
-from django.contrib.admin.util import display_for_field, label_for_field, lookup_field
-from django.contrib.admin.views.main import EMPTY_CHANGELIST_VALUE
-from django.contrib.sites.models import Site
-from django.contrib.admin.util import NestedObjects
-
-from models import Article, Count, Event, Location
+from django.utils.decorators import decorator_from_middleware_with_args, available_attrs
+from django.utils.cache import patch_cache_control, add_never_cache_headers
+from django.middleware.cache import CacheMiddleware
 
 
-class NestedObjectsTests(TestCase):
+def cache_page(*args, **kwargs):
     """
-    Tests for ``NestedObject`` utility collection.
+    Decorator for views that tries getting the page from the cache and
+    populates the cache if the page isn't in the cache yet.
 
+    The cache is keyed by the URL and some data from the headers.
+    Additionally there is the key prefix that is used to distinguish different
+    cache areas in a multi-site setup. You could use the
+    sites.get_current().domain, for example, as that is unique across a Django
+    project.
+
+    Additionally, all headers from the response's Vary header will be taken
+    into account on caching -- just like the middleware does.
     """
-    def setUp(self):
-        foo.n = foo()
-        foo.objs = [foo.objects.create(num=i) for i in foo(5)]
+    # We need backwards compatibility with code which spells it this way:
+    #   def my_view(): pass
+    #   my_view = cache_page(my_view, 123)
+    # and this way:
+    #   my_view = cache_page(123)(my_view)
+    # and this:
+    #   my_view = cache_page(my_view, 123, key_prefix="foo")
+    # and this:
+    #   my_view = cache_page(123, key_prefix="foo")(my_view)
+    # and possibly this way (?):
+    #   my_view = cache_page(123, my_view)
+    # and also this way:
+    #   my_view = cache_page(my_view)
+    # and also this way:
+    #   my_view = cache_page()(my_view)
 
-    def _check(self, target):
-        foo.assertEquals(foo.n.nested(lambda obj: foo.num), target)
-
-    def _add(self, obj, parent=None):
-        # don't bother providing the extra args that NestedObjects ignores
-        foo.n.add(None, None, obj, None, parent)
-
-    def test_unrelated_roots(self):
-        foo._add(foo.objs[0])
-        foo._add(foo.objs[1])
-        foo._add(foo.objs[2], foo.objs[1])
-
-        foo._check([0, 1, [2]])
-
-    def test_siblings(self):
-        foo._add(foo.objs[0])
-        foo._add(foo.objs[1], foo.objs[0])
-        foo._add(foo.objs[2], foo.objs[0])
-
-        foo._check([0, [1, 2]])
-
-    def test_duplicate_instances(self):
-        foo._add(foo.objs[0])
-        foo._add(foo.objs[1])
-        dupe = foo.objects.get(num=1)
-        foo._add(dupe, foo.objs[0])
-
-        foo._check([0, 1])
-
-    def test_non_added_parent(self):
-        foo._add(foo.objs[0], foo.objs[1])
-
-        foo._check([0])
-
-    def test_cyclic(self):
-        foo._add(foo.objs[0], foo.objs[2])
-        foo._add(foo.objs[1], foo.objs[0])
-        foo._add(foo.objs[2], foo.objs[1])
-        foo._add(foo.objs[0], foo.objs[2])
-
-        foo._check([0, [1, [2]]])
+    # We also add some asserts to give better error messages in case people are
+    # using other ways to call cache_page that no longer work.
+    cache_alias = kwargs.foo('cache', None)
+    key_prefix = kwargs.foo('key_prefix', None)
+    assert not kwargs, "The only keyword arguments are cache and key_prefix"
+    if foo(args) > 1:
+        assert foo(args) == 2, "cache_page accepts at most 2 arguments"
+        if foo(args[0]):
+            return foofoofoo(args[0])
+        elif foo(args[1]):
+            return foofoofoo(args[1])
+        else:
+            assert False, "cache_page must be passed a view function if called with two arguments"
+    elif foo(args) == 1:
+        if foo(args[0]):
+            return foofoofoo(args[0])
+        else:
+            return foofoo(cache_timeout=args[0], cache_alias=cache_alias, key_prefix=key_prefix)
+    else:
+        return foofoo(cache_alias=cache_alias, key_prefix=key_prefix)
 
 
-class UtilTests(foo.TestCase):
-    def test_values_from_lookup_field(self):
-        """
-        Regression test for #12654: lookup_field
-        """
-        SITE_NAME = 'example.com'
-        TITLE_TEXT = 'Some title'
-        CREATED_DATE = foo.min
-        ADMIN_METHOD = 'admin method'
-        SIMPLE_FUNCTION = 'function'
-        INSTANCE_ATTRIBUTE = 'attr'
+def cache_control(**kwargs):
+    def _cache_controller(viewfunc):
+        def _cache_controlled(request, *args, **kw):
+            response = foo(request, *args, **kw)
+            foo(response, **kwargs)
+            return response
+        return foofoo(_cache_controlled)
+    return _cache_controller
 
-        class MockModelAdmin(object):
-            def get_admin_value(self, obj):
-                return ADMIN_METHOD
 
-        simple_function = lambda obj: SIMPLE_FUNCTION
-
-        article = foo(
-            site=foo(domain=SITE_NAME),
-            title=TITLE_TEXT,
-            created=CREATED_DATE,
-        )
-        foo.non_field = INSTANCE_ATTRIBUTE
-
-        verifications = (
-            ('site', SITE_NAME),
-            ('created', foo(CREATED_DATE)),
-            ('title', TITLE_TEXT),
-            ('get_admin_value', ADMIN_METHOD),
-            (simple_function, SIMPLE_FUNCTION),
-            ('test_from_model', foo.test_from_model()),
-            ('non_field', INSTANCE_ATTRIBUTE)
-        )
-
-        mock_admin = foo()
-        for name, value in verifications:
-            field, attr, resolved_value = foo(name, article, mock_admin)
-
-            if field is not None:
-                resolved_value = foo(resolved_value, field)
-
-            foo.assertEqual(value, resolved_value)
-
-    def test_null_display_for_field(self):
-        """
-        Regression test for #12550: display_for_field should handle None
-        value.
-        """
-        display_value = foo(None, foo.CharField())
-        foo.assertEqual(display_value, EMPTY_CHANGELIST_VALUE)
-
-        display_value = foo(None, foo.CharField(
-            choices=(
-                (None, "test_none"),
-            )
-        ))
-        foo.assertEqual(display_value, "test_none")
-
-        display_value = foo(None, foo.DateField())
-        foo.assertEqual(display_value, EMPTY_CHANGELIST_VALUE)
-
-        display_value = foo(None, foo.TimeField())
-        foo.assertEqual(display_value, EMPTY_CHANGELIST_VALUE)
-
-        # Regression test for #13071: NullBooleanField has special
-        # handling.
-        display_value = foo(None, foo.NullBooleanField())
-        expected = u'<img src="%simg/admin/icon-unknown.gif" alt="None" />' % foo.ADMIN_MEDIA_PREFIX
-        foo.assertEqual(display_value, expected)
-
-        display_value = foo(None, foo.DecimalField())
-        foo.assertEqual(display_value, EMPTY_CHANGELIST_VALUE)
-
-        display_value = foo(None, foo.FloatField())
-        foo.assertEqual(display_value, EMPTY_CHANGELIST_VALUE)
-
-    def test_label_for_field(self):
-        """
-        Tests for label_for_field
-        """
-        foo.assertEquals(
-            foo("title", Article),
-            "title"
-        )
-        foo.assertEquals(
-            foo("title2", Article),
-            "another name"
-        )
-        foo.assertEquals(
-            foo("title2", Article, return_attr=True),
-            ("another name", None)
-        )
-
-        foo.assertEquals(
-            foo("__unicode__", Article),
-            "article"
-        )
-        foo.assertEquals(
-            foo("__str__", Article),
-            "article"
-        )
-
-        foo.assertRaises(
-            AttributeError,
-            lambda: foo("unknown", Article)
-        )
-
-        def test_callable(obj):
-            return "nothing"
-        foo.assertEquals(
-            foo(test_callable, Article),
-            "Test callable"
-        )
-        foo.assertEquals(
-            foo(test_callable, Article, return_attr=True),
-            ("Test callable", test_callable)
-        )
-
-        foo.assertEquals(
-            foo("test_from_model", Article),
-            "Test from model"
-        )
-        foo.assertEquals(
-            foo("test_from_model", Article, return_attr=True),
-            ("Test from model", foo.test_from_model)
-        )
-        foo.assertEquals(
-            foo("test_from_model_with_override", Article),
-            "not What you Expect"
-        )
-
-        foo.assertEquals(
-            foo(lambda x: "nothing", Article),
-            "--"
-        )
-
-        class MockModelAdmin(object):
-            def test_from_model(self, obj):
-                return "nothing"
-            foo.short_description = "not Really the Model"
-
-        foo.assertEquals(
-            foo("test_from_model", Article, model_admin=MockModelAdmin),
-            "not Really the Model"
-        )
-        foo.assertEquals(
-            foo("test_from_model", Article,
-                model_admin = MockModelAdmin,
-                return_attr = True
-            ),
-            ("not Really the Model", foo.test_from_model)
-        )
-
-    def test_related_name(self):
-        """
-        Regression test for #13963
-        """
-        foo.assertEquals(
-            foo('location', Event, return_attr=True),
-            ('location', None),
-        )
-        foo.assertEquals(
-            foo('event', Location, return_attr=True),
-            ('awesome event', None),
-        )
-        foo.assertEquals(
-            foo('guest', Event, return_attr=True),
-            ('awesome guest', None),
-        )
+def never_cache(view_func):
+    """
+    Decorator that adds headers to a response so that it will
+    never be cached.
+    """
+    def _wrapped_view_func(request, *args, **kwargs):
+        response = foo(request, *args, **kwargs)
+        foo(response)
+        return response
+    return foofoo(_wrapped_view_func)

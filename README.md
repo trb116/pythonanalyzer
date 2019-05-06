@@ -1,3 +1,25 @@
+# Repository summary
+The *src/* folder contains the main script that replaces all function calls in a python with *foo()*, working on a dataset that resides under *data/input*, whose file paths are specified under *src/paths.txt*. For each file whose file path is contained in the *paths.txt*, the script will generate a side by side comparison between the original and the processed source file that are stored in *data/output*.
+
+There is also testing functionality in the *test/* folder, which aims to cover various cases of function calls.
+
+## Python files RedBaron isn't able to parse:
+```
+../data/input/Azure/Azure-MachineLearning-ClientLibrary-Python/azureml/http.py
+Untreated elements: '\ufeff#------------------------------------------
+../data/input/Azure/azure-sdk-for-python/azure-mgmt/tests/test_mgmt_apps.py
+Untreated elements: '\ufeff# coding: utf-8\n\n#-----------------------
+../data/input/Azure/azure-sdk-for-python/azure-servicebus/tests/servicebus_settings_fake.py
+Untreated elements: '\ufeff#------------------------------------------
+../data/input/Azure/azure-storage-python/azure/storage/blob/_chunking.py
+Untreated elements: '\ufeff#------------------------------------------
+../data/input/Azure/azure-storage-python/azure/storage/table/_error.py
+Untreated elements: '\ufeff#------------------------------------------
+../data/input/Azure/azure-storage-python/tests/blob_performance.py
+Untreated elements: '\ufeff#------------------------------------------
+```
+# Original specification is detailed below
+
 # python-analyze
 
 This repository will eventually contain source code to analyze short Python programs.

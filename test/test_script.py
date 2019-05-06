@@ -5,9 +5,9 @@ sys.path.insert(0, "../src")
 
 import python_analyzer
 
-
-
 if __name__ == "__main__":
+    # compares the processed outputs of the python source files under "input/"
+    # to the expected outputs under "expected_output"
     for file_path in listdir("input"):
         input_f = open("input/" + file_path)
         input_code = input_f.read()

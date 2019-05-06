@@ -3,6 +3,21 @@ The *src/* folder contains the main script that replaces all function calls in a
 
 There is also testing functionality in the *test/* folder, which aims to cover various cases of function calls.
 
+## Python files RedBaron isn't able to parse:
+```
+../data/input/Azure/Azure-MachineLearning-ClientLibrary-Python/azureml/http.py
+Untreated elements: '\ufeff#------------------------------------------
+../data/input/Azure/azure-sdk-for-python/azure-mgmt/tests/test_mgmt_apps.py
+Untreated elements: '\ufeff# coding: utf-8\n\n#-----------------------
+../data/input/Azure/azure-sdk-for-python/azure-servicebus/tests/servicebus_settings_fake.py
+Untreated elements: '\ufeff#------------------------------------------
+../data/input/Azure/azure-storage-python/azure/storage/blob/_chunking.py
+Untreated elements: '\ufeff#------------------------------------------
+../data/input/Azure/azure-storage-python/azure/storage/table/_error.py
+Untreated elements: '\ufeff#------------------------------------------
+../data/input/Azure/azure-storage-python/tests/blob_performance.py
+Untreated elements: '\ufeff#------------------------------------------
+```
 # Original specification is detailed below
 
 # python-analyze

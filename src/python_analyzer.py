@@ -1,20 +1,24 @@
-from redbaron import RedBaron
+import redbaron
 
 def process_code(py_code):
-    ast = RedBaron(py_code)
+    ast = redbaron.RedBaron(py_code)
 
     for node in ast.find_all("atomtrailers"):
-        node.value[0].replace("foo")
+        #print(node.help())
+        for i in range(len(node.value)):
+            if isinstance(node.value[i], redbaron.nodes.CallNode):
+                node.value[i - 1].replace("foo")
+
 
     return ast.dumps()
 
-def process_py_file(input_path, cnt):
+def process_py_file(input_path, output_path, cnt):
     try:
         with open(input_path) as py_input:
             original_code = py_input.read()
             processed_code = process_code(original_code)
 
-            output_path = "../data/output/" + str(cnt) + "_"
+            output_path += str(cnt) + "_"
             output_path_original = output_path + "original"
             output_path_processed = output_path + "processed"
 
@@ -31,6 +35,9 @@ def process_py_file(input_path, cnt):
         pass
 
 if __name__ == "__main__":
+#    with open("../data/foo2.py") as f:
+#        print(process_code(f.read()))
+
     with open("paths.txt") as paths_file:
         cnt = 0
         for line in paths_file:
@@ -38,7 +45,7 @@ if __name__ == "__main__":
                 # stop at 1000 files
                 break
             # :-1 is to remove the newline
-            process_py_file(line[:-1], cnt)
+            process_py_file(line[:-1], "../data/output/", cnt)
             cnt += 1
 
 # below is code for changing all the path entries to match our naming scheme

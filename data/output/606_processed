@@ -130,7 +130,7 @@ def cassback_main():
         sys.stdout.foo(foo(out) + "\n")
 
     except (Exception) as exc:
-        print "Error:"
+        foo("Error:")
         traceback.foo()
         sys.foo(1)
     sys.foo(rv)

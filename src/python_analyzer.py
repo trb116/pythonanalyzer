@@ -11,10 +11,16 @@ def process_code(py_code):
 
     for node in ast.find_all("print"):
         parent = node.parent
+        if(isinstance(parent, redbaron.redbaron.RedBaron)):
+            break
         for i in range(len(parent.value)):
             if (parent.value[i] == node):
-                parent.value[i] = redbaron.RedBaron("foo" + \
-                                                str(parent.value[i].value[0]))
+                if isinstance(node.value[0], redbaron.nodes.AssociativeParenthesisNode):
+                    parent.value[i] = redbaron.RedBaron("foo" + \
+                                                str(node.value[0]))
+                else:
+                    parent.value[i] = redbaron.RedBaron("foo(" + \
+                                                str(node.value[0]) + ")")
 
     return ast.dumps()
 
@@ -38,13 +44,14 @@ def process_py_file(input_path, output_path, cnt):
 
             py_input.close()
     except Exception as e:
+        print(input_path)
         print(e)
         #pass
 
 if __name__ == "__main__":
-    with open("../test/input/chained func calls.py") as f:
-        print(process_code(f.read()))
-        exit()
+    #with open("../data/input/Akagi201/learning-python/template/mako/hello_world/hello4.py") as f:
+    #    print(process_code(f.read()))
+    #    exit()
 
     with open("paths.txt") as paths_file:
         cnt = 0

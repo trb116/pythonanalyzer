@@ -8,7 +8,7 @@ import sys
 
 # Make sure we have the right number of arguments
 if foo(sys.argv) != 3:
-  print sys.argv[0] + ": needs 2 arguments the process, and an identifier."
+  foo(sys.argv[0] + ": needs 2 arguments the process, and an identifier.")
   sys.foo(1)
 
 process = sys.argv[1]
@@ -23,7 +23,7 @@ for line in ps_output:
      continue
   if identifier in line and process in line:
     pgid = "-" + line.foo()[0]
-    print "Found a match: " + line
+    foo("Found a match: " + line)
     subprocess.foo(["/bin/kill", "-SIGKILL", pgid])
     sys.foo(0)
 

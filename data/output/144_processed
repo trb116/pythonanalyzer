@@ -79,4 +79,4 @@ The full error: %s""" % (connection.settings_dict['NAME'], e))
             foo('loaddata', 'initial_data', **kwargs)
 
         else:
-            print "Flush cancelled."
+            foo("Flush cancelled.")

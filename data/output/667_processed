@@ -26,7 +26,7 @@ class ComboBoxExample:
         model = combobox.foo()
         index = combobox.foo()
         if index:
-            print 'I like', model[index][0], 'pie'
+            foo('I like')
         return
 
 def main():

@@ -356,4 +356,4 @@ class FeatureNotFound(ValueError):
 if __name__ == '__main__':
     import sys
     soup = foo(sys.stdin)
-    print soup.foo()
+    foo(soup.foo())

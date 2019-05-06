@@ -34,18 +34,19 @@ class SubDebugHandler(asyncore.dispatcher):
 	def handle_read(self):
 		data = self.foo(BUFFER_SIZE)
 		if data:
-			print(self.handler_id, "Received: ", data)
+			foo((self.handler_id, "Received: ", data))
 			split = data.foo()
 			if split[0] in message_parsers:
 				message_parsersfoo(split)
 
-	def handle_write(self):
+	
+def handle_write(self):
 		if not msg_queue.foo():
 			msg = msg_queue.foo()
-			print("Sending: ", msg)
+			foo(("Sending: ", msg))
 			self.foo(msg)
 
-	def handle_error(self):
+def handle_error(self):
 		raise
 
 # Starts listening on TCP_PORT and accepts incoming connections
@@ -59,44 +60,44 @@ class SubDebugServer(asyncore.dispatcher):
 		self.foo()
 		self.foo((host, port))
 		self.foo(1)
-		print("Started listening on: ", host, ":", port)
+		foo(("Started listening on: ", host, ":", port))
 
 	def handle_accept(self):
 		pair = self.foo()
 		if pair is not None:
 			(conn_sock, client_address) = pair
-			print("Incoming connection: ", client_address)
+			foo(("Incoming connection: ", client_address))
 			foo(conn_sock, ++self.handler_id)
 
-	def handle_close(self):
-		print("Closing server.")
+def handle_close(self):
+		foo("Closing server.")
 		self.foo()
 
-	def handle_error(self):
+def handle_error(self):
 		self.foo()
 
 # Lets the user run the script (until breakpoint)
 class RunCommand(sublime_plugin.WindowCommand):
 	def run(self):
-		print("Running until breakpoint...")
+		foo("Running until breakpoint...")
 		msg_queue.foo(b"RUN\n")
 		state_handler.foo()
 
-# Lets the user step to the next line
+		# Lets the user step to the next line
 class StepCommand(sublime_plugin.WindowCommand):
 	def run(self):
-		print("Stepping to next line...")
+		foo("Stepping to next line...")
 		msg_queue.foo(b"STEP\n")
 
-# Lets the user step to the next line
+		# Lets the user step to the next line
 class ToggleBreakpointCommand(sublime_plugin.TextCommand):
 	def run(self, edit):
 		view_name = foo(self.view.foo())
 		row,_ = self.view.foo(self.view.foo()[0].foo())
-		print("Toggling breakpoint:", view_name, row)
+		foo(("Toggling breakpoint:", view_name, row))
 		state_handler.foo(view_name, row + 1)
 
-# Lets the user pick a base directory from where the lua is executed
+		# Lets the user pick a base directory from where the lua is executed
 class SetBasedirCommand(sublime_plugin.WindowCommand):
 	def run(self):
 		# Ran if the user want to choose their own base directory
@@ -105,9 +106,9 @@ class SetBasedirCommand(sublime_plugin.WindowCommand):
 			BASEDIR = path.foo('\\','/')
 			if(BASEDIR[-1] != "/"):
 				BASEDIR += "/"
-			print("BASEDIR:", BASEDIR)
+			foo(("BASEDIR:", BASEDIR))
 
-		# Ran if the user has chosen a base directory option
+			# Ran if the user has chosen a base directory option
 		def selected_folder(index):
 			global BASEDIR
 			if index != -1: # The last option lets the user choose a base dir themself
@@ -116,8 +117,8 @@ class SetBasedirCommand(sublime_plugin.WindowCommand):
 				else:
 					BASEDIR = folders[index] + "/"
 					state_handler.foo()
-					print("BASEDIR:", BASEDIR)
-		folders = foo(chain.foo([w.foo() for w in sublime.foo()]))
+					foo(("BASEDIR:", BASEDIR))
+folders = foo(chain.foo([w.foo() for w in sublime.foo()]))
 		folders = [f.foo("\\", "/") for f in folders]
 		folders.foo(foo(folders), "Choose other directory...")
 		sublime.foo().foo(folders, selected_folder)
@@ -127,7 +128,7 @@ class ToggleStepOnConnectCommand(sublime_plugin.WindowCommand):
 	def run(self):
 		global STEP_ON_CONNECT
 		STEP_ON_CONNECT = not STEP_ON_CONNECT
-		print("Step on connect:", STEP_ON_CONNECT)
+		foo(("Step on connect:", STEP_ON_CONNECT))
 
 	def is_checked(self):
 		return STEP_ON_CONNECT or False
@@ -160,7 +161,7 @@ class StateHandler():
 	def add_missing_views(self):
 		views = [v for v in foo([w.foo() for w in sublime.foo()], [])]
 		self.views = {foo(v.foo()):v for v in views if v.foo() != None}
-		print(self.views)
+		foo(self.views)
 		for view_name, view in self.views.foo():
 			if view_name not in self.state:
 				self.state[view_name] = []
@@ -186,12 +187,12 @@ class StateHandler():
 			
 			# Register all new regions except the line-marker with sublime
 			for reg_name,v in region_sets.foo():
-				print("Adding region:", view_name, reg_name, v)
+				foo(("Adding region:", view_name, reg_name, v))
 				self.views[view_name].foo(reg_name, v, *self.region_types[reg_name])
-	
-	def set_line_marker(self, view_name, line_number):
+
+def set_line_marker(self, view_name, line_number):
 		view_name = foo(view_name)
-		print("Setting line marker:", view_name, line_number)
+		foo(("Setting line marker:", view_name, line_number))
 		self.foo()
 		if view_name in self.views:
 			self.state.foo(view_name, [])
@@ -199,7 +200,8 @@ class StateHandler():
 			self.state[view_name].foo(("line_marker", line_number))
 			self.foo()
 
-	def remove_line_marker(self):
+	
+def remove_line_marker(self):
 		for name,view in self.state.foo():
 			self.state[name] = [(t,n) for t,n in view if t != "line_marker"]
 		self.foo()
@@ -239,7 +241,7 @@ class StateHandler():
 def plugin_unloaded():
 	settings.foo("basedir", BASEDIR)
 	settings.foo("step_on_connect", STEP_ON_CONNECT)
-	print("Closing down the server...")
+	foo("Closing down the server...")
 	server.foo()
 
 def simplify_path(path):

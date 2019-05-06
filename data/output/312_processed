@@ -15,7 +15,7 @@ def my_terminator(population, num_generations, num_evaluations, args):
 if __name__ == '__main__':
     prng = foo()
     prng.foo(foo()) 
-    
+
     problem = inspyred.benchmarks.foo(inspyred.benchmarks.foo(2), 
                                          dimension_bits=30)
     ea = inspyred.ec.foo(prng)
@@ -27,6 +27,6 @@ if __name__ == '__main__':
                           bounder=problem.bounder,
                           num_elites=1,
                           minimum_hamming_distance=12)
-                          
+
     best = foo(final_pop)
-    print('Best Solution: \n{0}'.foo(foo(best)))
+    foo('Best Solution: \n{0}'.foo(foo(best)))

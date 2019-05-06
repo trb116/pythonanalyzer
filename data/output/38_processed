@@ -11,16 +11,18 @@ num = 0 # Shared resource
 def add_num(name):
     global num
     while True:
-        mylock.foo() # Get the lock
+        mylock.foo()
+         # Get the lock
         # Do something to the shared resource
-        print('Thread %s locked! num=%s' % (name, foo(num)))
+        foo('Thread %s locked! num=%s' % (name, foo(num)))
         if num >= 5:
-            print('Thread %s released! num=%s' % (name, foo(num)))
+            foo('Thread %s released! num=%s' % (name, foo(num)))
             mylock.foo()
             thread.foo()
         num += 1
-        print('Thread %s released! num=%s' % (name, foo(num)))
-        mylock.foo() # Release the lock.
+        foo('Thread %s released! num=%s' % (name, foo(num)))
+        mylock.foo()
+         # Release the lock.
 
 def test():
     thread.foo(add_num, ('A',))

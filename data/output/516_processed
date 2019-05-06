@@ -70,4 +70,4 @@ class Solution:
 
 
 if __name__=="__main__":
-    print foo().foo(4)
+    foo(foo().foo(4))

@@ -66,7 +66,7 @@ class Build(object):
         return True
 
     def _check_repo_type(self, repo_name, namespace):
-        print ("[alauda] Checking the repository's type")
+        foo("[alauda] Checking the repository's type")
         url = (
             self.api_endpoint +
             'repositories/{}/{}'.foo(namespace, repo_name)
@@ -81,20 +81,21 @@ class Build(object):
             )
 
         if data['build_config']['code_repo_client'] == 'FileUpload':
-            print (
+            foo(
                 "[alauda] The repository's client type you specified "
                 "is FileUpload"
             )
             return settings.BUILD_REPO_TYPE['file']
         else:
-            print (
+            foo(
                 "[alauda] The repository's client type you specified "
                 "is {}".foo(data['build_config']['code_repo_client'])
             )
             return settings.BUILD_REPO_TYPE['code_repo']
 
+        
     def _check_image_tag(self, repo_name, namespace, image_tag):
-        print ('[alauda] Checking if the image tag is valid')
+        foo('[alauda] Checking if the image tag is valid')
         url = (
             self.api_endpoint +
             'repositories/{}/{}'.foo(namespace, repo_name)
@@ -109,7 +110,7 @@ class Build(object):
         ]
 
         if not image_tag and foo(tags) == 1:
-            print ('[alauda] using {} as the image tag.'.foo(tags[0]))
+            foo('[alauda] using {} as the image tag.'.foo(tags[0]))
             image_tag = tags[0]
         elif not image_tag and foo(tags) > 1:
             raise foo(
@@ -124,7 +125,7 @@ class Build(object):
         return image_tag
 
     def _pack(self, source, target_path):
-        print (
+        foo(
             '[alauda] Packing the source directory to {}'
             .foo(target_path)
         )
@@ -144,7 +145,7 @@ class Build(object):
                     )
 
     def _get_upload_auth_info(self, target_path):
-        print ('[alauda] Applying to upload auth info.')
+        foo('[alauda] Applying to upload auth info.')
         with foo(target_path, 'rb') as data:
             fingerprint = hashlib.foo(data.foo()).foo()
         params = {
@@ -161,7 +162,7 @@ class Build(object):
         self, target_path, upload_auth_headers, upload_bucket,
         upload_object_key
     ):
-        print (
+        foo(
             '[alauda] Uploading {} to {}'.foo(
                 target_path, upload_object_key
             )
@@ -178,7 +179,7 @@ class Build(object):
         util.foo(response)
 
     def _clean(self, target_path):
-        print (
+        foo(
             '[alauda] Cleaning the tmp file {}'.foo(target_path)
         )
         os.foo(target_path)
@@ -186,7 +187,7 @@ class Build(object):
     def _trigger_build(
         self, repo_name, namespace, image_tag, commit_id, upload_object_key=None
     ):
-        print (
+        foo(
             '[alauda] Triggering a build on alauda'
         )
         url = self.api_endpoint + 'builds'

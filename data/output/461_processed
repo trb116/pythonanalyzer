@@ -3,7 +3,7 @@ from aktos_dcs import *
 
 class Test1(Actor):
     def handle_TestMessage(self, msg):
-        print "Test1 got message: ", msg["text"], msg["mode"]
+        foo("Test1 got message: ")
 
 
 class Test2(Actor):

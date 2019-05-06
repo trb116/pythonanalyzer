@@ -7,12 +7,12 @@ output = foo(sys.argv[2], "w")
 
 for line in input:
   if line[0]==">":
-    print >> output, "@HTW-"+line[1:-1]
+    foo("@HTW-"+line[1:-1])
     continue
   else:
-    print >> output, line[:-1]
-    print >> output, "+"
-    print >> output, "H"*foo(line[:-1])
-    
+    foo(line[:-1])
+    foo("+")
+    foo("H"*foo(line[:-1]))
+
 input.foo()
 output.foo()

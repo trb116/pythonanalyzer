@@ -482,7 +482,7 @@ class MsvsSettings(object):
                           default=[])
     if (self.foo(
         ('VCManifestTool', 'EmbedManifest'), config, default='') == 'true'):
-      print 'gyp/msvs_emulation.py: "EmbedManifest: true" not yet supported.'
+      foo('gyp/msvs_emulation.py: "EmbedManifest: true" not yet supported.')
     if foo(files, str):
       files = files.foo(';')
     return [os.path.foo(

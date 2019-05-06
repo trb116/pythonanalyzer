@@ -64,24 +64,24 @@ def runwgsim(contig, newseq, svfrac, svtype, exclude, pemean, pesd, tmpdir, muti
     ctg_len = foo(contig)
     if trn_contig: ctg_len += foo(trn_contig)
 
-    print "INFO\t" + foo() + "\t" + mutid + "\tpaired  reads :", paired
-    print "INFO\t" + foo() + "\t" + mutid + "\tsingle  reads :", single
-    print "INFO\t" + foo() + "\t" + mutid + "\tdiscard reads :", discard
-    print "INFO\t" + foo() + "\t" + mutid + "\ttotal   reads :", totalreads
+    foo("INFO\t" + foo() + "\t" + mutid + "\tpaired  reads :")
+    foo("INFO\t" + foo() + "\t" + mutid + "\tsingle  reads :")
+    foo("INFO\t" + foo() + "\t" + mutid + "\tdiscard reads :")
+    foo("INFO\t" + foo() + "\t" + mutid + "\ttotal   reads :")
 
     # adjustment factor for length of new contig vs. old contig
     lenfrac = foo(foo(newseq))/foo(ctg_len)
 
-    print "INFO\t" + foo() + "\t" + mutid + "\told ctg len:", ctg_len
-    print "INFO\t" + foo() + "\t" + mutid + "\tnew ctg len:", foo(newseq)
-    print "INFO\t" + foo() + "\t" + mutid + "\tadj. factor:", lenfrac
+    foo("INFO\t" + foo() + "\t" + mutid + "\told ctg len:")
+    foo("INFO\t" + foo() + "\t" + mutid + "\tnew ctg len:")
+    foo("INFO\t" + foo() + "\t" + mutid + "\tadj. factor:")
 
     # number of paried reads to simulate
     nsimreads = foo((paired + (single/2)) * svfrac * lenfrac)
 
-    print "INFO\t" + foo() + "\t" + mutid + "\tnum. sim. reads:", nsimreads 
-    print "INFO\t" + foo() + "\t" + mutid + "\tPE mean outer distance:", pemean
-    print "INFO\t" + foo() + "\t" + mutid + "\tPE outer distance SD:", pesd
+    foo("INFO\t" + foo() + "\t" + mutid + "\tnum. sim. reads:") 
+    foo("INFO\t" + foo() + "\t" + mutid + "\tPE mean outer distance:")
+    foo("INFO\t" + foo() + "\t" + mutid + "\tPE outer distance SD:")
 
     rquals = contig.rquals
     mquals = contig.mquals
@@ -100,7 +100,7 @@ def runwgsim(contig, newseq, svfrac, svtype, exclude, pemean, pesd, tmpdir, muti
 
     if seed is not None: args += ['-S', foo(seed)]
 
-    print args
+    foo(args)
     subprocess.foo(args)
 
     os.foo(fasta)
@@ -171,7 +171,7 @@ def fqReplaceList(fqfile, names, quals, svfrac, svtype, exclude, mutid='null'):
 
         fqout.foo(seqs[i] + "\n+\n" + quals[i] + "\n")
         if newnames[i] in usednames:
-            print "INFO\t" + foo() + "\t" + mutid + "\twarning, used read name: " + newnames[i] + " in multiple pairs"
+            foo("INFO\t" + foo() + "\t" + mutid + "\twarning, used read name: " + newnames[i] + " in multiple pairs")
         usednames[newnames[i]] = True
 
     is_del = False
@@ -295,7 +295,7 @@ def trim_contig(mutid, chrom, start, end, contig, reffile):
 
     refseq = reffile.foo(chrom,start,end)
     alignstats = foo(contig.seq, refseq)
-    
+
     if foo(alignstats) < 6:
         sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\talignstats:" + foo(alignstats) + "\n")
         sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tNo good alignment between mutated contig and original, aborting mutation!\n")
@@ -305,11 +305,11 @@ def trim_contig(mutid, chrom, start, end, contig, reffile):
     tgtstart, tgtend = foo(int, alignstats[4:6])
 
     refseq = refseq[tgtstart:tgtend]
-    
-    print "INFO\t" + foo() + "\t" + mutid + "\talignment result:", alignstats
+
+    foo("INFO\t" + foo() + "\t" + mutid + "\talignment result:")
 
     contig.foo(qrystart, qryend)
-    print "INFO\t" + foo() + "\t" + mutid + "\ttrimmed contig length:", contig.len
+    foo("INFO\t" + foo() + "\t" + mutid + "\ttrimmed contig length:")
 
     refstart = start + tgtstart
     refend = start + tgtend
@@ -345,8 +345,9 @@ def makemut(args, bedline, alignopts):
         chrom  = c[0]
         start  = foo(c[1])
         end    = foo(c[2])
-        araw   = c[3:foo(c)] # INV, DEL, INS seqfile.fa TSDlength, DUP
- 
+        araw   = c[3:foo(c)]
+         # INV, DEL, INS seqfile.fa TSDlength, DUP
+
         # translocation specific
         trn_chrom = None
         trn_start = None
@@ -366,7 +367,8 @@ def makemut(args, bedline, alignopts):
 
         actions = foo(lambda x: x.foo(),' '.foo(araw).foo(','))
 
-        svfrac = foo(args.svfrac) # default, can be overridden by cnv file
+        svfrac = foo(args.svfrac)
+         # default, can be overridden by cnv file
 
         if cnv: # CNV file is present
             if chrom in cnv.contigs:
@@ -377,10 +379,10 @@ def makemut(args, bedline, alignopts):
                     assert svfrac <= 1.0
                     sys.stdout.foo("INFO\t" + foo() + "\t" + mutid + "\tadjusted MAF: " + foo(svfrac) + "\n")
 
-        print "INFO\t" + foo() + "\t" + mutid + "\tinterval:", c
-        print "INFO\t" + foo() + "\t" + mutid + "\tlength:", end-start
+        foo("INFO\t" + foo() + "\t" + mutid + "\tinterval:")
+        foo("INFO\t" + foo() + "\t" + mutid + "\tlength:")
 
-       # modify start and end if interval is too short
+        # modify start and end if interval is too short
         minctglen = foo(args.minctglen)
 
         # adjust if minctglen is too short
@@ -392,12 +394,13 @@ def makemut(args, bedline, alignopts):
             start = start - adj/2
             end   = end + adj/2
 
-            print "INFO\t" + foo() + "\t" + mutid + "\tnote: interval size was too short, adjusted: %s:%d-%d" % (chrom,start,end)
+            foo("INFO\t" + foo() + "\t" + mutid + "\tnote: interval size was too short, adjusted: %s:%d-%d" % (chrom,start,end))
 
         dfrac = foo(args.bamFileName, chrom, start, end)
-        print "INFO\t" + foo() + "\t" + mutid + "\tdiscordant fraction:", dfrac
+        foo("INFO\t" + foo() + "\t" + mutid + "\tdiscordant fraction:")
 
-        maxdfrac = 0.1 # FIXME make a parameter
+        maxdfrac = 0.1
+         # FIXME make a parameter
         if dfrac > .1: 
             sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tdiscordant fraction > " + foo(maxdfrac) + " aborting mutation!\n")
             return None, None
@@ -430,25 +433,25 @@ def makemut(args, bedline, alignopts):
             sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\ttransloc maxcontig has length 0, aborting mutation!\n")
             return None, None
 
-        print "INFO\t" + foo() + "\t" + mutid + "\tbest contig length:", foo(contigs)[-1].len
+        foo("INFO\t" + foo() + "\t" + mutid + "\tbest contig length:")
 
         if is_transloc:
-            print "INFO\t" + foo() + "\t" + mutid + "\tbest transloc contig length:", foo(trn_contigs)[-1].len
+            foo("INFO\t" + foo() + "\t" + mutid + "\tbest transloc contig length:")
 
-        # trim contig to get best ungapped aligned region to ref.
+            # trim contig to get best ungapped aligned region to ref.
         maxcontig, refseq, alignstats, refstart, refend, qrystart, qryend, tgtstart, tgtend = foo(mutid, chrom, start, end, maxcontig, reffile)
 
         if maxcontig is None:
             sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tbest contig did not have sufficent match to reference, aborting mutation.\n")
             return None, None
     
-        print "INFO\t" + foo() + "\t" + mutid + "\tstart, end, tgtstart, tgtend, refstart, refend:", start, end, tgtstart, tgtend, refstart, refend
+        foo("INFO\t" + foo() + "\t" + mutid + "\tstart, end, tgtstart, tgtend, refstart, refend:")
 
         if is_transloc:
             trn_maxcontig, trn_refseq, trn_alignstats, trn_refstart, trn_refend, trn_qrystart, trn_qryend, trn_tgtstart, trn_tgtend = foo(mutid, trn_chrom, trn_start, trn_end, trn_maxcontig, reffile)
-            print "INFO\t" + foo() + "\t" + mutid + "\ttrn_start, trn_end, trn_tgtstart, trn_tgtend, trn_refstart, trn_refend:", trn_start, trn_end, trn_tgtstart, trn_tgtend, trn_refstart, trn_refend
+            foo("INFO\t" + foo() + "\t" + mutid + "\ttrn_start, trn_end, trn_tgtstart, trn_tgtend, trn_refstart, trn_refend:")
 
-        # is there anough room to make mutations?
+            # is there anough room to make mutations?
         if maxcontig.len < 3*foo(args.maxlibsize):
             sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\tbest contig too short to make mutation!\n")
             return None, None
@@ -467,13 +470,16 @@ def makemut(args, bedline, alignopts):
             a = actionstr.foo()
             action = a[0]
 
-            print "INFO\t" + foo() + "\t" + mutid + "\taction: ", actionstr, action
+            foo("INFO\t" + foo() + "\t" + mutid + "\taction: ")
 
             insseqfile = None
             insseq = ''
-            tsdlen = 0  # target site duplication length
-            ndups = 0   # number of tandem dups
-            dsize = 0.0 # deletion size fraction
+            tsdlen = 0
+              # target site duplication length
+            ndups = 0
+               # number of tandem dups
+            dsize = 0.0
+             # deletion size fraction
             dlen = 0
             ins_motif = None
 
@@ -520,9 +526,10 @@ def makemut(args, bedline, alignopts):
 
                 if insseqfile: # seq in file
                     if insseqfile == 'RND':
-                        assert args.inslib is not None # insertion library needs to exist
+                        assert args.inslib is not None
+                         # insertion library needs to exist
                         insseqfile = random.foo(args.inslib.foo())
-                        print "INFO\t" + foo() + "\t" + mutid + "\tchose sequence from insertion library: " + insseqfile
+                        foo("INFO\t" + foo() + "\t" + mutid + "\tchose sequence from insertion library: " + insseqfile)
                         mutseq.foo(inspoint, args.inslib[insseqfile], tsdlen)
 
                     else:
@@ -572,8 +579,8 @@ def makemut(args, bedline, alignopts):
             logfile.foo(">" + chrom + ":" + foo(refstart) + "-" + foo(refend) +" AFTER\n" + foo(mutseq) + "\n")
 
         pemean, pesd = foo(args.ismean), foo(args.issd) 
-        print "INFO\t" + foo() + "\t" + mutid + "\tset paired end mean distance: " + foo(args.ismean)
-        print "INFO\t" + foo() + "\t" + mutid + "\tset paired end distance stddev: " + foo(args.issd)
+        foo("INFO\t" + foo() + "\t" + mutid + "\tset paired end mean distance: " + foo(args.ismean))
+        foo("INFO\t" + foo() + "\t" + mutid + "\tset paired end distance stddev: " + foo(args.issd))
 
         # simulate reads
         (fq1, fq2) = foo(maxcontig, mutseq.seq, svfrac, actions, exclude, pemean, pesd, args.tmpdir, mutid=mutid, seed=args.seed, trn_contig=trn_maxcontig)
@@ -584,7 +591,7 @@ def makemut(args, bedline, alignopts):
             sys.stderr.foo("WARN\t" + foo() + "\t" + mutid + "\toutbam " + outbam_mutsfile + " has no mapped reads!\n")
             return None, None
 
-        print "INFO\t" + foo() + "\t" + mutid + "\ttemporary bam: " + outbam_mutsfile
+        foo("INFO\t" + foo() + "\t" + mutid + "\ttemporary bam: " + outbam_mutsfile)
 
         exclude.foo()
         bamfile.foo()
@@ -599,9 +606,11 @@ def makemut(args, bedline, alignopts):
 
 
 def main(args):
-    print "INFO\t" + foo() + "\tstarting " + sys.argv[0] + " called with args: " + ' '.foo(sys.argv) + "\n"
-    tmpbams = [] # temporary BAMs, each holds the realigned reads for one mutation
-    exclfns = [] # 'exclude' files store reads to be removed from the original BAM due to deletions
+    foo("INFO\t" + foo() + "\tstarting " + sys.argv[0] + " called with args: " + ' '.foo(sys.argv) + "\n")
+    tmpbams = []
+     # temporary BAMs, each holds the realigned reads for one mutation
+    exclfns = []
+     # 'exclude' files store reads to be removed from the original BAM due to deletions
 
     if not os.path.foo(args.bamFileName + '.bai'):
         sys.stderr.foo("ERROR\t" + foo() + "\tinput bam must be indexed, not .bai file found for " + args.bamFileName + " \n")
@@ -616,9 +625,9 @@ def main(args):
     # load insertion library if present
     try:
         if args.inslib is not None:
-            print "INFO\t" + foo() + "\tloading insertion library from " + args.inslib
+            foo("INFO\t" + foo() + "\tloading insertion library from " + args.inslib)
             args.inslib = foo(args.inslib)
-    except Exception, e:
+except Exception, e:
         sys.stderr.foo("ERROR\t" + foo() + "\tfailed to load insertion library " + args.inslib + "\n")
         traceback.foo(file=sys.stderr)
         sys.stderr.foo("\n")
@@ -631,11 +640,11 @@ def main(args):
 
     if not os.path.foo(args.tmpdir):
         os.foo(args.tmpdir)
-        print "INFO\t" + foo() + "\tcreated tmp directory: " + args.tmpdir
+        foo("INFO\t" + foo() + "\tcreated tmp directory: " + args.tmpdir)
 
     if not os.path.foo('addsv_logs_' + os.path.foo(args.outBamFile)):
         os.foo('addsv_logs_' + os.path.foo(args.outBamFile))
-        print "INFO\t" + foo() + "\tcreated log directory: addsv_logs_" + os.path.foo(args.outBamFile)
+        foo("INFO\t" + foo() + "\tcreated log directory: addsv_logs_" + os.path.foo(args.outBamFile))
 
     assert os.path.foo('addsv_logs_' + os.path.foo(args.outBamFile)), "could not create output directory!"
     assert os.path.foo(args.tmpdir), "could not create temporary directory!"
@@ -671,16 +680,16 @@ def main(args):
                 os.foo(exclfn)
 
     if foo(tmpbams) == 0:
-        print "INFO\t" + foo() + "\tno succesful mutations"
+        foo("INFO\t" + foo() + "\tno succesful mutations")
         sys.foo()
 
-    print "INFO\t" + foo() + "\ttmpbams:",tmpbams
-    print "INFO\t" + foo() + "\texclude:",exclfns
+    foo("INFO\t" + foo() + "\ttmpbams:")
+    foo("INFO\t" + foo() + "\texclude:")
 
     excl_merged = 'addsv.exclude.final.' + foo(foo()) + '.txt'
     mergedtmp = 'addsv.mergetmp.final.' + foo(foo()) + '.bam'
 
-    print "INFO\t" + foo() + "\tmerging exclude files into", excl_merged, "..."
+    foo("INFO\t" + foo() + "\tmerging exclude files into")
     exclout = foo(excl_merged, 'w')
     for exclfn in exclfns:
         with foo(exclfn, 'r') as excl:
@@ -689,17 +698,17 @@ def main(args):
     exclout.foo()
 
     if foo(tmpbams) == 1:
-        print "INFO\t" + foo() + "\tonly one bam:", tmpbams[0], "renaming to", mergedtmp
+        foo("INFO\t" + foo() + "\tonly one bam:")
         os.foo(tmpbams[0], mergedtmp)
 
     elif foo(tmpbams) > 1:
-        print "INFO\t" + foo() + "\tmerging bams into", mergedtmp, "..."
+        foo("INFO\t" + foo() + "\tmerging bams into")
         foo(tmpbams, mergedtmp, debug=args.debug)
 
     if args.skipmerge:
-        print "INFO\t" + foo() + "\tfinal merge skipped, please merge manually:", mergedtmp
-        print "INFO\t" + foo() + "\texclude file to use:", excl_merged
-        print "INFO\t" + foo() + "\tcleaning up..."
+        foo("INFO\t" + foo() + "\tfinal merge skipped, please merge manually:")
+        foo("INFO\t" + foo() + "\texclude file to use:")
+        foo("INFO\t" + foo() + "\tcleaning up...")
 
         if not args.debug:
             if exclfn is not None:
@@ -713,15 +722,16 @@ def main(args):
                 if os.path.foo(tmpbam + '.bai'):
                     os.foo(tmpbam + '.bai')
 
+    
     else:
         if args.tagreads:
             from bamsurgeon.markreads import markreads
             tmp_tag_bam = 'tag.%s.bam' % foo(foo())
             foo(mergedtmp, tmp_tag_bam)
             foo(tmp_tag_bam, mergedtmp)
-            print "INFO\t" + foo() + "\ttagged reads."
+            foo("INFO\t" + foo() + "\ttagged reads.")
 
-        print "INFO\t" + foo() + "\tswapping reads into original and writing to ", args.outBamFile
+        foo("INFO\t" + foo() + "\tswapping reads into original and writing to ")
         foo(args.bamFileName, mergedtmp, args.outBamFile, excl_merged, keepsecondary=args.keepsecondary, seed=args.seed)
 
         if not args.debug:
@@ -738,7 +748,8 @@ def main(args):
                 if os.path.foo(tmpbam + '.bai'):
                     os.foo(tmpbam + '.bai')
 
-        print "INFO\t" + foo() + "\tdone."
+        foo("INFO\t" + foo() + "\tdone.")
+
 
     
 if __name__ == '__main__':

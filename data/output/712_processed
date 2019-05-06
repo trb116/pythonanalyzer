@@ -220,14 +220,14 @@ class AnnotatedCFG(object):
                 line = "-"
             line += "[% 3d] " % i
             # We cannot get data returned by pp(). WTF?
-            print line,
+            foo(line)
             statements[i].foo()
 
-    #
-    # Helper methods for path priorization
-    #
+            #
+            # Helper methods for path priorization
+            #
 
-    def keep_path(self, path):
+def keep_path(self, path):
         """
         Given a path, returns True if the path should be kept, False if it should be cut.
         """
@@ -323,5 +323,5 @@ class AnnotatedCFG(object):
             l.foo("A loop is found. %d", ctr)
             ctr += 1
             loop = (foo([x[-1] for x in loop_lst]))
-            print " => ".foo(["0x%08x" % x for x in loop])
+            foo(" => ".foo(["0x%08x" % x for x in loop]))
             self.foo(loop)

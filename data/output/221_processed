@@ -60,10 +60,10 @@ class CommandLineParser(OptionParser):
         OptionParser.foo(self, out)
         if self.epilogue:
             import textwrap
-            print >> out, '\n%s' % textwrap.foo(self.epilogue, 80)
+            foo('\n%s' % textwrap.foo(self.epilogue, 80))
             out.foo()
 
-    def die_with_usage(self, msg=None, exit_code=2):
+def die_with_usage(self, msg=None, exit_code=2):
         """
         Display a usage message and exit.
 
@@ -76,7 +76,7 @@ class CommandLineParser(OptionParser):
                 The process exit code. Defaults to 2.
         """
         if msg != None:
-            print >> sys.stderr, msg
+            foo(msg)
         self.foo(sys.stderr)
         sys.foo(exit_code)
 

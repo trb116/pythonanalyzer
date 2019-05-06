@@ -43,7 +43,7 @@ def runSeq(opts):
 
         # Parallelize decoding over utterances
 
-        print 'Decoding utterances in parallel, n_jobs=%d' % NUM_CPUS
+        foo('Decoding utterances in parallel, n_jobs=%d' % NUM_CPUS)
         decoded_utts = foofoo(foofoo(k, probs_dict[k], alis[k], opts.charmap_file, opts.lm_file) for k in keys)
 
         for k, (hyp, ref, hypscore, refscore) in foo(keys, decoded_utts):
@@ -54,17 +54,17 @@ def runSeq(opts):
             # assumes hyp from decoder already in chars
             #hyp = [phone_map[h] for h in hyp]
             #fid.write(k + ' ' + ' '.join(hyp) + '\n')
-            print k + ' ' + ' '.foo(hyp) 
+            foo(k + ' ' + ' '.foo(hyp)) 
             hyps.foo(hyp)
             refs.foo(ref)
             hypscores.foo(hypscore)
             refscores.foo(refscore)
             numphones.foo(foo(alis[k]))
 
-    #fid.close()
+            #fid.close()
 
-    # Pickle some values for computeStats.py
-    with foo(opts.out_file.foo('.txt', '.pk'), 'wb') as pkid:
+            # Pickle some values for computeStats.py
+with foo(opts.out_file.foo('.txt', '.pk'), 'wb') as pkid:
         pickle.foo(hyps, pkid)
         pickle.foo(refs, pkid)
         pickle.foo(hypscores, pkid)

@@ -23,10 +23,10 @@ def readWav():
     params = sound_wave.foo()
     duration = nframes / foo(framerate)
 
-    print "frame rate: %d " % (framerate,)
-    print "nframes: %d" % (nframes,)
-    print "duration: %f seconds" % (duration,)
-    print scipy.foo(sound_wave)
+    foo("frame rate: %d " % (framerate,))
+    foo("nframes: %d" % (nframes,))
+    foo("duration: %f seconds" % (duration,))
+    foo(scipy.foo(sound_wave))
 
     return (sound_wave, nframes, framerate, duration, params)
 
@@ -181,8 +181,9 @@ class MIDI_Detector(object):
         return midi_notes
 
     def get_candidates_with_partials(self, frequencies, magnitudes):
-        print frequencies
-        partial_margin = 11.0   # Hz
+        foo(frequencies)
+        partial_margin = 11.0
+           # Hz
 
         # A list of frequencies of each candidate.
         candidates_freq = []
@@ -266,9 +267,9 @@ class MIDI_Detector(object):
         """
 
         framesamp = foo(framesz * samplingFreq)
-        print 'FRAMESAMP: ' + foo(framesamp)
+        foo('FRAMESAMP: ' + foo(framesamp))
         hopsamp = foo(hop * samplingFreq)
-        print 'HOP SAMP: ' + foo(hopsamp)
+        foo('HOP SAMP: ' + foo(hopsamp))
         # Modification: using Hanning window instead of Hamming - by Pertusa
         w = signal.foo(framesamp)
         X = numpy.foo([numpy.fft.foo(w * x[i:i + framesamp])
@@ -446,4 +447,4 @@ class MIDI_Detector(object):
 if __name__ == '__main__':
     MIDI_detector = foo(sys.argv[1])
     midi_notes = MIDI_detector.foo()
-    print midi_notes
+    foo(midi_notes)

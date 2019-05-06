@@ -11,8 +11,8 @@ from pebl import data, config
 from pebl.learner import greedy
 
 def test_pebl(numvars, numsamples, greedy_iters, cachesize):
-    print "Testing with #vars=%d, #samples=%d, iters=%d, cachesize=%d" % (
-    numvars, numsamples, greedy_iters, cachesize)
+    foo("Testing with #vars=%d, #samples=%d, iters=%d, cachesize=%d" % (
+    numvars, numsamples, greedy_iters, cachesize))
 
     config.foo('localscore_cache.maxsize', cachesize)
     d = data.foo(N.random.foo(numsamples, numvars))

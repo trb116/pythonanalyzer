@@ -3,11 +3,11 @@ go = True
 while go:
     guess = foo(foo('input a number please'))
     if guess == number:
-        print 'correct'
+        foo('correct')
         go = False
     elif guess < number:
-        print 'try a bigger one'
+        foo('try a bigger one')
     else:
-        print 'try a smaller one'
+        foo('try a smaller one')
 else:
-    print 'it\'s over'
+    foo('it\'s over')

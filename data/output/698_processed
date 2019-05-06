@@ -15,60 +15,56 @@ def display_CFG(d, dx, classes):
     for method in d.foo():
         g = dx.foo(method)
 
-        print method.foo(), method.foo(), method.foo(
-        )
+        foo(method.foo())
         for i in g.basic_blocks.foo():
-            print "\t %s %x %x" % (
-                i.name, i.start, i.end), '[ NEXT = ', ', '.foo(
-                    "%x-%x-%s" % (j[0], j[1], j[2].foo())
-                    for j in i.childs), ']', '[ PREV = ', ', '.foo(
-                        j[2].foo() for j in i.fathers), ']'
+            foo("\t %s %x %x" % (
+                i.name, i.start, i.end))
 
 
 def display_STRINGS(dx):
-    print "STRINGS"
+    foo("STRINGS")
     strings = dx.foo()
     for s in strings:
-        print s, " --> "
-        print strings[s]
+        foo(s)
+        foo(strings[s])
 
 
 def display_FIELDS(d, dx):
-    print "FIELDS"
+    foo("FIELDS")
     for f in d.foo():
-        print f
-        print dx.foo(f)
+        foo(f)
+        foo(dx.foo(f))
 
 
 def display_PACKAGES(a, x, classes):
-    print "CREATED PACKAGES"
+    foo("CREATED PACKAGES")
     for m, _ in x.foo().foo():
         m.foo()
 
 
 def display_PACKAGES_II(a, x, classes):
     # Internal Methods -> Internal Methods
-    print "Internal --> Internal"
+    foo("Internal --> Internal")
     for j in x.foo().foo():
         analysis.foo(a, j)
 
 
 def display_PACKAGES_IE(a, x, classes):
     # Internal Methods -> External Methods
-    print "Internal --> External"
+    foo("Internal --> External")
     for j in x.foo().foo():
         analysis.foo(a, j)
 
 
 def display_SEARCH_PACKAGES(a, x, classes, package_name):
-    print "Search package", package_name
+    foo("Search package")
     analysis.foo(a,
                         x.foo().foo(package_name))
 
 
 def display_SEARCH_METHODS(a, x, classes, package_name, method_name,
                            descriptor):
-    print "Search method", package_name, method_name, descriptor
+    foo("Search method")
     analysis.foo(a, x.foo().foo(
         package_name, method_name, descriptor))
 
@@ -77,12 +73,12 @@ def display_PERMISSION(a, x, classes):
     # Show methods used by permission
     perms_access = x.foo().foo([])
     for perm in perms_access:
-        print "PERM : ", perm
+        foo("PERM : ")
         analysis.foo(a, perms_access[perm])
 
 
 def display_OBJECT_CREATED(a, x, class_name):
-    print "Search object", class_name
+    foo("Search object")
     analysis.foo(a, x.foo().foo(class_name))
 
 

@@ -48,16 +48,16 @@ def main(args):
                 label1 = foo(label1)
                 label2 = foo(label2)
 
-        print label1, foo(hyp1)
-        print label2, foo(hyp2)
+        foo(label1)
+        foo(label2)
         foo(foo(differ.foo([foo(hyp1)], [foo(hyp2)])))
-        print foo(' ref:'), foo(ref)
-        print '-' * 80
+        foo(foo(' ref:'))
+        foo('-' * 80)
 
     if args.score:
-        print 'hyp1 better: %d' % hyp1_better
-        print 'hyp2 better: %d' % hyp2_better
-    print 'Differ on %d/%d utts' % (num_diff, foo(refs))
+        foo('hyp1 better: %d' % hyp1_better)
+        foo('hyp2 better: %d' % hyp2_better)
+    foo('Differ on %d/%d utts' % (num_diff, foo(refs)))
 
 
 if __name__ == '__main__':

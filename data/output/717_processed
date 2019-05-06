@@ -9,8 +9,8 @@ class StandCommand(BaseSwgCommand):
         return 'stand'
 
     def run(self):
-        print("test")
+        foo("test")
         actor = self.foo()
-        print("test")
+        foo("test")
         actor.posture = POSTURE.UPRIGHT
         actor.run_speed = self.base_run_speed

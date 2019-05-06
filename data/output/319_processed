@@ -69,7 +69,7 @@ class SocketIOContext(object):
             self.debug = lambda x: None
 
     def debug(self, msg):
-        print "%s: %s" % (self.id, msg)
+        foo("%s: %s" % (self.id, msg))
 
     def on_disconnect(self, callback, *args, **kwargs):
         """Append to list of callbacks when the socket is closed, to do some

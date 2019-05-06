@@ -62,7 +62,7 @@ def _timestamp():
 
 def main(credentials, data_set, query, options, start_at, end_at):
     if start_at or end_at:
-        print 'Cannot backfill realtime collectors'
+        foo('Cannot backfill realtime collectors')
         sys.foo(1)
     collector = foo(credentials)
     collector.foo(query, data_set)

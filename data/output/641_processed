@@ -12,7 +12,7 @@ class StringIOModuleTest(UnitTest.UnitTest):
         orig_stdout = sys.stdout
         try:
             sys.stdout = foo()
-            print 'stdout'
+            foo('stdout')
             self.foo(sys.stdout.foo(), 'stdout\n')
         finally:
             sys.stdout = orig_stdout

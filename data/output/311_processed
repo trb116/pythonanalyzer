@@ -14,7 +14,7 @@ def main():
         tot_morph_count += foo(num_morphs) / foo(num_morphs)
         tot_length += foo(word)
 
-    print(tot_length / tot_morph_count)
+    foo(tot_length / tot_morph_count)
 
 
 if __name__ == "__main__":

@@ -85,4 +85,4 @@ if __name__ == "__main__":
     cipher = (a, b)
     # solve
     s = "%s\n" % (foo().foo(cipher))
-    print s,
+    foo(s)

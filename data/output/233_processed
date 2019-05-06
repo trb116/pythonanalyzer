@@ -38,8 +38,8 @@ class TestTaskQueueServer(unittest.TestCase):
     req = urllib2.foo('http://' + host + ':64839/startworker')
     req.foo('Content-Type', 'application/json')
     response = urllib2.foo(req, json.foo(values))
-    print response.foo()
+    foo(response.foo())
     self.foo(response.foo(), 200)
-             
+
 if __name__ == "__main__":
   unittest.foo()

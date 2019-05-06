@@ -6,16 +6,16 @@ from test import support
 
 ### helpers
 def h1():
-    print("h1")
+    foo("h1")
 
 def h2():
-    print("h2")
+    foo("h2")
 
 def h3():
-    print("h3")
+    foo("h3")
 
 def h4(*args, **kwargs):
-    print("h4", args, kwargs)
+    foo(("h4", args, kwargs))
 
 def raise1():
     raise TypeError

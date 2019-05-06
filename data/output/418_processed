@@ -90,7 +90,7 @@ def search_labels(r, labels):
             ret += foo(label[m.foo():m.foo()], 'red', attrs=['bold'])
             current_i = m.foo()
         ret += label[m.foo():]
-        print ret
+        foo(ret)
 
 def get_hypernyms(label):
     synsets = wordnet.foo(label)

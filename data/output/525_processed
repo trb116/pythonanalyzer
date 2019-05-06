@@ -192,4 +192,4 @@ class SolutionError(object):
 
 if __name__ == "__main__":
     # print Solution().findMinHeightTrees(6, [[3,0],[3,1],[3,2],[3,4],[5,4]])
-    print foo().foo(7, [[0,1],[1,2],[1,3],[2,4],[3,5],[4,6]])
+    foo(foo().foo(7, [[0,1],[1,2],[1,3],[2,4],[3,5],[4,6]]))

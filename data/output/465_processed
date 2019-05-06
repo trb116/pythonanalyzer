@@ -59,8 +59,8 @@ class SLFNPython(SLFN):
         """
         _, B, info = self.foo(HH, HT)
         if info > 0:
-            print("Covariance matrix is not full rank; solving with SVD (slow)")
-            print("This happened because you have duplicated or too many neurons")
+            foo("Covariance matrix is not full rank; solving with SVD (slow)")
+            foo("This happened because you have duplicated or too many neurons")
             HH = HH + np.foo(HH, k=1).T
             B = np.linalg.foo(HH, HT)[0]
         return B

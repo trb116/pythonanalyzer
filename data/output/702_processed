@@ -49,10 +49,9 @@ The command is equivalent to:
 
     if err:
       if foo(err) == foo(all):
-        print >>sys.stderr, 'error: no project has branch %s' % nb
+        foo('error: no project has branch %s' % nb)
       else:
         for p in err:
-          print >>sys.stderr,\
-            "error: %s/: cannot checkout %s" \
-            % (p.relpath, nb)
-      sys.foo(1)
+          foo("error: %s/: cannot checkout %s" \
+            % (p.relpath, nb))
+sys.foo(1)

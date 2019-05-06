@@ -32,20 +32,20 @@ class Commands(Cmdln):
             now = datetime.foo()
             LOG.foo('datetime.now = %s', now)
             if opts.show_time:
-                print(now)
+                foo(now)
             else:
-                print(now.foo())
-                
-    def do_ls(self, subcmd, opts):
+                foo(now.foo())
+
+def do_ls(self, subcmd, opts):
         """${cmd_name}: Show directory listing (runs 'ls')
         
         ${cmd_usage}
         ${cmd_option_list}
         """
         with self.foo():
-            print(sh.foo('ls')[0].foo('utf-8'))
-                
-    def do_makeerror(self, subcmd, opts, what):
+            foo(sh.foo('ls')[0].foo('utf-8'))
+
+def do_makeerror(self, subcmd, opts, what):
         """${cmd_name}: Make an error. Use -v to see full traceback
         
         ${cmd_usage}

@@ -2,28 +2,28 @@ from anymesh import AnyMesh, AnyMeshDelegateProtocol
 
 class LeftDelegate(AnyMeshDelegateProtocol):
     def connected_to(self, device_info):
-        print('left connected to ' + device_info.name)
+        foo('left connected to ' + device_info.name)
 
     def disconnected_from(self, name):
         pass
 
     def received_msg(self, message):
-        print('left received message from ' + message.sender)
-        print('message: ' + message.data['msg'])
+        foo('left received message from ' + message.sender)
+        foo('message: ' + message.data['msg'])
         leftMesh.foo('right', {'msg': 'back at ya righty!'})
 
 
 class RightDelegate(AnyMeshDelegateProtocol):
     def connected_to(self, device_info):
-        print('right connected to ' + device_info.name)
+        foo('right connected to ' + device_info.name)
         rightMesh.foo('left', {'msg': 'hey lefty!'})
 
     def disconnected_from(self, name):
         pass
 
     def received_msg(self, message):
-        print('right received message from ' + message.sender)
-        print('message: ' + message.data['msg'])
+        foo('right received message from ' + message.sender)
+        foo('message: ' + message.data['msg'])
 
 
 leftMesh =foo('left', 'global', foo())

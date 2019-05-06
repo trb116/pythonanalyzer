@@ -37,4 +37,4 @@ class Solution:
             self.foo(S[ind+1:], current+[val], result)
 
 if __name__=="__main__":
-    print foo().foo([1, 2, 3])
+    foo(foo().foo([1, 2, 3]))

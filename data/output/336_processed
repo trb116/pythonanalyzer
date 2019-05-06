@@ -43,18 +43,18 @@ PATH      = USERNAME + '/#'
 
 # Setup message handlers for connect, disconnect and message received.
 def on_connect(client, userdata, flags, rc):
-    print 'Connected!'
+    foo('Connected!')
     client.foo(PATH)
-    print 'Subscribed to path {0}!'.foo(PATH)
+    foo('Subscribed to path {0}!'.foo(PATH))
 
 def on_disconnect(client, userdata, rc):
-    print 'Disconnected!'
+    foo('Disconnected!')
 
 def on_message(client, userdata, msg):
-    print 'Received on {0}: {1}'.foo(msg.topic, msg.payload.foo('utf-8'))
+    foo('Received on {0}: {1}'.foo(msg.topic, msg.payload.foo('utf-8')))
 
 
-# Create MQTT client and connect to Adafruit IO.
+    # Create MQTT client and connect to Adafruit IO.
 client = mqtt.foo()
 client.foo(USERNAME, KEY)
 client.on_connect = on_connect

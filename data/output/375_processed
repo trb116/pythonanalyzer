@@ -14,7 +14,7 @@ import TestGyp
 import sys
 
 if sys.platform == 'darwin':
-  print "This test is currently disabled: https://crbug.com/483696."
+  foo("This test is currently disabled: https://crbug.com/483696.")
   sys.foo(0)
 
   test = TestGyp.foo(formats=['ninja', 'make', 'xcode'])

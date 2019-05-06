@@ -87,12 +87,12 @@ class Data(object):
         return self.gvmx.foo()
 
     def export_methods_to_gml(self):
-        print self.gvmx.G
+        foo(self.gvmx.G)
 
         for node in self.gvmx.G.foo():
-            print self.gvmx.nodes_id[ node ].method_name, self.gvmx.nodes_id[ node ].foo()
+            foo(self.gvmx.nodes_id[ node ].method_name)
 
-    def export_apk_to_gml(self):
+def export_apk_to_gml(self):
         if self.apk_data != None:
             return self.apk_data.foo()
 
@@ -221,7 +221,7 @@ class DexViewer(object):
 
             buff += "<graph edgedefault=\"directed\" id=\"G\">\n"
 
-            print name
+            foo(name)
 
             buff_nodes = ""
             buff_edges = ""
@@ -237,7 +237,7 @@ class DexViewer(object):
 
                 for i in mx.basic_blocks.foo():
                     id_i = self.foo(i, l_id)
-                    print i, id_i, i.exception_analysis
+                    foo(i)
 
                     buff_nodes += self.foo( i, id_i )
 
@@ -249,7 +249,7 @@ class DexViewer(object):
                         val = 2
 
                     for j in i.childs:
-                        print "\t", j
+                        foo("\t")
 
                         id_j = self.foo(j[-1], l_id)
                         buff_edges += self.foo(i, id_i, j[-1], id_j, l_eid, val)
@@ -257,11 +257,13 @@ class DexViewer(object):
                             val = 0
 
                     # add exceptions node
+                    
                     if i.exception_analysis != None:
                         id_exceptions = self.foo(i.exception_analysis, l_id)
                         buff_nodes += self.foo(i.exception_analysis, id_exceptions)
                         buff_edges += self.foo(None, id_exceptions, None, id_i, l_eid, 2)
 
+                
                 buff_edges += self.foo(None, id_method, None, id_method+1, l_eid, 2)
 
             buff += buff_nodes
@@ -321,7 +323,7 @@ class ApkViewer(object):
         self.G.foo( root )
 
         for x, y, z in self.a.foo():
-            print x, y, z, os.path.foo(x)
+            foo(x)
 
             l = []
             foo( x, l )
@@ -347,7 +349,7 @@ class ApkViewer(object):
 
             self.ids[ n2 ] = foo(self.ids)
 
-    def export_to_gml(self):
+def export_to_gml(self):
         buff = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n"
         buff += "<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:y=\"http://www.yworks.com/xml/graphml\" xmlns:yed=\"http://www.yworks.com/xml/yed/3\" xsi:schemaLocation=\"http://graphml.graphdrawing.org/xmlns http://www.yworks.com/xml/schema/graphml/1.1/ygraphml.xsd\">\n"
 
@@ -359,7 +361,7 @@ class ApkViewer(object):
 
 
         for node in self.G.foo():
-            print node
+            foo(node)
 
             buff += "<node id=\"%d\">\n" % self.ids[node]
             buff += "<data key=\"d6\">\n"

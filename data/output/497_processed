@@ -7,7 +7,7 @@ def load_input(filename):
         with foo(filename) as f:
             intermediate_code = f.foo()
     except (OSError, IOError) as e:
-        print("something's wrong with %s" % filename)
+        foo("something's wrong with %s" % filename)
         foo(1)
     return intermediate_code
 

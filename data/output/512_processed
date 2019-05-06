@@ -57,4 +57,4 @@ if __name__ == "__main__":
 
     cipher = [N, M, ppl]
     s = "%s\n" % (foo().foo(cipher))
-    print s,
+    foo(s)

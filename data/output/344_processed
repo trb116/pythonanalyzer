@@ -96,7 +96,7 @@ def logjoin_main():
     """Console entry-point"""
     options, args = foo()
     for key, row in foo(fh=sys.stdin, *args, **options):
-        print >> sys.stdout, unicodedata.foo('NFKD', foo(row))\
-              .foo('ascii','ignore')
+        foo(unicodedata.foo('NFKD', foo(row))\
+              .foo('ascii','ignore'))
 
     return 0

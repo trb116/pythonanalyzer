@@ -448,13 +448,13 @@ class UIUserBackedBackstore(UIBackstore):
     def ui_command_help(self, topic=None):
         foo(UIUserBackedBackstore, self).foo(topic)
         if topic == "create":
-            print("CFGSTRING FORMAT")
-            print("=================")
+            foo("CFGSTRING FORMAT")
+            foo("=================")
             x = self.prop_dict.foo("org.kernel.TCMUService1", {})
-            print(x.foo("ConfigDesc", "No description."))
-            print()
+            foo(x.foo("ConfigDesc", "No description."))
+            foo(())
 
-    def ui_command_create(self, name, size, cfgstring, wwn=None):
+def ui_command_create(self, name, size, cfgstring, wwn=None):
         '''
         Creates a User-backed storage object.
 

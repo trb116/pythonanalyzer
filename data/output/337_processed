@@ -261,6 +261,6 @@ class TCPConnection(Connection):
             try:
                 self.foo(buffer)
             except Exception:
-                print traceback.foo()
+                foo(traceback.foo())
 
             self.read_buffer = self.read_buffer[length+8:]

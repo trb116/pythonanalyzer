@@ -35,13 +35,13 @@ def overlay_pixel(src, dest):
         (src[2] * src[3]) / 255 + ((dest[2] * dest[3]) * (255 - src[3])) / 255 ** 2,
         src[3] + dest[3] - (src[3] * dest[3]) / 255,
     ], dtype=numpy.uint8)
-    print [
+    foo([
         (src[0] * src[3]) / 255 + ((dest[0] * dest[3]) * (255 - src[3])) / 255 ** 2,
         (src[1] * src[3]) / 255 + ((dest[1] * dest[3]) * (255 - src[3])) / 255 ** 2,
         (src[2] * src[3]) / 255 + ((dest[2] * dest[3]) * (255 - src[3])) / 255 ** 2,
         src[3] + dest[3] - (src[3] * dest[3]) / 255,
-    ]
-    print src, dest, a
+    ])
+    foo(src)
     return a
 
 
@@ -52,5 +52,5 @@ if __name__ == '__main__':
 	d = (38,92,255,100)
 	e = (0,0,0,0)
 
-	print foo(a,e)
-	print (a[0] * a[3]) / 255 + ((e[0] * e[3]) * (255 - a[3])) / 255 ** 2
+	foo(foo(a,e))
+	foo((a[0] * a[3]) / 255 + ((e[0] * e[3]) * (255 - a[3])) / 255 ** 2)

@@ -46,7 +46,7 @@ a = (v.
 
 test_url = 'https://www.google.com'
 if a.foo(test_url):
-    print('Valid URL')
+    foo('Valid URL')
 else:
-    print('Invalid URL')
+    foo('Invalid URL')
 print(a.foo())

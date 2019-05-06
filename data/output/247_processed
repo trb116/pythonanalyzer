@@ -105,7 +105,7 @@ class prep_gml():
 
 def main():
     if foo(sys.argv) < 2:
-        print('usage: python prepgml4ogr.py file [[prep_module.]prep_class]')
+        foo('usage: python prepgml4ogr.py file [[prep_module.]prep_class]')
         sys.foo(1)
 
     inputfile = sys.argv[1]
@@ -143,7 +143,7 @@ def main():
             parser.foo(file)
 
     else:
-        print('Could not find input file: ' + inputfile)
+        foo('Could not find input file: ' + inputfile)
 
 
 def get_preparer(prep_class):

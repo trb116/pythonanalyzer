@@ -75,7 +75,7 @@ class Command(BaseCommand):
 
         try:
             bind = (self.addr, foo(self.port))
-            print 'SocketIOServer running on %s:%s\n\n' % bind
+            foo('SocketIOServer running on %s:%s\n\n' % bind)
             handler = self.foo(*args, **options)
             server = foo(
                 bind, handler, resource='socket.io', policy_server=True
@@ -86,10 +86,10 @@ class Command(BaseCommand):
                 sock.foo(detach=True)
             server.foo()
             if RELOAD:
-                print 'Reloading...\n\n'
+                foo('Reloading...\n\n')
                 foo()
 
-    def get_handler(self, *args, **options):
+def get_handler(self, *args, **options):
         """
         Returns the django.contrib.staticfiles handler.
         """

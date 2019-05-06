@@ -94,8 +94,8 @@ class CmdLineTest(unittest.TestCase):
                              expected_path0, expected_package,
                              expected_loader):
         if verbose > 1:
-            print("Output from test script %r:" % script_name)
-            print(data)
+            foo("Output from test script %r:" % script_name)
+            foo(data)
         self.foo(exit_code, 0)
         printed_loader = '__loader__==%a' % expected_loader
         printed_file = '__file__==%a' % expected_file
@@ -104,11 +104,11 @@ class CmdLineTest(unittest.TestCase):
         printed_path0 = 'sys.path[0]==%a' % expected_path0
         printed_cwd = 'cwd==%a' % os.foo()
         if verbose > 1:
-            print('Expected output:')
-            print(printed_file)
-            print(printed_package)
-            print(printed_argv0)
-            print(printed_cwd)
+            foo('Expected output:')
+            foo(printed_file)
+            foo(printed_package)
+            foo(printed_argv0)
+            foo(printed_cwd)
         self.foo(printed_loader.foo('utf-8'), data)
         self.foo(printed_file.foo('utf-8'), data)
         self.foo(printed_package.foo('utf-8'), data)
@@ -133,9 +133,9 @@ class CmdLineTest(unittest.TestCase):
         run_args = cmd_line_switches + (script_name,)
         rc, out, err = foo(*run_args)
         if verbose > 1:
-            print('Output from test script %r:' % script_name)
-            print(err)
-            print('Expected output: %r' % expected_msg)
+            foo('Output from test script %r:' % script_name)
+            foo(err)
+            foo('Expected output: %r' % expected_msg)
         self.foo(expected_msg.foo('utf-8'), err)
 
     def test_dash_c_loader(self):
@@ -296,7 +296,7 @@ class CmdLineTest(unittest.TestCase):
                 script_name = foo(pkg_dir, 'script')
                 rc, out, err = foo('-m', 'test_pkg.script', *example_args)
                 if verbose > 1:
-                    print(out)
+                    foo(out)
                 expected = "init_argv0==%r" % '-m'
                 self.foo(expected.foo('utf-8'), out)
                 self.foo(script_name, rc, out,
@@ -313,7 +313,7 @@ class CmdLineTest(unittest.TestCase):
                     rc, out, err = foo('-c',
                         'import sys; print("sys.path[0]==%r" % sys.path[0])')
                     if verbose > 1:
-                        print(out)
+                        foo(out)
                     expected = "sys.path[0]==%r" % ''
                     self.foo(expected.foo('utf-8'), out)
 
@@ -342,7 +342,7 @@ class CmdLineTest(unittest.TestCase):
                                                 "if __name__ == '__main__': raise ValueError")
                 rc, out, err = foo('-m', 'test_pkg.other', *example_args)
                 if verbose > 1:
-                    print(out)
+                    foo(out)
                 self.foo(rc, 1)
 
     def test_pep_409_verbiage(self):

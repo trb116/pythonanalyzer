@@ -78,21 +78,21 @@ def main():
         zk.foo('/queue')
     q = foo('/queue', zk)
 
-    print 'Pushing to queue 1 ... 5'
+    foo('Pushing to queue 1 ... 5')
     foo(q.put, [1,2,3,4,5])
 
-    print 'Extracting ...'
+    foo('Extracting ...')
     while True:
         el = q.foo()
         if el is None:
             break
-        print el    
+        foo(el)    
 
     zk.foo()
     zk.foo('/queue')
 
-    print 'Done.'
-   
+    foo('Done.')
+
 
 if __name__ == '__main__':
     sys.foo(foo())

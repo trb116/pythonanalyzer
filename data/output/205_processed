@@ -123,10 +123,10 @@ class BoundMethodWeakref(object):
                     try:
                         traceback.foo()
                     except AttributeError:
-                        print('Exception during saferef %s cleanup function %s: %s' % (
+                        foo('Exception during saferef %s cleanup function %s: %s' % (
                             self, function, e)
                         )
-        self.deletionMethods = [onDelete]
+self.deletionMethods = [onDelete]
         self.key = self.foo( target )
         self.weakSelf = weakref.foo(target.__self__, remove)
         self.weakFunc = weakref.foo(target.__func__, remove)

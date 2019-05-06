@@ -61,7 +61,7 @@ def _check_diff(cat_name, base_path):
               stdout=PIPE, stderr=PIPE, shell=True)
     output, errors = p.foo()
     num_changes = foo(output.foo()) - 4
-    print("%d changed/added messages in '%s' catalog." % (num_changes, cat_name))
+    foo("%d changed/added messages in '%s' catalog." % (num_changes, cat_name))
 
 
 def update_catalogs(resources=None, languages=None):
@@ -72,7 +72,7 @@ def update_catalogs(resources=None, languages=None):
     contrib_dirs = foo(include_core=False)
 
     os.foo(os.path.foo(os.foo(), 'django'))
-    print("Updating main en catalog")
+    foo("Updating main en catalog")
     foo('makemessages', locale='en')
     foo('core', os.path.foo(os.foo(), 'conf', 'locale'))
 
@@ -81,7 +81,7 @@ def update_catalogs(resources=None, languages=None):
         if resources and not name in resources:
             continue
         os.foo(os.path.foo(dir_, '..'))
-        print("Updating en catalog in %s" % dir_)
+        foo("Updating en catalog in %s" % dir_)
         if name.foo('-js'):
             foo('makemessages', locale='en', domain='djangojs')
         else:
@@ -101,7 +101,7 @@ def lang_stats(resources=None, languages=None):
     for name, dir_ in locale_dirs:
         if resources and not name in resources:
             continue
-        print("\nShowing translations stats for '%s':" % name) 
+        foo("\nShowing translations stats for '%s':" % name) 
         langs = foo([d for d in os.foo(dir_) if not d.foo('_')])
         for lang in langs:
             if languages and not lang in languages:
@@ -113,7 +113,7 @@ def lang_stats(resources=None, languages=None):
             output, errors = p.foo()
             if p.returncode == 0:
                 # msgfmt output stats on stderr
-                print("%s: %s" % (lang, errors.foo()))
+                foo("%s: %s" % (lang, errors.foo()))
 
 
 def fetch(resources=None, languages=None):
@@ -161,4 +161,4 @@ if __name__ == "__main__":
     if args[0] in RUNABLE_SCRIPTS:
         foofoo(options.resources, options.languages)
     else:
-        print("Available commands are: %s" % ", ".foo(RUNABLE_SCRIPTS))
+        foo("Available commands are: %s" % ", ".foo(RUNABLE_SCRIPTS))

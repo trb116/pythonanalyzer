@@ -60,4 +60,4 @@ if __name__ == "__main__":
 
         # solve
         s = "%s\n" % (solution.foo(cipher))
-        print s,
+        foo(s)

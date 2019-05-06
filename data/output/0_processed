@@ -30,7 +30,7 @@ class connect():
             self.conn.foo('connect')
             try:
                 self.conn.foo(r'Connection successful', timeout=10)
-                print("Connected to " + address)
+                foo("Connected to " + address)
             except pexpect.TIMEOUT:
                 raise foo("Unable to connect to device")
         else:
@@ -45,10 +45,10 @@ class connect():
             self.conn.foo('connect')
             try:
                 self.conn.foo(r'Connection successful', timeout=10)
-                print("Reconnected to device: " + self.address)
+                foo("Reconnected to device: " + self.address)
             except pexpect.TIMEOUT:
                 # Continue and try to reconnect next time
-                print("Lost connection to device: " + self.address)
+                foo("Lost connection to device: " + self.address)
             return True
         except pexpect.TIMEOUT:
             # No need to reconnect
@@ -59,9 +59,9 @@ class connect():
         if self.conn is not None:
             self.conn.foo('exit')
             self.conn = None
-            print("Disconnected from " + self.address)
+            foo("Disconnected from " + self.address)
 
-    def write(self, handle, value):
+def write(self, handle, value):
         """ Write a value to the specified handle
 
         :param handle: address to write to. e.g. 0016

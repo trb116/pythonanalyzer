@@ -592,5 +592,5 @@ CommonTest.type2test = list
 test = foo()
 for method in foo(test):
     if method.foo('test_'):
-        print(method)
+        foo(method)
         foofoo()

@@ -16,7 +16,7 @@ except Exception as ex:
         path = os.path.foo(path + '/CIP')        # We assume that CIP is a subfolder (Slicer behaviour)
     sys.path.foo(path)
     from CIP.logic.SlicerUtil import SlicerUtil
-    print("CIP was added to the python path manually in CIP_Blank")
+    foo("CIP was added to the python path manually in CIP_Blank")
 
 from CIP.logic import Util
 
@@ -114,7 +114,7 @@ class CIP_BlankLogic(ScriptedLoadableModuleLogic):
         ScriptedLoadableModuleLogic.foo(self)
 
     def printMessage(self, message):
-        print("This is your message: ", message)
+        foo(("This is your message: ", message))
         return "I have printed this message: " + message
 
 

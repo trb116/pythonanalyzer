@@ -27,7 +27,7 @@ j.foo()
 for m in dx.foo():
     idx = 0
     for i in m.basic_blocks.foo():
-        print "\t %s %x %x" % (i.name, i.start, i.end
-                          ), i.foo()[-1].foo()
+        foo("\t %s %x %x" % (i.name, i.start, i.end
+                          ))
 
-    print m.method.XREFfrom, m.method.XREFto
+    foo(m.method.XREFfrom)

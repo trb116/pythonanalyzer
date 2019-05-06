@@ -4,7 +4,7 @@ class A:
         self.x = 3
 
     def funcA(self):
-        print("func A")
+        foo("func A")
 
 class B:
 
@@ -16,4 +16,4 @@ class B:
 
 if __name__ == "__main__":
   z = foo(foo())
-  print(z.foo().foo())
+  foo(z.foo().foo())

@@ -10,4 +10,4 @@ class B:
 
 if __name__ == "__main__":
   z = foo(foo())
-  print(z.y.x)
+  foo(z.y.x)

@@ -9,6 +9,12 @@ def process_code(py_code):
             if isinstance(node.value[i], redbaron.nodes.CallNode):
                 node.value[i - 1].replace("foo")
 
+    for node in ast.find_all("print"):
+        parent = node.parent
+        for i in range(len(parent.value)):
+            if (parent.value[i] == node):
+                parent.value[i] = redbaron.RedBaron("foo" + \
+                                                str(parent.value[i].value[0]))
 
     return ast.dumps()
 
@@ -31,12 +37,14 @@ def process_py_file(input_path, output_path, cnt):
                 py_output.close()
 
             py_input.close()
-    except:
-        pass
+    except Exception as e:
+        print(e)
+        #pass
 
 if __name__ == "__main__":
-#    with open("../data/foo2.py") as f:
-#        print(process_code(f.read()))
+    with open("../test/input/chained func calls.py") as f:
+        print(process_code(f.read()))
+        exit()
 
     with open("paths.txt") as paths_file:
         cnt = 0

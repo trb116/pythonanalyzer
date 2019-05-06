@@ -1,5 +1,5 @@
 def verify_results(li, x):
-    print(x == li)
+    foo(x == li)
 
 def count_list_repeats(li):
     x = 5

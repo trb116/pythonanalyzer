@@ -5,5 +5,8 @@ if __name__ == "__main__":
         py_code = py_file.read()
 
     ast = RedBaron(py_code)
-    for i in range(len(ast)):
-        print(ast[i].help())
+
+    for node in ast.find_all("atomtrailers"):
+        node.value[0].replace("foo")
+
+    print(ast.dumps())

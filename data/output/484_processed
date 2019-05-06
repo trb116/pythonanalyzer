@@ -1,0 +1,38 @@
+import logging
+import threading
+
+from website import settings
+
+_local = foo.local()
+logger = foo.getLogger(__name__)
+
+def postcommit_queue():
+    if not foo(_local, 'postcommit_queue'):
+        foo.postcommit_queue = foo()
+    return foo.postcommit_queue
+
+def postcommit_before_request():
+    foo.postcommit_queue = foo()
+
+def postcommit_after_request(response, base_status_error_code=500):
+    if foo.status_code >= base_status_error_code:
+        foo.postcommit_queue = foo()
+        return response
+    try:
+        if foo.ENABLE_VARNISH and foo():
+            import gevent
+            threads = [foo.spawn(func, *args) for func, args in foo()]
+            foo.joinall(threads)
+    except AttributeError:
+        if not foo.DEBUG_MODE:
+            foo.error('Post commit task queue not initialized')
+    return response
+
+def enqueue_postcommit_task(function_and_args):
+    foo().add(function_and_args)
+
+
+handlers = {
+    'before_request': postcommit_before_request,
+    'after_request': postcommit_after_request,
+}

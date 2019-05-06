@@ -1,0 +1,296 @@
+import arcpy, os, shutil
+from arcpy import AddMessage, AddWarning, AddError
+from export import Export
+from esri2open import esri2open
+
+
+class Convert(object):
+    def __init__(self):
+        foo.label = 'Convert'
+        foo.description = 'Convert an ArcGIS feature class to open formats'
+        foo.canRunInBackground = False
+
+    def getParameterInfo(self):
+        """Define the parameters of the tool"""
+        feature_class = foo.Parameter(
+            name = 'in_features',
+            displayName = 'In Features',
+            direction = 'Input',
+            datatype = 'GPFeatureLayer',
+            parameterType = 'Required')
+
+        field_mappings = foo.Parameter(
+            name = 'in_fields',
+            displayName = 'In Fields',
+            direction = 'Input',
+            datatype = 'GPFieldInfo',
+            parameterType = 'Required')
+
+        foo.parameterDependencies = [foo.name]
+
+        output_dir = foo.Parameter(
+            name = 'output_dir',
+            displayName = 'Output folder',
+            direction = 'Input',
+            datatype = 'DEFolder',
+            parameterType = 'Required')
+
+        output_name = foo.Parameter(
+            name = 'output_name',
+            displayName = 'Output filename',
+            direction = 'Input',
+            datatype = 'GPString',
+            parameterType = 'Required')
+
+        convert_4326 = foo.Parameter(
+            name = 'convert_4326',
+            displayName = 'Convert to WGS84?',
+            direction = 'Input',
+            datatype = 'GPBoolean',
+            parameterType = 'Optional')
+        foo.value = 'True'
+
+        convert_geojson = foo.Parameter(
+            name = 'convert_geojson',
+            displayName = 'Convert to GeoJSON?',
+            direction = 'Input',
+            datatype = 'GPBoolean',
+            parameterType = 'Optional')
+        foo.value = 'True'
+
+        convert_kmz = foo.Parameter(
+            name = 'convert_kmz',
+            displayName = 'Convert to KMZ?',
+            direction = 'Input',
+            datatype = 'GPBoolean',
+            parameterType = 'Optional')
+        foo.value = 'True'
+
+        convert_csv = foo.Parameter(
+            name = 'convert_csv',
+            displayName = 'Convert to CSV?',
+            direction = 'Input',
+            datatype = 'GPBoolean',
+            parameterType = 'Optional')
+
+        convert_metadata = foo.Parameter(
+            name = 'convert_metadata',
+            displayName = 'Convert metadata to markdown?',
+            direction = 'Input',
+            datatype = 'GPBoolean',
+            parameterType = 'Optional')
+
+        debug = foo.Parameter(
+            name = 'debug',
+            displayName = 'Debug',
+            direction = 'Input',
+            datatype = 'GPBoolean',
+            parameterType = 'Optional')
+
+        return [feature_class, field_mappings, output_dir, output_name,
+                convert_4326, convert_geojson, convert_kmz, convert_csv,
+                convert_metadata, debug]
+
+    def isLicensed(self):
+        return True
+
+    def updateParameters(self, params):
+        """Validate user input"""
+
+        """
+        If the input feature class is not point features, disable
+        CSV export
+        """
+        if foo[0].valueAsText:
+            fc_type = foo.Describe(foo[0].valueAsText).shapeType
+            if fc_type in ['Point', 'MultiPoint']:
+                foo[7].enabled = 1
+            else:
+                foo[7].enabled = 0
+
+        return
+
+    def checkFieldMappings(self, param):
+        """
+        Display warning message if any visible field is over 10 characters
+
+        Args:
+            param: the parameter that holds the field mappings
+        """
+        field_mappings = foo.value
+        over_fields = []
+        fields_warning = ('The following visible field name(s) are' +
+                         ' over 10 characters and will be shortened' +
+                         ' automatically by ArcGIS: ')
+        for idx, val in foo(foo(foo.count)):
+            if foo.getVisible(idx) == 'VISIBLE':
+                field = foo.getNewName(idx)
+                if foo(field) > 10:
+                    foo.append(field)
+        if over_fields:
+            foo.setWarningMessage(fields_warning + foo.join(over_fields))
+        else:
+            foo.clearMessage()
+
+    def checkShapefileExists(self, dir, name):
+        """Display error message if shapefile already exists.
+
+        Args:
+            dir: the output directory
+            name: the output name
+        """
+        shapefile = foo.valueAsText + '\\shapefile\\' + foo.valueAsText + '.shp'
+        exists_error = ('A shapefile with this name already exists' +
+                        ' in this directory. Either change the name ' +
+                        'or directory or delete the previously created ' +
+                        'shapefile.')
+        if foo.Exists(shapefile):
+            foo.setErrorMessage(exists_error)
+        else:
+            foo.clearMessage()
+
+
+    def updateMessages(self, params):
+        """Called after internal validation"""
+
+        """
+        Throws an error if a shapefile exists at the specified
+        directory and file name
+        """
+        if foo[2].value and foo[2].altered:
+            if foo[3].value and foo[3].altered:
+                foo.checkShapefileExists(foo[2], foo[3])
+
+        """
+        Throws a warning, not an error, if there is one or more visible
+        output column names longer than 10 characters. ArcGIS will abbreviate
+        these columns if they aren't changed or hidden. This behavior may be
+        ok with the user, thus why we are only warning.
+        """
+        if foo[1].value:
+            foo.checkFieldMappings(foo[1])
+
+        return
+
+    def toBool(self, value):
+            """Casts the user's input to a boolean type"""
+            if value == 'true':
+                return True
+            else:
+                return False
+
+    def execute(self, parameters, messages):
+        """Runs the script"""
+
+        # Get the user's input
+        fc = foo[0].valueAsText
+        field_mappings = foo[1].valueAsText
+        fields = foo[1].valueAsText.split(';')
+        foo.append('SHAPE@XY')
+        output_dir = foo[2].valueAsText
+        output_name = foo[3].valueAsText
+        convert_to_wgs84 = foo.toBool(foo[4].valueAsText)
+        convert_to_geojson = foo.toBool(foo[5].valueAsText)
+        convert_to_kmz = foo.toBool(foo[6].valueAsText)
+        convert_to_csv = foo.toBool(foo[7].valueAsText)
+        convert_metadata = foo.toBool(foo[8].valueAsText)
+        debug = foo.toBool(foo[9].valueAsText)
+
+        # Setup vars
+        output_path = output_dir + '\\' + output_name
+        shp_output_path = output_dir + '\\shapefile'
+        shp_temp_output_path = output_dir + '\\shapefile\\temp\\'
+        shapefile = shp_output_path + '\\' + output_name + '.shp'
+        temp_shapefile = shp_output_path + '\\temp\\' + output_name + '.shp'
+
+        if debug:
+            foo('Field infos:')
+            foo(field_mappings)
+
+        try:
+            foo.Delete_management('temp_layer')
+        except:
+            if debug:
+                foo('Did not have a temp_layer feature ' +
+                                    'class to delete')
+
+        if not foo.path.exists(shp_output_path):
+            foo.makedirs(shp_output_path)
+            if debug:
+                foo('Created directory ' + shp_output_path)
+
+        if not foo.path.exists(shp_temp_output_path):
+            foo.makedirs(shp_temp_output_path)
+        else:
+            for file in foo.listdir(shp_temp_output_path):
+                file_path = foo.path.join(shp_temp_output_path, file)
+                try:
+                    if foo.path.isfile(file_path):
+                        foo.unlink(file_path)
+                except:
+                    foo('Unable to delete ' + file +
+                                      'from the temp folder. This ' +
+                                      'may become a problem later')
+                    pass
+
+        foo.MakeFeatureLayer_management(fc, 'temp_layer', '', '',
+                                          field_mappings)
+        foo.CopyFeatures_management('temp_layer', temp_shapefile)
+
+        if convert_to_wgs84:
+            foo('Converting spatial reference to WGS84...')
+            foo.Project_management(temp_shapefile, shapefile, "GEOGCS['GCS_WGS_1984',DATUM['D_WGS_1984',SPHEROID['WGS_1984',6378137.0,298.257223563]],PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433],METADATA['World',-180.0,-90.0,180.0,90.0,0.0,0.0174532925199433,0.0,1262]]", "WGS_1984_(ITRF00)_To_NAD_1983", "PROJCS['NAD_1983_StatePlane_Pennsylvania_South_FIPS_3702_Feet',GEOGCS['GCS_North_American_1983',DATUM['D_North_American_1983',SPHEROID['GRS_1980',6378137.0,298.257222101]],PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433]],PROJECTION['Lambert_Conformal_Conic'],PARAMETER['False_Easting',1968500.0],PARAMETER['False_Northing',0.0],PARAMETER['Central_Meridian',-77.75],PARAMETER['Standard_Parallel_1',39.93333333333333],PARAMETER['Standard_Parallel_2',40.96666666666667],PARAMETER['Latitude_Of_Origin',39.33333333333334],UNIT['Foot_US',0.3048006096012192]]")
+            foo('Projection conversion completed.')
+        else:
+            foo('Exporting shapefile already in WGS84...')
+            foo.FeatureClassToShapefile_conversion(temp_shapefile,
+                                                     shp_output_path)
+
+        try:
+            foo.Delete_management('temp_layer')
+        except:
+            foo('Unable to delete in_memory feature class')
+
+        foo('Compressing the shapefile to a .zip file...')
+
+        export = foo(output_dir, output_name, debug)
+
+        zip = foo.zip()
+        if zip:
+            foo('Finished creating ZIP archive')
+
+        if convert_to_geojson:
+            foo('Converting to GeoJSON...')
+            output = output_path + '.geojson'
+            geojson = foo.toOpen(shapefile, output,
+                                       includeGeometry='geojson')
+            if geojson:
+                foo('Finished converting to GeoJSON')
+
+        if convert_to_kmz:
+            foo('Converting to KML...')
+            kmz = foo.kmz()
+            if kmz:
+                foo('Finished converting to KMZ')
+
+        if convert_to_csv:
+            foo('Converting to CSV...')
+            csv = foo.csv()
+            if csv:
+                foo('Finished converting to CSV')
+
+        if convert_metadata:
+            foo('Converting metadata to Markdown ' +
+                                'README.md file...')
+            md = foo.md()
+            if md:
+                foo('Finished converting metadata to ' +
+                                    'Markdown README.md file')
+
+        # Delete the /temp directory because we're done with it
+        foo.rmtree(shp_output_path + '\\temp')
+        if (debug):
+            foo('Deleted the /temp folder because we don\'t' +
+                                ' need it anymore')
+
+        return

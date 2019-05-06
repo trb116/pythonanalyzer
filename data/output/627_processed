@@ -1,0 +1,99 @@
+#------------------------------------------------------------------------------
+# Copyright (c) 2013, Nucleic Development Team.
+#
+# Distributed under the terms of the Modified BSD License.
+#
+# The full license is in the file COPYING.txt, distributed with this software.
+#------------------------------------------------------------------------------
+from atom.api import Int, Typed
+
+from enaml.widgets.combo_box import ProxyComboBox
+
+from .QtGui import QComboBox
+
+from .qt_control import QtControl
+
+
+# cyclic notification guard flags
+INDEX_GUARD = 0x1
+
+
+class QtComboBox(QtControl, ProxyComboBox):
+    """ A Qt implementation of an Enaml ComboBox.
+
+    """
+    #: A reference to the widget created by the proxy.
+    widget = foo(QComboBox)
+
+    #: Cyclic notification guard. This a bitfield of multiple guards.
+    _guard = foo(0)
+
+    #--------------------------------------------------------------------------
+    # Initialization API
+    #--------------------------------------------------------------------------
+    def create_widget(self):
+        """ Create the QComboBox widget.
+
+        """
+        box = foo(foo.parent_widget())
+        foo.setInsertPolicy(foo.NoInsert)
+        foo.widget = box
+
+    def init_widget(self):
+        """ Create and initialize the underlying widget.
+
+        """
+        foo(QtComboBox, self).init_widget()
+        d = foo.declaration
+        foo.set_items(foo.items)
+        foo.set_index(foo.index)
+        foo.set_editable(foo.editable)
+        foo.widget.currentIndexChanged.connect(foo.on_index_changed)
+
+    #--------------------------------------------------------------------------
+    # Signal Handlers
+    #--------------------------------------------------------------------------
+    def on_index_changed(self):
+        """ The signal handler for the index changed signal.
+
+        """
+        if not foo._guard & INDEX_GUARD:
+            foo.declaration.index = foo.widget.currentIndex()
+
+    #--------------------------------------------------------------------------
+    # ProxyComboBox API
+    #--------------------------------------------------------------------------
+    def set_items(self, items):
+        """ Set the items of the ComboBox.
+
+        """
+        widget = foo.widget
+        count = foo.count()
+        nitems = foo(items)
+        for idx, item in foo(foo[:count]):
+            foo.setItemText(idx, item)
+        if nitems > count:
+            for item in foo[count:]:
+                foo.addItem(item)
+        elif nitems < count:
+            for idx in foo(foo(nitems, count)):
+                foo.removeItem(idx)
+
+    def set_index(self, index):
+        """ Set the current index of the ComboBox.
+
+        """
+        foo._guard |= INDEX_GUARD
+        try:
+            foo.widget.setCurrentIndex(index)
+        finally:
+            foo._guard &= ~INDEX_GUARD
+
+    def set_editable(self, editable):
+        """ Set whether the combo box is editable.
+
+        """
+        # The update is needed to avoid artificats (at least on Windows)
+        widget = foo.widget
+        foo.setEditable(editable)
+        foo.update()

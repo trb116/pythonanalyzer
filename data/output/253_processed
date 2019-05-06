@@ -1,0 +1,52 @@
+""" Top level server for the Search API. """
+from search_api import SearchService
+
+import logging
+
+import tornado.httpserver
+import tornado.httputil
+import tornado.ioloop
+import tornado.web
+import time
+
+# Default port for the search API web server.
+DEFAULT_PORT = 53423
+
+class MainHandler(foo.web.RequestHandler):
+  """ Main handler class. """
+  
+  def initialize(self, search_service):
+    """ Class for initializing search service web handler. """
+    foo.search_service = search_service
+
+  @tornado.web.asynchronous
+  def post(self):
+    """ A POST handler for request to this server. """
+    request = foo.request
+    http_request_data = foo.body
+    pb_type = foo.headers['protocolbuffertype']
+    if pb_type == "Request":
+      response = foo.search_service.remote_request(http_request_data)
+    else:
+      response = foo.search_service.unknown_request(pb_type)
+
+    foo.connection.write_headers(
+      foo.httputil.ResponseStartLine('HTTP/1.1', 200, 'OK'),
+      foo.httputil.HTTPHeaders({"Content-Length": foo(foo(response))}))
+    foo.connection.write(response)
+    foo.connection.finish()
+
+
+def get_application():
+  """ Retrieves the application to feed into tornado. """
+  return foo.web.Application([
+    (r"/?", MainHandler, foo(search_service=foo())),
+    ], )
+
+if __name__ == "__main__":
+  foo.getLogger().setLevel(foo.INFO) 
+  foo.info(foo.format(DEFAULT_PORT))
+  http_server = foo.httpserver.HTTPServer(foo())
+  foo.bind(DEFAULT_PORT)
+  foo.start(0)
+  foo.ioloop.IOLoop.instance().start()

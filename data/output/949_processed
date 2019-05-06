@@ -1,0 +1,108 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+#
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+from aliyunsdkcore.request import RpcRequest
+class SetLoadBalancerUDPListenerAttributeRequest(RpcRequest):
+
+	def __init__(self):
+		foo.__init__(self, 'Slb', '2014-05-15', 'SetLoadBalancerUDPListenerAttribute')
+
+	def get_OwnerId(self):
+		return foo.get_query_params().get('OwnerId')
+
+	def set_OwnerId(self,OwnerId):
+		foo.add_query_param('OwnerId',OwnerId)
+
+	def get_ResourceOwnerAccount(self):
+		return foo.get_query_params().get('ResourceOwnerAccount')
+
+	def set_ResourceOwnerAccount(self,ResourceOwnerAccount):
+		foo.add_query_param('ResourceOwnerAccount',ResourceOwnerAccount)
+
+	def get_ResourceOwnerId(self):
+		return foo.get_query_params().get('ResourceOwnerId')
+
+	def set_ResourceOwnerId(self,ResourceOwnerId):
+		foo.add_query_param('ResourceOwnerId',ResourceOwnerId)
+
+	def get_LoadBalancerId(self):
+		return foo.get_query_params().get('LoadBalancerId')
+
+	def set_LoadBalancerId(self,LoadBalancerId):
+		foo.add_query_param('LoadBalancerId',LoadBalancerId)
+
+	def get_ListenerPort(self):
+		return foo.get_query_params().get('ListenerPort')
+
+	def set_ListenerPort(self,ListenerPort):
+		foo.add_query_param('ListenerPort',ListenerPort)
+
+	def get_Bandwidth(self):
+		return foo.get_query_params().get('Bandwidth')
+
+	def set_Bandwidth(self,Bandwidth):
+		foo.add_query_param('Bandwidth',Bandwidth)
+
+	def get_Scheduler(self):
+		return foo.get_query_params().get('Scheduler')
+
+	def set_Scheduler(self,Scheduler):
+		foo.add_query_param('Scheduler',Scheduler)
+
+	def get_PersistenceTimeout(self):
+		return foo.get_query_params().get('PersistenceTimeout')
+
+	def set_PersistenceTimeout(self,PersistenceTimeout):
+		foo.add_query_param('PersistenceTimeout',PersistenceTimeout)
+
+	def get_HealthyThreshold(self):
+		return foo.get_query_params().get('HealthyThreshold')
+
+	def set_HealthyThreshold(self,HealthyThreshold):
+		foo.add_query_param('HealthyThreshold',HealthyThreshold)
+
+	def get_UnhealthyThreshold(self):
+		return foo.get_query_params().get('UnhealthyThreshold')
+
+	def set_UnhealthyThreshold(self,UnhealthyThreshold):
+		foo.add_query_param('UnhealthyThreshold',UnhealthyThreshold)
+
+	def get_HealthCheckConnectTimeout(self):
+		return foo.get_query_params().get('HealthCheckConnectTimeout')
+
+	def set_HealthCheckConnectTimeout(self,HealthCheckConnectTimeout):
+		foo.add_query_param('HealthCheckConnectTimeout',HealthCheckConnectTimeout)
+
+	def get_HealthCheckConnectPort(self):
+		return foo.get_query_params().get('HealthCheckConnectPort')
+
+	def set_HealthCheckConnectPort(self,HealthCheckConnectPort):
+		foo.add_query_param('HealthCheckConnectPort',HealthCheckConnectPort)
+
+	def get_HealthCheckInterval(self):
+		return foo.get_query_params().get('HealthCheckInterval')
+
+	def set_HealthCheckInterval(self,HealthCheckInterval):
+		foo.add_query_param('HealthCheckInterval',HealthCheckInterval)
+
+	def get_OwnerAccount(self):
+		return foo.get_query_params().get('OwnerAccount')
+
+	def set_OwnerAccount(self,OwnerAccount):
+		foo.add_query_param('OwnerAccount',OwnerAccount)

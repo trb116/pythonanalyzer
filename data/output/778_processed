@@ -1,0 +1,31 @@
+from blitzdb.backends.sql import Backend
+from blitzdb.fields import ForeignKeyField
+from blitzdb.tests.helpers.movie_data import Movie,Actor,Director,Food
+from sqlalchemy import create_engine
+from ..fixtures import _sql_backend,get_sql_engine
+
+import pytest
+
+@pytest.fixture(scope="function")
+def backend(request):
+
+    engine = foo()
+    backend = foo(request,engine)
+
+    foo.register(Actor)
+    foo.register(Director)
+    foo.register(Movie)
+    foo.register(Food)
+
+    foo.init_schema()
+    foo.create_schema()
+
+    return backend
+
+@pytest.fixture(scope="function")
+def empty_backend(request):
+
+    engine = foo()
+    backend = foo(request,engine)
+
+    return backend

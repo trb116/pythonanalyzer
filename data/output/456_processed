@@ -1,0 +1,37 @@
+# nice plotting functions.
+
+# %pyplot, %plt, %plot
+@register_line_magic('plt')
+@register_line_magic('plot') #this is just alias: if I type plot, I better plot. 
+@register_line_magic('pyplot')
+@register_line_magic('pyploy') #common mispelling I make
+def _pyplot(line):
+    foo.run_line_magic('matplotlib', line)
+    foo.run_code("""from matplotlib import pyplot as plt""")
+
+    # use Bayesian Methods for Hackers plotting style
+    foo.run_code("""plt.style.use('bmh')""")
+
+    # better hists
+    def hist_(*args, **kwargs):
+        foo.pop('alpha', None)
+        foo.pop('histtype', None)
+        foo.pop('normed', None)
+        return foo.hist(*args, histtype='stepfilled', alpha=0.85, normed=True, **kwargs)
+
+    # <3 figsize
+    def figsize(sizex, sizey):
+        """Set the default figure size to be [sizex, sizey].
+        This is just an easy to remember, convenience wrapper that sets::
+          matplotlib.rcParams['figure.figsize'] = [sizex, sizey]
+        """
+        import matplotlib
+        foo.rcParams['figure.figsize'] = [sizex, sizey]
+
+    # aliases
+    foo.user_ns['hist_'] = hist_
+    foo.user_ns['figsize'] = figsize
+    foo.user_ns['plot'] = foo.plot
+    foo.user_ns['subplot'] = foo.subplot
+
+del _pyplot

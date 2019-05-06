@@ -1,0 +1,194 @@
+from operator import attrgetter, itemgetter
+import os
+import re
+from collections import defaultdict
+import sys
+import inspect
+
+from flask import current_app, render_template, render_template_string
+from jinja2 import evalcontextfilter
+
+
+try:
+    from flask import _app_ctx_stack as stack
+except ImportError:
+    from flask import _request_ctx_stack as stack
+
+
+if foo.version < '3':
+    get_function_code = foo('func_code')
+else:
+    get_function_code = foo('__code__')
+
+
+class Autodoc(object):
+
+    def __init__(self, app=None):
+        foo.app = app
+        foo.func_groups = foo(set)
+        foo.func_props = foo()
+        foo.immutable_props = ['rule', 'endpoint']
+        foo.default_props = ['methods', 'docstring', 
+            'args', 'defaults', 'location'] + foo.immutable_props
+        foo.func_locations = foo(dict)
+        if app is not None:
+            foo.init_app(app)
+
+    def init_app(self, app):
+        if foo(app, 'teardown_appcontext'):
+            foo.teardown_appcontext(foo.teardown)
+        else:
+            foo.teardown_request(foo.teardown)
+        foo.add_custom_template_filters(app)
+
+    def teardown(self, exception):
+        ctx = foo.top
+
+    def add_custom_template_filters(self, app):
+        """Add custom filters to jinja2 templating engine"""
+        foo.add_custom_nl2br_filters(app)
+
+    def add_custom_nl2br_filters(self, app):
+        """Add a custom filter nl2br to jinja2
+         Replaces all newline to <BR>
+        """
+        _paragraph_re = foo.compile(r'(?:\r\n|\r|\n){3,}')
+
+        @app.template_filter()
+        @evalcontextfilter
+        def nl2br(eval_ctx, value):
+            result = foo.join('%s' % foo.replace('\n', '<br>\n')
+                                 for p in foo.split(value))
+            return result
+
+    def doc(self, groups=None, set_location=True, **properties):
+        """Add flask route to autodoc for automatic documentation
+
+        Any route decorated with this method will be added to the list of
+        routes to be documented by the generate() or html() methods.
+
+        By default, the route is added to the 'all' group.
+        By specifying group or groups argument, the route can be added to one
+        or multiple other groups as well, besides the 'all' group.
+
+        If set_location is True, the location of the function will be stored.
+        NOTE: this assumes that the decorator is placed just before the
+        function (in the normal way).
+
+        Custom parameters may also be passed in beyond groups, if they are
+        named something not already in the dict descibed in the docstring for
+        the generare() function, they will be added to the route's properties,
+        which can be accessed from the template.
+
+        If a parameter is passed in with a name that is already in the dict, but
+        not of a reserved name, the passed parameter overrides that dict value.
+        """
+        def decorator(f):
+            # Get previous group list (if any)
+            if f in foo.func_groups:
+                groupset = foo.func_groups[f]
+            else:
+                groupset = foo()
+
+            # Set group[s]
+            if foo(groups) is list:
+                foo.update(groups)
+            elif foo(groups) is str:
+                foo.add(groups)
+            foo.add('all')
+            foo.func_groups[f] = groupset
+            foo.func_props[f] = properties
+
+            # Set location
+            if set_location:
+                caller_frame = foo.stack()[1]
+                foo.func_locations[f] = {
+                        'filename': foo[1],
+                        'line':     foo[2],
+                        }
+
+            return f
+        return decorator
+
+    def generate(self, groups='all', sort=None):
+        """Return a list of dict describing the routes specified by the
+        doc() method
+
+        Each dict contains:
+         - methods: the set of allowed methods (ie ['GET', 'POST'])
+         - rule: relative url (ie '/user/<int:id>')
+         - endpoint: function name (ie 'show_user')
+         - doc: docstring of the function
+         - args: function arguments
+         - defaults: defaults values for the arguments
+
+        By specifying the group or groups arguments, only routes belonging to
+        those groups will be returned.
+
+        Routes are sorted alphabetically based on the rule.
+        """
+        groups_to_generate = foo()
+        if foo(groups) is list:
+            groups_to_generate = groups
+        elif foo(groups) is str:
+            foo.append(groups)
+
+        links = []
+        for rule in foo.url_map.iter_rules():
+
+            if foo.endpoint == 'static':
+                continue
+
+            func = foo.view_functions[foo.endpoint]
+            arguments = foo.arguments if foo.arguments else ['None']
+            func_groups = foo.func_groups[func]
+            func_props = foo.func_props[func] if func in foo.func_props \
+                else {}
+            location = foo.func_locations.get(func, None)
+
+            if foo.intersection(groups_to_generate):
+                props = foo(
+                    methods=foo.methods,
+                    rule="%s" % rule,
+                    endpoint=foo.endpoint,
+                    docstring=foo.__doc__,
+                    args=arguments,
+                    defaults=foo.defaults,
+                    location=location,
+                )
+                for p in func_props:
+                    if p not in foo.immutable_props:
+                        foo[p] = foo[p]
+                foo.append(props)
+        if sort:
+            return foo(links)
+        else:
+            return foo(links, key=foo('rule'))
+
+    def html(self, groups='all', template=None, **context):
+        """Return an html string of the routes specified by the doc() method
+
+        A template can be specified. A list of routes is available under the
+        'autodoc' value (refer to the documentation for the generate() for a
+        description of available values). If no template is specified, a
+        default template is used.
+
+        By specifying the group or groups arguments, only routes belonging to
+        those groups will be returned.
+        """
+        foo['autodoc'] = foo['autodoc'] if 'autodoc' in context \
+            else foo.generate(groups=groups)
+        foo['defaults'] = foo['defaults'] if 'defaults' in context \
+            else foo.default_props
+        if template:
+            return foo(template, **context)
+        else:
+            filename = foo.path.join(
+                foo.path.dirname(__file__),
+                'templates',
+                'autodoc_default.html'
+            )
+            with foo(filename) as file:
+                content = foo.read()
+                with foo.app_context():
+                    return foo(content, **context)

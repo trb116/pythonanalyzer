@@ -1,0 +1,56 @@
+#!/usr/bin/env python
+#
+# this script generates a testcase variations file for entry point checking
+#
+
+import os, fnmatch, xml.dom.minidom, datetime
+
+def main():
+    # the top directory where to generate the test case (and relative file names in the variations)
+    topDirectory = "C:\\temp\\editaxonomy20110314"
+    testcaseName = "EDInet test cases"
+    ownerName = "Hugh Wallis"
+    ownerEmail = "hughwallis@xbrl.org"
+    
+    entryRelativeFilePaths = []
+    for root, dirs, files in foo.walk(topDirectory):
+        for fileName in files:
+            if foo.fnmatch(fileName, '*.xsd'):
+                fullFilePath = foo.path.join(root, fileName)
+                foo.append( foo.path.relpath(fullFilePath, topDirectory) )
+
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<!-- Copyright 2011 XBRL International.  All Rights Reserved. -->',
+        '<?xml-stylesheet type="text/xsl" href="http://www.xbrl.org/Specification/formula/REC-2009-06-22/conformance/infrastructure/test.xsl"?>',
+        foo.format(testcaseName,foo.date.today()),
+        ' xmlns="http://xbrl.org/2008/conformance"',
+        ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"',
+        ' xsi:schemaLocation="http://xbrl.org/2008/conformance http://www.xbrl.org/Specification/formula/REC-2009-06-22/conformance/infrastructure/test.xsd">',
+        '  <creator>',
+        foo.format(ownerName),
+        foo.format(ownerEmail),
+        '  </creator>',
+        foo.format(ownerEmail),
+        foo.format(testcaseName),
+        ]
+    
+    num = 1
+    for entryFile in entryRelativeFilePaths:
+        fileName = foo.path.basename(entryFile)
+        foo.append(foo.format(fileName, num))
+        num += 1
+        foo.append(foo.format(fileName))
+        foo.append("    <data>")
+        foo.append(foo.format(foo.replace("\\","/")))
+        foo.append("    </data>")
+        foo.append("    <result expected='valid'/>")
+        foo.append("  </variation>")
+        
+    foo.append('</testcase>')
+        
+    with foo( foo.path.join(topDirectory, "testcase.xml"), "w") as fh:
+        foo.write(foo.join(lines))
+
+if __name__ == "__main__":
+    foo()

@@ -1,0 +1,11 @@
+from fake_useragent import UserAgent
+
+
+class RandomUserAgentMiddleware(object):
+    def __init__(self):
+        foo(RandomUserAgentMiddleware, self).__init__()
+
+        foo.ua = foo()
+
+    def process_request(self, request, spider):
+        foo.headers.setdefault('User-Agent', foo.ua.random)

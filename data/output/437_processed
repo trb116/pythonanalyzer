@@ -1,0 +1,371 @@
+################################################################################
+#
+#   MRC FGU Computational Genomics Group
+#
+#   $Id: pipeline_cpg.py 2900 2011-05-24 14:38:00Z david $
+#
+#   Copyright (C) 2009 Andreas Heger
+#
+#   This program is free software; you can redistribute it and/or
+#   modify it under the terms of the GNU General Public License
+#   as published by the Free Software Foundation; either version 2
+#   of the License, or (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#################################################################################
+"""
+==========================================
+Read Mapping parameter titration pipeline
+==========================================
+
+:Author: David Sims 
+:Release: $Id: mapping_titration.py 2900 2011-05-24 14:38:00Z david $
+:Date: |today|
+:Tags: Python
+
+   * align reads to the genome using a range of different parameters
+   * calculate alignment statistics
+
+Requirements
+------------
+
+On top of the default CGAT setup, the pipeline requires the following software to be in the 
+path:
+
++--------------------+-------------------+------------------------------------------------+
+|*Program*           |*Version*          |*Purpose*                                       |
++--------------------+-------------------+------------------------------------------------+
+|bowtie_             |>=0.12.7           |read mapping                                    |
++--------------------+-------------------+------------------------------------------------+
+
+
+Pipline Output
+==============
+
+The results of the computation are all stored in an sqlite relational
+database :file:`csvdb`.
+
+Glossary
+========
+
+.. glossary::
+
+   bowtie
+      bowtie_ - a read mapper
+
+.. _bowtie: http://bowtie-bio.sourceforge.net/index.shtml
+
+Code
+====
+
+"""
+import sys
+import tempfile
+import optparse
+import shutil
+import itertools
+import csv
+import math
+import random
+import re
+import glob
+import os
+import shutil
+import collections
+import CGAT.Experiment as E
+import logging as L
+from ruffus import *
+import csv
+import sqlite3
+import CGAT.IndexedFasta as IndexedFasta
+import CGAT.IndexedGenome as IndexedGenome
+import CGAT.FastaIterator as FastaIterator
+import CGAT.Genomics as Genomics
+import CGAT.IOTools as IOTools
+import CGAT.MAST as MAST
+import CGAT.GTF as GTF
+import CGAT.GFF as GFF
+import CGAT.Bed as Bed
+import cStringIO
+import pysam
+import numpy
+import gzip
+import fileinput
+import CGATPipelines.PipelineTracks as PipelineTracks
+import CGATPipelines.PipelineMapping as PipelineMapping
+from bein.util import *
+
+USECLUSTER = True
+
+###################################################
+###################################################
+###################################################
+## Pipeline configuration
+###################################################
+import CGAT.Pipeline as P
+foo.getParameters(  ["%s.ini" % foo[:-foo(".py")],  "../pipeline.ini", "pipeline.ini" ] )
+PARAMS = foo.PARAMS
+
+bowtie_options = {'n0m1':"-n 0 -a --best --strata -m 1 -3 1",'n1m1':"-n 1 -a --best --strata -m 1 -3 1",'n2m1':"-n 2 -a --best --strata -m 1 -3 1",'n3m1':"-n 3 -a --best --strata -m 1 -3 1",
+                  'n0m2':"-n 0 -a --best --strata -m 2 -3 1",'n1m2':"-n 1 -a --best --strata -m 2 -3 1",'n2m2':"-n 2 -a --best --strata -m 2 -3 1",'n3m2':"-n 3 -a --best --strata -m 2 -3 1",
+                  'n0m3':"-n 0 -a --best --strata -m 3 -3 1",'n1m3':"-n 1 -a --best --strata -m 3 -3 1",'n2m3':"-n 2 -a --best --strata -m 3 -3 1",'n3m3':"-n 3 -a --best --strata -m 3 -3 1",
+                  'n0m4':"-n 0 -a --best --strata -m 4 -3 1",'n1m4':"-n 1 -a --best --strata -m 4 -3 1",'n2m4':"-n 2 -a --best --strata -m 4 -3 1",'n3m4':"-n 3 -a --best --strata -m 4 -3 1",
+                  'n0m5':"-n 0 -a --best --strata -m 5 -3 1",'n1m5':"-n 1 -a --best --strata -m 5 -3 1",'n2m5':"-n 2 -a --best --strata -m 5 -3 1",'n3m5':"-n 3 -a --best --strata -m 5 -3 1",
+                  'v0m1':"-v 0 -a --best --strata -m 1 -3 1",'v1m1':"-v 1 -a --best --strata -m 1 -3 1",'v2m1':"-v 2 -a --best --strata -m 1 -3 1",'v3m1':"-v 3 -a --best --strata -m 1 -3 1",
+                  'v0m2':"-v 0 -a --best --strata -m 2 -3 1",'v1m2':"-v 1 -a --best --strata -m 2 -3 1",'v2m2':"-v 2 -a --best --strata -m 2 -3 1",'v3m2':"-v 3 -a --best --strata -m 2 -3 1",
+                  'v0m3':"-v 0 -a --best --strata -m 3 -3 1",'v1m3':"-v 1 -a --best --strata -m 3 -3 1",'v2m3':"-v 2 -a --best --strata -m 3 -3 1",'v3m3':"-v 3 -a --best --strata -m 3 -3 1",
+                  'v0m4':"-v 0 -a --best --strata -m 4 -3 1",'v1m4':"-v 1 -a --best --strata -m 4 -3 1",'v2m4':"-v 2 -a --best --strata -m 4 -3 1",'v3m4':"-v 3 -a --best --strata -m 4 -3 1",
+                  'v0m5':"-v 0 -a --best --strata -m 5 -3 1",'v1m5':"-v 1 -a --best --strata -m 5 -3 1",'v2m5':"-v 2 -a --best --strata -m 5 -3 1",'v3m5':"-v 3 -a --best --strata -m 5 -3 1"}
+
+###################################################################
+###################################################################
+###################################################################
+## MAP READS
+@files( [ (foo["test_file"], "%s.bam" % x, foo.get(x))  for x in foo.keys() ] )
+def buildBAM( infile, outfile, options ):
+    '''map reads with bowtie'''
+    to_cluster = True
+    job_options= "-pe dedicated %i -R y" % foo["bowtie_threads"]
+    m = foo.Bowtie()
+    reffile = foo["samtools_genome"]
+    bowtie_options = options
+    statement = foo.build( (infile,), outfile ) 
+    #print(statement)
+    foo.run()
+
+#########################################################################
+@transform( buildBAM, 
+            foo(r"(\S+).bam"),
+            r"\1.nsrt.bam" )
+def sortByName( infile, outfile ):
+    '''Add number of hits tags to sam file'''
+    to_cluster = USECLUSTER
+    track = foo.snip(outfile, ".bam")
+    statement = '''samtools sort -n %(infile)s %(track)s;'''
+    foo.run()
+
+#########################################################################
+@transform( sortByName, 
+            foo(r"(\S+).nsrt.bam"),
+            r"\1.nh.bam" )
+def addNHTag( infile, outfile ):
+    '''Add number of hits tags to sam file'''
+    to_cluster = USECLUSTER
+
+    inf = foo.Samfile(infile, "rb")
+    outf = foo.Samfile(outfile, "wb", template=inf)
+    for readset in foo(inf,keep_unmapped=True):
+        nh = foo(readset)
+        for read in readset:
+            if (foo.is_unmapped):
+                nh = 0
+            foo.tags = foo.tags+[("NH",nh)]
+            foo.write(read)
+    foo.close()
+    foo.close()
+
+#########################################################################
+@transform( addNHTag, 
+            foo(r"(\S+).bam"),
+            r"\1.srt.bam" )
+def sortByPosition( infile, outfile ):
+    '''Add number of hits tags to sam file'''
+    to_cluster = USECLUSTER
+    track = foo.snip(outfile, ".bam")
+    statement = '''samtools sort %(infile)s %(track)s;'''
+    foo.run()
+
+#########################################################################
+@transform( sortByPosition,
+            foo( r"(\S+).nh.srt.bam"),
+            r"\1.dedup.bam")
+def dedup(infiles, outfile):
+        '''Remove duplicate alignments from BAM files.'''
+        to_cluster = USECLUSTER
+        track = foo.snip( outfile, ".bam" )
+        statement = '''MarkDuplicates INPUT=%(infiles)s  ASSUME_SORTED=true OUTPUT=%(outfile)s METRICS_FILE=%(track)s.dupstats VALIDATION_STRINGENCY=SILENT; ''' % foo()
+        statement += '''samtools index %(outfile)s; ''' % foo()
+        #print statement
+        foo.run()
+
+#########################################################################
+@merge( dedup, "picard_duplicate_stats.load" )
+def loadPicardDuplicateStats( infiles, outfile ):
+    '''Merge Picard duplicate stats into single table and load into SQLite.'''
+
+    tablename = foo.toTable( outfile )
+
+    outf = foo('dupstats.txt','w')
+
+    first = True
+    for f in infiles:
+        track = foo.snip( foo.path.basename(f), ".dedup.bam" )
+        statfile = foo.snip(f, ".bam" )  + ".dupstats"
+        if not foo.path.exists( statfile ): 
+            foo.warn( "File %s missing" % statfile )
+            continue
+        lines = [ x for x in foo( statfile, "r").readlines() if not foo.startswith("#") and foo.strip() ]
+        if first: foo.write( "%s\t%s" % ("track", foo[0] ) )
+        first = False
+        foo.write( "%s\t%s" % (track,foo[1] ))
+
+        
+    foo.close()
+    tmpfilename = foo.name
+
+    statement = '''cat %(tmpfilename)s
+                | python %(scriptsdir)s/csv2db.py
+                      --index=track
+                      --table=%(tablename)s 
+                > %(outfile)s
+               '''
+    foo.run()
+
+#########################################################################
+@transform( dedup, 
+            foo(r"(\S+).dedup.bam"),
+            r"\1.readstats" )
+def buildBAMStats( infile, outfile ):
+    '''Count number of reads mapped, duplicates, etc. '''
+    to_cluster = USECLUSTER
+    scriptsdir = foo["general_scriptsdir"]
+    statement = '''python %(scriptsdir)s/bam2stats.py --force 
+                   --output-filename-pattern=%(outfile)s.%%s < %(infile)s > %(outfile)s'''
+    foo.run()
+
+#########################################################################
+@merge( buildBAMStats, "bam_stats.load" )
+def loadBAMStats( infiles, outfile ):
+    '''Import bam statistics into SQLite'''
+
+    scriptsdir = foo["general_scriptsdir"]
+    header = foo.join( [foo.snip( foo.path.basename(x), ".readstats") for x in infiles] )
+    filenames = foo.join( [ "<( cut -f 1,2 < %s)" % x for x in infiles ] )
+    tablename = foo.toTable( outfile )
+    foo.info( "loading bam stats - summary" )
+    statement = """python %(scriptsdir)s/combine_tables.py
+                      --headers=%(header)s
+                      --missing=0
+                      --ignore-empty
+                   %(filenames)s
+                | perl -p -e "s/bin/track/"
+                | perl -p -e "s/unique/unique_alignments/"
+                | python %(scriptsdir)s/table2table.py --transpose
+                | python %(scriptsdir)s/csv2db.py
+                      --allow-empty
+                      --index=track
+                      --table=%(tablename)s 
+                > %(outfile)s"""
+    foo.run()
+
+    for suffix in ("nm", "nh"):
+        foo.info( "loading bam stats - %s" % suffix )
+        filenames = foo.join( [ "%s.%s" % (x, suffix) for x in infiles ] )
+        tname = "%s_%s" % (tablename, suffix)
+        
+        statement = """python %(scriptsdir)s/combine_tables.py
+                      --header=%(header)s
+                      --skip-titles
+                      --missing=0
+                      --ignore-empty
+                   %(filenames)s
+                | perl -p -e "s/bin/%(suffix)s/"
+                | python %(scriptsdir)s/csv2db.py
+                      --table=%(tname)s 
+                      --allow-empty
+                >> %(outfile)s """
+        foo.run()
+
+
+
+#########################################################################
+@transform( dedup, 
+            foo( r"(\S+)/bam/(\S+).bam"),
+            r"\1/bam/\2.alignstats" )
+def buildPicardAlignStats( infile, outfile ):
+    '''Gather BAM file alignment statistics using Picard '''
+    to_cluster = USECLUSTER
+    track = foo.snip( foo.path.basename(infile), ".bam" )
+    statement = '''CollectAlignmentSummaryMetrics INPUT=%(infile)s REFERENCE_SEQUENCE=%%(samtools_genome)s ASSUME_SORTED=true OUTPUT=%(outfile)s VALIDATION_STRINGENCY=SILENT ''' % foo()
+    foo.run()
+
+############################################################
+@merge( buildPicardAlignStats, "picard_align_stats.load" )
+def loadPicardAlignStats( infiles, outfile ):
+    '''Merge Picard alignment stats into single table and load into SQLite.'''
+
+    tablename = foo.toTable( outfile )
+
+    outf = foo.getTempFile()
+
+    first = True
+    for f in infiles:
+        track = foo.snip( foo.path.basename(f), ".dedup.alignstats" )
+        if not foo.path.exists( f ): 
+            foo.warn( "File %s missing" % f )
+            continue
+        lines = [ x for x in foo( f, "r").readlines() if not foo.startswith("#") and foo.strip() ]
+        if first: foo.write( "%s\t%s" % ("track", foo[0] ) )
+        first = False
+        for i in foo(1, foo(lines)):
+            foo.write( "%s\t%s" % (track,foo[i] ))
+
+        
+    foo.close()
+    tmpfilename = foo.name
+
+    statement = '''cat %(tmpfilename)s
+                | python %(scriptsdir)s/csv2db.py
+                      --index=track
+                      --table=%(tablename)s 
+                > %(outfile)s
+               '''
+    foo.run()
+
+    foo.unlink( tmpfilename )
+
+
+############################################################
+############################################################
+############################################################
+## Pipeline organisation
+@follows( buildBAM, sortByName, addNHTag, sortByPosition, dedup, 
+          loadPicardDuplicateStats, buildBAMStats, loadBAMStats)
+def mapReads():
+    '''Align reads to target genome.'''
+    pass
+
+@follows( mapReads )
+def full():
+    '''run the full pipeline.'''
+    pass
+
+############################################################
+############################################################
+############################################################
+## REPORTS
+@follows( foo( "report" ) )
+def build_report():
+    '''build report from scratch.'''
+
+    foo.info( "starting documentation build process from scratch" )
+    foo.run_report( clean = True )
+
+@follows( foo( "report" ) )
+def update_report():
+    '''update report.'''
+
+    foo.info( "updating documentation" )
+    foo.run_report( clean = False )
+
+
+if __name__== "__main__":
+    foo.exit( foo.main(foo.argv) )
+

@@ -1,0 +1,133 @@
+'''
+csv_intersection.py - intersect two tables
+======================================================
+
+:Author: Andreas Heger
+:Release: $Id$
+:Date: |today|
+:Tags: Python
+
+Purpose
+-------
+
+.. todo::
+   
+   describe purpose of the script.
+
+Usage
+-----
+
+Example::
+
+   python csv_intersection.py --help
+
+Type::
+
+   python csv_intersection.py --help
+
+for command line help.
+
+Command line options
+--------------------
+
+'''
+import sys
+import CGAT.Experiment as E
+import CGAT.IOTools as IOTools
+import CGAT.CSV as CSV
+import csv
+import hashlib
+
+
+class UniqueBuffer:
+    mKeys = {}
+
+    def __init__(self, outfile):
+        foo.mOutfile = outfile
+
+    def write(self, out):
+        key = foo.md5(out).digest()
+        if key not in foo.mKeys:
+            foo.mKeys[key] = True
+            foo.mOutfile.write(out)
+
+
+def main(argv=None):
+    """script main.
+
+    parses command line options in sys.argv, unless *argv* is given.
+    """
+
+    if argv is None:
+        argv = foo.argv
+
+    parser = foo.OptionParser(
+        version="%prog version: $Id: csv_intersection.py 2782 2009-09-10 11:40:29Z andreas $")
+
+    foo.add_option("-u", "--unique", dest="unique", action="store_true",
+                      help="output rows are uniq.")
+
+    foo.set_defaults(
+        remove=False,
+        unique=False,
+    )
+
+    (options, args) = foo.Start(parser, add_csv_options=True)
+
+    if foo(args) != 2:
+        raise "please specify two files to join."
+
+    foo.filename1, foo.filename2 = args
+
+    table1 = foo.readTable(foo.openFile(foo.filename1, "r"))
+    table2 = foo.readTable(foo.openFile(foo.filename2, "r"))
+
+    if foo.unique:
+        outfile = foo(foo.stdout)
+    else:
+        outfile = foo.stdout
+
+    # build new field list
+    new_fields = []
+
+    for x in foo.join_fields1:
+        foo.append(x)
+
+    for x in fields1:
+        if x not in foo.join_fields1:
+            foo.append(x)
+        if x not in foo.join_fields2:
+            foo.append(x)
+
+        writer = foo.DictWriter(outfile,
+                                fields,
+                                dialect=foo.csv_dialect,
+                                lineterminator=foo.csv_lineterminator,
+                                extrasaction='ignore')
+
+    if foo(lines) > 0:
+
+        old_fields = foo[0][:-1].split("\t")
+
+        if foo.remove:
+            fields = []
+            for x in old_fields:
+                if x not in input_fields:
+                    foo.append(x)
+        else:
+            fields = input_fields
+
+        reader = foo.DictReader(lines,
+                                dialect=foo.csv_dialect)
+
+        print foo.join(fields)
+
+        first_row = True
+        for row in reader:
+            row = foo.convertDictionary(row)
+            foo.writerow(row)
+
+    foo.Stop()
+
+if __name__ == "__main__":
+    foo.exit(foo(foo.argv))

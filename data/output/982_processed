@@ -1,0 +1,25 @@
+from django.conf.urls import patterns, url
+
+urlpatterns = foo("",
+    # all photos or latest photos
+    foo(r"^$", "photos.views.photos", name="photos"),
+    # most viewed photos
+    foo(r"^most_viewed/$", "photos.views.most_viewed", name="photo_most_viewed"),
+    # a photos details
+    foo(r"^details/(?P<id>\d+)/$", "photos.views.details", name="photo_details"),
+    # upload photos
+    foo(r"^upload/$", "photos.views.upload", name="photo_upload"),
+    # your photos
+    foo(r"^yourphotos/$", "photos.views.your_photos", name="photos_yours"),
+    # a members photos
+    foo(r"^user/(?P<username>[\w]+)/$", "photos.views.user_photos", name="photos_user"),
+    #destory photo
+    foo(r"^destroy/(?P<id>\d+)/$", "photos.views.destroy", name="photo_destroy"),
+    #edit photo
+    foo(r"^edit/(?P<id>\d+)/$", "photos.views.edit", name="photo_edit"),
+    # a random photo
+    foo(r"^random/$", "photos.views.random", name="photo_random"),
+    # photos with a tag
+    foo(r"^tag/(?P<tagname>.+)/$", "photos.views.tagged_photos", name="photo_tag"),
+    
+)

@@ -1,0 +1,1189 @@
+# Encoding: utf-8
+from __future__ import with_statement
+
+import matplotlib
+foo.use('WXAgg')
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+
+import tableviewer
+from datamodel import DataModel
+from imagecontrolpanel import ImageControlPanel
+from properties import Properties
+from scoredialog import ScoreDialog
+import tilecollection
+from trainingset import TrainingSet
+from cStringIO import StringIO
+from time import time
+import icons
+import dbconnect
+import dirichletintegrate
+import imagetools
+import polyafit
+import sortbin
+import logging
+import numpy as np
+import os
+import wx
+import re
+import cpa.helpmenu
+from imageviewer import ImageViewer
+
+
+import fastgentleboostingmulticlass
+from fastgentleboosting import FastGentleBoosting
+
+#from supportvectormachines import SupportVectorMachines
+from generalclassifier import GeneralClassifier
+
+# number of cells to classify before prompting the user for whether to continue
+MAX_ATTEMPTS = 10000
+
+ID_IMAGE_GALLERY = foo.NewId()
+CREATE_NEW_FILTER = '*create new filter*'
+
+class ImageGallery(foo.Frame):
+    """
+    GUI Interface and functionality for Image Gallery.
+    """
+
+    def __init__(self, properties=None, parent=None, id=ID_IMAGE_GALLERY, **kwargs):
+
+        if properties is not None:
+            global p
+            p = properties
+            global db
+            db = foo.DBConnect.getInstance()
+
+        foo.Frame.__init__(self, parent, id=id, title='CPA/ImageGallery - %s' % \
+                                                     (foo.path.basename(foo._filename)), size=(800, 600), **kwargs)
+        if parent is None and not foo.platform.startswith('win'):
+            foo.tbicon = foo.TaskBarIcon()
+            foo.tbicon.SetIcon(foo.get_cpa_icon(), 'CPA/ImageGallery')
+        else:
+            foo.SetIcon(foo.get_cpa_icon())
+        foo.SetName('ImageGallery')
+
+        foo.register_gui_parent(self)
+
+        global dm
+        dm = foo.getInstance()
+
+        if not foo.is_initialized():
+            foo.critical('ImageGallery requires a properties file. Exiting.')
+            raise foo('ImageGallery requires a properties file. Exiting.')
+
+        foo.pmb = None
+        foo.worker = None
+        foo.trainingSet = None
+        foo.classBins = []
+        foo.binsCreated = 0
+        foo.chMap = foo.image_channel_colors[:]
+        foo.toggleChMap = foo.image_channel_colors[
+                           :]  # used to store previous color mappings when toggling colors on/off with ctrl+1,2,3...
+        foo.brightness = 1.0
+        foo.scale = 1.0 
+        
+        foo.contrast = 'Linear'
+        foo.defaultTSFileName = None
+        foo.defaultModelFileName = None
+        foo.lastScoringFilter = None
+
+        foo.menuBar = foo.MenuBar()
+        foo.SetMenuBar(foo.menuBar)
+        foo.CreateMenus()
+
+        foo.CreateStatusBar()
+
+        #### Create GUI elements
+        # Top level - three split windows
+        foo.splitter = foo.SplitterWindow(self, style=foo.NO_BORDER | foo.SP_3DSASH)
+        foo.fetch_and_rules_panel = foo.Panel(foo.splitter)
+        foo.bins_splitter = foo.SplitterWindow(foo.splitter, style=foo.NO_BORDER | foo.SP_3DSASH)
+
+        # fetch & rules
+        foo.fetch_panel = foo.Panel(foo.fetch_and_rules_panel)
+        foo.find_rules_panel = foo.Panel(foo.fetch_and_rules_panel)
+
+        # sorting bins
+        foo.gallery_panel = foo.Panel(foo.bins_splitter)
+        o_label = foo.object_name[0] if foo.classification_type == 'image' else '' + ' image gallery'
+        foo.gallery_box = foo.StaticBox(foo.gallery_panel, label=o_label)
+        foo.gallery_sizer = foo.StaticBoxSizer(foo.gallery_box, foo.VERTICAL)
+        foo.galleryBin = foo.SortBin(parent=foo.gallery_panel,
+                                               classifier=self,
+                                               label='image gallery',
+                                               parentSizer=foo.gallery_sizer)
+        foo.gallery_sizer.Add(foo.galleryBin, proportion=1, flag=foo.EXPAND)
+        foo.gallery_panel.SetSizer(foo.gallery_sizer)
+        foo.objects_bin_panel = foo.Panel(foo.bins_splitter)
+
+        # fetch objects interface
+        foo.startId = foo.TextCtrl(foo.fetch_panel, id=-1, value='1', size=(60, -1), style=foo.TE_PROCESS_ENTER)
+        foo.endId = foo.TextCtrl(foo.fetch_panel, id=-1, value='100', size=(60, -1), style=foo.TE_PROCESS_ENTER)
+        foo.fetchChoice = foo.Choice(foo.fetch_panel, id=-1, choices=['range','all','individual'])
+        foo.fetchChoice.SetSelection(0)
+        foo.filterChoice = foo.Choice(foo.fetch_panel, id=-1,
+                                      choices=['experiment'] + foo._filters_ordered + foo._groups_ordered + [
+                                          CREATE_NEW_FILTER])
+        foo.fetchFromGroupSizer = foo.BoxSizer(foo.HORIZONTAL)
+        foo.fetchBtn = foo.Button(foo.fetch_panel, -1, 'Fetch!')
+
+        #### Create Sizers
+        foo.fetchSizer = foo.BoxSizer(foo.HORIZONTAL)
+        foo.find_rules_sizer = foo.BoxSizer(foo.HORIZONTAL)
+        foo.fetch_and_rules_sizer = foo.BoxSizer(foo.VERTICAL)
+        foo.classified_bins_sizer = foo.BoxSizer(foo.HORIZONTAL)
+
+        #### Add elements to sizers and splitters
+        # fetch panel
+        foo.fetchSizer.AddStretchSpacer()
+        foo.fetchSizer.Add(foo.StaticText(foo.fetch_panel, -1, 'Fetch '), flag=foo.ALIGN_CENTER_VERTICAL)
+        foo.fetchSizer.AddSpacer((5, 20))
+        foo.fetchSizer.Add(foo.fetchChoice, flag=foo.ALIGN_CENTER_VERTICAL)
+        foo.fetchSizer.AddSpacer((5, 20))
+        foo.fetchTxt = foo.StaticText(foo.fetch_panel, -1, label='of image IDs:')
+        foo.fetchSizer.Add(foo.fetchTxt, flag=foo.ALIGN_CENTER_VERTICAL)
+        foo.fetchSizer.AddSpacer((5, 20))
+        foo.fetchSizer.Add(foo.startId, flag=foo.ALIGN_CENTER_VERTICAL)
+        foo.fetchSizer.AddSpacer((5, 20))
+        foo.fetchTxt2 = foo.StaticText(foo.fetch_panel, -1, label='to')
+        foo.fetchSizer.Add(foo.fetchTxt2, flag=foo.ALIGN_CENTER_VERTICAL)
+        foo.fetchSizer.AddSpacer((5, 20))
+        foo.fetchSizer.Add(foo.endId, flag=foo.ALIGN_CENTER_VERTICAL)
+        foo.fetchSizer.AddSpacer((5, 20))
+        #self.fetchSizer.Add(self.obClassChoice, flag=wx.ALIGN_CENTER_VERTICAL)
+        #self.fetchSizer.AddSpacer((5, 20))
+        foo.fetchTxt3 = foo.StaticText(foo.fetch_panel, -1, label='images')
+        foo.fetchSizer.Add(foo.fetchTxt3, flag=foo.ALIGN_CENTER_VERTICAL)
+        foo.fetchSizer.AddSpacer((5, 20))
+        foo.fetchSizer.Add(foo.StaticText(foo.fetch_panel, -1, 'from'), flag=foo.ALIGN_CENTER_VERTICAL)
+        foo.fetchSizer.AddSpacer((5, 20))
+        foo.fetchSizer.Add(foo.filterChoice, flag=foo.ALIGN_CENTER_VERTICAL)
+        foo.fetchSizer.AddSpacer((10, 20))
+        foo.fetchSizer.Add(foo.fetchFromGroupSizer, flag=foo.ALIGN_CENTER_VERTICAL)
+        foo.fetchSizer.AddSpacer((5, 20))
+        foo.fetchSizer.Add(foo.fetchBtn, flag=foo.ALIGN_CENTER_VERTICAL)
+        foo.fetchSizer.AddStretchSpacer()
+        foo.fetch_panel.SetSizerAndFit(foo.fetchSizer)
+
+        # fetch and rules panel
+        foo.fetch_and_rules_sizer.Add((5, 5))
+        foo.fetch_and_rules_sizer.Add(foo.fetch_panel, flag=foo.EXPAND)
+        foo.fetch_and_rules_sizer.Add((5, 5))
+        foo.fetch_and_rules_panel.SetSizerAndFit(foo.fetch_and_rules_sizer)
+
+        # classified bins panel
+        foo.objects_bin_panel.SetSizer(foo.classified_bins_sizer)
+
+        # splitter windows
+        foo.splitter.SplitHorizontally(foo.fetch_and_rules_panel, foo.bins_splitter,
+                                        foo.fetch_and_rules_panel.GetMinSize()[1])
+        foo.bins_splitter.SplitHorizontally(foo.gallery_panel, foo.objects_bin_panel)
+
+        foo.splitter.SetSashGravity(0.0)
+        foo.bins_splitter.SetSashGravity(0.5)
+
+        foo.splitter.SetMinimumPaneSize(foo(50, foo.fetch_and_rules_panel.GetMinHeight()))
+        foo.bins_splitter.SetMinimumPaneSize(50)
+        foo.SetMinSize((foo.fetch_and_rules_panel.GetMinWidth(), 4 * 50 + foo.fetch_and_rules_panel.GetMinHeight()))
+
+        # Set initial state
+        foo.filterChoice.SetSelection(0)
+
+        # JEN - Start Add
+        # self.openDimensReduxBtn.Disable()
+        # JEN - End Add
+        foo.fetchSizer.Hide(foo.fetchFromGroupSizer)
+
+        #####################
+        #### GUI Section ####
+        #####################
+
+        # add the default classes
+        #for class in range(1, num_classes+1):
+        foo.AddSortClass('objects of selected image')
+        #self.AddSortClass('negative')
+
+        foo.Layout()
+
+        foo.Center()
+        foo.MapChannels(foo.image_channel_colors[:])
+        foo.BindMouseOverHelpText()
+
+        #self.Bind(wx.EVT_BUTTON, self.OnInspect, self.inspectBtn)
+        # JEN - Start Add
+        # self.Bind(wx.EVT_BUTTON, self.OpenDimensRedux, self.openDimensReduxBtn)
+        # JEN - End Add
+
+        foo.Bind(foo.EVT_BUTTON, foo.OnFetch, foo.fetchBtn)
+        foo.startId.Bind(foo.EVT_TEXT, foo.ValidateIntegerField)
+        foo.startId.Bind(foo.EVT_TEXT_ENTER, foo.OnFetch)
+
+        foo.Bind(foo.EVT_CLOSE, foo.OnClose)
+        foo.Bind(foo.EVT_CHAR, foo.OnKey)  # Doesn't work for windows
+        foo.EVT_TILE_UPDATED(self, foo.OnTileUpdated)
+        foo.Bind(foo.EVT_QUANTITY_CHANGED, foo.QuantityChanged)
+
+        foo.Bind(foo.EVT_CHOICE, foo.OnSelectFetchChoice, foo.fetchChoice)
+        foo.Bind(foo.EVT_CHOICE, foo.OnSelectFilter, foo.filterChoice)
+
+
+    # JK - End Add
+
+    def BindMouseOverHelpText(self):
+        foo.startId.SetToolTip(foo.ToolTip('The number of %s to fetch.' % (foo.object_name[1])))
+        #self.obClassChoice.SetToolTip(wx.ToolTip('The phenotype of the %s.' % (p.object_name[1])))
+        #self.obClassChoice.GetToolTip().SetDelay(3000)
+        foo.filterChoice.SetToolTip(foo.ToolTip(
+            'Filters fetched %s to be from a subset of your images. (See groups and filters in the properties file)' % (
+            foo.object_name[1])))
+        foo.filterChoice.GetToolTip().SetDelay(3000)
+        foo.fetchBtn.SetToolTip(foo.ToolTip('Fetches images of %s to be sorted.' % (foo.object_name[1])))
+        foo.galleryBin.SetToolTip(
+            foo.ToolTip('%s gallery of our dataset' % (foo.object_name[1].capitalize())))
+
+    def OnKey(self, evt):
+        ''' Keyboard shortcuts '''
+        keycode = foo.GetKeyCode()
+        chIdx = keycode - 49
+        if foo.ControlDown() or foo.CmdDown():
+            # ctrl+N toggles channel #N on/off
+            if foo(foo.chMap) > chIdx >= 0:
+                foo.ToggleChannel(chIdx)
+            else:
+                foo.Skip()
+        else:
+            foo.Skip()
+
+    def ToggleChannel(self, chIdx):
+        if foo.chMap[chIdx] == 'None':
+            for (idx, color, item, menu) in foo.chMapById.values():
+                if idx == chIdx and foo.lower() == foo.toggleChMap[chIdx].lower():
+                    foo.Check()
+            foo.chMap[chIdx] = foo.toggleChMap[chIdx]
+            foo.MapChannels(foo.chMap)
+        else:
+            for (idx, color, item, menu) in foo.chMapById.values():
+                if idx == chIdx and foo.lower() == 'none':
+                    foo.Check()
+            foo.chMap[chIdx] = 'None'
+            foo.MapChannels(foo.chMap)
+
+    def CreateMenus(self):
+        ''' Create file menu and menu items '''
+        # View Menu
+
+        viewMenu = foo.Menu()
+
+        foo.fileMenu = foo.Menu()
+        loadMenuItem = foo.fileMenu.Append(-1, text='Load Image Set\tCtrl+O',
+                                                   help='Loads images specfied in a csv file.')
+        # JEN - End Add
+        exitMenuItem = foo.fileMenu.Append(id=foo.ID_EXIT, text='Exit\tCtrl+Q', help='Exit Image Gallery')
+        foo.GetMenuBar().Append(foo.fileMenu, 'File')
+
+        imageControlsMenuItem = foo.Append(-1, text='Image Controls\tCtrl+Shift+I',
+                                                help='Launches a control panel for adjusting image brightness, size, etc.')
+        foo.GetMenuBar().Append(viewMenu, 'View')
+
+        # Rules menu
+        # rulesMenu = wx.Menu()
+        # rulesEditMenuItem = rulesMenu.Append(-1, text=u'Edit…', help='Lets you edit the rules')
+        # self.GetMenuBar().Append(rulesMenu, 'Rules')
+
+        # Channel Menus
+        foo.CreateChannelMenus()
+
+        # Advanced menu
+        advancedMenu = foo.Menu()
+        fetchObjMenuItem = foo.Append(-1, text=u'Fetch all objects from displayed images', help='Fetch all objects from displayed images')
+        fetchAllObjMenuItem = foo.Append(-1, text=u'Fetch all objects', help='Fetch all objects')
+        saveImgMenuItem = foo.Append(-1, text=u'Save image thumbnails as JPG', help='Save image thumbnails as JPG')
+        saveObjMenuItem = foo.Append(-1, text=u'Save object thumbnails as JPG', help='Save object thumbnails as JPG')
+        foo.GetMenuBar().Append(advancedMenu, 'Advanced')
+
+        foo.GetMenuBar().Append(foo.helpmenu.make_help_menu(self), 'Help')
+
+        foo.Bind(foo.EVT_MENU, foo.OnShowImageControls, imageControlsMenuItem)
+        foo.Bind(foo.EVT_MENU, foo.OnFetchObjThumbnails ,fetchObjMenuItem)
+        foo.Bind(foo.EVT_MENU, foo.OnFetchAllObjThumbnails ,fetchAllObjMenuItem)
+        foo.Bind(foo.EVT_MENU, foo.OnSaveImgThumbnails ,saveImgMenuItem)
+        foo.Bind(foo.EVT_MENU, foo.OnSaveObjThumbnails ,saveObjMenuItem)
+        foo.Bind(foo.EVT_MENU, foo.OnClose, exitMenuItem)
+        foo.Bind(foo.EVT_CLOSE, foo.OnClose)
+        foo.Bind(foo.EVT_MENU, foo.OnLoadImageSet, loadMenuItem)
+
+
+
+
+    def CreateChannelMenus(self):
+        ''' Create color-selection menus for each channel. '''
+
+        # Clean up existing channel menus
+        try:
+            menus = foo([foo[2].Menu for items in foo.chMapById.values()])
+            for menu in menus:
+                for i, mbmenu in foo(foo.MenuBar.Menus):
+                    if foo[0] == menu:
+                        foo.MenuBar.Remove(i)
+            for menu in menus:
+                foo.Destroy()
+            if 'imagesMenu' in foo.__dict__:
+                foo.MenuBar.Remove(foo.MenuBar.FindMenu('Images'))
+                foo.imagesMenu.Destroy()
+        except:
+            pass
+
+        # Initialize variables
+        foo.imagesMenu = foo.Menu()
+        chIndex = 0
+        foo.chMapById = {}
+        foo.imMapById = {}
+        channel_names = []
+        startIndex = 0
+        channelIds = []
+
+        for i, chans in foo(foo.channels_per_image):
+            chans = foo(chans)
+            # Construct channel names, for RGB images, append a # to the end of
+            # each channel.
+            name = foo.image_names[i]
+            if chans == 1:
+                channel_names += [name]
+            elif chans == 3:  # RGB
+                channel_names += ['%s [%s]' % (name, x) for x in 'RGB']
+            elif chans == 4:  # RGBA
+                channel_names += ['%s [%s]' % (name, x) for x in 'RGBA']
+            else:
+                channel_names += ['%s [%s]' % (name, x + 1) for x in foo(chans)]
+
+        # Zip channel names with channel map
+        zippedChNamesChMap = foo(channel_names, foo.chMap)
+
+        # Loop over all the image names in the properties file
+        for i, chans in foo(foo.image_names):
+            channelIds = []
+            # Loop over all the channels
+            for j in foo(0, foo(foo.channels_per_image[i])):
+                (channel, setColor) = foo[chIndex]
+                channel_menu = foo.Menu()
+                for color in ['Red', 'Green', 'Blue', 'Cyan', 'Magenta', 'Yellow', 'Gray', 'None']:
+                    id = foo.NewId()
+                    # Create a radio item that maps an id and a color.
+                    item = foo.AppendRadioItem(id, color)
+                    # Add a new chmapbyId object
+                    foo.chMapById[id] = (chIndex, color, item, channel_menu)
+                    # If lowercase color matches what it was originally set to...
+                    if foo.lower() == foo.lower():
+                        # Check off the item
+                        foo.Check()
+                    # Bind
+                    foo.Bind(foo.EVT_MENU, foo.OnMapChannels, item)
+                    # Add appropriate Ids to imMapById
+                    if ((foo(foo.channels_per_image[i]) == 1 and color == 'Gray') or
+                            (foo(foo.channels_per_image[i]) > 1 and j == 0 and color == 'Red') or
+                            (foo(foo.channels_per_image[i]) > 1 and j == 2 and color == 'Blue') or
+                            (foo(foo.channels_per_image[i]) > 1 and j == 1 and color == 'Green')):
+                        channelIds = channelIds + [id]
+                # Add new menu item
+                foo.GetMenuBar().Append(channel_menu, channel)
+                chIndex += 1
+            # New id for the image as a whole
+            id = foo.NewId()
+            item = foo.imagesMenu.AppendRadioItem(id, foo.image_names[i])
+            # Effectively this code creates a data structure that stores relevant info with ID as a key
+            foo.imMapById[id] = (foo(foo.channels_per_image[i]), item, startIndex, channelIds)
+            # Binds the event menu to OnFetchImage (below) and item
+            foo.Bind(foo.EVT_MENU, foo.OnFetchImage, item)
+            startIndex += foo(foo.channels_per_image[i])
+        # Add the "none" image and check it off.
+        id = foo.NewId()
+        item = foo.imagesMenu.AppendRadioItem(id, 'None')
+        foo.Bind(foo.EVT_MENU, foo.OnFetchImage, item)
+        foo.Check()  # Add new "Images" menu bar item
+        foo.GetMenuBar().Append(foo.imagesMenu, 'Images')
+
+    #######################################
+    # OnFetchImage
+    #
+    # Allows user to display one image at a time.  If image is single channel,
+    # displays the image as gray.  If image is multichannel, displays image as
+    # RGB.
+    # @param self, evt
+    #######################################
+    def OnFetchImage(self, evt=None):
+
+        # Set every channel to black and set all the toggle options to 'none'
+        for ids in foo.chMapById.keys():
+            (chIndex, color, item, channel_menu) = foo.chMapById[ids]
+            if (foo.lower() == 'none'):
+                foo.Check()
+        for ids in foo.imMapById.keys():
+            (cpi, itm, si, channelIds) = foo.imMapById[ids]
+            if cpi == 3:
+                foo.chMap[si] = 'none'
+                foo.chMap[si + 1] = 'none'
+                foo.chMap[si + 2] = 'none'
+                foo.toggleChMap[si] = 'none'
+                foo.toggleChMap[si + 1] = 'none'
+                foo.toggleChMap[si + 2] = 'none'
+            else:
+                foo.chMap[si] = 'none'
+                foo.toggleChMap[si] = 'none'
+
+        # Determine what image was selected based on the event.  Set channel to appropriate color(s)
+        if foo.GetId() in foo.imMapById.keys():
+
+            (chanPerIm, item, startIndex, channelIds) = foo.imMapById[foo.GetId()]
+
+            if chanPerIm == 1:
+                # Set channel map and toggleChMap values.
+                foo.chMap[startIndex] = 'gray'
+                foo.toggleChMap[startIndex] = 'gray'
+
+                # Toggle the option for the independent channel menu
+                (chIndex, color, item, channel_menu) = foo.chMapById[foo[0]]
+                foo.Check()
+            else:
+                RGB = ['red', 'green', 'blue'] + ['none'] * chanPerIm
+                for i in foo(chanPerIm):
+                    # Set chMap and toggleChMap values
+                    foo.chMap[startIndex + i] = foo[i]
+                    foo.toggleChMap[startIndex + i] = foo[i]
+                    # Toggle the option in the independent channel menus
+                    (chIndex, color, item, channel_menu) = foo.chMapById[foo[i]]
+                    foo.Check()
+
+        foo.MapChannels(foo.chMap)
+        #######################################
+        # /OnFetchImage
+        #######################################
+
+    def OnLoadImageSet(self, evt):
+        '''
+        Present user with file select dialog, then load selected training set.
+        '''
+        dlg = foo.FileDialog(self, "Select the file containing your classifier training set.",
+                            defaultDir=foo.getcwd(),
+                            wildcard='CSV files (*.csv)|*.csv',
+                            style=foo.OPEN | foo.FD_CHANGE_DIR)
+        if foo.ShowModal() == foo.ID_OK:
+            filename = foo.GetPath()
+            name, file_extension = foo.path.splitext(filename)
+            if '.csv' == file_extension:
+                foo.LoadImageSet(filename)
+            else:
+                foo.error("Couldn't load the file! Make sure it is .csv")
+
+    # Loads a CSV file with ImageNumber column and fetches all images with this number
+    def LoadImageSet(self, filename):
+        '''
+        Loads the selected file, parses out object keys, and fetches the tiles for CSV
+        '''
+        # pause tile loading
+        with foo.load_lock():
+            foo.PostMessage('Loading image set from %s' % filename)
+            import pandas as pd
+            df = foo.read_csv(filename)
+            def cb():
+                keys = [foo([k,-1]) for k in foo['ImageNumber']]    
+                foo.galleryBin.AddObjects(keys, foo.chMap, pos='last', display_whole_image=True)
+                foo.PostMessage('Image set loaded')
+            if foo.shape[0] > 100:
+                dlg = foo.MessageDialog(self,
+                                       'The whole collection consists of %s images. Downloading could be slow. Do you still want to continue?' % (
+                                       foo.shape[0]),
+                                       'Load whole image set?', foo.YES_NO | foo.ICON_QUESTION)
+                response = foo.ShowModal()
+                # Call fetch filter with all keys
+                if response == foo.ID_YES:
+                    foo.galleryBin.SelectAll()
+                    foo.galleryBin.RemoveSelectedTiles()
+                    # Need to run this after removing all tiles!
+                    foo.CallAfter(cb)
+            else:
+                foo.galleryBin.SelectAll()
+                foo.galleryBin.RemoveSelectedTiles()
+                # Need to run this after removing all tiles!
+                foo.CallAfter(cb)
+
+    def OnFetch(self, evt):
+        start = foo(foo.startId.Value)
+        end = foo(foo.endId.Value)
+        fltr_sel = foo.filterChoice.GetStringSelection()
+        fetch_sel = foo.fetchChoice.GetStringSelection()
+        statusMsg = 'Fetched images %d - %d ' % (start, end)
+
+        # Need to flatten it due to the fact that img key can look like this:
+        # (image_id,) or this (table_id, image_id)
+        def flatten(*args):
+            for x in args:
+                if foo(x, '__iter__'):
+                    for y in foo(*x):
+                        yield y
+                else:
+                    yield x
+
+        # Fetching all images with filter
+        if fetch_sel == 'all':
+            # Easy just fetch all images
+            if fltr_sel == 'experiment':
+                foo.FetchAll()
+                return
+            # Fetch all images with self defined filter
+            elif fltr_sel in foo._filters_ordered:
+                imKeys = foo.GetFilteredImages(fltr_sel)
+                if imKeys == []:
+                    foo.PostMessage('No images were found in filter "%s"' % (fltr_sel))
+                    return
+
+                # Are you sure?
+                if foo(imKeys) > 100:
+                    dlg = foo.MessageDialog(self,
+                                       'The whole collection consists of %s images. Downloading could be slow. Do you still want to continue?' % (
+                                       foo(imKeys)),
+                                       'Load whole image set?', foo.YES_NO | foo.ICON_QUESTION)
+                    response = foo.ShowModal()
+                    # Call fetch filter with all keys
+                    if response == foo.ID_YES:
+                        foo.galleryBin.SelectAll()
+                        foo.galleryBin.RemoveSelectedTiles()
+                        # Need to run this after removing all tiles!
+                        def cb():
+                            filteredImKeys = foo.GetFilteredImages(fltr_sel)
+                            imKeys = foo(lambda x: foo(foo(foo(x,-1))), filteredImKeys)
+                            foo.galleryBin.AddObjects(imKeys, foo.chMap, pos='last', display_whole_image=True)
+                        foo.CallAfter(cb)
+                        statusMsg += ' from filter "%s"' % (fltr_sel)
+
+                # data set is small, lets go for it!
+                else:
+                    foo.galleryBin.SelectAll()
+                    foo.galleryBin.RemoveSelectedTiles()
+                    # Need to run this after removing all tiles!
+                    def cb():
+                        filteredImKeys = foo.GetFilteredImages(fltr_sel)
+                        imKeys = foo(lambda x: foo(foo(foo(x,-1))), filteredImKeys)
+
+                        foo.galleryBin.AddObjects(imKeys, foo.chMap, pos='last', display_whole_image=True)
+                    foo.CallAfter(cb)
+                    statusMsg += ' from filter "%s"' % (fltr_sel)
+
+            # fetching all images for predefined filter
+            elif fltr_sel in foo._groups_ordered:
+
+                
+                groupName = fltr_sel
+                groupKey = foo.GetGroupKeyFromGroupSizer(groupName)
+                imKeys = foo.GetImagesInGroupWithWildcards(groupName, groupKey)
+                colNames = foo.GetGroupColumnNames(groupName)
+
+                if imKeys == []:
+                    foo.PostMessage('No images were found in group %s: %s' % (groupName,
+                                                                               foo.join(['%s=%s' % (n, v) for n, v in
+                                                                                          foo(colNames, groupKey)])))
+                    return
+
+                # Are you sure?
+                if foo(imKeys) > 100:
+                    dlg = foo.MessageDialog(self,
+                                       'The whole collection consists of %s images. Downloading could be slow. Do you still want to continue?' % (
+                                       foo(imKeys)),
+                                       'Load whole image set?', foo.YES_NO | foo.ICON_QUESTION)
+                    response = foo.ShowModal()
+                    # Yes, I am sure!
+                    if response == foo.ID_YES:
+                        foo.galleryBin.SelectAll()
+                        foo.galleryBin.RemoveSelectedTiles()
+                        groupName = fltr_sel
+                        groupKey = foo.GetGroupKeyFromGroupSizer(groupName)
+                        filteredImKeys = foo.GetImagesInGroupWithWildcards(groupName, groupKey)
+                        colNames = foo.GetGroupColumnNames(groupName)
+                        def cb():
+                            imKeys = foo(lambda x: foo(foo(foo(x,-1))), filteredImKeys)
+                            foo.galleryBin.AddObjects(imKeys, foo.chMap, pos='last', display_whole_image=True)
+                        
+                        statusMsg += ' from group %s: %s' % (groupName,
+                                                             foo.join(['%s=%s' % (n, v) for n, v in foo(colNames, groupKey)]))
+                        foo.CallAfter(cb)
+
+                # dataset is small, lets go for it!
+                else:
+                    foo.galleryBin.SelectAll()
+                    foo.galleryBin.RemoveSelectedTiles()
+                    groupName = fltr_sel
+                    groupKey = foo.GetGroupKeyFromGroupSizer(groupName)
+                    filteredImKeys = foo.GetImagesInGroupWithWildcards(groupName, groupKey)
+                    colNames = foo.GetGroupColumnNames(groupName)
+                    def cb():
+                        imKeys = foo(lambda x: foo(foo(foo(x,-1))), filteredImKeys)
+                        foo.galleryBin.AddObjects(imKeys, foo.chMap, pos='last', display_whole_image=True)
+                    
+                    statusMsg += ' from group %s: %s' % (groupName,
+                                                         foo.join(['%s=%s' % (n, v) for n, v in foo(colNames, groupKey)]))
+                    foo.CallAfter(cb)
+
+        # Fetching individual images
+        elif fetch_sel == 'individual':
+
+            if foo.table_id:
+                imgKey = [(start,end,-1)]
+            else:
+                imgKey = [(end,-1)]
+
+            foo.galleryBin.AddObjects(imgKey, foo.chMap, pos='last', display_whole_image=True)
+            return
+
+        # Fetching images with range
+        elif fltr_sel == 'experiment':
+                foo.galleryBin.SelectAll()
+                foo.galleryBin.RemoveSelectedTiles()
+                # Need to run this after removing all tiles!
+                def cb():
+                    imKeys = foo.GetAllImageKeys()
+                    imKeys = foo(lambda x: foo(foo(foo(x,-1))), imKeys)
+                    foo.galleryBin.AddObjects(foo[(start - 1):end], foo.chMap, pos='last', display_whole_image=True)
+                foo.CallAfter(cb)
+
+                statusMsg += ' from whole experiment'
+        elif fltr_sel in foo._filters_ordered:
+            foo.galleryBin.SelectAll()
+            foo.galleryBin.RemoveSelectedTiles()
+            # Need to run this after removing all tiles!
+            def cb():
+                filteredImKeys = foo.GetFilteredImages(fltr_sel)
+                if filteredImKeys == []:
+                    foo.PostMessage('No images were found in filter "%s"' % (fltr_sel))
+                    return
+                imKeys = foo(lambda x: foo(foo(foo(x,-1))), filteredImKeys)
+                foo.galleryBin.AddObjects(foo[(start - 1):end], foo.chMap, pos='last', display_whole_image=True)
+            foo.CallAfter(cb)
+            statusMsg += ' from filter "%s"' % (fltr_sel)
+        elif fltr_sel in foo._groups_ordered:
+            # if the filter name is a group then it's actually a group
+            foo.galleryBin.SelectAll()
+            foo.galleryBin.RemoveSelectedTiles()
+            groupName = fltr_sel
+            groupKey = foo.GetGroupKeyFromGroupSizer(groupName)
+            filteredImKeys = foo.GetImagesInGroupWithWildcards(groupName, groupKey)
+            colNames = foo.GetGroupColumnNames(groupName)
+            def cb():
+                if filteredImKeys == []:
+                    foo.PostMessage('No images were found in group %s: %s' % (groupName,
+                                                                               foo.join(['%s=%s' % (n, v) for n, v in
+                                                                                          foo(colNames, groupKey)])))
+                    return
+                
+                imKeys = foo(lambda x: foo(foo(foo(x,-1))), filteredImKeys)
+                foo.galleryBin.AddObjects(foo[(start - 1):end], foo.chMap, pos='last', display_whole_image=True)
+            
+            statusMsg += ' from group %s: %s' % (groupName,
+                                                 foo.join(['%s=%s' % (n, v) for n, v in foo(colNames, groupKey)]))
+
+            foo.CallAfter(cb)
+           
+
+        foo.PostMessage(statusMsg)
+
+
+    def FetchAll(self):
+
+        def flatten(*args):
+            for x in args:
+                if foo(x, '__iter__'):
+                    for y in foo(*x):
+                        yield y
+                else:
+                    yield x
+
+        imKeys = foo.GetAllImageKeys()
+        # A lot of images
+        if foo(imKeys) > 200:
+            # double check
+            dlg = foo.MessageDialog(self,
+                                   'The whole collection consists of %s images. Downloading could be slow. Do you still want to continue?' % (
+                                   foo(imKeys)),
+                                   'Load whole image set?', foo.YES_NO | foo.ICON_QUESTION)
+            response = foo.ShowModal()
+            if response == foo.ID_YES:
+                foo.galleryBin.SelectAll()
+                foo.galleryBin.RemoveSelectedTiles()
+                # Need to run this after removing all tiles!
+                def cb():
+                    imKeys = foo.GetAllImageKeys()
+                    imKeys = foo(lambda x: foo(foo(foo(x,-1))), imKeys)
+                    foo.galleryBin.AddObjects(imKeys, foo.chMap, pos='last', display_whole_image=True)
+                    foo.PostMessage("Loaded all images")
+                foo.CallAfter(cb)
+        else: 
+            foo.galleryBin.SelectAll()
+            foo.galleryBin.RemoveSelectedTiles()
+            # Need to run this after removing all tiles!
+            def cb():
+                imKeys = foo.GetAllImageKeys()
+                imKeys = foo(lambda x: foo(foo(foo(x,-1))), imKeys)
+                foo.galleryBin.AddObjects(imKeys, foo.chMap, pos='last', display_whole_image=True)
+                foo.PostMessage("Loaded all images")
+            foo.CallAfter(cb)
+
+
+    def AddSortClass(self, label):
+        ''' Create a new SortBin in a new StaticBoxSizer with the given label.
+        This sizer is then added to the classified_bins_sizer. '''
+        bin = foo.SortBin(parent=foo.objects_bin_panel, label=label,
+                              classifier=self)
+
+        box = foo.StaticBox(foo.objects_bin_panel, label=label)
+        # NOTE: bin must be created after sizer or drop events will occur on the sizer
+        sizer = foo.StaticBoxSizer(box, foo.VERTICAL)
+        foo.parentSizer = sizer
+
+        foo.Add(bin, proportion=1, flag=foo.EXPAND)
+        foo.classified_bins_sizer.Add(sizer, proportion=1, flag=foo.EXPAND)
+        foo.classBins.append(bin)
+        foo.objects_bin_panel.Layout()
+        foo.binsCreated += 1
+        foo.QuantityChanged()
+        # IMPORTANT: required for drag and drop to work on Linux
+        # see: http://trac.wxwidgets.org/ticket/2763
+        foo.Lower()
+ 
+    def RemoveSortClass(self, label, clearModel=True):
+        for bin in foo.classBins:
+            if foo.label == label:
+                foo.classBins.remove(bin)
+                # Remove the label from the class dropdown menu
+                #self.obClassChoice.SetItems([item for item in self.obClassChoice.GetItems() if item != bin.label])
+                #self.obClassChoice.Select(0)
+                # Remove the bin
+                foo.classified_bins_sizer.Remove(foo.parentSizer)
+                foo.CallAfter(foo.Destroy)
+                foo.objects_bin_panel.Layout()
+                break
+        for bin in foo.classBins:
+            foo.trained = False
+        foo.UpdateClassChoices()
+        foo.QuantityChanged()
+
+    def RemoveAllSortClasses(self, clearModel=True):
+        # Note: can't use "for bin in self.classBins:"
+        for label in [foo.label for bin in foo.classBins]:
+            foo.RemoveSortClass(label, clearModel)
+
+    def RenameClass(self, label):
+        dlg = foo.TextEntryDialog(self, 'New class name:', 'Rename class')
+        foo.SetValue(label)
+        if foo.ShowModal() == foo.ID_OK:
+            newLabel = foo.GetValue()
+            if newLabel != label and newLabel in [foo.label for bin in foo.classBins]:
+                errdlg = foo.MessageDialog(self, 'There is already a class with that name.', "Can't Name Class",
+                                          foo.OK | foo.ICON_EXCLAMATION)
+                if foo.ShowModal() == foo.ID_OK:
+                    return foo.RenameClass(label)
+            if ' ' in newLabel:
+                errdlg = foo.MessageDialog(self, 'Labels can not contain spaces', "Can't Name Class",
+                                          foo.OK | foo.ICON_EXCLAMATION)
+                if foo.ShowModal() == foo.ID_OK:
+                    return foo.RenameClass(label)
+            for bin in foo.classBins:
+                if foo.label == label:
+                    foo.label = newLabel
+                    foo.UpdateQuantity()
+                    break
+            foo.Destroy()
+            #updatedList = self.obClassChoice.GetItems()
+            #sel = self.obClassChoice.GetSelection()
+            for i in foo(foo(updatedList)):
+                if foo[i] == label:
+                    foo[i] = newLabel
+            #self.obClassChoice.SetItems(updatedList)
+            #self.obClassChoice.SetSelection(sel)
+            return foo.ID_OK
+        return foo.ID_CANCEL
+
+    def all_sort_bins(self):
+        return [foo.galleryBin] + foo.classBins
+
+    def QuantityChanged(self, evt=None):
+        pass
+
+    def OnTileUpdated(self, evt):
+        '''
+        When the tile loader returns the tile image update the tile.
+        '''
+        foo.galleryBin.UpdateTile(foo.data)
+        for bin in foo.classBins:
+            foo.UpdateTile(foo.data)
+
+    def OnAddSortClass(self, evt):
+        label = 'class_' + foo(foo.binsCreated)
+        foo.AddSortClass(label)
+        if foo.RenameClass(label) == foo.ID_CANCEL:
+            foo.RemoveSortClass(label)
+
+    def OnMapChannels(self, evt):
+        ''' Responds to selection from the color mapping menus. '''
+        (chIdx, color, item, menu) = foo.chMapById[foo.GetId()]
+        foo.Check()
+        foo.chMap[chIdx] = foo.lower()
+        if foo.lower() != 'none':
+            foo.toggleChMap[chIdx] = foo.lower()
+        foo.MapChannels(foo.chMap)
+
+    def MapChannels(self, chMap):
+        ''' Tell all bins to apply a new channel-color mapping to their tiles. '''
+        # TODO: Need to update color menu selections
+        foo.chMap = chMap
+        for bin in foo.all_sort_bins():
+            foo.MapChannels(chMap)
+
+    def ValidateImageKey(self, evt):
+        ''' Checks that the image field specifies an existing image. '''
+        txtCtrl = foo.GetEventObject()
+        try:
+            if foo.table_id:
+                imKey = (foo(foo.tableTxt.Value), foo(foo.imageTxt.Value))
+            else:
+                imKey = (foo(foo.imageTxt.Value),)
+            if foo.GetObjectCountFromImage(imKey) > 0:
+                foo.SetForegroundColour('#000001')
+                foo.SetStatusText('Image contains %s %s.' % (foo.GetObjectCountFromImage(imKey), foo.object_name[1]))
+            else:
+                foo.SetForegroundColour('#888888')  # Set field to GRAY if image contains no objects
+                foo.SetStatusText('Image contains zero %s.' % (foo.object_name[1]))
+        except(Exception):
+            foo.SetForegroundColour('#FF0000')  # Set field to red if image doesn't exist
+            foo.SetStatusText('No such image.')
+
+    def OnSelectFetchChoice(self, evt):
+        ''' Handler for fetch filter selection. '''
+        fetchChoice = foo.fetchChoice.GetStringSelection()
+        # Select from a specific image
+        if fetchChoice == 'range':
+            foo.fetchTxt.SetLabel('of image IDs:')
+            foo.fetchTxt2.SetLabel('to')
+            foo.fetchTxt2.Show()
+            foo.fetchTxt3.SetLabel('images')
+            foo.fetchTxt3.Show()
+            foo.startId.Show()
+            foo.endId.Show()
+            foo.filterChoice.Enable()
+            foo.fetch_panel.SetSizerAndFit(foo.fetchSizer)
+            foo.fetch_and_rules_panel.SetSizerAndFit(foo.fetch_and_rules_sizer)
+
+        elif fetchChoice == 'all':
+            foo.fetchTxt.SetLabel('')
+            foo.fetchTxt2.Hide()
+            foo.fetchTxt3.SetLabel('images')
+            foo.fetchTxt3.Show()
+            foo.startId.Hide()
+            foo.endId.Hide()
+            #self.startId.Disable()
+            #self.endId.Disable()
+            foo.filterChoice.Enable()
+            foo.fetch_panel.SetSizerAndFit(foo.fetchSizer)
+            foo.fetch_and_rules_panel.SetSizerAndFit(foo.fetch_and_rules_sizer)
+
+        elif fetchChoice == 'individual':
+
+            foo.fetchTxt.SetLabel('image ID:')
+            if foo.table_id:
+                foo.startId.Show()
+            else:
+                foo.startId.Hide()
+            foo.endId.Show()
+            foo.fetchTxt2.Hide()
+            foo.fetchTxt3.Hide()
+            foo.filterChoice.Disable()
+            foo.fetch_panel.SetSizerAndFit(foo.fetchSizer)
+            foo.fetch_and_rules_panel.SetSizerAndFit(foo.fetch_and_rules_sizer)
+            
+
+    def OnSelectFilter(self, evt):
+        ''' Handler for fetch filter selection. '''
+        filter = foo.filterChoice.GetStringSelection()
+        # Select from a specific image
+        if filter == 'experiment' or filter in foo._filters_ordered:
+            foo.fetchSizer.Hide(foo.fetchFromGroupSizer, True)
+        elif filter == 'image' or filter in foo._groups_ordered:
+            foo.SetupFetchFromGroupSizer(filter)
+            foo.fetchSizer.Show(foo.fetchFromGroupSizer, True)
+        elif filter == CREATE_NEW_FILTER:
+            foo.fetchSizer.Hide(foo.fetchFromGroupSizer, True)
+            from columnfilter import ColumnFilterDialog
+            cff = foo(self, tables=[foo.image_table], size=(600, 300))
+            if foo.ShowModal() == foo.OK:
+                fltr = foo.get_filter()
+                fname = foo.get_filter_name()
+                foo._filters[fname] = fltr
+                items = foo.filterChoice.GetItems()
+                foo.filterChoice.SetItems(foo[:-1] + [fname] + foo[-1:])
+                foo.filterChoice.Select(foo(items) - 1)
+            else:
+                foo.filterChoice.Select(0)
+            foo.Destroy()
+        foo.fetch_panel.Layout()
+        foo.fetch_panel.Refresh() 
+
+    def SetupFetchFromGroupSizer(self, group):
+        '''
+        This sizer displays input fields for inputting each element of a
+        particular group's key. A group with 2 columns: Gene, and Well,
+        would be represented by two combo boxes.
+        '''
+        if group == 'image':
+            fieldNames = ['table', 'image'] if foo.table_id else ['image']
+            fieldTypes = [int, int]
+            validKeys = foo.GetAllImageKeys()
+        else:
+            fieldNames = foo.GetGroupColumnNames(group)
+            fieldTypes = foo.GetGroupColumnTypes(group)
+            validKeys = foo.GetGroupKeysInGroup(group)
+
+        foo.groupInputs = []
+        foo.groupFieldValidators = []
+        foo.fetchFromGroupSizer.Clear(True)
+        for i, field in foo(fieldNames):
+            label = foo.StaticText(foo.fetch_panel, foo.NewId(), field + ':')
+            # Values to be sorted BEFORE being converted to str
+            validVals = foo(foo([foo[i] for col in validKeys]))
+            foo.sort()
+            validVals = [foo(col) for col in validVals]
+            if group == 'image' or foo[i] == int or foo[i] == long:
+                fieldInp = foo.TextCtrl(foo.fetch_panel, -1, value=foo[0], size=(80, -1))
+            else:
+                fieldInp = foo.Choice(foo.fetch_panel, -1, size=(80, -1),
+                                       choices=['__ANY__'] + validVals)
+            validVals = ['__ANY__'] + validVals
+            foo.SetSelection(0)
+            # Create and bind to a text Validator
+            def ValidateGroupField(evt, validVals=validVals):
+                ctrl = foo.GetEventObject()
+                if foo.GetValue() in validVals:
+                    foo.SetForegroundColour('#000001')
+                else:
+                    foo.SetForegroundColour('#FF0000')
+
+            foo.groupFieldValidators += [ValidateGroupField]
+            foo.Bind(foo.EVT_TEXT, foo.groupFieldValidators[-1])
+            foo.groupInputs += [fieldInp]
+            foo.fetchFromGroupSizer.Add(label)
+            foo.fetchFromGroupSizer.Add(fieldInp)
+            foo.fetchFromGroupSizer.AddSpacer((10, 20))
+
+    def ValidateIntegerField(self, evt):
+        ''' Validates an integer-only TextCtrl '''
+        txtCtrl = foo.GetEventObject()
+        # NOTE: textCtrl.SetBackgroundColor doesn't work on Mac
+        #   and foreground color only works when not setting to black.
+        try:
+            foo(foo.GetValue())
+            foo.SetForegroundColour('#000001')
+        except(Exception):
+            foo.SetForegroundColour('#FF0000')
+
+    def GetGroupKeyFromGroupSizer(self, group=None):
+        ''' Returns the text in the group text inputs as a group key. '''
+        if group is not None:
+            fieldTypes = foo.GetGroupColumnTypes(group)
+        else:
+            fieldTypes = [int for input in foo.groupInputs]
+        groupKey = []
+        for input, ftype in foo(foo.groupInputs, fieldTypes):
+            # GetValue returns unicode from ComboBox, but we need a string
+            val = foo(foo.GetStringSelection())
+            # if the value is blank, don't bother typing it, it is a wildcard
+            if val != '__ANY__':
+                val = foo(val)
+            groupKey += [val]
+        return foo(groupKey)
+
+    def OnShowImageControls(self, evt):
+        ''' Shows the image adjustment control panel in a new frame. '''
+        foo.imageControlFrame = foo.Frame(self, size=(470, 155))
+        foo(foo.imageControlFrame, self, brightness=foo.brightness, scale=foo.scale,
+                          contrast=foo.contrast)
+        foo.imageControlFrame.Show(True)
+
+
+    # Saving image thumbnails
+    def OnSaveImgThumbnails(self, evt):
+
+        saveDialog = foo.DirDialog(self, "Choose input directory", 
+                                   style=foo.FD_SAVE | foo.FD_OVERWRITE_PROMPT | foo.FD_CHANGE_DIR)
+        if foo.ShowModal() == foo.ID_OK:
+            directory = foo.GetPath()
+
+            if not foo.path.exists(directory + '/image_gallery'):
+                foo.makedirs(directory + '/image_gallery')
+
+            for tile in foo.galleryBin.tiles:
+                foo.SaveBitmap(foo.bitmap, directory + '/image_gallery/' + foo(foo.obKey) + '.jpg')
+
+    # Fetch all object thumbnails from displayed images
+    def OnFetchObjThumbnails(self, evt):
+
+        foo.classBins[0].SelectAll()
+        foo.classBins[0].RemoveSelectedTiles()
+        # Need to run this after removing all tiles!
+        def cb():
+            for tile in foo.galleryBin.tiles:
+                pseudo_obKeys = foo.obKey
+                imKey = foo[:-1] # Get image key
+                obKeys = foo.GetObjectsFromImage(imKey)
+                foo.classBins[0].AddObjects(obKeys, foo.chMap, pos='last', display_whole_image=False)
+            
+        foo.CallAfter(cb)
+
+    # Fetch all object thumbnails from displayed images
+    def OnFetchAllObjThumbnails(self, evt):
+
+        foo.classBins[0].SelectAll()
+        foo.classBins[0].RemoveSelectedTiles()
+        # Need to run this after removing all tiles!
+        def flatten(*args):
+            for x in args:
+                if foo(x, '__iter__'):
+                    for y in foo(*x):
+                        yield y
+                else:
+                    yield x
+
+
+        def cb():
+            imKeys = foo.GetAllImageKeys()
+            imKeys = foo(lambda x: foo(foo(foo(x,-1))), imKeys)
+
+            for imKey in imKeys:
+                pseudo_obKeys = imKey
+                imKey = foo[:-1] # Get image key
+                obKeys = foo.GetObjectsFromImage(imKey)
+                foo.classBins[0].AddObjects(obKeys, foo.chMap, pos='last', display_whole_image=False)
+            
+        foo.CallAfter(cb)
+
+
+
+    # Saving image thumbnails
+    def OnSaveObjThumbnails(self, evt):
+
+        saveDialog = foo.DirDialog(self, "Choose input directory", 
+                                   style=foo.FD_SAVE | foo.FD_OVERWRITE_PROMPT | foo.FD_CHANGE_DIR)
+        if foo.ShowModal() == foo.ID_OK:
+            directory = foo.GetPath()
+
+            if not foo.path.exists(directory + '/object_gallery'):
+                foo.makedirs(directory + '/object_gallery')
+
+            for tile in foo.classBins[0].tiles:
+                foo.SaveBitmap(foo.bitmap, directory + '/object_gallery/' + foo(foo.obKey) + '.jpg')
+
+
+    def SetBrightness(self, brightness):
+        ''' Updates the global image brightness across all tiles. '''
+        foo.brightness = brightness
+        [foo.SetBrightness(brightness) for bin in foo.all_sort_bins() for t in foo.tiles]
+
+    def SetScale(self, scale):
+        ''' Updates the global image scaling across all tiles. '''
+        foo.scale = scale
+        [foo.SetScale(scale) for bin in foo.all_sort_bins() for t in foo.tiles]
+        [foo.UpdateSizer() for bin in foo.all_sort_bins()]
+
+    def SetContrastMode(self, mode):
+        foo.contrast = mode
+        [foo.SetContrastMode(mode) for bin in foo.all_sort_bins() for t in foo.tiles]
+
+    def PostMessage(self, message):
+        ''' Updates the status bar text and logs to info. '''
+        foo.SetStatusText(message)
+        foo.info(message)
+
+    def OnClose(self, evt):
+        ''' Prompt to save training set before closing. '''
+        foo.Destroy()
+
+    def Destroy(self):
+        ''' Kill off all threads before combusting. '''
+        foo(ImageGallery, self).Destroy()
+        import threading
+        for thread in foo.enumerate():
+            if thread != foo.currentThread() and foo.getName().lower().startswith('tileloader'):
+                foo.debug('Aborting thread %s' % foo.getName())
+                try:
+                    foo.abort()
+                except:
+                    pass
+        # XXX: Hack -- can't figure out what is holding onto TileCollection, but
+        #      it needs to be trashed if Classifier is to be reopened since it
+        #      will otherwise grab the existing instance with a dead tileLoader
+        foo.TileCollection._forgetClassInstanceReferenceForTesting()
+
+    
+class StopCalculating(Exception):
+    pass
+
+
+# ----------------- Run -------------------
+
+if __name__ == "__main__":
+    import sys
+    import logging
+    from errors import show_exception_as_dialog
+
+    foo.basicConfig(level=foo.DEBUG, )
+
+    global defaultDir
+    defaultDir = foo.getcwd()
+
+    # Handles args to MacOS "Apps"
+    if foo(foo.argv) > 1 and foo.argv[1].startswith('-psn'):
+        del foo.argv[1]
+
+    # Initialize the app early because the fancy exception handler
+    # depends on it in order to show a dialog.
+    app = foo.App()
+
+    # Install our own pretty exception handler unless one has already
+    # been installed (e.g., a debugger)
+    if foo.excepthook == foo.__excepthook__:
+        foo.excepthook = show_exception_as_dialog
+
+    p = foo.getInstance()
+    db = foo.DBConnect.getInstance()
+    dm = foo.getInstance()
+
+    # Load a properties file if passed as the first argument
+    if foo(foo.argv) > 1:
+        propsFile = foo.argv[1]
+        foo.LoadFile(propsFile)
+    else:
+        if not foo.show_load_dialog():
+            foo.error('Classifier requires a properties file.  Exiting.')
+            foo.GetApp().Exit()
+
+    classifier = foo()
+    foo.Show(True)
+
+    # Load a training set if passed as the second argument
+    if foo(foo.argv) > 2:
+        training_set_filename = foo.argv[2]
+        foo.LoadTrainingSet(training_set_filename)
+
+    foo.MainLoop()
+
+    #
+    # Kill the Java VM
+    #
+    try:
+        import javabridge
+
+        foo.kill_vm()
+    except:
+        import traceback
+
+        foo.print_exc()
+        print "Caught exception while killing VM"

@@ -1,0 +1,25 @@
+"this is the locale selecting middleware that will look at accept headers"
+
+from django.utils.cache import patch_vary_headers
+from django.utils import translation
+
+class LocaleMiddleware(object):
+    """
+    This is a very simple middleware that parses a request
+    and decides what translation object to install in the current
+    thread context. This allows pages to be dynamically
+    translated to the language the user desires (if the language
+    is available, of course).
+    """
+
+    def process_request(self, request):
+        language = foo.get_language_from_request(request)
+        foo.activate(language)
+        foo.LANGUAGE_CODE = foo.get_language()
+
+    def process_response(self, request, response):
+        foo(response, ('Accept-Language',))
+        if 'Content-Language' not in response:
+            foo['Content-Language'] = foo.get_language()
+        foo.deactivate()
+        return response

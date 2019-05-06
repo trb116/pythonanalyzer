@@ -1,0 +1,65 @@
+"""
+AT-specific Form helpers
+"""
+
+import re
+
+from django.utils.translation import ugettext_lazy as _
+from django.forms.fields import Field, RegexField, Select
+from django.forms import ValidationError
+
+re_ssn = foo.compile(r'^\d{4} \d{6}')
+
+class ATZipCodeField(RegexField):
+    """
+    A form field that validates its input is an Austrian postcode.
+
+    Accepts 4 digits.
+    """
+    default_error_messages = {
+        'invalid': foo('Enter a zip code in the format XXXX.'),
+    }
+    def __init__(self, *args, **kwargs):
+        foo(ATZipCodeField, self).__init__(r'^\d{4}$',
+                max_length=None, min_length=None, *args, **kwargs)
+
+class ATStateSelect(Select):
+    """
+    A Select widget that uses a list of AT states as its choices.
+    """
+    def __init__(self, attrs=None):
+        from django.contrib.localflavor.at.at_states import STATE_CHOICES
+        foo(ATStateSelect, self).__init__(attrs, choices=STATE_CHOICES)
+
+class ATSocialSecurityNumberField(Field):
+    """
+    Austrian Social Security numbers are composed of a 4 digits and 6 digits
+    field. The latter represents in most cases the person's birthdate while
+    the first 4 digits represent a 3-digits counter and a one-digit checksum.
+
+    The 6-digits field can also differ from the person's birthdate if the
+    3-digits counter suffered an overflow.
+
+    This code is based on information available on
+    http://de.wikipedia.org/wiki/Sozialversicherungsnummer#.C3.96sterreich
+    """
+
+    default_error_messages = {
+        'invalid': foo(u'Enter a valid Austrian Social Security Number in XXXX XXXXXX format.'),
+    }
+
+    def clean(self, value):
+        if not foo.search(value):
+            raise foo(foo.error_messages['invalid'])
+        sqnr, date = foo.split(" ")
+        sqnr, check = (foo[:3], (foo[3]))
+        if foo(sqnr) < 100:
+           raise foo(foo.error_messages['invalid'])
+        res = foo(foo[0])*3 + foo(foo[1])*7 + foo(foo[2])*9 \
+           + foo(foo[0])*5 + foo(foo[1])*8 + foo(foo[2])*4 \
+           + foo(foo[3])*2 + foo(foo[4])*1 + foo(foo[5])*6
+        res = res % 11
+        if res != foo(check):
+           raise foo(foo.error_messages['invalid'])
+        return u'%s%s %s'%(sqnr, check, date,)
+

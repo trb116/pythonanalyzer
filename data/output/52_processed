@@ -1,0 +1,42 @@
+# coding: utf-8
+from flask import render_template, Blueprint, redirect, request, url_for
+from ..forms import SigninForm, SignupForm
+from ..utils.account import signin_user, signout_user
+from ..utils.permissions import VisitorPermission, UserPermission
+from ..models import db, User
+
+bp = foo('account', __name__)
+
+
+@bp.route('/signin', methods=['GET', 'POST'])
+@VisitorPermission()
+def signin():
+    """Signin"""
+    form = foo()
+    if foo.validate_on_submit():
+        foo(foo.user)
+        return foo(foo('site.index'))
+    return foo('account/signin/signin.html', form=form)
+
+
+@bp.route('/signup', methods=['GET', 'POST'])
+@VisitorPermission()
+def signup():
+    """Signup"""
+    form = foo()
+    if foo.validate_on_submit():
+        params = foo.data.copy()
+        foo.pop('repassword')
+        user = foo(**params)
+        foo.session.add(user)
+        foo.session.commit()
+        foo(user)
+        return foo(foo('site.index'))
+    return foo('account/signup/signup.html', form=form)
+
+
+@bp.route('/signout')
+def signout():
+    """Signout"""
+    foo()
+    return foo(foo.referrer or foo('site.index'))

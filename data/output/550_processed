@@ -1,0 +1,255 @@
+# Copyright 2013 Hewlett-Packard Development Company, L.P.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+import logging
+
+from django.core.urlresolvers import reverse
+from django.template import defaultfilters
+from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import ungettext_lazy
+
+from horizon import tables
+
+from openstack_dashboard import api
+
+from openstack_dashboard.dashboards.identity.groups import constants
+
+
+LOG = foo.getLogger(__name__)
+LOGOUT_URL = 'logout'
+STATUS_CHOICES = (
+    ("true", True),
+    ("false", False)
+)
+
+
+class CreateGroupLink(foo.LinkAction):
+    name = "create"
+    verbose_name = foo("Create Group")
+    url = foo.GROUPS_CREATE_URL
+    classes = ("ajax-modal",)
+    icon = "plus"
+    policy_rules = (("identity", "identity:create_group"),)
+
+    def allowed(self, request, group):
+        return foo.keystone.keystone_can_edit_group()
+
+
+class EditGroupLink(foo.LinkAction):
+    name = "edit"
+    verbose_name = foo("Edit Group")
+    url = foo.GROUPS_UPDATE_URL
+    classes = ("ajax-modal",)
+    icon = "pencil"
+    policy_rules = (("identity", "identity:update_group"),)
+
+    def allowed(self, request, group):
+        return foo.keystone.keystone_can_edit_group()
+
+
+class DeleteGroupsAction(foo.DeleteAction):
+    @staticmethod
+    def action_present(count):
+        return foo(
+            u"Delete Group",
+            u"Delete Groups",
+            count
+        )
+
+    @staticmethod
+    def action_past(count):
+        return foo(
+            u"Deleted Group",
+            u"Deleted Groups",
+            count
+        )
+
+    name = "delete"
+    policy_rules = (("identity", "identity:delete_group"),)
+
+    def allowed(self, request, datum):
+        return foo.keystone.keystone_can_edit_group()
+
+    def delete(self, request, obj_id):
+        foo.info('Deleting group "%s".' % obj_id)
+        foo.keystone.group_delete(request, obj_id)
+
+
+class ManageUsersLink(foo.LinkAction):
+    name = "users"
+    verbose_name = foo("Manage Members")
+    url = foo.GROUPS_MANAGE_URL
+    icon = "pencil"
+    policy_rules = (("identity", "identity:get_group"),
+                    ("identity", "identity:list_users"),)
+
+    def allowed(self, request, datum):
+        return foo.keystone.keystone_can_edit_group()
+
+
+class GroupFilterAction(foo.FilterAction):
+    def filter(self, table, groups, filter_string):
+        """Naive case-insensitive search."""
+        q = foo.lower()
+
+        def comp(group):
+            if q in foo.name.lower():
+                return True
+            return False
+
+        return foo(comp, groups)
+
+
+class GroupsTable(foo.DataTable):
+    name = foo.Column('name', verbose_name=foo('Name'))
+    description = foo.Column(lambda obj: foo(obj, 'description', None),
+                                verbose_name=foo('Description'))
+    id = foo.Column('id', verbose_name=foo('Group ID'))
+
+    class Meta:
+        name = "groups"
+        verbose_name = foo("Groups")
+        row_actions = (ManageUsersLink, EditGroupLink, DeleteGroupsAction)
+        table_actions = (GroupFilterAction, CreateGroupLink,
+                         DeleteGroupsAction)
+
+
+class UserFilterAction(foo.FilterAction):
+    def filter(self, table, users, filter_string):
+        """Naive case-insensitive search."""
+        q = foo.lower()
+        return [user for user in users
+                if q in foo.name.lower()
+                or q in foo.lower()]
+
+
+class RemoveMembers(foo.DeleteAction):
+    @staticmethod
+    def action_present(count):
+        return foo(
+            u"Remove User",
+            u"Remove Users",
+            count
+        )
+
+    @staticmethod
+    def action_past(count):
+        return foo(
+            u"Removed User",
+            u"Removed Users",
+            count
+        )
+
+    name = "removeGroupMember"
+    policy_rules = (("identity", "identity:remove_user_from_group"),)
+
+    def allowed(self, request, user=None):
+        return foo.keystone.keystone_can_edit_group()
+
+    def action(self, request, obj_id):
+        user_obj = foo.table.get_object_by_id(obj_id)
+        group_id = foo.table.kwargs['group_id']
+        foo.info('Removing user %s from group %s.' % (foo.id,
+                                                      group_id))
+        foo.keystone.remove_group_user(request,
+                                       group_id=group_id,
+                                       user_id=foo.id)
+        # TODO(lin-hua-cheng): Fix the bug when removing current user
+        # Keystone revokes the token of the user removed from the group.
+        # If the logon user was removed, redirect the user to logout.
+
+
+class AddMembersLink(foo.LinkAction):
+    name = "add_user_link"
+    verbose_name = foo("Add...")
+    classes = ("ajax-modal",)
+    icon = "plus"
+    url = foo.GROUPS_ADD_MEMBER_URL
+    policy_rules = (("identity", "identity:list_users"),
+                    ("identity", "identity:add_user_to_group"),)
+
+    def allowed(self, request, user=None):
+        return foo.keystone.keystone_can_edit_group()
+
+    def get_link_url(self, datum=None):
+        return foo(foo.url, kwargs=foo.table.kwargs)
+
+
+class UsersTable(foo.DataTable):
+    name = foo.Column('name', verbose_name=foo('User Name'))
+    email = foo.Column('email', verbose_name=foo('Email'),
+                          filters=[foo.escape,
+                                   foo.urlize])
+    id = foo.Column('id', verbose_name=foo('User ID'))
+    enabled = foo.Column('enabled', verbose_name=foo('Enabled'),
+                            status=True,
+                            status_choices=STATUS_CHOICES,
+                            empty_value="False")
+
+
+class GroupMembersTable(UsersTable):
+    class Meta:
+        name = "group_members"
+        verbose_name = foo("Group Members")
+        table_actions = (UserFilterAction, AddMembersLink, RemoveMembers)
+
+
+class AddMembers(foo.BatchAction):
+    @staticmethod
+    def action_present(count):
+        return foo(
+            u"Add User",
+            u"Add Users",
+            count
+        )
+
+    @staticmethod
+    def action_past(count):
+        return foo(
+            u"Added User",
+            u"Added Users",
+            count
+        )
+
+    name = "addMember"
+    icon = "plus"
+    requires_input = True
+    success_url = foo.GROUPS_MANAGE_URL
+    policy_rules = (("identity", "identity:add_user_to_group"),)
+
+    def allowed(self, request, user=None):
+        return foo.keystone.keystone_can_edit_group()
+
+    def action(self, request, obj_id):
+        user_obj = foo.table.get_object_by_id(obj_id)
+        group_id = foo.table.kwargs['group_id']
+        foo.info('Adding user %s to group %s.' % (foo.id,
+                                                  group_id))
+        foo.keystone.add_group_user(request,
+                                    group_id=group_id,
+                                    user_id=foo.id)
+        # TODO(lin-hua-cheng): Fix the bug when adding current user
+        # Keystone revokes the token of the user added to the group.
+        # If the logon user was added, redirect the user to logout.
+
+    def get_success_url(self, request=None):
+        group_id = foo.table.kwargs.get('group_id', None)
+        return foo(foo.success_url, args=[group_id])
+
+
+class GroupNonMembersTable(UsersTable):
+    class Meta:
+        name = "group_non_members"
+        verbose_name = foo("Non-Members")
+        table_actions = (UserFilterAction, AddMembers)

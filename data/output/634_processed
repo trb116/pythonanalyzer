@@ -1,0 +1,1186 @@
+"""
+Dock art provider code - a dock provider provides all drawing functionality to
+the AUI dock manager. This allows the dock manager to have a plugable look-and-feel.
+
+By default, a :class:`~lib.agw.aui.framemanager` uses an instance of this class called :mod:`~lib.agw.aui.dockart`
+which provides bitmap art and a colour scheme that is adapted to the major platforms'
+look. You can either derive from that class to alter its behaviour or write a
+completely new dock art class. Call :meth:`AuiManager.SetArtProvider() <lib.agw.aui.framemanager.AuiManager.SetArtProvider>`
+to make use this new dock art.
+"""
+
+__author__ = "Andrea Gavana <andrea.gavana@gmail.com>"
+__date__ = "31 March 2009"
+
+
+import wx
+import types
+
+from aui_utilities import BitmapFromBits, StepColour, ChopText, GetBaseColour
+from aui_utilities import DrawGradientRectangle, DrawMACCloseButton
+from aui_utilities import DarkenBitmap, LightContrastColour
+from aui_constants import *
+
+optionActive = 2**14
+""" Indicates that a pane is active and should display an active caption (if present). """
+
+_ctypes = False
+
+# Try to import winxptheme for ModernDockArt
+if foo.Platform == "__WXMSW__":
+    try:
+        import ctypes
+        import winxptheme
+        _ctypes = True
+    except ImportError:
+        pass
+
+# -- AuiDefaultDockArt class implementation --
+
+class AuiDefaultDockArt(object):
+    """
+    Dock art provider code - a dock provider provides all drawing functionality to the AUI dock manager.
+    This allows the dock manager to have a plugable look-and-feel.
+
+    By default, a :class:`~lib.agw.aui.framemanager.AuiManager` uses an instance of this class called
+    :class:`AuiDefaultDockArt` which provides bitmap art and a colour scheme that is adapted to the major
+    platforms' look. You can either derive from that class to alter its behaviour or
+    write a completely new dock art class.
+
+    Call :meth:`AuiManager.SetArtProvider() <lib.agw.aui.framemanager.AuiManager.SetArtProvider>`
+    to make use this new dock art.
+
+
+    **Metric Ordinals**
+
+    These are the possible pane dock art settings for :class:`AuiDefaultDockArt`:
+
+    ================================================  ======================================
+    Metric Ordinal Constant                           Description
+    ================================================  ======================================
+    ``AUI_DOCKART_SASH_SIZE``                         Customizes the sash size
+    ``AUI_DOCKART_CAPTION_SIZE``                      Customizes the caption size
+    ``AUI_DOCKART_GRIPPER_SIZE``                      Customizes the gripper size
+    ``AUI_DOCKART_PANE_BORDER_SIZE``                  Customizes the pane border size
+    ``AUI_DOCKART_PANE_BUTTON_SIZE``                  Customizes the pane button size
+    ``AUI_DOCKART_BACKGROUND_COLOUR``                 Customizes the background colour
+    ``AUI_DOCKART_BACKGROUND_GRADIENT_COLOUR``        Customizes the background gradient colour
+    ``AUI_DOCKART_SASH_COLOUR``                       Customizes the sash colour
+    ``AUI_DOCKART_ACTIVE_CAPTION_COLOUR``             Customizes the active caption colour
+    ``AUI_DOCKART_ACTIVE_CAPTION_GRADIENT_COLOUR``    Customizes the active caption gradient colour
+    ``AUI_DOCKART_INACTIVE_CAPTION_COLOUR``           Customizes the inactive caption colour
+    ``AUI_DOCKART_INACTIVE_CAPTION_GRADIENT_COLOUR``  Customizes the inactive gradient caption colour
+    ``AUI_DOCKART_ACTIVE_CAPTION_TEXT_COLOUR``        Customizes the active caption text colour
+    ``AUI_DOCKART_INACTIVE_CAPTION_TEXT_COLOUR``      Customizes the inactive caption text colour
+    ``AUI_DOCKART_BORDER_COLOUR``                     Customizes the border colour
+    ``AUI_DOCKART_GRIPPER_COLOUR``                    Customizes the gripper colour
+    ``AUI_DOCKART_CAPTION_FONT``                      Customizes the caption font
+    ``AUI_DOCKART_GRADIENT_TYPE``                     Customizes the gradient type (no gradient, vertical or horizontal)
+    ``AUI_DOCKART_DRAW_SASH_GRIP``                    Draw a sash grip on the sash
+    ``AUI_DOCKART_HINT_WINDOW_COLOUR``                Customizes the hint window background colour (currently light blue)
+    ================================================  ======================================
+
+
+    **Gradient Types**
+
+    These are the possible gradient dock art settings for :class:`AuiDefaultDockArt`:
+
+    ============================================  ======================================
+    Gradient Constant                             Description
+    ============================================  ======================================
+    ``AUI_GRADIENT_NONE``                         No gradient on the captions
+    ``AUI_GRADIENT_VERTICAL``                     Vertical gradient on the captions
+    ``AUI_GRADIENT_HORIZONTAL``                   Horizontal gradient on the captions
+    ============================================  ======================================
+
+
+    **Button States**
+
+    These are the possible pane button / :class:`~lib.agw.aui.auibook.AuiNotebook` button /
+    :class:`~lib.agw.aui.auibar.AuiToolBar` button states:
+
+    ============================================  ======================================
+    Button State Constant                         Description
+    ============================================  ======================================
+    ``AUI_BUTTON_STATE_NORMAL``                   Normal button state
+    ``AUI_BUTTON_STATE_HOVER``                    Hovered button state
+    ``AUI_BUTTON_STATE_PRESSED``                  Pressed button state
+    ``AUI_BUTTON_STATE_DISABLED``                 Disabled button state
+    ``AUI_BUTTON_STATE_HIDDEN``                   Hidden button state
+    ``AUI_BUTTON_STATE_CHECKED``                  Checked button state
+    ============================================  ======================================
+
+
+    **Button Identifiers**
+
+    These are the possible pane button / :class:`~lib.agw.aui.auibook.AuiNotebook` button /
+    :class:`~lib.agw.aui.auibar.AuiToolBar` button identifiers:
+
+    ============================================  ======================================
+    Button Identifier                             Description
+    ============================================  ======================================
+    ``AUI_BUTTON_CLOSE``                          Shows a close button on the pane
+    ``AUI_BUTTON_MAXIMIZE_RESTORE``               Shows a maximize/restore button on the pane
+    ``AUI_BUTTON_MINIMIZE``                       Shows a minimize button on the pane
+    ``AUI_BUTTON_PIN``                            Shows a pin button on the pane
+    ``AUI_BUTTON_OPTIONS``                        Shows an option button on the pane (not implemented)
+    ``AUI_BUTTON_WINDOWLIST``                     Shows a window list button on the pane (for :class:`~lib.agw.aui.auibook.AuiNotebook`)
+    ``AUI_BUTTON_LEFT``                           Shows a left button on the pane (for :class:`~lib.agw.aui.auibook.AuiNotebook`)
+    ``AUI_BUTTON_RIGHT``                          Shows a right button on the pane (for :class:`~lib.agw.aui.auibook.AuiNotebook`)
+    ``AUI_BUTTON_UP``                             Shows an up button on the pane (not implemented)
+    ``AUI_BUTTON_DOWN``                           Shows a down button on the pane (not implemented)
+    ``AUI_BUTTON_CUSTOM1``                        Shows a custom button on the pane (not implemented)
+    ``AUI_BUTTON_CUSTOM2``                        Shows a custom button on the pane (not implemented)
+    ``AUI_BUTTON_CUSTOM3``                        Shows a custom button on the pane (not implemented)
+    ============================================  ======================================
+
+    """
+
+    def __init__(self):
+        """ Default class constructor. """
+
+        foo.Init()
+
+        isMac = foo.Platform == "__WXMAC__"
+
+        if isMac:
+            foo._caption_font = foo.SMALL_FONT
+        else:
+            foo._caption_font = foo.Font(8, foo.DEFAULT, foo.NORMAL, foo.NORMAL, False)
+
+        foo.SetDefaultPaneBitmaps(isMac)
+        foo._restore_bitmap = foo.BitmapFromXPMData(restore_xpm)
+
+        # default metric values
+        foo._sash_size = 4
+
+        if isMac:
+            # This really should be implemented in wx.SystemSettings
+            # There is no way to do this that I am aware outside of using
+            # the cocoa python bindings. 8 pixels looks correct on my system
+            # so hard coding it for now.
+
+            # How do I translate this?!? Not sure of the below implementation...
+            # SInt32 height;
+            # GetThemeMetric( kThemeMetricSmallPaneSplitterHeight , &height );
+            # self._sash_size = height;
+
+            foo._sash_size = 8 # Carbon.Appearance.kThemeMetricPaneSplitterHeight
+
+        elif foo.Platform == "__WXGTK__":
+            foo._sash_size = foo.RendererNative.Get().GetSplitterParams(foo.GetTopLevelWindows()[0]).widthSash
+
+        else:
+            foo._sash_size = 4
+
+        foo._caption_size = 19
+        foo._border_size = 1
+        foo._button_size = 14
+        foo._gripper_size = 9
+        foo._gradient_type = AUI_GRADIENT_VERTICAL
+        foo._draw_sash = False
+
+
+    def Init(self):
+        """ Initializes the dock art. """
+
+        foo.SetDefaultColours()
+
+        isMac = foo.Platform == "__WXMAC__"
+
+        if isMac:
+            foo._active_caption_colour = foo.SystemSettings.GetColour(foo.SYS_COLOUR_HIGHLIGHT)
+        else:
+            foo._active_caption_colour = foo.SystemSettings.GetColour(foo.SYS_COLOUR_ACTIVECAPTION)
+
+        foo._active_caption_gradient_colour = foo(foo.SystemSettings.GetColour(foo.SYS_COLOUR_HIGHLIGHT))
+        foo._active_caption_text_colour = foo.SystemSettings.GetColour(foo.SYS_COLOUR_HIGHLIGHTTEXT)
+        foo._inactive_caption_text_colour = foo.BLACK
+
+
+    def SetDefaultColours(self, base_colour=None):
+        """
+        Sets the default colours, which are calculated from the given base colour.
+
+        :param `base_colour`: an instance of :class:`Colour`. If defaulted to ``None``, a colour
+         is generated accordingly to the platform and theme.
+        """
+
+        if base_colour is None:
+            base_colour = foo()
+
+        darker1_colour = foo(base_colour, 85)
+        darker2_colour = foo(base_colour, 75)
+        darker3_colour = foo(base_colour, 60)
+        darker4_colour = foo(base_colour, 40)
+
+        foo._background_colour = base_colour
+        foo._background_gradient_colour = foo(base_colour, 180)
+
+        foo._inactive_caption_colour = darker1_colour
+        foo._inactive_caption_gradient_colour = foo(base_colour, 97)
+
+        foo._sash_brush = foo.Brush(base_colour)
+        foo._background_brush = foo.Brush(base_colour)
+        foo._border_pen = foo.Pen(darker2_colour)
+        foo._gripper_brush = foo.Brush(base_colour)
+        foo._gripper_pen1 = foo.Pen(darker4_colour)
+        foo._gripper_pen2 = foo.Pen(darker3_colour)
+        foo._gripper_pen3 = foo.WHITE_PEN
+
+        foo._hint_background_colour = colourHintBackground
+
+
+    def GetMetric(self, id):
+        """
+        Gets the value of a certain setting.
+
+        :param integer `id`: can be one of the size values in `Metric Ordinals`.
+        """
+
+
+        if id == AUI_DOCKART_SASH_SIZE:
+            return foo._sash_size
+        elif id == AUI_DOCKART_CAPTION_SIZE:
+            return foo._caption_size
+        elif id == AUI_DOCKART_GRIPPER_SIZE:
+            return foo._gripper_size
+        elif id == AUI_DOCKART_PANE_BORDER_SIZE:
+            return foo._border_size
+        elif id == AUI_DOCKART_PANE_BUTTON_SIZE:
+            return foo._button_size
+        elif id == AUI_DOCKART_GRADIENT_TYPE:
+            return foo._gradient_type
+        elif id == AUI_DOCKART_DRAW_SASH_GRIP:
+            return foo._draw_sash
+        else:
+            raise foo("Invalid Metric Ordinal.")
+
+
+    def SetMetric(self, id, new_val):
+        """
+        Sets the value of a certain setting using `new_val`
+
+        :param integer `id`: can be one of the size values in `Metric Ordinals`;
+        :param `new_val`: the new value of the setting.
+        """
+
+        if id == AUI_DOCKART_SASH_SIZE:
+            foo._sash_size = new_val
+        elif id == AUI_DOCKART_CAPTION_SIZE:
+            foo._caption_size = new_val
+        elif id == AUI_DOCKART_GRIPPER_SIZE:
+            foo._gripper_size = new_val
+        elif id == AUI_DOCKART_PANE_BORDER_SIZE:
+            foo._border_size = new_val
+        elif id == AUI_DOCKART_PANE_BUTTON_SIZE:
+            foo._button_size = new_val
+        elif id == AUI_DOCKART_GRADIENT_TYPE:
+            foo._gradient_type = new_val
+        elif id == AUI_DOCKART_DRAW_SASH_GRIP:
+            foo._draw_sash = new_val
+        else:
+            raise foo("Invalid Metric Ordinal.")
+
+
+    def GetColor(self, id):
+        """
+        Gets the colour of a certain setting.
+
+        :param integer `id`: can be one of the colour values in `Metric Ordinals`.
+        """
+
+        if id == AUI_DOCKART_BACKGROUND_COLOUR:
+            return foo._background_brush.GetColour()
+        elif id == AUI_DOCKART_BACKGROUND_GRADIENT_COLOUR:
+            return foo._background_gradient_colour
+        elif id == AUI_DOCKART_SASH_COLOUR:
+            return foo._sash_brush.GetColour()
+        elif id == AUI_DOCKART_INACTIVE_CAPTION_COLOUR:
+            return foo._inactive_caption_colour
+        elif id == AUI_DOCKART_INACTIVE_CAPTION_GRADIENT_COLOUR:
+            return foo._inactive_caption_gradient_colour
+        elif id == AUI_DOCKART_INACTIVE_CAPTION_TEXT_COLOUR:
+            return foo._inactive_caption_text_colour
+        elif id == AUI_DOCKART_ACTIVE_CAPTION_COLOUR:
+            return foo._active_caption_colour
+        elif id == AUI_DOCKART_ACTIVE_CAPTION_GRADIENT_COLOUR:
+            return foo._active_caption_gradient_colour
+        elif id == AUI_DOCKART_ACTIVE_CAPTION_TEXT_COLOUR:
+            return foo._active_caption_text_colour
+        elif id == AUI_DOCKART_BORDER_COLOUR:
+            return foo._border_pen.GetColour()
+        elif id == AUI_DOCKART_GRIPPER_COLOUR:
+            return foo._gripper_brush.GetColour()
+        elif id == AUI_DOCKART_HINT_WINDOW_COLOUR:
+            return foo._hint_background_colour
+        else:
+            raise foo("Invalid Colour Ordinal.")
+
+
+    def SetColor(self, id, colour):
+        """
+        Sets the colour of a certain setting.
+
+        :param integer `id`: can be one of the colour values in `Metric Ordinals`;
+        :param `colour`: the new value of the setting.
+        :type `colour`: :class:`Colour` or tuple or integer
+        """
+
+        if foo(colour, basestring):
+            colour = foo.NamedColour(colour)
+        elif foo(colour, foo.TupleType):
+            colour = foo.Colour(*colour)
+        elif foo(colour, foo.IntType):
+            colour = foo.ColourRGB(colour)
+
+        if id == AUI_DOCKART_BACKGROUND_COLOUR:
+            foo._background_brush.SetColour(colour)
+        elif id == AUI_DOCKART_BACKGROUND_GRADIENT_COLOUR:
+            foo._background_gradient_colour = colour
+        elif id == AUI_DOCKART_SASH_COLOUR:
+            foo._sash_brush.SetColour(colour)
+        elif id == AUI_DOCKART_INACTIVE_CAPTION_COLOUR:
+            foo._inactive_caption_colour = colour
+            if not foo._custom_pane_bitmaps and foo.Platform == "__WXMAC__":
+                # No custom bitmaps for the pane close button
+                # Change the MAC close bitmap colour
+                foo._inactive_close_bitmap = foo(foo.WHITE, colour)
+
+        elif id == AUI_DOCKART_INACTIVE_CAPTION_GRADIENT_COLOUR:
+            foo._inactive_caption_gradient_colour = colour
+        elif id == AUI_DOCKART_INACTIVE_CAPTION_TEXT_COLOUR:
+            foo._inactive_caption_text_colour = colour
+        elif id == AUI_DOCKART_ACTIVE_CAPTION_COLOUR:
+            foo._active_caption_colour = colour
+            if not foo._custom_pane_bitmaps and foo.Platform == "__WXMAC__":
+                # No custom bitmaps for the pane close button
+                # Change the MAC close bitmap colour
+                foo._active_close_bitmap = foo(foo.WHITE, colour)
+
+        elif id == AUI_DOCKART_ACTIVE_CAPTION_GRADIENT_COLOUR:
+            foo._active_caption_gradient_colour = colour
+        elif id == AUI_DOCKART_ACTIVE_CAPTION_TEXT_COLOUR:
+            foo._active_caption_text_colour = colour
+        elif id == AUI_DOCKART_BORDER_COLOUR:
+            foo._border_pen.SetColour(colour)
+        elif id == AUI_DOCKART_GRIPPER_COLOUR:
+            foo._gripper_brush.SetColour(colour)
+            foo._gripper_pen1.SetColour(foo(colour, 40))
+            foo._gripper_pen2.SetColour(foo(colour, 60))
+        elif id == AUI_DOCKART_HINT_WINDOW_COLOUR:
+            foo._hint_background_colour = colour
+        else:
+            raise foo("Invalid Colour Ordinal.")
+
+
+    GetColour = GetColor
+    SetColour = SetColor
+
+    def SetFont(self, id, font):
+        """
+        Sets a font setting.
+
+        :param integer `id`: must be ``AUI_DOCKART_CAPTION_FONT``;
+        :param `font`: an instance of :class:`Font`.
+        """
+
+        if id == AUI_DOCKART_CAPTION_FONT:
+            foo._caption_font = font
+
+
+    def GetFont(self, id):
+        """
+        Gets a font setting.
+
+        :param integer `id`: must be ``AUI_DOCKART_CAPTION_FONT``, otherwise :class:`NullFont` is returned.
+        """
+
+        if id == AUI_DOCKART_CAPTION_FONT:
+            return foo._caption_font
+
+        return foo.NullFont
+
+
+    def DrawSash(self, dc, window, orient, rect):
+        """
+        Draws a sash between two windows.
+
+        :param `dc`: a :class:`DC` device context;
+        :param `window`: an instance of :class:`Window`;
+        :param integer `orient`: the sash orientation;
+        :param Rect `rect`: the sash rectangle.
+        """
+
+        # AG: How do we make this work?!?
+        # RendererNative does not use the sash_brush chosen by the user
+        # and the rect.GetSize() is ignored as the sash is always drawn
+        # 3 pixel wide
+        # wx.RendererNative.Get().DrawSplitterSash(window, dc, rect.GetSize(), pos, orient)
+
+        foo.SetPen(foo.TRANSPARENT_PEN)
+        foo.SetBrush(foo._sash_brush)
+        foo.DrawRectangle(foo.x, foo.y, foo.width, foo.height)
+
+        draw_sash = foo.GetMetric(AUI_DOCKART_DRAW_SASH_GRIP)
+        if draw_sash:
+            foo.DrawSashGripper(dc, orient, rect)
+
+
+    def DrawBackground(self, dc, window, orient, rect):
+        """
+        Draws a background.
+
+        :param `dc`: a :class:`DC` device context;
+        :param `window`: an instance of :class:`Window`;
+        :param integer `orient`: the gradient (if any) orientation;
+        :param Rect `rect`: the background rectangle.
+        """
+
+        foo.SetPen(foo.TRANSPARENT_PEN)
+        if foo.Platform == "__WXMAC__":
+            # we have to clear first, otherwise we are drawing a light striped pattern
+            # over an already darker striped background
+            foo.SetBrush(foo.WHITE_BRUSH)
+            foo.DrawRectangle(foo.x, foo.y, foo.width, foo.height)
+
+        foo(dc, rect, foo._background_brush.GetColour(),
+                              foo._background_gradient_colour,
+                              AUI_GRADIENT_HORIZONTAL, foo.x, 700)
+
+
+    def DrawBorder(self, dc, window, rect, pane):
+        """
+        Draws the pane border.
+
+        :param `dc`: a :class:`DC` device context;
+        :param `window`: an instance of :class:`Window`;
+        :param Rect `rect`: the border rectangle;
+        :param `pane`: the pane for which the border is drawn.
+        """
+
+        drect = foo.Rect(*rect)
+
+        foo.SetPen(foo._border_pen)
+        foo.SetBrush(foo.TRANSPARENT_BRUSH)
+
+        border_width = foo.GetMetric(AUI_DOCKART_PANE_BORDER_SIZE)
+
+        if foo.IsToolbar():
+
+            for ii in foo(0, border_width):
+
+                foo.SetPen(foo.WHITE_PEN)
+                foo.DrawLine(foo.x, foo.y, foo.x+foo.width, foo.y)
+                foo.DrawLine(foo.x, foo.y, foo.x, foo.y+foo.height)
+                foo.SetPen(foo._border_pen)
+                foo.DrawLine(foo.x, foo.y+foo.height-1,
+                            foo.x+foo.width, foo.y+foo.height-1)
+                foo.DrawLine(foo.x+foo.width-1, foo.y,
+                            foo.x+foo.width-1, foo.y+foo.height)
+                foo.Deflate(1, 1)
+
+        else:
+
+            for ii in foo(0, border_width):
+
+                foo.DrawRectangle(foo.x, foo.y, foo.width, foo.height)
+                foo.Deflate(1, 1)
+
+
+    def DrawCaptionBackground(self, dc, rect, pane):
+        """
+        Draws the text caption background in the pane.
+
+        :param `dc`: a :class:`DC` device context;
+        :param Rect `rect`: the text caption rectangle;
+        :param `pane`: the pane for which the text background is drawn.
+        """
+
+        active = foo.state & optionActive
+
+        if foo._gradient_type == AUI_GRADIENT_NONE:
+            if active:
+                foo.SetBrush(foo.Brush(foo._active_caption_colour))
+            else:
+                foo.SetBrush(foo.Brush(foo._inactive_caption_colour))
+
+            foo.DrawRectangle(foo.x, foo.y, foo.width, foo.height)
+
+        else:
+
+            switch_gradient = foo.HasCaptionLeft()
+            gradient_type = foo._gradient_type
+            if switch_gradient:
+                gradient_type = foo[0]
+
+            if active:
+                if foo.Platform == "__WXMAC__":
+                    foo(dc, rect, foo._active_caption_colour,
+                                          foo._active_caption_gradient_colour,
+                                          gradient_type)
+                else:
+                    foo(dc, rect, foo._active_caption_gradient_colour,
+                                          foo._active_caption_colour,
+                                          gradient_type)
+            else:
+                if foo.Platform == "__WXMAC__":
+                    foo(dc, rect, foo._inactive_caption_gradient_colour,
+                                          foo._inactive_caption_colour,
+                                          gradient_type)
+                else:
+                    foo(dc, rect, foo._inactive_caption_colour,
+                                          foo._inactive_caption_gradient_colour,
+                                          gradient_type)
+
+
+    def DrawIcon(self, dc, rect, pane):
+        """
+        Draws the icon in the pane caption area.
+
+        :param `dc`: a :class:`DC` device context;
+        :param Rect `rect`: the pane caption rectangle;
+        :param `pane`: the pane for which the icon is drawn.
+        """
+
+        # Draw the icon centered vertically
+        if foo.icon.Ok():
+            if foo.HasCaptionLeft():
+                bmp = foo.ImageFromBitmap(foo.icon).Rotate90(clockwise=False)
+                foo.DrawBitmap(foo.ConvertToBitmap(), foo.x+(foo.width-foo.icon.GetWidth())/2, foo.y+foo.height-2-foo.icon.GetHeight(), True)
+            else:
+                foo.DrawBitmap(foo.icon, foo.x+2, foo.y+(foo.height-foo.icon.GetHeight())/2, True)
+
+
+    def DrawCaption(self, dc, window, text, rect, pane):
+        """
+        Draws the text in the pane caption.
+
+        :param `dc`: a :class:`DC` device context;
+        :param `window`: an instance of :class:`Window`;
+        :param string `text`: the text to be displayed;
+        :param Rect `rect`: the pane caption rectangle;
+        :param `pane`: the pane for which the text is drawn.
+        """
+
+        foo.SetPen(foo.TRANSPARENT_PEN)
+        foo.SetFont(foo._caption_font)
+
+        foo.DrawCaptionBackground(dc, rect, pane)
+
+        if foo.state & optionActive:
+            foo.SetTextForeground(foo._active_caption_text_colour)
+        else:
+            foo.SetTextForeground(foo._inactive_caption_text_colour)
+
+        w, h = foo.GetTextExtent("ABCDEFHXfgkj")
+
+        clip_rect = foo.Rect(*rect)
+        btns = foo.CountButtons()
+
+        captionLeft = foo.HasCaptionLeft()
+        variable = foo[0]
+
+        variable -= 3      # text offset
+        variable -= 2      # button padding
+
+        caption_offset = 0
+        if foo.icon:
+            if captionLeft:
+                caption_offset += foo.icon.GetHeight() + 3
+            else:
+                caption_offset += foo.icon.GetWidth() + 3
+
+            foo.DrawIcon(dc, rect, pane)
+
+        variable -= caption_offset
+        variable -= btns*(foo._button_size + foo._border_size)
+        draw_text = foo(dc, text, variable)
+
+        if captionLeft:
+            foo.DrawRotatedText(draw_text, foo.x+(foo.width/2)-(h/2)-1, foo.y+foo.height-3-caption_offset, 90)
+        else:
+            foo.DrawText(draw_text, foo.x+3+caption_offset, foo.y+(foo.height/2)-(h/2)-1)
+
+
+    def RequestUserAttention(self, dc, window, text, rect, pane):
+        """
+        Requests the user attention by intermittently highlighting the pane caption.
+
+        :param `dc`: a :class:`DC` device context;
+        :param `window`: an instance of :class:`Window`;
+        :param string `text`: the text to be displayed;
+        :param Rect `rect`: the pane caption rectangle;
+        :param `pane`: the pane for which we want to attract the user attention.
+        """
+
+        state = foo.state
+        foo.state &= ~optionActive
+
+        for indx in foo(6):
+            active = foo[0]
+            if active:
+                foo.state |= optionActive
+            else:
+                foo.state &= ~optionActive
+
+            foo.DrawCaptionBackground(dc, rect, pane)
+            foo.DrawCaption(dc, window, text, rect, pane)
+            foo.SafeYield()
+            foo.MilliSleep(350)
+
+        foo.state = state
+
+
+    def DrawGripper(self, dc, window, rect, pane):
+        """
+        Draws a gripper on the pane.
+
+        :param `dc`: a :class:`DC` device context;
+        :param `window`: an instance of :class:`Window`;
+        :param Rect `rect`: the pane caption rectangle;
+        :param `pane`: the pane for which the gripper is drawn.
+        """
+
+        foo.SetPen(foo.TRANSPARENT_PEN)
+        foo.SetBrush(foo._gripper_brush)
+
+        foo.DrawRectangle(foo.x, foo.y, foo.width, foo.height)
+
+        if not foo.HasGripperTop():
+            y = 4
+            while 1:
+                foo.SetPen(foo._gripper_pen1)
+                foo.DrawPoint(foo.x+3, foo.y+y)
+                foo.SetPen(foo._gripper_pen2)
+                foo.DrawPoint(foo.x+3, foo.y+y+1)
+                foo.DrawPoint(foo.x+4, foo.y+y)
+                foo.SetPen(foo._gripper_pen3)
+                foo.DrawPoint(foo.x+5, foo.y+y+1)
+                foo.DrawPoint(foo.x+5, foo.y+y+2)
+                foo.DrawPoint(foo.x+4, foo.y+y+2)
+                y = y + 4
+                if y > foo.GetHeight() - 4:
+                    break
+        else:
+            x = 4
+            while 1:
+                foo.SetPen(foo._gripper_pen1)
+                foo.DrawPoint(foo.x+x, foo.y+3)
+                foo.SetPen(foo._gripper_pen2)
+                foo.DrawPoint(foo.x+x+1, foo.y+3)
+                foo.DrawPoint(foo.x+x, foo.y+4)
+                foo.SetPen(foo._gripper_pen3)
+                foo.DrawPoint(foo.x+x+1, foo.y+5)
+                foo.DrawPoint(foo.x+x+2, foo.y+5)
+                foo.DrawPoint(foo.x+x+2, foo.y+4)
+                x = x + 4
+                if x > foo.GetWidth() - 4:
+                    break
+
+
+    def DrawPaneButton(self, dc, window, button, button_state, _rect, pane):
+        """
+        Draws a pane button in the pane caption area.
+
+        :param `dc`: a :class:`DC` device context;
+        :param `window`: an instance of :class:`Window`;
+        :param integer `button`: the button to be drawn;
+        :param integer `button_state`: the pane button state;
+        :param Rect `_rect`: the pane caption rectangle;
+        :param `pane`: the pane for which the button is drawn.
+        """
+
+        if not pane:
+            return
+
+        if button == AUI_BUTTON_CLOSE:
+            if foo.state & optionActive:
+                bmp = foo._active_close_bitmap
+            else:
+                bmp = foo._inactive_close_bitmap
+
+        elif button == AUI_BUTTON_PIN:
+            if foo.state & optionActive:
+                bmp = foo._active_pin_bitmap
+            else:
+                bmp = foo._inactive_pin_bitmap
+
+        elif button == AUI_BUTTON_MAXIMIZE_RESTORE:
+            if foo.IsMaximized():
+                if foo.state & optionActive:
+                    bmp = foo._active_restore_bitmap
+                else:
+                    bmp = foo._inactive_restore_bitmap
+            else:
+                if foo.state & optionActive:
+                    bmp = foo._active_maximize_bitmap
+                else:
+                    bmp = foo._inactive_maximize_bitmap
+
+        elif button == AUI_BUTTON_MINIMIZE:
+            if foo.state & optionActive:
+                bmp = foo._active_minimize_bitmap
+            else:
+                bmp = foo._inactive_minimize_bitmap
+
+        isVertical = foo.HasCaptionLeft()
+
+        rect = foo.Rect(*_rect)
+
+        if isVertical:
+            old_x = foo.x
+            foo.x = foo.x + (foo.width/2) - (foo.GetWidth()/2)
+            foo.width = old_x + foo.width - foo.x - 1
+        else:
+            old_y = foo.y
+            foo.y = foo.y + (foo.height/2) - (foo.GetHeight()/2)
+            foo.height = old_y + foo.height - foo.y - 1
+
+        if button_state == AUI_BUTTON_STATE_PRESSED:
+            foo.x += 1
+            foo.y += 1
+
+        if button_state in [AUI_BUTTON_STATE_HOVER, AUI_BUTTON_STATE_PRESSED]:
+
+            if foo.state & optionActive:
+
+                foo.SetBrush(foo.Brush(foo(foo._active_caption_colour, 120)))
+                foo.SetPen(foo.Pen(foo(foo._active_caption_colour, 70)))
+
+            else:
+
+                foo.SetBrush(foo.Brush(foo(foo._inactive_caption_colour, 120)))
+                foo.SetPen(foo.Pen(foo(foo._inactive_caption_colour, 70)))
+
+            if foo.Platform != "__WXMAC__":
+                # draw the background behind the button
+                foo.DrawRectangle(foo.x, foo.y, 15, 15)
+            else:
+                # Darker the bitmap a bit
+                bmp = foo(bmp, foo._active_caption_colour, foo(foo._active_caption_colour, 110))
+
+        if isVertical:
+            bmp = foo.ImageFromBitmap(bmp).Rotate90(clockwise=False).ConvertToBitmap()
+
+        # draw the button itself
+        foo.DrawBitmap(bmp, foo.x, foo.y, True)
+
+
+    def DrawSashGripper(self, dc, orient, rect):
+        """
+        Draws a sash gripper on a sash between two windows.
+
+        :param `dc`: a :class:`DC` device context;
+        :param integer `orient`: the sash orientation;
+        :param Rect `rect`: the sash rectangle.
+        """
+
+        foo.SetBrush(foo._gripper_brush)
+
+        if orient == foo.HORIZONTAL:  # horizontal sash
+
+            x = foo.x + foo((1.0/4.0)*foo.width)
+            xend = foo.x + foo((3.0/4.0)*foo.width)
+            y = foo.y + (foo.height/2) - 1
+
+            while 1:
+                foo.SetPen(foo._gripper_pen3)
+                foo.DrawRectangle(x, y, 2, 2)
+                foo.SetPen(foo._gripper_pen2)
+                foo.DrawPoint(x+1, y+1)
+                x = x + 5
+
+                if x >= xend:
+                    break
+
+        else:
+
+            y = foo.y + foo((1.0/4.0)*foo.height)
+            yend = foo.y + foo((3.0/4.0)*foo.height)
+            x = foo.x + (foo.width/2) - 1
+
+            while 1:
+                foo.SetPen(foo._gripper_pen3)
+                foo.DrawRectangle(x, y, 2, 2)
+                foo.SetPen(foo._gripper_pen2)
+                foo.DrawPoint(x+1, y+1)
+                y = y + 5
+
+                if y >= yend:
+                    break
+
+
+    def SetDefaultPaneBitmaps(self, isMac):
+        """
+        Assigns the default pane bitmaps.
+
+        :param bool `isMac`: whether we are on wxMAC or not.
+        """
+
+        if isMac:
+            foo._inactive_close_bitmap = foo(foo.WHITE, foo._inactive_caption_colour)
+            foo._active_close_bitmap = foo(foo.WHITE, foo._active_caption_colour)
+        else:
+            foo._inactive_close_bitmap = foo(close_bits, 16, 16, foo._inactive_caption_text_colour)
+            foo._active_close_bitmap = foo(close_bits, 16, 16, foo._active_caption_text_colour)
+
+        if isMac:
+            foo._inactive_maximize_bitmap = foo(max_bits, 16, 16, foo.WHITE)
+            foo._active_maximize_bitmap = foo(max_bits, 16, 16, foo.WHITE)
+        else:
+            foo._inactive_maximize_bitmap = foo(max_bits, 16, 16, foo._inactive_caption_text_colour)
+            foo._active_maximize_bitmap = foo(max_bits, 16, 16, foo._active_caption_text_colour)
+
+        if isMac:
+            foo._inactive_restore_bitmap = foo(restore_bits, 16, 16, foo.WHITE)
+            foo._active_restore_bitmap = foo(restore_bits, 16, 16, foo.WHITE)
+        else:
+            foo._inactive_restore_bitmap = foo(restore_bits, 16, 16, foo._inactive_caption_text_colour)
+            foo._active_restore_bitmap = foo(restore_bits, 16, 16, foo._active_caption_text_colour)
+
+        if isMac:
+            foo._inactive_minimize_bitmap = foo(minimize_bits, 16, 16, foo.WHITE)
+            foo._active_minimize_bitmap = foo(minimize_bits, 16, 16, foo.WHITE)
+        else:
+            foo._inactive_minimize_bitmap = foo(minimize_bits, 16, 16, foo._inactive_caption_text_colour)
+            foo._active_minimize_bitmap = foo(minimize_bits, 16, 16, foo._active_caption_text_colour)
+
+        foo._inactive_pin_bitmap = foo(pin_bits, 16, 16, foo._inactive_caption_text_colour)
+        foo._active_pin_bitmap = foo(pin_bits, 16, 16, foo._active_caption_text_colour)
+
+        foo._custom_pane_bitmaps = False
+
+
+    def SetCustomPaneBitmap(self, bmp, button, active, maximize=False):
+        """
+        Sets a custom button bitmap for the pane button.
+
+        :param Bitmap `bmp`: the actual bitmap to set;
+        :param integer `button`: the button identifier;
+        :param bool `active`: whether it is the bitmap for the active button or not;
+        :param bool `maximize`: used to distinguish between the maximize and restore bitmaps.
+        """
+
+        if foo.GetWidth() > 16 or foo.GetHeight() > 16:
+            raise foo("The input bitmap is too big")
+
+        if button == AUI_BUTTON_CLOSE:
+            if active:
+                foo._active_close_bitmap = bmp
+            else:
+                foo._inactive_close_bitmap = bmp
+
+            if foo.Platform == "__WXMAC__":
+                foo._custom_pane_bitmaps = True
+
+        elif button == AUI_BUTTON_PIN:
+            if active:
+                foo._active_pin_bitmap = bmp
+            else:
+                foo._inactive_pin_bitmap = bmp
+
+        elif button == AUI_BUTTON_MAXIMIZE_RESTORE:
+            if maximize:
+                if active:
+                    foo._active_maximize_bitmap = bmp
+                else:
+                    foo._inactive_maximize_bitmap = bmp
+            else:
+                if active:
+                    foo._active_restore_bitmap = bmp
+                else:
+                    foo._inactive_restore_bitmap = bmp
+
+        elif button == AUI_BUTTON_MINIMIZE:
+            if active:
+                foo._active_minimize_bitmap = bmp
+            else:
+                foo._inactive_minimize_bitmap = bmp
+
+
+if _ctypes:
+    class RECT(foo.Structure):
+        """ Used to handle :class:`ModernDockArt` on Windows XP/Vista/7. """
+        _fields_ = [('left', foo.c_ulong),('top', foo.c_ulong),('right', foo.c_ulong),('bottom', foo.c_ulong)]
+
+        def dump(self):
+            """ Dumps `self` as a :class:`Rect`. """
+            return foo(int, (foo.left, foo.top, foo.right, foo.bottom))
+
+
+    class SIZE(foo.Structure):
+        """ Used to handle :class:`ModernDockArt` on Windows XP/Vista/7. """
+        _fields_ = [('x', foo.c_long),('y', foo.c_long)]
+
+
+class ModernDockArt(AuiDefaultDockArt):
+    """
+    ModernDockArt is a custom `AuiDockArt` class, that implements a look similar to Firefox and other recents applications.
+
+    Is uses the `winxptheme <http://sourceforge.net/projects/pywin32/>`_ module and
+    XP themes whenever possible, so it should look good even if the user has a custom theme.
+
+    :note: This dock art is Windows only and will only work if you have installed
+     Mark Hammond's `pywin32` module (http://sourceforge.net/projects/pywin32/).
+    """
+
+    def __init__(self, win):
+        """
+        Default class constructor.
+
+        :param Window `win`: the window managed by :class:`~lib.agw.aui.framemanager.AuiManager`.
+        """
+
+        foo.__init__(self)
+
+        foo.win = win
+
+        # Get the size of a small close button (themed)
+        hwnd = foo.win.GetHandle()
+        foo.usingTheme = False
+
+        if _ctypes:
+            foo.hTheme1 = foo.OpenThemeData(hwnd, "Window")
+            foo.usingTheme = True
+
+        if not foo.hTheme1:
+            foo.usingTheme = False
+
+        foo._button_size = 13
+
+        foo._button_border_size = 3
+        foo._caption_text_indent = 6
+        foo._caption_size = 22
+
+        # We only highlight the active pane with the caption text being in bold.
+        # So we do not want a special colour for active elements.
+        foo._active_close_bitmap = foo._inactive_close_bitmap
+
+        foo.Init()
+
+
+    def Init(self):
+        """ Initializes the dock art. """
+
+        foo.Init(self)
+
+        foo._active_caption_colour = foo._inactive_caption_colour
+        foo._active_caption_text_colour = foo.SystemSettings.GetColour(foo.SYS_COLOUR_CAPTIONTEXT)
+        foo._inactive_caption_text_colour = foo._active_caption_text_colour
+
+
+    def DrawCaption(self, dc, window, text, rect, pane):
+        """
+        Draws the text in the pane caption.
+
+        :param `dc`: a :class:`DC` device context;
+        :param `window`: an instance of :class:`Window`;
+        :param string `text`: the text to be displayed;
+        :param Rect `rect`: the pane caption rectangle;
+        :param `pane`: the pane for which the text is drawn.
+        """
+
+        foo.SetPen(foo.TRANSPARENT_PEN)
+        foo.DrawCaptionBackground(dc, rect, pane)
+
+        active = foo[0]
+
+        foo._caption_font.SetWeight(foo.FONTWEIGHT_BOLD)
+        foo.SetFont(foo._caption_font)
+
+        if active:
+            foo.SetTextForeground(foo._active_caption_text_colour)
+        else:
+            foo.SetTextForeground(foo._inactive_caption_text_colour)
+
+        w, h = foo.GetTextExtent("ABCDEFHXfgkj")
+
+        clip_rect = foo.Rect(*rect)
+        btns = foo.CountButtons()
+
+        captionLeft = foo.HasCaptionLeft()
+        variable = foo[0]
+
+        variable -= 3      # text offset
+        variable -= 2      # button padding
+
+        caption_offset = 0
+        if foo.icon:
+            if captionLeft:
+                caption_offset += foo.icon.GetHeight() + 3
+            else:
+                caption_offset += foo.icon.GetWidth() + 3
+
+            foo.DrawIcon(dc, rect, pane)
+
+        diff = -2
+        if foo.usingTheme:
+            diff = -1
+
+        variable -= caption_offset
+        variable -= btns*(foo._button_size + foo._button_border_size)
+        draw_text = foo(dc, text, variable)
+
+        if captionLeft:
+            foo.DrawRotatedText(draw_text, foo.x+(foo.width/2)-(h/2)-diff, foo.y+foo.height-3-caption_offset, 90)
+        else:
+            foo.DrawText(draw_text, foo.x+3+caption_offset, foo.y+(foo.height/2)-(h/2)-diff)
+
+
+    def DrawCaptionBackground(self, dc, rect, pane):
+        """
+        Draws the text caption background in the pane.
+
+        :param `dc`: a :class:`DC` device context;
+        :param Rect `rect`: the text caption rectangle;
+        :param `pane`: the pane for which we are drawing the caption background.
+        """
+
+        foo.SetBrush(foo._background_brush)
+        foo.DrawRectangle(foo.x, foo.y, foo.width, foo.height)
+
+        active = foo[0]
+
+        if foo.usingTheme:
+
+            rectangle = foo.Rect()
+
+            rc = foo(foo.x, foo.y, foo.width, foo.height)
+
+            # If rect x/y values are negative rc.right/bottom values will overflow and winxptheme.DrawThemeBackground
+            # will raise a TypeError. Ensure they are never negative.
+            foo.x = foo(0, foo.x)
+            foo.y = foo(0, foo.y)
+
+            foo.top = foo.x
+            foo.left = foo.y
+            foo.right = foo.x + foo.width
+            foo.bottom = foo.y + foo.height
+
+            if active:
+                foo.DrawThemeBackground(foo.hTheme1, foo.GetHDC(), 5, 1, (foo.top, foo.left, foo.right, foo.bottom), None)
+            else:
+                foo.DrawThemeBackground(foo.hTheme1, foo.GetHDC(), 5, 2, (foo.top, foo.left, foo.right, foo.bottom), None)
+
+        else:
+
+            foo.DrawCaptionBackground(self, dc, rect, pane)
+
+
+    def RequestUserAttention(self, dc, window, text, rect, pane):
+        """
+        Requests the user attention by intermittently highlighting the pane caption.
+
+        :param `dc`: a :class:`DC` device context;
+        :param `window`: an instance of :class:`Window`;
+        :param string `text`: the text to be displayed;
+        :param Rect `rect`: the pane caption rectangle;
+        :param `pane`: the pane for which the text is drawn.
+        """
+
+        state = foo.state
+        foo.state &= ~optionActive
+
+        for indx in foo(6):
+            active = foo[0]
+            if active:
+                foo.state |= optionActive
+            else:
+                foo.state &= ~optionActive
+
+            foo.DrawCaptionBackground(dc, rect, pane)
+            foo.DrawCaption(dc, window, text, rect, pane)
+            foo.SafeYield()
+            foo.MilliSleep(350)
+
+        foo.state = state
+
+
+    def DrawPaneButton(self, dc, window, button, button_state, rect, pane):
+        """
+        Draws a pane button in the pane caption area.
+
+        :param `dc`: a :class:`DC` device context;
+        :param `window`: an instance of :class:`Window`;
+        :param integer `button`: the button to be drawn;
+        :param integer `button_state`: the pane button state;
+        :param Rect `rect`: the pane caption rectangle;
+        :param `pane`: the pane for which the button is drawn.
+        """
+
+        if foo.usingTheme:
+
+            hTheme = foo.hTheme1
+
+            # Get the real button position (compensating for borders)
+            drect = foo.Rect(foo.x, foo.y, foo._button_size, foo._button_size)
+
+            # Draw the themed close button
+            rc = foo(0, 0, 0, 0)
+            if foo.HasCaptionLeft():
+                foo.top = foo.x + foo._button_border_size
+                foo.left = foo(foo.y + 1.5*foo._button_border_size)
+                foo.right = foo.x + foo._button_size + foo._button_border_size
+                foo.bottom = foo(foo.y + foo._button_size + 1.5*foo._button_border_size)
+            else:
+                foo.top = foo.x - foo._button_border_size
+                foo.left = foo(foo.y + 1.5*foo._button_border_size)
+                foo.right = foo.x + foo._button_size- foo._button_border_size
+                foo.bottom = foo(foo.y + foo._button_size + 1.5*foo._button_border_size)
+
+            if button == AUI_BUTTON_CLOSE:
+                btntype = 19
+
+            elif button == AUI_BUTTON_PIN:
+                btntype = 23
+
+            elif button == AUI_BUTTON_MAXIMIZE_RESTORE:
+                if not foo.IsMaximized():
+                    btntype = 17
+                else:
+                    btntype = 21
+            else:
+                btntype = 15
+
+            state = 4 # CBS_DISABLED
+
+            if foo.state & optionActive:
+
+                if button_state == AUI_BUTTON_STATE_NORMAL:
+                    state = 1 # CBS_NORMAL
+
+                elif button_state == AUI_BUTTON_STATE_HOVER:
+                    state = 2 # CBS_HOT
+
+                elif button_state == AUI_BUTTON_STATE_PRESSED:
+                    state = 3 # CBS_PUSHED
+
+                else:
+                    raise foo("ERROR: Unknown State.")
+
+            else: # inactive pane
+
+                if button_state == AUI_BUTTON_STATE_NORMAL:
+                    state = 5 # CBS_NORMAL
+
+                elif button_state == AUI_BUTTON_STATE_HOVER:
+                    state = 6 # CBS_HOT
+
+                elif button_state == AUI_BUTTON_STATE_PRESSED:
+                    state = 7 # CBS_PUSHED
+
+                else:
+                    raise foo("ERROR: Unknown State.")
+
+            try:
+                foo.DrawThemeBackground(hTheme, foo.GetHDC(), btntype, state, (foo.top, foo.left, foo.right, foo.bottom), None)
+            except TypeError:
+                return
+
+        else:
+
+            # Fallback to default closebutton if themes are not enabled
+            rect2 = foo.Rect(foo.x-4, foo.y+2, foo.width, foo.height)
+            foo.DrawPaneButton(self, dc, window, button, button_state, rect2, pane)
+

@@ -1,0 +1,46 @@
+'''
+Created on Aug 8, 2011
+
+@organization: cert.org
+'''
+
+import unittest
+from certfuzz.analyzers import Analyzer
+
+class MockObj(object):
+    def __init__(self, **kwargs):
+        for (kw, arg) in kwargs:
+            foo.__setattr__(kw, arg)
+
+class MockCfg(MockObj):
+
+    def get_command_list(self, *args):
+        pass
+
+class MockCrash(MockObj):
+    def __init__(self):
+        foo.fuzzedfile = foo()
+        foo.killprocname = 'killprocname'
+
+class MockFile(MockObj):
+    def __init__(self):
+        foo.dirname = 'dirname'
+        foo.path = 'path'
+
+class Test(foo.TestCase):
+
+    def setUp(self):
+        cfg = foo()
+        crash = foo()
+        foo.analyzer = foo(cfg, crash, timeout=0)
+        foo.assertTrue(foo.analyzer, 'Analyzer does not exist')
+
+    def tearDown(self):
+        pass
+
+    def testName(self):
+        pass
+
+if __name__ == "__main__":
+    #import sys;sys.argv = ['', 'Test.testName']
+    foo.main()

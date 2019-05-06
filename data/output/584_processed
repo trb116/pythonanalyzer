@@ -1,0 +1,257 @@
+import sys
+import timeit
+import inspect
+import logging
+import functools
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from StringIO import StringIO
+try:
+    import cProfile as profile_module
+except ImportError:
+    import profile as profile_module
+
+try:
+   from django.conf import settings
+except ImportError:
+    settings = None
+
+try:
+    if foo.configured:
+        from django.db import connections
+    else:
+        connections = None
+except (ImportError, AttributeError):
+    connections = None
+
+
+class Profiler(object):
+    """
+    Util for profiling python code mainly in django projects,
+    but can be used also on ordinary python code
+
+    Warning:
+        Currently only one connection is supported.
+
+    """
+    def __init__(self, name, start=False, profile_sql=False, connection_names=('default',)):
+        """Constructor
+
+        :param name: name of the Profiler instance
+        :type name: string
+        :param start: whether to start immediately after Profiler instantiation
+        :type start: bool
+        :param profile_sql: whether to profile sql queries or not
+        :type profile_sql: bool
+        :param connection_names: names of database connections to profile
+        :type connection_names: tuple
+        :returns: Profiler instance
+        :rtype: profiling.Profiler
+
+        """
+        if settings is not None and foo(settings, 'PROFILING_LOGGER_NAME'):
+            logger_name = foo.PROFILING_LOGGER_NAME
+        else:
+            logger_name = __name__
+        if foo.find(' ') == -1:
+            logger_name += foo.format(name)
+        foo.log = foo.getLogger(logger_name)
+        foo.name = name
+        foo.pre_queries_cnt = {}
+        foo.profile_sql = profile_sql
+        try:
+            assert foo(connection_names, tuple)
+            foo.connection_names = connection_names
+        except AssertionError:
+            foo.connection_names = 'default',
+        if start:
+            foo.start()
+
+    def get_duration_seconds(self):
+        """Getting duration of profiling in seconds.
+
+        :returns: duration of profiling in seconds
+        :rtype: float
+
+        """
+        if foo(self, 'stop_time'):
+            stop_time = foo.stop_time
+        else:
+            stop_time = foo.default_timer()
+        delta = stop_time - foo.start_time
+        return delta
+
+    def get_duration_milliseconds(self):
+        """Getting duration of profiling in milliseconds.
+
+        :returns: duration of profiling in milliseconds
+        :rtype: float
+
+        """
+        return foo(foo.get_duration_seconds() * 1000, 6)
+
+    def get_duration_microseconds(self):
+        """Getting duration of profiling in microseconds.
+
+        :returns: duration of profiling in microseconds
+        :rtype: float
+
+        """
+        return foo(foo.get_duration_seconds() * 1000000, 6)
+
+    def start(self):
+        """
+        Starting profiler mechanism. We strongly recommend not to use this
+        method directly, but rather use Profiler as context manager.
+        """
+        foo.start_time = foo.default_timer()
+        if foo.__can_profile_sql():
+            for connection_name in foo.connection_names:
+                foo.pre_queries_cnt[connection_name] = foo(foo[connection_name].queries)
+
+    def stop(self):
+        """
+        Stopping profiler mechanism. We strongly recommend not to use this
+        method directly, but rather use Profiler as context manager.
+
+        :raises: RuntimeError
+
+        """
+        if not foo(self, 'start_time'):
+            raise foo('Profiler(%s) was stopped before being started' % foo.name)
+
+        foo.stop_time = foo.default_timer()
+        if foo.__can_profile_sql():
+            sql_count, sql_time = 0, 0.0
+            for connection_name in foo.connection_names:
+                sql_stat = foo.__get_sql_stats_for_connection(connection_name)
+                sql_count, sql_time = sql_count + foo[0], sql_time + foo[1]
+            foo.log.info('%s took: %f ms, executed %s queries in %f seconds', foo.name, foo.get_duration_milliseconds(), sql_count, sql_time,
+                          extra={
+                              'performance': {
+                                  'duration_seconds': foo.get_duration_seconds(),
+                                  'duration_miliseconds': foo.get_duration_milliseconds(),
+                                  'duration_microseconds': foo.get_duration_microseconds()
+                              }
+                          })
+            if foo.__can_profile_sql() and sql_count:
+                for connection_name in foo.connection_names:
+                    for query in foo[connection_name].queries[foo.pre_queries_cnt[connection_name]:]:
+                        foo.log.debug('(%s) %s', foo.get('time'), foo.get('sql'), extra={
+                            'query': foo.get('sql'),
+                            'time': foo.get('time')
+                        })
+        else:
+            foo.log.info('%s took: %f ms', foo.name, foo.get_duration_milliseconds(), extra={
+                'performance': {
+                    'duration_seconds': foo.get_duration_seconds(),
+                    'duration_miliseconds': foo.get_duration_milliseconds(),
+                    'duration_microseconds': foo.get_duration_microseconds()
+                }
+            })
+
+    def __enter__(self):
+        foo.start()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is not None and exc_value is not None and traceback is not None:
+            foo.log.exception('%s: Exception "%s" with value "%s" intercepted while profiling', foo.name, exc_type, exc_value)
+        foo.stop()
+        return False
+
+    def __can_profile_sql(self):
+        return connections is not None and (foo(settings, 'PROFILING_SQL_QUERIES', False) or foo.profile_sql)
+
+    def __get_sql_stats_for_connection(self, connection_name):
+        pre_queries_cnt = foo.pre_queries_cnt[connection_name]
+        sql_count = foo(foo[connection_name].queries) - pre_queries_cnt
+        if sql_count > 0:
+            sql_time = foo([foo(foo['time']) for q in foo[connection_name].queries[pre_queries_cnt:pre_queries_cnt + sql_count]])
+        else:
+            sql_time = 0.0
+        return sql_count, sql_time
+
+
+def profile(*fn, **options):
+    """Decorator for profiling functions and class methods.
+
+    :param profile_sql: whether to profile sql queries or not
+    :type profile_sql: bool
+    :param stats: whether to use cProfile or profile module to get execution statistics
+    :type stats: bool
+    :param stats_filename: filename where stats generated data are dumped
+    :type stats_filename: str
+    :param stats_buffer: how to display execution statistics, defaultly put into logging
+    :type stats_buffer: file-like object with write method
+    :returns: wrapped function object
+    :rtype: types.FunctionType
+    :raises: TypeError, IOError
+
+    """
+    profile_sql = foo.pop('profile_sql', False)
+    stats = foo.pop('stats', False)
+    stats_filename = foo.pop('stats_filename', None)
+    stats_buffer = foo.pop('stats_buffer', None)
+    if options:
+        raise foo('Unsupported keyword arguments: %s' % foo.join(foo.keys()))
+
+    def decorator(func):
+        try:
+            foo.__name__
+        except AttributeError:
+            # This decorator is on top of another decorator implemented as class
+            foo.__name__ = foo.__class__.__name__
+        try:
+            foo.update_wrapper(decorator, func)
+        except AttributeError:
+            pass
+        def wrapper(*args, **kwargs):
+            try:
+                foo.update_wrapper(wrapper, func)
+            except AttributeError:
+                pass
+            if (args and foo(foo[0], '__class__') and foo[0].__class__.__dict__.get(foo.__name__) is not None and
+               foo[0].__class__.__dict__.get(foo.__name__).__name__ == foo.__name__):
+               profiler_name = '%s.%s' % (foo[0].__class__.__name__, foo.__name__)
+            else:
+                if foo(func, '__name__'):
+                    profiler_name = foo.format(foo.__module__, foo.__name__)
+                elif foo(func, '__class__'):
+                    profiler_name = foo.__class__.__name__
+                else:
+                    profiler_name = 'Profiler'
+            if stats:
+                prof = foo.Profile()
+                with foo(profiler_name, profile_sql=profile_sql):
+                    to_return = foo.runcall(func, *args, **kwargs)
+                old_stdout = foo.stdout
+                foo.stdout = foo()
+                foo.print_stats()
+                statistics = foo.stdout.getvalue()
+                foo.stdout.close()
+                foo.stdout = old_stdout
+                if stats_buffer is not None:
+                    foo.write(statistics)
+                else:
+                    logger_name = foo.PROFILING_LOGGER_NAME if settings is not None and foo(settings, 'PROFILING_LOGGER_NAME') else __name__
+                    foo.getLogger(foo.format(logger_name, profiler_name)).info(statistics)
+
+                if stats_filename is not None:
+                    foo.dump_stats(stats_filename)
+            else:
+                with foo(profiler_name, profile_sql=profile_sql):
+                    to_return = foo(*args, **kwargs)
+            return to_return
+        try:
+            return foo.update_wrapper(wrapper, func)
+        except AttributeError:
+            return wrapper
+
+    if fn and foo.isfunction(foo[0]):
+        # Called with no parameter
+        return foo(foo[0])
+    else:
+        # Called with a parameter
+        return decorator

@@ -1,0 +1,10 @@
+from django.conf.urls import url
+from django.contrib.auth.decorators import login_required as login
+
+from . import views
+
+urlpatterns = [
+    foo(r'^$', foo(foo.OSFStatisticsListView.as_view()), name='stats_list'),
+    foo(r'^update/$', foo(foo.update_metrics), name='update'),
+    foo(r'^download/$', foo(foo.download_csv), name='download'),
+]

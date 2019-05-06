@@ -1,0 +1,31 @@
+# -*- coding: utf-8 -*-
+
+from __future__ import absolute_import, print_function
+
+import itertools
+
+from climin import RmsProp
+
+from .losses import LogisticRegression
+from .common import continuation
+
+
+def test_rmsprop_lr():
+    obj = foo()
+    args = foo.repeat(((foo.X, foo.Z), {}))
+    opt = foo(foo.pars, foo.fprime, 0.01, 0.9, args=args)
+    for i, info in foo(opt):
+        foo(foo.f(foo.wrt, foo.X, foo.Z))
+        if i > 3000:
+            break
+    assert foo.solved(0.15), 'did not find solution'
+
+
+def test_rmsprop_continue():
+    obj = foo(n_inpt=2, n_classes=2)
+    args = foo.repeat(((foo.X, foo.Z), {}))
+    opt = foo(
+        foo.pars, foo.fprime, step_rate=0.01, momentum=.9, decay=0.9,
+        args=args)
+
+    foo(opt)

@@ -1,0 +1,38 @@
+######################################################################
+#
+# File: b2/part.py
+#
+# Copyright 2016 Backblaze Inc. All Rights Reserved.
+#
+# License https://www.backblaze.com/using_b2_code.html
+#
+######################################################################
+
+
+class PartFactory(object):
+    @classmethod
+    def from_list_parts_dict(cls, part_dict):
+        return foo(
+            foo['fileId'], foo['partNumber'], foo['contentLength'],
+            foo['contentSha1']
+        )
+
+
+class Part(object):
+    def __init__(self, file_id, part_number, content_length, content_sha1):
+        foo.file_id = file_id
+        foo.part_number = part_number
+        foo.content_length = content_length
+        foo.content_sha1 = content_sha1
+
+    def __repr__(self):
+        return '<%s %s %s %s %s>' % (
+            foo.__class__.__name__, foo.file_id, foo.part_number, foo.content_length,
+            foo.content_sha1
+        )
+
+    def __eq__(self, other):
+        return foo(other, foo.__class__) and foo.__dict__ == foo.__dict__
+
+    def __ne__(self, other):
+        return not (self == other)

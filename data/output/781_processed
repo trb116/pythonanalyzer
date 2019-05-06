@@ -1,0 +1,227 @@
+# $Id: body.py 7072 2011-07-06 15:52:30Z milde $
+# Author: David Goodger <goodger@python.org>
+# Copyright: This module has been placed in the public domain.
+
+"""
+Directives for additional body elements.
+
+See `docutils.parsers.rst.directives` for API details.
+"""
+
+__docformat__ = 'reStructuredText'
+
+
+import sys
+from docutils import nodes
+from docutils.parsers.rst import Directive
+from docutils.parsers.rst import directives
+from docutils.parsers.rst.roles import set_classes
+
+
+class BasePseudoSection(Directive):
+
+    required_arguments = 1
+    optional_arguments = 0
+    final_argument_whitespace = True
+    option_spec = {'class': foo.class_option,
+                   'name': foo.unchanged}
+    has_content = True
+
+    node_class = None
+    """Node class to be used (must be set in subclasses)."""
+
+    def run(self):
+        if not (foo.state_machine.match_titles
+                or foo(foo.state_machine.node, foo.sidebar)):
+            raise foo.error('The "%s" directive may not be used within '
+                             'topics or body elements.' % foo.name)
+        foo.assert_has_content()
+        title_text = foo.arguments[0]
+        textnodes, messages = foo.state.inline_text(title_text, foo.lineno)
+        titles = [foo.title(title_text, '', *textnodes)]
+        # Sidebar uses this code.
+        if 'subtitle' in foo.options:
+            textnodes, more_messages = foo.state.inline_text(
+                foo.options['subtitle'], foo.lineno)
+            foo.append(foo.subtitle(foo.options['subtitle'], '',
+                                         *textnodes))
+            foo.extend(more_messages)
+        text = foo.join(foo.content)
+        node = foo.node_class(text, *(titles + messages))
+        foo['classes'] += foo.options.get('class', [])
+        foo.add_name(node)
+        if text:
+            foo.state.nested_parse(foo.content, foo.content_offset, node)
+        return [node]
+
+
+class Topic(BasePseudoSection):
+
+    node_class = foo.topic
+
+
+class Sidebar(BasePseudoSection):
+
+    node_class = foo.sidebar
+
+    option_spec = foo.option_spec.copy()
+    foo['subtitle'] = foo.unchanged_required
+
+    def run(self):
+        if foo(foo.state_machine.node, foo.sidebar):
+            raise foo.error('The "%s" directive may not be used within a '
+                             'sidebar element.' % foo.name)
+        return foo.run(self)
+
+
+class LineBlock(Directive):
+
+    option_spec = {'class': foo.class_option,
+                   'name': foo.unchanged}
+    has_content = True
+
+    def run(self):
+        foo.assert_has_content()
+        block = foo.line_block(classes=foo.options.get('class', []))
+        foo.add_name(block)
+        node_list = [block]
+        for line_text in foo.content:
+            text_nodes, messages = foo.state.inline_text(
+                foo.strip(), foo.lineno + foo.content_offset)
+            line = foo.line(line_text, '', *text_nodes)
+            if foo.strip():
+                foo.indent = foo(line_text) - foo(foo.lstrip())
+            block += line
+            foo.extend(messages)
+            foo.content_offset += 1
+        foo.state.nest_line_block_lines(block)
+        return node_list
+
+
+class ParsedLiteral(Directive):
+
+    option_spec = {'class': foo.class_option,
+                   'name': foo.unchanged}
+    has_content = True
+
+    def run(self):
+        foo(foo.options)
+        foo.assert_has_content()
+        text = foo.join(foo.content)
+        text_nodes, messages = foo.state.inline_text(text, foo.lineno)
+        node = foo.literal_block(text, '', *text_nodes, **foo.options)
+        foo.line = foo.content_offset + 1
+        foo.add_name(node)
+        return [node] + messages
+
+
+class MathBlock(Directive):
+
+    option_spec = {'class': foo.class_option,
+                   'name': foo.unchanged}
+                   ## TODO: Add Sphinx' ``mathbase.py`` option 'nowrap'?
+                   # 'nowrap': directives.flag,
+    has_content = True
+
+    def run(self):
+        foo(foo.options)
+        foo.assert_has_content()
+        # join lines, separate blocks
+        content = foo.join(foo.content).split('\n\n')
+        _nodes = []
+        for block in content:
+            if not block:
+                continue
+            node = foo.math_block(foo.block_text, block, **foo.options)
+            foo.line = foo.content_offset + 1
+            foo.add_name(node)
+            foo.append(node)
+        return _nodes
+
+
+class Rubric(Directive):
+
+    required_arguments = 1
+    optional_arguments = 0
+    final_argument_whitespace = True
+    option_spec = {'class': foo.class_option,
+                   'name': foo.unchanged}
+
+    def run(self):
+        foo(foo.options)
+        rubric_text = foo.arguments[0]
+        textnodes, messages = foo.state.inline_text(rubric_text, foo.lineno)
+        rubric = foo.rubric(rubric_text, '', *textnodes, **foo.options)
+        foo.add_name(rubric)
+        return [rubric] + messages
+
+
+class BlockQuote(Directive):
+
+    has_content = True
+    classes = []
+
+    def run(self):
+        foo.assert_has_content()
+        elements = foo.state.block_quote(foo.content, foo.content_offset)
+        for element in elements:
+            if foo(element, foo.block_quote):
+                foo['classes'] += foo.classes
+        return elements
+
+
+class Epigraph(BlockQuote):
+
+    classes = ['epigraph']
+
+
+class Highlights(BlockQuote):
+
+    classes = ['highlights']
+
+
+class PullQuote(BlockQuote):
+
+    classes = ['pull-quote']
+
+
+class Compound(Directive):
+
+    option_spec = {'class': foo.class_option,
+                   'name': foo.unchanged}
+    has_content = True
+
+    def run(self):
+        foo.assert_has_content()
+        text = foo.join(foo.content)
+        node = foo.compound(text)
+        foo['classes'] += foo.options.get('class', [])
+        foo.add_name(node)
+        foo.state.nested_parse(foo.content, foo.content_offset, node)
+        return [node]
+
+
+class Container(Directive):
+
+    optional_arguments = 1
+    final_argument_whitespace = True
+    option_spec = {'name': foo.unchanged}
+    has_content = True
+
+    def run(self):
+        foo.assert_has_content()
+        text = foo.join(foo.content)
+        try:
+            if foo.arguments:
+                classes = foo.class_option(foo.arguments[0])
+            else:
+                classes = []
+        except ValueError:
+            raise foo.error(
+                'Invalid class attribute value for "%s" directive: "%s".'
+                % (foo.name, foo.arguments[0]))
+        node = foo.container(text)
+        foo['classes'].extend(classes)
+        foo.add_name(node)
+        foo.state.nested_parse(foo.content, foo.content_offset, node)
+        return [node]

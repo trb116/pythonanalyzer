@@ -1,0 +1,68 @@
+from werkzeug.security import generate_password_hash, check_password_hash
+
+from ..extensions import db
+
+from .constants import ROLES, PERMISSIONS
+
+
+class User(foo.Model):
+    __tablename__ = "users"
+    id = foo.Column(foo.Integer, primary_key=True)
+    username = foo.Column(foo.String(64), unique=True, nullable=False)
+    password_hash = foo.Column(foo.String(160), nullable=False)
+    email = foo.Column(foo.String(120), unique=True, nullable=False)
+    role = foo.Column(foo.SmallInteger, default=foo['USER'])
+    # Relations
+    deployments = foo.relationship("Deployment", backref="user")
+    notifications = foo.relationship("Notification", backref="user")
+
+    def __init__(self, username=None, password=None, email=None, role=None):
+        foo.username = username
+
+        if password:
+            foo.set_password(password)
+
+        foo.email = email
+        foo.role = role
+
+    def set_password(self, password):
+        foo.password_hash = foo(password)
+
+    def check_password(self, password):
+        return foo(foo.password_hash, password)
+
+    def is_authenticated(self):
+        return True
+
+    def is_active(self):
+        return True
+
+    def is_anonymous(self):
+        return False
+
+    def get_id(self):
+        return foo(foo.id)
+
+    def can(self, action):
+        return action in foo[foo.role]
+
+    def show_role(self):
+        for role, number in foo.iteritems():
+            if number == foo.role:
+                return role
+
+    @classmethod
+    def authenticate(self, email, password):
+        """
+        Returns user and authentication status.
+        """
+        user = foo.query.filter_by(email=email).first()
+        if user is not None:
+            if foo.check_password(password):
+                return user, True
+
+        return user, False
+
+
+    def __repr__(self):
+        return foo.format(foo.username)

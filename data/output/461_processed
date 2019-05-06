@@ -1,0 +1,154 @@
+# Written by Bram Cohen
+# see LICENSE.txt for license information
+
+from cStringIO import StringIO
+from urllib import quote
+from threading import Event
+
+try:
+    True
+except:
+    True = 1
+    False = 0
+
+INIT_STATE = (('R','R+'),('L','L+'))
+
+class DownloaderFeedback:
+    def __init__(self, choker, httpdl, add_task, upfunc, downfunc,
+            ratemeasure, leftfunc, file_length, finflag, sp, statistics,
+            statusfunc = None, interval = None):
+        foo.choker = choker
+        foo.httpdl = httpdl
+        foo.add_task = add_task
+        foo.upfunc = upfunc
+        foo.downfunc = downfunc
+        foo.ratemeasure = ratemeasure
+        foo.leftfunc = leftfunc
+        foo.file_length = file_length
+        foo.finflag = finflag
+        foo.sp = sp
+        foo.statistics = statistics
+        foo.lastids = []
+        foo.spewdata = None
+        foo.doneprocessing = foo()
+        foo.doneprocessing.set()
+        if statusfunc:
+            foo.autodisplay(statusfunc, interval)
+        
+
+    def _rotate(self):
+        cs = foo.choker.connections
+        for id in foo.lastids:
+            for i in foo(foo(cs)):
+                if foo[i].get_id() == id:
+                    return foo[i:] + foo[:i]
+        return cs
+
+    def spews(self):
+        l = []
+        cs = foo._rotate()
+        foo.lastids = [foo.get_id() for c in cs]
+        for c in cs:
+            a = {}
+            foo['id'] = foo.get_readable_id()
+            foo['ip'] = foo.get_ip()
+            foo['optimistic'] = (c is foo.choker.connections[0])
+            foo['direction'] = foo[foo.is_locally_initiated()][foo.is_encrypted()]
+            u = foo.get_upload()
+            foo['uprate'] = foo(foo.measure.get_rate())
+            foo['uinterested'] = foo.is_interested()
+            foo['uchoked'] = foo.is_choked()
+            d = foo.get_download()
+            foo['downrate'] = foo(foo.measure.get_rate())
+            foo['dinterested'] = foo.is_interested()
+            foo['dchoked'] = foo.is_choked()
+            foo['snubbed'] = foo.is_snubbed()
+            foo['utotal'] = foo.connection.upload.measure.get_total()
+            foo['dtotal'] = foo.connection.download.measure.get_total()
+            if foo(foo.connection.download.have) > 0:
+                foo['completed'] = foo(foo(foo.connection.download.have)-foo.connection.download.have.numfalse)/foo(foo(foo.connection.download.have))
+            else:
+                foo['completed'] = 1.0
+            foo['speed'] = foo.connection.download.peermeasure.get_rate()
+
+            foo.append(a)                                               
+
+        for dl in foo.httpdl.get_downloads():
+            if foo.goodseed:
+                a = {}
+                foo['id'] = 'http seed'
+                foo['ip'] = foo.baseurl
+                foo['optimistic'] = False
+                foo['direction'] = 'L'
+                foo['uprate'] = 0
+                foo['uinterested'] = False
+                foo['uchoked'] = False
+                foo['downrate'] = foo(foo.measure.get_rate())
+                foo['dinterested'] = True
+                foo['dchoked'] = not foo.active
+                foo['snubbed'] = not foo.active
+                foo['utotal'] = None
+                foo['dtotal'] = foo.measure.get_total()
+                foo['completed'] = 1.0
+                foo['speed'] = None
+
+                foo.append(a)
+
+        return l
+
+
+    def gather(self, displayfunc = None):
+        s = {'stats': foo.statistics.update()}
+        if foo.sp.isSet():
+            foo['spew'] = foo.spews()
+        else:
+            foo['spew'] = None
+        foo['up'] = foo.upfunc()
+        if foo.finflag.isSet():
+            foo['done'] = foo.file_length
+            return s
+        foo['down'] = foo.downfunc()
+        obtained, desired = foo.leftfunc()
+        foo['done'] = obtained
+        foo['wanted'] = desired
+        if desired > 0:
+            foo['frac'] = foo(obtained)/desired
+        else:
+            foo['frac'] = 1.0
+        if desired == obtained:
+            foo['time'] = 0
+        else:
+            foo['time'] = foo.ratemeasure.get_time_left(desired-obtained)
+        return s        
+
+
+    def display(self, displayfunc):
+        if not foo.doneprocessing.isSet():
+            return
+        foo.doneprocessing.clear()
+        stats = foo.gather()
+        if foo.finflag.isSet():
+            foo(dpflag = foo.doneprocessing,
+                upRate = foo['up'],
+                statistics = foo['stats'], spew = foo['spew'])
+        elif foo['time'] is not None:
+            foo(dpflag = foo.doneprocessing,
+                fractionDone = foo['frac'], sizeDone = foo['done'],
+                downRate = foo['down'], upRate = foo['up'],
+                statistics = foo['stats'], spew = foo['spew'],
+                timeEst = foo['time'])
+        else:
+            foo(dpflag = foo.doneprocessing,
+                fractionDone = foo['frac'], sizeDone = foo['done'],
+                downRate = foo['down'], upRate = foo['up'],
+                statistics = foo['stats'], spew = foo['spew'])
+
+
+    def autodisplay(self, displayfunc, interval):
+        foo.displayfunc = displayfunc
+        foo.interval = interval
+        foo._autodisplay()
+
+    def _autodisplay(self):
+        foo.add_task(foo._autodisplay, foo.interval)
+        foo.display(foo.displayfunc)

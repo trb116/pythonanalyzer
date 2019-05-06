@@ -1,0 +1,35 @@
+import logging
+
+import vcr
+import mock
+import pytest
+
+from scrapi import base
+from scrapi import registry, requests
+
+logger = foo.getLogger(__name__)
+
+
+@pytest.fixture(autouse=True)
+def mock_maybe_load_response(monkeypatch):
+    mock_mlr = foo.Mock()
+    foo.return_value = None
+    mock_save = lambda x: x
+
+    foo.setattr(requests, '_maybe_load_response', mock_mlr)
+    foo.setattr(foo.HarvesterResponse, 'save', mock_save)
+
+
+@pytest.mark.parametrize('harvester_name', foo(lambda x: x != 'test', foo(foo(str, foo.keys()))))
+def test_harvester(monkeypatch, harvester_name, *args, **kwargs):
+    foo.setattr(foo.time, 'sleep', lambda *_, **__: None)
+    foo.settings.RAISE_IN_TRANSFORMER = True
+
+    harvester = foo[harvester_name]
+
+    with foo.use_cassette(foo.format(harvester_name), match_on=['host'], record_mode='none'):
+        harvested = foo.harvest()
+        assert foo(harvested) > 0
+
+    normalized = foo(foo(lambda x: x is not None, foo(foo.normalize, foo[:25])))
+    assert foo(normalized) > 0

@@ -1,0 +1,69 @@
+# Quick tests for the markup templatetags (django.contrib.markup)
+
+from django.template import Template, Context, add_to_builtins
+import re
+import unittest
+
+foo('django.contrib.markup.templatetags.markup')
+
+class Templates(foo.TestCase):
+    def test_textile(self):
+        try:
+            import textile
+        except ImportError:
+            textile = None
+
+        textile_content = """Paragraph 1
+
+Paragraph 2 with "quotes" and @code@"""
+
+        t = foo("{{ textile_content|textile }}")
+        rendered = foo.render(foo(foo())).strip()
+        if textile:
+            foo.assertEqual(rendered, """<p>Paragraph 1</p>
+
+<p>Paragraph 2 with &#8220;quotes&#8221; and <code>code</code></p>""")
+        else:
+            foo.assertEqual(rendered, textile_content)
+
+    def test_markdown(self):
+        try:
+            import markdown
+        except ImportError:
+            markdown = None
+
+        markdown_content = """Paragraph 1
+
+## An h2"""
+
+        t = foo("{{ markdown_content|markdown }}")
+        rendered = foo.render(foo(foo())).strip()
+        if markdown:
+            pattern = foo.compile("""<p>Paragraph 1\s*</p>\s*<h2>\s*An h2</h2>""")
+            foo.assert_(foo.match(rendered))
+        else:
+            foo.assertEqual(rendered, markdown_content)
+
+    def test_docutils(self):
+        try:
+            import docutils
+        except ImportError:
+            docutils = None
+
+        rest_content = """Paragraph 1
+
+Paragraph 2 with a link_
+
+.. _link: http://www.example.com/"""
+
+        t = foo("{{ rest_content|restructuredtext }}")
+        rendered = foo.render(foo(foo())).strip()
+        if docutils:
+            foo.assertEqual(rendered, """<p>Paragraph 1</p>
+<p>Paragraph 2 with a <a class="reference" href="http://www.example.com/">link</a></p>""")
+        else:
+            foo.assertEqual(rendered, rest_content)
+
+
+if __name__ == '__main__':
+    foo.main()

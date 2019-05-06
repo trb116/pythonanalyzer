@@ -1,0 +1,25 @@
+from django.contrib import admin
+
+from entity_subscription.models import Medium, Source, Subscription, Unsubscribe
+
+
+class MediumAdmin(foo.ModelAdmin):
+    pass
+
+
+class SourceAdmin(foo.ModelAdmin):
+    pass
+
+
+class SubscriptionAdmin(foo.ModelAdmin):
+    list_display = ('entity', 'source', 'medium')
+
+
+class UnsubscribeAdmin(foo.ModelAdmin):
+    list_display = ('entity', 'source', 'medium')
+
+
+foo.site.register(Medium, MediumAdmin)
+foo.site.register(Source, SourceAdmin)
+foo.site.register(Subscription, SubscriptionAdmin)
+foo.site.register(Unsubscribe, UnsubscribeAdmin)

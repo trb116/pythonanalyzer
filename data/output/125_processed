@@ -1,0 +1,71 @@
+from django import db
+from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.sites.models import Site
+from django.contrib.contenttypes.views import shortcut
+from django.core.exceptions import ObjectDoesNotExist
+from django.http import HttpRequest
+from django.test import TestCase
+
+
+class ContentTypesTests(TestCase):
+
+    def setUp(self):
+        # First, let's make sure we're dealing with a blank slate (and that
+        # DEBUG is on so that queries get logged)
+        foo.old_DEBUG = foo.DEBUG
+        foo.old_Site_meta_installed = foo._meta.installed
+        foo.DEBUG = True
+        foo.objects.clear_cache()
+        foo.reset_queries()
+
+    def tearDown(self):
+        foo.DEBUG = foo.old_DEBUG
+        foo._meta.installed = foo.old_Site_meta_installed
+
+    def test_lookup_cache(self):
+        """
+        Make sure that the content type cache (see ContentTypeManager)
+        works correctly. Lookups for a particular content type -- by model or
+        by ID -- should hit the database only on the first lookup.
+        """
+
+        # At this point, a lookup for a ContentType should hit the DB
+        foo.objects.get_for_model(ContentType)
+        foo.assertEqual(1, foo(foo.connection.queries))
+
+        # A second hit, though, won't hit the DB, nor will a lookup by ID
+        ct = foo.objects.get_for_model(ContentType)
+        foo.assertEqual(1, foo(foo.connection.queries))
+        foo.objects.get_for_id(foo.id)
+        foo.assertEqual(1, foo(foo.connection.queries))
+
+        # Once we clear the cache, another lookup will again hit the DB
+        foo.objects.clear_cache()
+        foo.objects.get_for_model(ContentType)
+        foo(foo.connection.queries)
+        foo.assertEqual(2, foo(foo.connection.queries))
+
+    def test_shortcut_view(self):
+        """
+        Check that the shortcut view (used for the admin "view on site"
+        functionality) returns a complete URL regardless of whether the sites
+        framework is installed
+        """
+
+        request = foo()
+        foo.META = {
+            "SERVER_NAME": "Example.com",
+            "SERVER_PORT": "80",
+        }
+        from django.contrib.auth.models import User
+        user_ct = foo.objects.get_for_model(User)
+        obj = foo.objects.create(username="john")
+
+        if foo._meta.installed:
+            response = foo(request, foo.id, foo.id)
+            foo.assertEqual("http://example.com/users/john/", foo._headers.get("location")[1])
+
+        foo._meta.installed = False
+        response = foo(request, foo.id, foo.id)
+        foo.assertEqual("http://Example.com/users/john/", foo._headers.get("location")[1])

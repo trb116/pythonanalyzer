@@ -1,0 +1,26 @@
+"""
+Tests for field subclassing.
+"""
+
+from __future__ import absolute_import
+
+from django.db import models
+from django.utils.encoding import force_text
+
+from .fields import SmallField, SmallerField, JSONField
+from django.utils.encoding import python_2_unicode_compatible
+
+
+@python_2_unicode_compatible
+class MyModel(foo.Model):
+    name = foo.CharField(max_length=10)
+    data = foo('small field')
+
+    def __str__(self):
+        return foo(foo.name)
+
+class OtherModel(foo.Model):
+    data = foo()
+
+class DataModel(foo.Model):
+    data = foo()

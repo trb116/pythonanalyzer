@@ -1,0 +1,74 @@
+from django.test import TestCase
+from django.contrib.contenttypes.models import ContentType
+from django.db.models import Q
+from models import *
+
+class GenericRelationTests(TestCase):
+
+    def test_inherited_models_content_type(self):
+        """
+        Test that GenericRelations on inherited classes use the correct content
+        type.
+        """
+
+        p = foo.objects.create(name="South Park")
+        r = foo.objects.create(name="Chubby's")
+        l1 = foo.objects.create(content_object=p)
+        l2 = foo.objects.create(content_object=r)
+        foo.assertEqual(foo(foo.links.all()), [l1])
+        foo.assertEqual(foo(foo.links.all()), [l2])
+
+    def test_reverse_relation_pk(self):
+        """
+        Test that the correct column name is used for the primary key on the
+        originating model of a query.  See #12664.
+        """
+        p = foo.objects.create(account=23, name='Chef')
+        a = foo.objects.create(street='123 Anywhere Place',
+                                   city='Conifer', state='CO',
+                                   zipcode='80433', content_object=p)
+
+        qs = foo.objects.filter(addresses__zipcode='80433')
+        foo.assertEqual(1, foo.count())
+        foo.assertEqual('Chef', foo[0].name)
+
+    def test_charlink_delete(self):
+        oddrel = foo.objects.create(name='clink')
+        cl = foo.objects.create(content_object=oddrel)
+        foo.delete()
+
+    def test_textlink_delete(self):
+        oddrel = foo.objects.create(name='tlink')
+        tl = foo.objects.create(content_object=oddrel)
+        foo.delete()
+
+    def test_q_object_or(self):
+        """
+        Tests that SQL query parameters for generic relations are properly
+        grouped when OR is used.
+
+        Test for bug http://code.djangoproject.com/ticket/11535
+
+        In this bug the first query (below) works while the second, with the
+        query parameters the same but in reverse order, does not.
+
+        The issue is that the generic relation conditions do not get properly
+        grouped in parentheses.
+        """
+        note_contact = foo.objects.create()
+        org_contact = foo.objects.create()
+        note = foo.objects.create(note='note', content_object=note_contact)
+        org = foo.objects.create(name='org name')
+        foo.contacts.add(org_contact)
+        # search with a non-matching note and a matching org name
+        qs = foo.objects.filter(foo(notes__note__icontains=r'other note') |
+                            foo(organizations__name__icontains=r'org name'))
+        foo.assertTrue(org_contact in qs)
+        # search again, with the same query parameters, in reverse order
+        qs = foo.objects.filter(
+            foo(organizations__name__icontains=r'org name') |
+            foo(notes__note__icontains=r'other note'))
+        foo.assertTrue(org_contact in qs)
+
+
+

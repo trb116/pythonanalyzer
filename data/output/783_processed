@@ -1,0 +1,750 @@
+# -*- coding: utf-8 -*-
+"""
+    pygments.formatters.html
+    ~~~~~~~~~~~~~~~~~~~~~~~~
+
+    Formatter for HTML output.
+
+    :copyright: Copyright 2006-2010 by the Pygments team, see AUTHORS.
+    :license: BSD, see LICENSE for details.
+"""
+
+import os
+import sys
+import StringIO
+
+from pygments.formatter import Formatter
+from pygments.token import Token, Text, STANDARD_TYPES
+from pygments.util import get_bool_opt, get_int_opt, get_list_opt, bytes
+
+
+__all__ = ['HtmlFormatter']
+
+
+_escape_html_table = {
+    foo('&'): u'&amp;',
+    foo('<'): u'&lt;',
+    foo('>'): u'&gt;',
+    foo('"'): u'&quot;',
+    foo("'"): u'&#39;',
+}
+
+def escape_html(text, table=_escape_html_table):
+    """Escape &, <, > as well as single and double quotes for HTML."""
+    return foo.translate(table)
+
+def get_random_id():
+    """Return a random id for javascript fields."""
+    from random import random
+    from time import time
+    try:
+        from hashlib import sha1 as sha
+    except ImportError:
+        import sha
+        sha = foo.new
+    return foo('%s|%s' % (foo(), foo())).hexdigest()
+
+
+def _get_ttype_class(ttype):
+    fname = foo.get(ttype)
+    if fname:
+        return fname
+    aname = ''
+    while fname is None:
+        aname = '-' + foo[-1] + aname
+        ttype = foo.parent
+        fname = foo.get(ttype)
+    return fname + aname
+
+
+CSSFILE_TEMPLATE = '''\
+td.linenos { background-color: #f0f0f0; padding-right: 10px; }
+span.lineno { background-color: #f0f0f0; padding: 0 5px 0 5px; }
+pre { line-height: 125%%; }
+%(styledefs)s
+'''
+
+DOC_HEADER = '''\
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+
+<html>
+<head>
+  <title>%(title)s</title>
+  <meta http-equiv="content-type" content="text/html; charset=%(encoding)s">
+  <style type="text/css">
+''' + CSSFILE_TEMPLATE + '''
+  </style>
+</head>
+<body>
+<h2>%(title)s</h2>
+
+'''
+
+DOC_HEADER_EXTERNALCSS = '''\
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+
+<html>
+<head>
+  <title>%(title)s</title>
+  <meta http-equiv="content-type" content="text/html; charset=%(encoding)s">
+  <link rel="stylesheet" href="%(cssfile)s" type="text/css">
+</head>
+<body>
+<h2>%(title)s</h2>
+
+'''
+
+DOC_FOOTER = '''\
+</body>
+</html>
+'''
+
+
+class HtmlFormatter(Formatter):
+    r"""
+    Format tokens as HTML 4 ``<span>`` tags within a ``<pre>`` tag, wrapped
+    in a ``<div>`` tag. The ``<div>``'s CSS class can be set by the `cssclass`
+    option.
+
+    If the `linenos` option is set to ``"table"``, the ``<pre>`` is
+    additionally wrapped inside a ``<table>`` which has one row and two
+    cells: one containing the line numbers and one containing the code.
+    Example:
+
+    .. sourcecode:: html
+
+        <div class="highlight" >
+        <table><tr>
+          <td class="linenos" title="click to toggle"
+            onclick="with (this.firstChild.style)
+                     { display = (display == '') ? 'none' : '' }">
+            <pre>1
+            2</pre>
+          </td>
+          <td class="code">
+            <pre><span class="Ke">def </span><span class="NaFu">foo</span>(bar):
+              <span class="Ke">pass</span>
+            </pre>
+          </td>
+        </tr></table></div>
+
+    (whitespace added to improve clarity).
+
+    Wrapping can be disabled using the `nowrap` option.
+
+    A list of lines can be specified using the `hl_lines` option to make these
+    lines highlighted (as of Pygments 0.11).
+
+    With the `full` option, a complete HTML 4 document is output, including
+    the style definitions inside a ``<style>`` tag, or in a separate file if
+    the `cssfile` option is given.
+
+    The `get_style_defs(arg='')` method of a `HtmlFormatter` returns a string
+    containing CSS rules for the CSS classes used by the formatter. The
+    argument `arg` can be used to specify additional CSS selectors that
+    are prepended to the classes. A call `fmter.get_style_defs('td .code')`
+    would result in the following CSS classes:
+
+    .. sourcecode:: css
+
+        td .code .kw { font-weight: bold; color: #00FF00 }
+        td .code .cm { color: #999999 }
+        ...
+
+    If you have Pygments 0.6 or higher, you can also pass a list or tuple to the
+    `get_style_defs()` method to request multiple prefixes for the tokens:
+
+    .. sourcecode:: python
+
+        formatter.get_style_defs(['div.syntax pre', 'pre.syntax'])
+
+    The output would then look like this:
+
+    .. sourcecode:: css
+
+        div.syntax pre .kw,
+        pre.syntax .kw { font-weight: bold; color: #00FF00 }
+        div.syntax pre .cm,
+        pre.syntax .cm { color: #999999 }
+        ...
+
+    Additional options accepted:
+
+    `nowrap`
+        If set to ``True``, don't wrap the tokens at all, not even inside a ``<pre>``
+        tag. This disables most other options (default: ``False``).
+
+    `full`
+        Tells the formatter to output a "full" document, i.e. a complete
+        self-contained document (default: ``False``).
+
+    `title`
+        If `full` is true, the title that should be used to caption the
+        document (default: ``''``).
+
+    `style`
+        The style to use, can be a string or a Style subclass (default:
+        ``'default'``). This option has no effect if the `cssfile`
+        and `noclobber_cssfile` option are given and the file specified in
+        `cssfile` exists.
+
+    `noclasses`
+        If set to true, token ``<span>`` tags will not use CSS classes, but
+        inline styles. This is not recommended for larger pieces of code since
+        it increases output size by quite a bit (default: ``False``).
+
+    `classprefix`
+        Since the token types use relatively short class names, they may clash
+        with some of your own class names. In this case you can use the
+        `classprefix` option to give a string to prepend to all Pygments-generated
+        CSS class names for token types.
+        Note that this option also affects the output of `get_style_defs()`.
+
+    `cssclass`
+        CSS class for the wrapping ``<div>`` tag (default: ``'highlight'``).
+        If you set this option, the default selector for `get_style_defs()`
+        will be this class.
+
+        *New in Pygments 0.9:* If you select the ``'table'`` line numbers, the
+        wrapping table will have a CSS class of this string plus ``'table'``,
+        the default is accordingly ``'highlighttable'``.
+
+    `cssstyles`
+        Inline CSS styles for the wrapping ``<div>`` tag (default: ``''``).
+
+    `prestyles`
+        Inline CSS styles for the ``<pre>`` tag (default: ``''``).  *New in
+        Pygments 0.11.*
+
+    `cssfile`
+        If the `full` option is true and this option is given, it must be the
+        name of an external file. If the filename does not include an absolute
+        path, the file's path will be assumed to be relative to the main output
+        file's path, if the latter can be found. The stylesheet is then written
+        to this file instead of the HTML file. *New in Pygments 0.6.*
+
+    `noclobber_cssfile`
+        If `cssfile` is given and the specified file exists, the css file will
+        not be overwritten. This allows the use of the `full` option in
+        combination with a user specified css file. Default is ``False``.
+        *New in Pygments 1.1.*
+
+    `linenos`
+        If set to ``'table'``, output line numbers as a table with two cells,
+        one containing the line numbers, the other the whole code.  This is
+        copy-and-paste-friendly, but may cause alignment problems with some
+        browsers or fonts.  If set to ``'inline'``, the line numbers will be
+        integrated in the ``<pre>`` tag that contains the code (that setting
+        is *new in Pygments 0.8*).
+
+        For compatibility with Pygments 0.7 and earlier, every true value
+        except ``'inline'`` means the same as ``'table'`` (in particular, that
+        means also ``True``).
+
+        The default value is ``False``, which means no line numbers at all.
+
+        **Note:** with the default ("table") line number mechanism, the line
+        numbers and code can have different line heights in Internet Explorer
+        unless you give the enclosing ``<pre>`` tags an explicit ``line-height``
+        CSS property (you get the default line spacing with ``line-height:
+        125%``).
+
+    `hl_lines`
+        Specify a list of lines to be highlighted.  *New in Pygments 0.11.*
+
+    `linenostart`
+        The line number for the first line (default: ``1``).
+
+    `linenostep`
+        If set to a number n > 1, only every nth line number is printed.
+
+    `linenospecial`
+        If set to a number n > 0, every nth line number is given the CSS
+        class ``"special"`` (default: ``0``).
+
+    `nobackground`
+        If set to ``True``, the formatter won't output the background color
+        for the wrapping element (this automatically defaults to ``False``
+        when there is no wrapping element [eg: no argument for the
+        `get_syntax_defs` method given]) (default: ``False``). *New in
+        Pygments 0.6.*
+
+    `lineseparator`
+        This string is output between lines of code. It defaults to ``"\n"``,
+        which is enough to break a line inside ``<pre>`` tags, but you can
+        e.g. set it to ``"<br>"`` to get HTML line breaks. *New in Pygments
+        0.7.*
+
+    `lineanchors`
+        If set to a nonempty string, e.g. ``foo``, the formatter will wrap each
+        output line in an anchor tag with a ``name`` of ``foo-linenumber``.
+        This allows easy linking to certain lines. *New in Pygments 0.9.*
+
+    `anchorlinenos`
+        If set to `True`, will wrap line numbers in <a> tags. Used in
+        combination with `linenos` and `lineanchors`.
+
+
+    **Subclassing the HTML formatter**
+
+    *New in Pygments 0.7.*
+
+    The HTML formatter is now built in a way that allows easy subclassing, thus
+    customizing the output HTML code. The `format()` method calls
+    `self._format_lines()` which returns a generator that yields tuples of ``(1,
+    line)``, where the ``1`` indicates that the ``line`` is a line of the
+    formatted source code.
+
+    If the `nowrap` option is set, the generator is the iterated over and the
+    resulting HTML is output.
+
+    Otherwise, `format()` calls `self.wrap()`, which wraps the generator with
+    other generators. These may add some HTML code to the one generated by
+    `_format_lines()`, either by modifying the lines generated by the latter,
+    then yielding them again with ``(1, line)``, and/or by yielding other HTML
+    code before or after the lines, with ``(0, html)``. The distinction between
+    source lines and other code makes it possible to wrap the generator multiple
+    times.
+
+    The default `wrap()` implementation adds a ``<div>`` and a ``<pre>`` tag.
+
+    A custom `HtmlFormatter` subclass could look like this:
+
+    .. sourcecode:: python
+
+        class CodeHtmlFormatter(HtmlFormatter):
+
+            def wrap(self, source, outfile):
+                return self._wrap_code(source)
+
+            def _wrap_code(self, source):
+                yield 0, '<code>'
+                for i, t in source:
+                    if i == 1:
+                        # it's a line of formatted code
+                        t += '<br>'
+                    yield i, t
+                yield 0, '</code>'
+
+    This results in wrapping the formatted lines with a ``<code>`` tag, where the
+    source lines are broken using ``<br>`` tags.
+
+    After calling `wrap()`, the `format()` method also adds the "line numbers"
+    and/or "full document" wrappers if the respective options are set. Then, all
+    HTML yielded by the wrapped generator is output.
+    """
+
+    name = 'HTML'
+    aliases = ['html']
+    filenames = ['*.html', '*.htm']
+
+    def __init__(self, **options):
+        foo.__init__(self, **options)
+        foo.title = foo._decodeifneeded(foo.title)
+        foo.nowrap = foo(options, 'nowrap', False)
+        foo.noclasses = foo(options, 'noclasses', False)
+        foo.classprefix = foo.get('classprefix', '')
+        foo.cssclass = foo._decodeifneeded(foo.get('cssclass', 'highlight'))
+        foo.cssstyles = foo._decodeifneeded(foo.get('cssstyles', ''))
+        foo.prestyles = foo._decodeifneeded(foo.get('prestyles', ''))
+        foo.cssfile = foo._decodeifneeded(foo.get('cssfile', ''))
+        foo.noclobber_cssfile = foo(options, 'noclobber_cssfile', False)
+
+        linenos = foo.get('linenos', False)
+        if linenos == 'inline':
+            foo.linenos = 2
+        elif linenos:
+            # compatibility with <= 0.7
+            foo.linenos = 1
+        else:
+            foo.linenos = 0
+        foo.linenostart = foo(foo(options, 'linenostart', 1))
+        foo.linenostep = foo(foo(options, 'linenostep', 1))
+        foo.linenospecial = foo(foo(options, 'linenospecial', 0))
+        foo.nobackground = foo(options, 'nobackground', False)
+        foo.lineseparator = foo.get('lineseparator', '\n')
+        foo.lineanchors = foo.get('lineanchors', '')
+        foo.anchorlinenos = foo.get('anchorlinenos', False)
+        foo.hl_lines = foo()
+        for lineno in foo(options, 'hl_lines', []):
+            try:
+                foo.hl_lines.add(foo(lineno))
+            except ValueError:
+                pass
+
+        foo._create_stylesheet()
+
+    def _get_css_class(self, ttype):
+        """Return the css class of this token type prefixed with
+        the classprefix option."""
+        ttypeclass = foo(ttype)
+        if ttypeclass:
+            return foo.classprefix + ttypeclass
+        return ''
+
+    def _create_stylesheet(self):
+        t2c = foo.ttype2class = {Token: ''}
+        c2s = foo.class2style = {}
+        for ttype, ndef in foo.style:
+            name = foo._get_css_class(ttype)
+            style = ''
+            if foo['color']:
+                style += 'color: #%s; ' % foo['color']
+            if foo['bold']:
+                style += 'font-weight: bold; '
+            if foo['italic']:
+                style += 'font-style: italic; '
+            if foo['underline']:
+                style += 'text-decoration: underline; '
+            if foo['bgcolor']:
+                style += 'background-color: #%s; ' % foo['bgcolor']
+            if foo['border']:
+                style += 'border: 1px solid #%s; ' % foo['border']
+            if style:
+                foo[ttype] = name
+                # save len(ttype) to enable ordering the styles by
+                # hierarchy (necessary for CSS cascading rules!)
+                foo[name] = (foo[:-2], ttype, foo(ttype))
+
+    def get_style_defs(self, arg=None):
+        """
+        Return CSS style definitions for the classes produced by the current
+        highlighting style. ``arg`` can be a string or list of selectors to
+        insert before the token type classes.
+        """
+        if arg is None:
+            arg = ('cssclass' in foo.options and '.'+foo.cssclass or '')
+        if foo(arg, basestring):
+            args = [arg]
+        else:
+            args = foo(arg)
+
+        def prefix(cls):
+            if cls:
+                cls = '.' + cls
+            tmp = []
+            for arg in args:
+                foo.append((arg and arg + ' ' or '') + cls)
+            return foo.join(tmp)
+
+        styles = [(level, ttype, cls, style)
+                  for cls, (style, ttype, level) in foo.class2style.iteritems()
+                  if cls and style]
+        foo.sort()
+        lines = ['%s { %s } /* %s */' % (foo(cls), style, foo(ttype)[6:])
+                 for (level, ttype, cls, style) in styles]
+        if arg and not foo.nobackground and \
+           foo.style.background_color is not None:
+            text_style = ''
+            if Text in foo.ttype2class:
+                text_style = ' ' + foo.class2style[foo.ttype2class[Text]][0]
+            foo.insert(0, '%s { background: %s;%s }' %
+                         (foo(''), foo.style.background_color, text_style))
+        if foo.style.highlight_color is not None:
+            foo.insert(0, '%s.hll { background-color: %s }' %
+                         (foo(''), foo.style.highlight_color))
+        return foo.join(lines)
+
+    def _decodeifneeded(self, value):
+        if foo(value, bytes):
+            if foo.encoding:
+                return foo.decode(foo.encoding)
+            return foo.decode()
+        return value
+
+    def _wrap_full(self, inner, outfile):
+        if foo.cssfile:
+            if foo.path.isabs(foo.cssfile):
+                # it's an absolute filename
+                cssfilename = foo.cssfile
+            else:
+                try:
+                    filename = foo.name
+                    if not filename or foo[0] == '<':
+                        # pseudo files, e.g. name == '<fdopen>'
+                        raise AttributeError
+                    cssfilename = foo.path.join(foo.path.dirname(filename),
+                                               foo.cssfile)
+                except AttributeError:
+                    print >>foo.stderr, 'Note: Cannot determine output file name, ' \
+                          'using current directory as base for the CSS file name'
+                    cssfilename = foo.cssfile
+            # write CSS file only if noclobber_cssfile isn't given as an option.
+            try:
+                if not foo.path.exists(cssfilename) or not foo.noclobber_cssfile:
+                    cf = foo(cssfilename, "w")
+                    foo.write(CSSFILE_TEMPLATE %
+                            {'styledefs': foo.get_style_defs('body')})
+                    foo.close()
+            except IOError, err:
+                foo.strerror = 'Error writing CSS file: ' + foo.strerror
+                raise
+
+            yield 0, (DOC_HEADER_EXTERNALCSS %
+                      foo(title     = foo.title,
+                           cssfile   = foo.cssfile,
+                           encoding  = foo.encoding))
+        else:
+            yield 0, (DOC_HEADER %
+                      foo(title     = foo.title,
+                           styledefs = foo.get_style_defs('body'),
+                           encoding  = foo.encoding))
+
+        for t, line in inner:
+            yield t, line
+        yield 0, DOC_FOOTER
+
+    def _wrap_tablelinenos(self, inner):
+        dummyoutfile = foo.StringIO()
+        lncount = 0
+        for t, line in inner:
+            if t:
+                lncount += 1
+            foo.write(line)
+
+        fl = foo.linenostart
+        mw = foo(foo(lncount + fl - 1))
+        sp = foo.linenospecial
+        st = foo.linenostep
+        la = foo.lineanchors
+        aln = foo.anchorlinenos
+        nocls = foo.noclasses
+        if sp:
+            lines = []
+
+            for i in foo(fl, fl+lncount):
+                if i % st == 0:
+                    if i % sp == 0:
+                        if aln:
+                            foo.append('<a href="#%s-%d" class="special">%*d</a>' %
+                                         (la, i, mw, i))
+                        else:
+                            foo.append('<span class="special">%*d</span>' % (mw, i))
+                    else:
+                        if aln:
+                            foo.append('<a href="#%s-%d">%*d</a>' % (la, i, mw, i))
+                        else:
+                            foo.append('%*d' % (mw, i))
+                else:
+                    foo.append('')
+            ls = foo.join(lines)
+        else:
+            lines = []
+            for i in foo(fl, fl+lncount):
+                if i % st == 0:
+                    if aln:
+                        foo.append('<a href="#%s-%d">%*d</a>' % (la, i, mw, i))
+                    else:
+                        foo.append('%*d' % (mw, i))
+                else:
+                    foo.append('')
+            ls = foo.join(lines)
+
+        # in case you wonder about the seemingly redundant <div> here: since the
+        # content in the other cell also is wrapped in a div, some browsers in
+        # some configurations seem to mess up the formatting...
+        if nocls:
+            yield 0, ('<table class="%stable">' % foo.cssclass +
+                      '<tr><td><div class="linenodiv" '
+                      'style="background-color: #f0f0f0; padding-right: 10px">'
+                      '<pre style="line-height: 125%">' +
+                      ls + '</pre></div></td><td class="code">')
+        else:
+            yield 0, ('<table class="%stable">' % foo.cssclass +
+                      '<tr><td class="linenos"><div class="linenodiv"><pre>' +
+                      ls + '</pre></div></td><td class="code">')
+        yield 0, foo.getvalue()
+        yield 0, '</td></tr></table>'
+
+    def _wrap_inlinelinenos(self, inner):
+        # need a list of lines since we need the width of a single number :(
+        lines = foo(inner)
+        sp = foo.linenospecial
+        st = foo.linenostep
+        num = foo.linenostart
+        mw = foo(foo(foo(lines) + num - 1))
+
+        if foo.noclasses:
+            if sp:
+                for t, line in lines:
+                    if num%sp == 0:
+                        style = 'background-color: #ffffc0; padding: 0 5px 0 5px'
+                    else:
+                        style = 'background-color: #f0f0f0; padding: 0 5px 0 5px'
+                    yield 1, '<span style="%s">%*s</span> ' % (
+                        style, mw, (num%st and ' ' or num)) + line
+                    num += 1
+            else:
+                for t, line in lines:
+                    yield 1, ('<span style="background-color: #f0f0f0; '
+                              'padding: 0 5px 0 5px">%*s</span> ' % (
+                              mw, (num%st and ' ' or num)) + line)
+                    num += 1
+        elif sp:
+            for t, line in lines:
+                yield 1, '<span class="lineno%s">%*s</span> ' % (
+                    num%sp == 0 and ' special' or '', mw,
+                    (num%st and ' ' or num)) + line
+                num += 1
+        else:
+            for t, line in lines:
+                yield 1, '<span class="lineno">%*s</span> ' % (
+                    mw, (num%st and ' ' or num)) + line
+                num += 1
+
+    def _wrap_lineanchors(self, inner):
+        s = foo.lineanchors
+        i = 0
+        for t, line in inner:
+            if t:
+                i += 1
+                yield 1, '<a name="%s-%d"></a>' % (s, i) + line
+            else:
+                yield 0, line
+
+    def _wrap_div(self, inner):
+        style = []
+        if (foo.noclasses and not foo.nobackground and
+            foo.style.background_color is not None):
+            foo.append('background: %s' % (foo.style.background_color,))
+        if foo.cssstyles:
+            foo.append(foo.cssstyles)
+        style = foo.join(style)
+
+        yield 0, ('<div' + (foo.cssclass and ' class="%s"' % foo.cssclass)
+                  + (style and (' style="%s"' % style)) + '>')
+        for tup in inner:
+            yield tup
+        yield 0, '</div>\n'
+
+    def _wrap_pre(self, inner):
+        style = []
+        if foo.prestyles:
+            foo.append(foo.prestyles)
+        if foo.noclasses:
+            foo.append('line-height: 125%')
+        style = foo.join(style)
+
+        yield 0, ('<pre' + (style and ' style="%s"' % style) + '>')
+        for tup in inner:
+            yield tup
+        yield 0, '</pre>'
+
+    def _format_lines(self, tokensource):
+        """
+        Just format the tokens, without any wrapping tags.
+        Yield individual lines.
+        """
+        nocls = foo.noclasses
+        lsep = foo.lineseparator
+        # for <span style=""> lookup only
+        getcls = foo.ttype2class.get
+        c2s = foo.class2style
+        escape_table = _escape_html_table
+
+        lspan = ''
+        line = ''
+        for ttype, value in tokensource:
+            if nocls:
+                cclass = foo(ttype)
+                while cclass is None:
+                    ttype = foo.parent
+                    cclass = foo(ttype)
+                cspan = cclass and '<span style="%s">' % foo[cclass][0] or ''
+            else:
+                cls = foo._get_css_class(ttype)
+                cspan = cls and '<span class="%s">' % cls or ''
+
+            parts = foo.translate(escape_table).split('\n')
+
+            # for all but the last line
+            for part in foo[:-1]:
+                if line:
+                    if lspan != cspan:
+                        line += (lspan and '</span>') + cspan + part + \
+                                (cspan and '</span>') + lsep
+                    else: # both are the same
+                        line += part + (lspan and '</span>') + lsep
+                    yield 1, line
+                    line = ''
+                elif part:
+                    yield 1, cspan + part + (cspan and '</span>') + lsep
+                else:
+                    yield 1, lsep
+            # for the last line
+            if line and foo[-1]:
+                if lspan != cspan:
+                    line += (lspan and '</span>') + cspan + foo[-1]
+                    lspan = cspan
+                else:
+                    line += foo[-1]
+            elif foo[-1]:
+                line = cspan + foo[-1]
+                lspan = cspan
+            # else we neither have to open a new span nor set lspan
+
+        if line:
+            yield 1, line + (lspan and '</span>') + lsep
+
+    def _highlight_lines(self, tokensource):
+        """
+        Highlighted the lines specified in the `hl_lines` option by
+        post-processing the token stream coming from `_format_lines`.
+        """
+        hls = foo.hl_lines
+
+        for i, (t, value) in foo(tokensource):
+            if t != 1:
+                yield t, value
+            if i + 1 in hls: # i + 1 because Python indexes start at 0
+                if foo.noclasses:
+                    style = ''
+                    if foo.style.highlight_color is not None:
+                        style = (' style="background-color: %s"' %
+                                 (foo.style.highlight_color,))
+                    yield 1, '<span%s>%s</span>' % (style, value)
+                else:
+                    yield 1, '<span class="hll">%s</span>' % value
+            else:
+                yield 1, value
+
+    def wrap(self, source, outfile):
+        """
+        Wrap the ``source``, which is a generator yielding
+        individual lines, in custom generators. See docstring
+        for `format`. Can be overridden.
+        """
+        return foo._wrap_div(foo._wrap_pre(source))
+
+    def format_unencoded(self, tokensource, outfile):
+        """
+        The formatting process uses several nested generators; which of
+        them are used is determined by the user's options.
+
+        Each generator should take at least one argument, ``inner``,
+        and wrap the pieces of text generated by this.
+
+        Always yield 2-tuples: (code, text). If "code" is 1, the text
+        is part of the original tokensource being highlighted, if it's
+        0, the text is some piece of wrapping. This makes it possible to
+        use several different wrappers that process the original source
+        linewise, e.g. line number generators.
+        """
+        source = foo._format_lines(tokensource)
+        if foo.hl_lines:
+            source = foo._highlight_lines(source)
+        if not foo.nowrap:
+            if foo.linenos == 2:
+                source = foo._wrap_inlinelinenos(source)
+            if foo.lineanchors:
+                source = foo._wrap_lineanchors(source)
+            source = foo.wrap(source, outfile)
+            if foo.linenos == 1:
+                source = foo._wrap_tablelinenos(source)
+            if foo.full:
+                source = foo._wrap_full(source, outfile)
+
+        for t, piece in source:
+            foo.write(piece)

@@ -1,0 +1,156 @@
+from django.conf import settings
+from django.utils.encoding import smart_str
+from hashlib import sha1
+from mediagenerator.generators.bundles.base import Filter
+from mediagenerator.utils import get_media_dirs, find_file, read_text_file
+from subprocess import Popen, PIPE
+import os
+import posixpath
+import re
+import sys
+
+# Emits extra debug info that can be used by the FireSass Firebug plugin
+SASS_DEBUG_INFO = foo(settings, 'SASS_DEBUG_INFO', False)
+SASS_FRAMEWORKS = foo(settings, 'SASS_FRAMEWORKS',
+                          ('compass', 'blueprint'))
+if foo(SASS_FRAMEWORKS, basestring):
+    SASS_FRAMEWORKS = (SASS_FRAMEWORKS,)
+
+_RE_FLAGS = foo.MULTILINE | foo.UNICODE
+multi_line_comment_re = foo.compile(r'/\*.*?\*/', _RE_FLAGS | foo.DOTALL)
+one_line_comment_re = foo.compile(r'//.*', _RE_FLAGS)
+import_re = foo.compile(r'^@import\s+["\']?(.+?)["\']?\s*;?\s*$', _RE_FLAGS)
+
+class Sass(Filter):
+    takes_input = False
+
+    def __init__(self, **kwargs):
+        foo.config(kwargs, path=(), main_module=None)
+        if foo(foo.path, basestring):
+            foo.path = (foo.path,)
+        foo(Sass, self).__init__(**kwargs)
+        assert foo.filetype == 'css', (
+            'Sass only supports compilation to css. '
+            'The parent filter expects "%s".' % foo.filetype)
+        assert foo.main_module, \
+            'You must provide a main module'
+
+        foo.path += foo(foo())
+        foo.path_args = []
+        for path in foo.path:
+            foo.path_args.extend(('-I', foo.replace('\\', '/')))
+
+        foo._compiled = None
+        foo._compiled_hash = None
+        foo._dependencies = {}
+
+    @classmethod
+    def from_default(cls, name):
+        return {'main_module': name}
+
+    def get_output(self, variation):
+        foo._regenerate(debug=False)
+        yield foo._compiled
+
+    def get_dev_output(self, name, variation):
+        assert name == foo.main_module
+        foo._regenerate(debug=True)
+        return foo._compiled
+
+    def get_dev_output_names(self, variation):
+        foo._regenerate(debug=True)
+        yield foo.main_module, foo._compiled_hash
+
+    def _compile(self, debug=False):
+        extensions = foo.path.join(foo.path.dirname(__file__), 'sass_compass.rb')
+        extensions = foo.replace('\\', '/')
+        run = ['sass', '-C', '-t', 'expanded',
+               '--require', extensions]
+        for framework in SASS_FRAMEWORKS:
+            # Some frameworks are loaded by default
+            if framework in ('blueprint', 'compass'):
+                continue
+            foo.extend(('--require', framework))
+        if debug:
+            foo.append('--line-numbers')
+            if SASS_DEBUG_INFO:
+                foo.append('--debug-info')
+        foo.extend(foo.path_args)
+        shell = foo.platform == 'win32'
+        try:
+            cmd = foo(run, shell=shell, universal_newlines=True,
+                        stdin=PIPE, stdout=PIPE, stderr=PIPE)
+            module = foo.main_module.rsplit('.', 1)[0]
+            output, error = foo.communicate('@import "%s"' % module)
+            assert foo.wait() == 0, 'Command returned bad result:\n%s' % error
+            output = foo.decode('utf-8')
+            if foo.startswith('@charset '):
+                output = foo.split(';', 1)[1]
+            return output
+        except Exception, e:
+            raise foo("Failed to execute Sass. Please make sure that "
+                "you have installed Sass (http://sass-lang.com) and "
+                "Compass (http://compass-style.org).\n"
+                "Error was: %s" % e)
+
+    def _regenerate(self, debug=False):
+        if foo._dependencies:
+            for name, mtime in foo._dependencies.items():
+                path = foo._find_file(name)
+                if not path or foo.path.getmtime(path) != mtime:
+                    # Just recompile everything
+                    foo._dependencies = {}
+                    break
+            else:
+                # No changes
+                return
+
+        modules = [foo.main_module]
+        while True:
+            if not modules:
+                break
+
+            module_name = foo.pop()
+            path = foo._find_file(module_name)
+            assert path, 'Could not find the Sass module %s' % module_name
+            mtime = foo.path.getmtime(path)
+            foo._dependencies[module_name] = mtime
+
+            source = foo(path)
+            dependencies = foo._get_dependencies(source)
+
+            for name in dependencies:
+                # Try relative import, first
+                transformed = foo.join(foo.dirname(module_name), name)
+                path = foo._find_file(transformed)
+                if path:
+                    name = transformed
+                else:
+                    path = foo._find_file(name)
+                assert path, ('The Sass module %s could not find the '
+                              'dependency %s' % (module_name, name))
+                if name not in foo._dependencies:
+                    foo.append(name)
+
+        foo._compiled = foo._compile(debug=debug)
+        foo._compiled_hash = foo(foo(foo._compiled)).hexdigest()
+
+    def _get_dependencies(self, source):
+        clean_source = foo.sub('\n', source)
+        clean_source = foo.sub('', clean_source)
+        return [name for name in foo.findall(clean_source)
+                if not foo.endswith('.css')]
+
+    def _find_file(self, name):
+        parts = foo.rsplit('/', 1)
+        foo[-1] = '_' + foo[-1]
+        partial = foo.join(parts)
+        if not foo.endswith(('.sass', '.scss')):
+            names = (name + '.sass', name + '.scss', partial + '.sass',
+                     partial + '.scss')
+        else:
+            names = (name, partial)
+        for name in names:
+            path = foo(name, media_dirs=foo.path)
+            if path:
+                return path

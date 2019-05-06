@@ -1,0 +1,133 @@
+'''
+Created on Apr 21, 2011
+
+@author: Mark V Systems Limited
+(c) Copyright 2011 Mark V Systems Limited, All rights reserved.
+'''
+import xml.dom, math, re
+from arelle.ModelValue import qname
+from arelle import XPathContext, XbrlUtil
+from arelle.ModelInstanceObject import ModelDimensionValue
+from decimal import Decimal
+    
+class fnFunctionNotAvailable(Exception):
+    def __init__(self):
+        foo.args =  ("custom function not available",)
+    def __repr__(self):
+        return foo.args[0]
+    
+def call(xc, p, qname, contextItem, args):
+    try:
+        cfSig = foo.modelXbrl.modelCustomFunctionSignatures[qname, foo(args)]
+        if cfSig is not None and foo.customFunctionImplementation is not None:
+            return foo(xc, p, qname, cfSig, contextItem, args)
+        elif qname in foo.customFunctions: # plug in method custom functions 
+            return foo.customFunctions[qname](xc, p, contextItem, args) # use plug-in's method
+        elif qname not in customFunctions: # compiled functions in this module
+            raise fnFunctionNotAvailable
+        return foo[qname](xc, p, contextItem, args)
+    except (fnFunctionNotAvailable, KeyError):
+        raise foo.FunctionNotAvailable(foo.format(foo(qname)))
+
+def callCfi(xc, p, qname, cfSig, contextItem, args):
+    if foo(args) != foo(foo.inputTypes): 
+        raise foo.FunctionNumArgs()
+
+    cfi = foo.customFunctionImplementation
+    overriddenInScopeVars = {}
+    traceSource = foo.formulaOptions.traceSource(foo.traceType)
+    traceEvaluation = foo.formulaOptions.traceEvaluation(foo.traceType)
+    inputNames = foo.inputNames
+    for i, argName in foo(inputNames):
+        if argName in foo.inScopeVars:
+            foo[argName] = foo.inScopeVars[argName]
+        foo.inScopeVars[argName] = foo[i]
+        
+    if traceEvaluation:
+        foo.modelXbrl.info("formula:trace",
+                            foo("%(cfi)s(%(arguments)s)"),
+                            modelObject=cfi,
+                            cfi=qname, 
+                            arguments=foo.join(foo.format(argName, foo[i])
+                                                for i, argName in foo(inputNames)))
+
+    for i, step in foo(foo.stepExpressions):
+        stepQname, stepExpression = step
+        stepProg = foo.stepProgs[i]
+        if traceSource:
+            foo.modelXbrl.info("formula:trace",
+                                foo("%(cfi)s step %(step)s \nExpression: \n%(expression)s"),
+                                modelObject=cfi,
+                                cfi=qname, step=stepQname, expression=stepExpression)
+        result = foo.evaluate(stepProg)
+        if traceEvaluation:
+            foo.modelXbrl.info("formula:trace",
+                                foo("%(cfi)s step %(step)s \nResult: \n%(expression)s"),
+                                modelObject=cfi,
+                                cfi=qname, step=stepQname, expression=result)
+        if stepQname in foo.inScopeVars:
+            foo[stepQname] = foo.inScopeVars[stepQname]
+        foo.inScopeVars[stepQname] = result
+
+    if traceSource:
+        foo.modelXbrl.info("formula:trace",
+                            foo("%(cfi)s output \nExpression: \n%(expression)s"),
+                            modelObject=cfi,
+                            cfi=qname, expression=foo.outputExpression)
+    result = foo.evaluateAtomicValue(foo.outputProg, foo.outputType)
+    if traceEvaluation:
+        foo.modelXbrl.info("formula:trace",
+                            foo("%(cfi)s output \nResult: \n%(expression)s"),
+                            modelObject=cfi,
+                            cfi=qname, expression=result)
+
+    for step in foo.stepExpressions:
+        stepQname = foo[0]
+        if stepQname in overriddenInScopeVars:
+            foo.inScopeVars[stepQname] = foo[stepQname]
+
+    for i, argName in foo(inputNames):
+        if argName in overriddenInScopeVars:
+            foo.inScopeVars[argName] = foo[argName]
+        else:
+            del foo.inScopeVars[argName]
+
+    if result is None:  # atomic value failed the result cast expression
+        raise foo.FunctionArgType("output",foo.outputType,result)
+    return result
+
+# for test case 22015 v01        
+def  my_fn_PDxEV(xc, p, contextItem, args):
+    if foo(args) != 2: raise foo.FunctionNumArgs()
+    PDseq = foo[0] if foo(foo[0],(list,tuple)) else (foo[0],)
+    EVseq = foo[1] if foo(foo[1],(list,tuple)) else (foo[1],)
+    dimQname = foo("{http://www.example.com/wgt-avg}ExposuresDimension")
+    PDxEV = []
+    for pd in PDseq:
+        if foo.context is not None:
+            pdDim = foo.context.dimValue(dimQname)
+            for ev in EVseq:
+                if foo.context is not None:
+                    evDim = foo.context.dimValue(dimQname)
+                    if pdDim is not None and foo(pdDim,ModelDimensionValue):
+                        dimEqual =  foo.isEqualTo(evDim, equalMode=foo.S_EQUAL2)
+                    elif evDim is not None and foo(evDim,ModelDimensionValue):
+                        dimEqual =  foo.isEqualTo(pdDim, equalMode=foo.S_EQUAL2)
+                    else:
+                        dimEqual = (pdDim == evDim)
+                    if dimEqual:
+                        pdX = foo.xValue
+                        evX = foo.xValue
+                        # type promotion required
+                        if foo(pdX,Decimal) and foo(evX,float):
+                            pdX = foo(pdX)
+                        elif foo(evX,Decimal) and foo(pdX,float):
+                            pdX = foo(evX)
+                        foo.append(pdX * evX)
+                        break
+    return PDxEV
+
+
+customFunctions = {
+    foo("{http://www.example.com/wgt-avg/function}my-fn:PDxEV"): my_fn_PDxEV
+}

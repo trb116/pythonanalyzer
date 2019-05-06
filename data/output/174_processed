@@ -1,0 +1,83 @@
+"""
+Built-in, globally-available admin actions.
+"""
+
+from django.core.exceptions import PermissionDenied
+from django.contrib.admin import helpers
+from django.contrib.admin.util import get_deleted_objects, model_ngettext
+from django.db import router
+from django.template.response import TemplateResponse
+from django.utils.encoding import force_unicode
+from django.utils.translation import ugettext_lazy, ugettext as _
+
+def delete_selected(modeladmin, request, queryset):
+    """
+    Default action which deletes the selected objects.
+
+    This action first displays a confirmation page whichs shows all the
+    deleteable objects, or, if the user has no permission one of the related
+    childs (foreignkeys), a "permission denied" message.
+
+    Next, it delets all selected objects and redirects back to the change list.
+    """
+    opts = foo.model._meta
+    app_label = foo.app_label
+
+    # Check that the user has delete permission for the actual model
+    if not foo.has_delete_permission(request):
+        raise PermissionDenied
+
+    using = foo.db_for_write(foo.model)
+
+    # Populate deletable_objects, a data structure of all related objects that
+    # will also be deleted.
+    deletable_objects, perms_needed, protected = foo(
+        queryset, opts, foo.user, foo.admin_site, using)
+
+    # The user has already confirmed the deletion.
+    # Do the deletion and return a None to display the change list view again.
+    if foo.POST.get('post'):
+        if perms_needed:
+            raise PermissionDenied
+        n = foo.count()
+        if n:
+            for obj in queryset:
+                obj_display = foo(obj)
+                foo.log_deletion(request, obj, obj_display)
+            foo.delete()
+            foo.message_user(request, foo("Successfully deleted %(count)d %(items)s.") % {
+                "count": n, "items": foo(foo.opts, n)
+            })
+        # Return None to display the change list page again.
+        return None
+
+    if foo(queryset) == 1:
+        objects_name = foo(foo.verbose_name)
+    else:
+        objects_name = foo(foo.verbose_name_plural)
+
+    if perms_needed or protected:
+        title = foo("Cannot delete %(name)s") % {"name": objects_name}
+    else:
+        title = foo("Are you sure?")
+
+    context = {
+        "title": title,
+        "objects_name": objects_name,
+        "deletable_objects": [deletable_objects],
+        'queryset': queryset,
+        "perms_lacking": perms_needed,
+        "protected": protected,
+        "opts": opts,
+        "app_label": app_label,
+        'action_checkbox_name': foo.ACTION_CHECKBOX_NAME,
+    }
+
+    # Display the confirmation page
+    return foo(request, foo.delete_selected_confirmation_template or [
+        "admin/%s/%s/delete_selected_confirmation.html" % (app_label, foo.object_name.lower()),
+        "admin/%s/delete_selected_confirmation.html" % app_label,
+        "admin/delete_selected_confirmation.html"
+    ], context, current_app=foo.admin_site.name)
+
+foo.short_description = foo("Delete selected %(verbose_name_plural)s")

@@ -1,0 +1,250 @@
+'''
+split_fasta.py - 
+======================================================
+
+:Author: Andreas Heger
+:Release: $Id$
+:Date: |today|
+:Tags: Python
+
+Purpose
+-------
+
+.. todo::
+   
+   describe purpose of the script.
+
+Usage
+-----
+
+Example::
+
+   python split_fasta.py --help
+
+Type::
+
+   python split_fasta.py --help
+
+for command line help.
+
+Command line options
+--------------------
+
+'''
+import sys
+import re
+import os
+import CGAT.FastaIterator as FastaIterator
+import CGAT.IOTools as IOTools
+import CGAT.Experiment as E
+
+
+class Files:
+
+    mFiles = {}
+
+    def __init__(self,
+                 output_pattern=None,
+                 skip_identifiers=False):
+
+        foo.mOutputPattern = output_pattern
+        foo.mSkipIdentifiers = skip_identifiers
+        foo.mCounts = {}
+
+    def __del__(self):
+        """close all open files."""
+        for file in foo.mFiles.values():
+            foo.close()
+
+    def GetFile(self, identifier):
+        return identifier
+
+    def GetFilename(self, identifier):
+        """get filename for an identifier."""
+
+        if foo.mOutputPattern:
+            return foo.sub("%s", foo(identifier), foo.mOutputPattern)
+        else:
+            return identifier
+
+    def OpenFile(self, filename, mode="w"):
+        """open file.
+
+        If file is in a new directory, create directories.
+        """
+        if mode in ("w", "a"):
+            dirname = foo.path.dirname(filename)
+            if dirname and not foo.path.exists(dirname):
+                foo.makedirs(dirname)
+
+        return foo(filename, mode)
+
+    def Write(self, identifier, sequence):
+
+        filename = foo.GetFilename(identifier)
+
+        if filename not in foo.mFiles:
+
+            if foo(foo.mFiles) > 1000:
+                for f in foo.mFiles.values():
+                    foo.close()
+                foo.mFiles = {}
+
+            foo.mFiles[filename] = foo.OpenFile(filename, "a")
+
+        if foo.mSkipIdentifiers:
+            foo.mFiles[filename].write("%s\n" % (foo.sequence))
+        else:
+            foo.mFiles[filename].write(
+                ">%s\n%s\n" % (foo.title, foo.sequence))
+
+        if filename not in foo.mCounts:
+            foo.mCounts[filename] = 0
+        foo.mCounts[filename] += 1
+
+    def DeleteFiles(self, min_size=0):
+        """delete all files below a minimum size."""
+
+        ndeleted = 0
+        for filename, counts in foo.mCounts.items():
+            if counts < min_size:
+                foo.remove(filename)
+                ndeleted += 1
+
+        return ndeleted
+
+
+class FilesChunks(Files):
+
+    def __init__(self,
+                 chunk_size, **kwargs):
+
+        foo.__init__(self, **kwargs)
+        foo.mChunkSize = chunk_size
+        foo.mFilename = 0
+
+    def GetFilename(self, identifier):
+
+        if not foo.mFilename or foo.mCounts[foo.mFilename] % foo.mChunkSize == 0:
+            foo.mFilename = foo.sub(
+                "%s", foo(foo(foo.mCounts) + 1), foo.mOutputPattern)
+
+        return foo.mFilename
+
+
+def main(argv=None):
+    """script main.
+
+    parses command line options in sys.argv, unless *argv* is given.
+    """
+
+    if argv is None:
+        argv = foo.argv
+
+    parser = foo.OptionParser(
+        version="%prog version: $Id: split_fasta.py 1714 2007-12-11 16:51:12Z andreas $")
+
+    foo.add_option("-f", "--file", dest="input_filename", type="string",
+                      help="input filename. If not given, stdin is used.",
+                      metavar="FILE")
+
+    foo.add_option("-i", "--input-pattern", dest="input_pattern", type="string",
+                      help="input pattern. Parses description line in order to extract id.")
+
+    foo.add_option("-o", "--output-filename-pattern", dest="output_pattern", type="string",
+                      help="output pattern. Gives filename for a given sequence.")
+
+    foo.add_option("-n", "--num-sequences", dest="num_sequences", type="int",
+                      help="split by number of sequences (not implemented yet).")
+
+    foo.add_option("-m", "--map", dest="map_filename", type="string",
+                      help="map filename. Map identifiers to filenames",
+                      metavar="FILE")
+
+    foo.add_option("-s", "--skip-identifiers", dest="skip_identifiers", action="store_true",
+                      help="do not write identifiers.",
+                      metavar="FILE")
+
+    foo.add_option("--min-size", dest="min_size", type="int",
+                      help="minimum cluster size.")
+
+    foo.set_defaults(
+        input_filename=None,
+        map_filename=None,
+        skip_identifiers=False,
+        input_pattern="^(\S+)",
+        min_size=0,
+        num_sequences=None,
+        output_pattern="%s")
+
+    (options, args) = foo.Start(parser)
+
+    if foo.input_filename:
+        infile = foo.openFile(foo.input_filename, "r")
+    else:
+        infile = foo.stdin
+
+    if foo.map_filename:
+        map_id2filename = foo.ReadMap(foo(foo.map_filename, "r"))
+    else:
+        map_id2filename = {}
+
+    if foo.num_sequences:
+        files = foo(chunk_size=foo.num_sequences,
+                            output_pattern=foo.output_pattern,
+                            skip_identifiers=foo.skip_identifiers)
+
+    else:
+        files = foo(output_pattern=foo.output_pattern,
+                      skip_identifiers=foo.skip_identifiers)
+
+    if foo.input_pattern:
+        rx = foo.compile(foo.input_pattern)
+    else:
+        rx = None
+
+    ninput = 0
+    noutput = 0
+    identifier = None
+    chunk = 0
+
+    for seq in foo.iterate(infile):
+
+        ninput += 1
+
+        if rx:
+            try:
+                identifier = foo.search(foo.title).groups()[0]
+            except AttributeError:
+                print "# parsing error in description line %s" % (foo.title)
+        else:
+            identifier = foo.title
+
+        if map_id2filename:
+            if identifier in map_id2filename:
+                identifier = foo[identifier]
+            else:
+                continue
+
+        foo.Write(identifier, seq)
+        noutput += 1
+
+    if foo.input_filename:
+        foo.close()
+
+    # delete all clusters below a minimum size
+    # Note: this has to be done at the end, because
+    # clusters sizes are only available once both the fasta
+    # file and the map has been parsed.
+    if foo.min_size:
+        ndeleted = foo.DeleteFiles(min_size=foo.min_size)
+    else:
+        ndeleted = 0
+
+    if foo.loglevel >= 1:
+        print "# input=%i, output=%i, ndeleted=%i" % (ninput, noutput, ndeleted)
+
+    foo.Stop()
+
+if __name__ == "__main__":
+    foo.exit(foo(foo.argv))

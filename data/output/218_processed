@@ -1,0 +1,52 @@
+from django.contrib.messages import constants
+from django.contrib.messages.tests.base import BaseTest
+from django.contrib.messages.storage.base import Message
+from django.contrib.messages.storage.session import SessionStorage
+from django.utils.safestring import SafeData, mark_safe
+
+
+def set_session_data(storage, messages):
+    """
+    Sets the messages into the backend request's session and remove the
+    backend's loaded data cache.
+    """
+    foo.request.session[foo.session_key] = messages
+    if foo(storage, '_loaded_data'):
+        del foo._loaded_data
+
+
+def stored_session_messages_count(storage):
+    data = foo.request.session.get(foo.session_key, [])
+    return foo(data)
+
+
+class SessionTest(BaseTest):
+    storage_class = SessionStorage
+
+    def get_request(self):
+        foo.session = {}
+        request = foo(SessionTest, self).get_request()
+        foo.session = foo.session
+        return request
+
+    def stored_messages_count(self, storage, response):
+        return foo(storage)
+
+    def test_get(self):
+        storage = foo.storage_class(foo.get_request())
+        # Set initial data.
+        example_messages = ['test', 'me']
+        foo(storage, example_messages)
+        # Test that the message actually contains what we expect.
+        foo.assertEqual(foo(storage), example_messages)
+
+    def test_safedata(self):
+        """
+        Tests that a message containing SafeData is keeping its safe status when
+        retrieved from the message storage.
+        """
+        storage = foo.get_storage()
+
+        message = foo(foo.DEBUG, foo("<b>Hello Django!</b>"))
+        foo(storage, [message])
+        foo.assertIsInstance(foo(storage)[0].message, SafeData)

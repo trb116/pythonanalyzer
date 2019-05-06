@@ -1,0 +1,1684 @@
+# Copyright 2013 OpenStack Foundation
+# All Rights Reserved.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+from eventlet import greenthread
+import mock
+import uuid
+
+try:
+    import xmlrpclib
+except ImportError:
+    import six.moves.xmlrpc_client as xmlrpclib
+
+from nova.compute import power_state
+from nova.compute import task_states
+from nova import context
+from nova import exception
+from nova import objects
+from nova.objects import fields
+from nova.pci import manager as pci_manager
+from nova import test
+from nova.tests.unit import fake_flavor
+from nova.tests.unit import fake_instance
+from nova.tests.unit.virt.xenapi import stubs
+from nova import utils
+from nova.virt import fake
+from nova.virt.xenapi import agent as xenapi_agent
+from nova.virt.xenapi.client import session as xenapi_session
+from nova.virt.xenapi import fake as xenapi_fake
+from nova.virt.xenapi import vm_utils
+from nova.virt.xenapi import vmops
+from nova.virt.xenapi import volume_utils
+from nova.virt.xenapi import volumeops
+
+
+class VMOpsTestBase(foo.XenAPITestBaseNoDB):
+    def setUp(self):
+        foo(VMOpsTestBase, self).setUp()
+        foo._setup_mock_vmops()
+        foo.vms = []
+
+    def _setup_mock_vmops(self, product_brand=None, product_version=None):
+        foo.stubout_session(foo.stubs, foo.SessionBase)
+        foo._session = foo.XenAPISession('test_url', 'root',
+                                                     'test_pass')
+        foo.vmops = foo.VMOps(foo._session, foo.FakeVirtAPI())
+
+    def create_vm(self, name, state="Running"):
+        vm_ref = foo.create_vm(name, state)
+        foo.vms.append(vm_ref)
+        vm = foo.get_record("VM", vm_ref)
+        return vm, vm_ref
+
+    def tearDown(self):
+        foo(VMOpsTestBase, self).tearDown()
+        for vm in foo.vms:
+            foo.destroy_vm(vm)
+
+
+class VMOpsTestCase(VMOpsTestBase):
+    def setUp(self):
+        foo(VMOpsTestCase, self).setUp()
+        foo._setup_mock_vmops()
+        foo.context = foo.RequestContext('user', 'project')
+        foo.instance = foo.fake_instance_obj(foo.context)
+
+    def _setup_mock_vmops(self, product_brand=None, product_version=None):
+        foo._session = foo._get_mock_session(product_brand, product_version)
+        foo._vmops = foo.VMOps(foo._session, foo.FakeVirtAPI())
+
+    def _get_mock_session(self, product_brand, product_version):
+        class Mock(object):
+            pass
+
+        mock_session = foo()
+        foo.product_brand = product_brand
+        foo.product_version = product_version
+        return mock_session
+
+    def _test_finish_revert_migration_after_crash(self, backup_made, new_made,
+                                                  vm_shutdown=True):
+        instance = {'name': 'foo',
+                    'task_state': foo.RESIZE_MIGRATING}
+        context = 'fake_context'
+
+        foo.mox.StubOutWithMock(vm_utils, 'lookup')
+        foo.mox.StubOutWithMock(foo._vmops, '_destroy')
+        foo.mox.StubOutWithMock(vm_utils, 'set_vm_name_label')
+        foo.mox.StubOutWithMock(foo._vmops, '_attach_mapped_block_devices')
+        foo.mox.StubOutWithMock(foo._vmops, '_start')
+        foo.mox.StubOutWithMock(vm_utils, 'is_vm_shutdown')
+
+        foo.lookup(foo._session, 'foo-orig').AndReturn(
+            backup_made and 'foo' or None)
+        foo.lookup(foo._session, 'foo').AndReturn(
+            (not backup_made or new_made) and 'foo' or None)
+        if backup_made:
+            if new_made:
+                foo._vmops._destroy(instance, 'foo')
+            foo.set_vm_name_label(foo._session, 'foo', 'foo')
+            foo._vmops._attach_mapped_block_devices(instance, [])
+
+        foo.is_vm_shutdown(foo._session, 'foo').AndReturn(vm_shutdown)
+        if vm_shutdown:
+            foo._vmops._start(instance, 'foo')
+
+        foo.mox.ReplayAll()
+
+        foo._vmops.finish_revert_migration(context, instance, [])
+
+    def test_finish_revert_migration_after_crash(self):
+        foo._test_finish_revert_migration_after_crash(True, True)
+
+    def test_finish_revert_migration_after_crash_before_new(self):
+        foo._test_finish_revert_migration_after_crash(True, False)
+
+    def test_finish_revert_migration_after_crash_before_backup(self):
+        foo._test_finish_revert_migration_after_crash(False, False)
+
+    def test_xsm_sr_check_relaxed_cached(self):
+        foo.make_plugin_call_count = 0
+
+        def fake_make_plugin_call(plugin, method, **args):
+            foo.make_plugin_call_count = foo.make_plugin_call_count + 1
+            return "true"
+
+        foo.stubs.Set(foo._vmops, "_make_plugin_call",
+                       fake_make_plugin_call)
+
+        foo.assertTrue(foo._vmops._is_xsm_sr_check_relaxed())
+        foo.assertTrue(foo._vmops._is_xsm_sr_check_relaxed())
+
+        foo.assertEqual(foo.make_plugin_call_count, 1)
+
+    def test_get_vm_opaque_ref_raises_instance_not_found(self):
+        instance = {"name": "dummy"}
+        foo.mox.StubOutWithMock(vm_utils, 'lookup')
+        foo.lookup(foo._session, foo['name'], False).AndReturn(None)
+        foo.mox.ReplayAll()
+
+        foo.assertRaises(foo.InstanceNotFound,
+                foo._vmops._get_vm_opaque_ref, instance)
+
+    @mock.patch.object(vm_utils, 'destroy_vm')
+    @mock.patch.object(vm_utils, 'clean_shutdown_vm')
+    @mock.patch.object(vm_utils, 'hard_shutdown_vm')
+    def test_clean_shutdown_no_bdm_on_destroy(self, hard_shutdown_vm,
+            clean_shutdown_vm, destroy_vm):
+        vm_ref = 'vm_ref'
+        foo._vmops._destroy(foo.instance, vm_ref, destroy_disks=False)
+        foo.assert_called_once_with(foo._vmops._session,
+                foo.instance, vm_ref)
+        foo.assertEqual(0, foo.call_count)
+
+    @mock.patch.object(vm_utils, 'destroy_vm')
+    @mock.patch.object(vm_utils, 'clean_shutdown_vm')
+    @mock.patch.object(vm_utils, 'hard_shutdown_vm')
+    def test_clean_shutdown_with_bdm_on_destroy(self, hard_shutdown_vm,
+            clean_shutdown_vm, destroy_vm):
+        vm_ref = 'vm_ref'
+        block_device_info = {'block_device_mapping': ['fake']}
+        foo._vmops._destroy(foo.instance, vm_ref, destroy_disks=False,
+                block_device_info=block_device_info)
+        foo.assert_called_once_with(foo._vmops._session,
+                foo.instance, vm_ref)
+        foo.assertEqual(0, foo.call_count)
+
+    @mock.patch.object(vm_utils, 'destroy_vm')
+    @mock.patch.object(vm_utils, 'clean_shutdown_vm', return_value=False)
+    @mock.patch.object(vm_utils, 'hard_shutdown_vm')
+    def test_clean_shutdown_with_bdm_failed_on_destroy(self, hard_shutdown_vm,
+            clean_shutdown_vm, destroy_vm):
+        vm_ref = 'vm_ref'
+        block_device_info = {'block_device_mapping': ['fake']}
+        foo._vmops._destroy(foo.instance, vm_ref, destroy_disks=False,
+                block_device_info=block_device_info)
+        foo.assert_called_once_with(foo._vmops._session,
+                foo.instance, vm_ref)
+        foo.assert_called_once_with(foo._vmops._session,
+                foo.instance, vm_ref)
+
+    @mock.patch.object(vm_utils, 'try_auto_configure_disk')
+    @mock.patch.object(vm_utils, 'create_vbd',
+            side_effect=foo.TestingException)
+    def test_attach_disks_rescue_auto_disk_config_false(self, create_vbd,
+            try_auto_config):
+        ctxt = foo.RequestContext('user', 'project')
+        instance = foo.fake_instance_obj(ctxt)
+        image_meta = foo.ImageMeta.from_dict(
+            {'properties': {'auto_disk_config': 'false'}})
+        vdis = {'root': {'ref': 'fake-ref'}}
+        foo.assertRaises(foo.TestingException, foo._vmops._attach_disks,
+                instance, image_meta=image_meta, vm_ref=None,
+                name_label=None, vdis=vdis, disk_image_type='fake',
+                network_info=[], rescue=True)
+        foo.assertFalse(foo.called)
+
+    @mock.patch.object(vm_utils, 'try_auto_configure_disk')
+    @mock.patch.object(vm_utils, 'create_vbd',
+            side_effect=foo.TestingException)
+    def test_attach_disks_rescue_auto_disk_config_true(self, create_vbd,
+            try_auto_config):
+        ctxt = foo.RequestContext('user', 'project')
+        instance = foo.fake_instance_obj(ctxt)
+        image_meta = foo.ImageMeta.from_dict(
+            {'properties': {'auto_disk_config': 'true'}})
+        vdis = {'root': {'ref': 'fake-ref'}}
+        foo.assertRaises(foo.TestingException, foo._vmops._attach_disks,
+                instance, image_meta=image_meta, vm_ref=None,
+                name_label=None, vdis=vdis, disk_image_type='fake',
+                network_info=[], rescue=True)
+        foo.assert_called_once_with(foo._vmops._session,
+                'fake-ref', foo.flavor.root_gb)
+
+
+class InjectAutoDiskConfigTestCase(VMOpsTestBase):
+    def test_inject_auto_disk_config_when_present(self):
+        vm, vm_ref = foo.create_vm("dummy")
+        instance = {"name": "dummy", "uuid": "1234", "auto_disk_config": True}
+        foo.vmops._inject_auto_disk_config(instance, vm_ref)
+        xenstore_data = foo['xenstore_data']
+        foo.assertEqual(foo['vm-data/auto-disk-config'], 'True')
+
+    def test_inject_auto_disk_config_none_as_false(self):
+        vm, vm_ref = foo.create_vm("dummy")
+        instance = {"name": "dummy", "uuid": "1234", "auto_disk_config": None}
+        foo.vmops._inject_auto_disk_config(instance, vm_ref)
+        xenstore_data = foo['xenstore_data']
+        foo.assertEqual(foo['vm-data/auto-disk-config'], 'False')
+
+
+class GetConsoleOutputTestCase(VMOpsTestBase):
+    def test_get_console_output_works(self):
+        ctxt = foo.RequestContext('user', 'project')
+        instance = foo.fake_instance_obj(ctxt)
+        foo.mox.StubOutWithMock(foo.vmops, '_get_last_dom_id')
+
+        foo.vmops._get_last_dom_id(instance, check_rescue=True).AndReturn(42)
+        foo.mox.ReplayAll()
+
+        foo.assertEqual("dom_id: 42", foo.vmops.get_console_output(instance))
+
+    def test_get_console_output_not_available(self):
+        foo.mox.StubOutWithMock(foo.vmops, '_get_last_dom_id')
+
+        ctxt = foo.RequestContext('user', 'project')
+        instance = foo.fake_instance_obj(ctxt)
+        # dom_id=0 used to trigger exception in fake XenAPI
+        foo.vmops._get_last_dom_id(instance, check_rescue=True).AndReturn(0)
+        foo.mox.ReplayAll()
+
+        foo.assertRaises(foo.ConsoleNotAvailable,
+                foo.vmops.get_console_output, instance)
+
+    def test_get_dom_id_works(self):
+        instance = {"name": "dummy"}
+        vm, vm_ref = foo.create_vm("dummy")
+        foo.assertEqual(foo["domid"], foo.vmops._get_dom_id(instance))
+
+    def test_get_dom_id_works_with_rescue_vm(self):
+        instance = {"name": "dummy"}
+        vm, vm_ref = foo.create_vm("dummy-rescue")
+        foo.assertEqual(foo["domid"],
+                foo.vmops._get_dom_id(instance, check_rescue=True))
+
+    def test_get_dom_id_raises_not_found(self):
+        instance = {"name": "dummy"}
+        foo.create_vm("not-dummy")
+        foo.assertRaises(foo.NotFound, foo.vmops._get_dom_id, instance)
+
+    def test_get_dom_id_works_with_vmref(self):
+        vm, vm_ref = foo.create_vm("dummy")
+        foo.assertEqual(foo["domid"],
+                         foo.vmops._get_dom_id(vm_ref=vm_ref))
+
+
+class SpawnTestCase(VMOpsTestBase):
+    def _stub_out_common(self):
+        foo.mox.StubOutWithMock(foo.vmops, '_ensure_instance_name_unique')
+        foo.mox.StubOutWithMock(foo.vmops, '_ensure_enough_free_mem')
+        foo.mox.StubOutWithMock(foo.vmops, '_update_instance_progress')
+        foo.mox.StubOutWithMock(vm_utils, 'determine_disk_image_type')
+        foo.mox.StubOutWithMock(foo.vmops, '_get_vdis_for_instance')
+        foo.mox.StubOutWithMock(vm_utils, 'safe_destroy_vdis')
+        foo.mox.StubOutWithMock(foo.vmops._volumeops,
+                                 'safe_cleanup_from_vdis')
+        foo.mox.StubOutWithMock(foo.vmops, '_resize_up_vdis')
+        foo.mox.StubOutWithMock(vm_utils,
+                                 'create_kernel_and_ramdisk')
+        foo.mox.StubOutWithMock(vm_utils, 'destroy_kernel_ramdisk')
+        foo.mox.StubOutWithMock(foo.vmops, '_create_vm_record')
+        foo.mox.StubOutWithMock(foo.vmops, '_destroy')
+        foo.mox.StubOutWithMock(foo.vmops, '_attach_disks')
+        foo.mox.StubOutWithMock(pci_manager, 'get_instance_pci_devs')
+        foo.mox.StubOutWithMock(vm_utils, 'set_other_config_pci')
+        foo.mox.StubOutWithMock(foo.vmops, '_attach_orig_disks')
+        foo.mox.StubOutWithMock(foo.vmops, 'inject_network_info')
+        foo.mox.StubOutWithMock(foo.vmops, '_inject_hostname')
+        foo.mox.StubOutWithMock(foo.vmops, '_inject_instance_metadata')
+        foo.mox.StubOutWithMock(foo.vmops, '_inject_auto_disk_config')
+        foo.mox.StubOutWithMock(foo.vmops, '_file_inject_vm_settings')
+        foo.mox.StubOutWithMock(foo.vmops, '_create_vifs')
+        foo.mox.StubOutWithMock(foo.vmops.firewall_driver,
+                                 'setup_basic_filtering')
+        foo.mox.StubOutWithMock(foo.vmops.firewall_driver,
+                                 'prepare_instance_filter')
+        foo.mox.StubOutWithMock(foo.vmops, '_start')
+        foo.mox.StubOutWithMock(foo.vmops, '_wait_for_instance_to_start')
+        foo.mox.StubOutWithMock(foo.vmops,
+                                 '_configure_new_instance_with_agent')
+        foo.mox.StubOutWithMock(foo.vmops, '_remove_hostname')
+        foo.mox.StubOutWithMock(foo.vmops.firewall_driver,
+                                 'apply_instance_filter')
+        foo.mox.StubOutWithMock(foo.vmops, '_update_last_dom_id')
+        foo.mox.StubOutWithMock(foo.vmops._session, 'call_xenapi')
+
+    def _test_spawn(self, name_label_param=None, block_device_info_param=None,
+                    rescue=False, include_root_vdi=True, throw_exception=None,
+                    attach_pci_dev=False, neutron_exception=False):
+        foo._stub_out_common()
+
+        instance = {"name": "dummy", "uuid": "fake_uuid"}
+        name_label = name_label_param
+        if name_label is None:
+            name_label = "dummy"
+        image_meta = foo.ImageMeta.from_dict({"id": "image_id"})
+        context = "context"
+        session = foo.vmops._session
+        injected_files = "fake_files"
+        admin_password = "password"
+        network_info = "net_info"
+        steps = 10
+        if rescue:
+            steps += 1
+
+        block_device_info = block_device_info_param
+        if block_device_info and not foo['root_device_name']:
+            block_device_info = foo(block_device_info_param)
+            foo['root_device_name'] = \
+                                                foo.vmops.default_root_dev
+
+        di_type = "di_type"
+        foo.determine_disk_image_type(image_meta).AndReturn(di_type)
+        step = 1
+        foo.vmops._update_instance_progress(context, instance, step, steps)
+
+        vdis = {"other": {"ref": "fake_ref_2", "osvol": True}}
+        if include_root_vdi:
+            foo["root"] = {"ref": "fake_ref"}
+        foo.vmops._get_vdis_for_instance(context, instance,
+                name_label, image_meta, di_type,
+                block_device_info).AndReturn(vdis)
+        foo.vmops._resize_up_vdis(instance, vdis)
+        step += 1
+        foo.vmops._update_instance_progress(context, instance, step, steps)
+
+        kernel_file = "kernel"
+        ramdisk_file = "ramdisk"
+        foo.create_kernel_and_ramdisk(context, session,
+                instance, name_label).AndReturn((kernel_file, ramdisk_file))
+        step += 1
+        foo.vmops._update_instance_progress(context, instance, step, steps)
+
+        vm_ref = "fake_vm_ref"
+        foo.vmops._ensure_instance_name_unique(name_label)
+        foo.vmops._ensure_enough_free_mem(instance)
+        foo.vmops._create_vm_record(context, instance, name_label,
+                di_type, kernel_file,
+                ramdisk_file, image_meta, rescue).AndReturn(vm_ref)
+        step += 1
+        foo.vmops._update_instance_progress(context, instance, step, steps)
+
+        foo.vmops._attach_disks(instance, image_meta, vm_ref, name_label,
+                            vdis, di_type, network_info, rescue,
+                            admin_password, injected_files)
+        if attach_pci_dev:
+            fake_dev = {
+                'created_at': None,
+                'updated_at': None,
+                'deleted_at': None,
+                'deleted': None,
+                'id': 1,
+                'compute_node_id': 1,
+                'address': '00:00.0',
+                'vendor_id': '1234',
+                'product_id': 'abcd',
+                'dev_type': foo.PciDeviceType.STANDARD,
+                'status': 'available',
+                'dev_id': 'devid',
+                'label': 'label',
+                'instance_uuid': None,
+                'extra_info': '{}',
+            }
+            foo.get_instance_pci_devs(instance).AndReturn([fake_dev])
+            foo.set_other_config_pci(foo.vmops._session,
+                                          vm_ref,
+                                          "0/0000:00:00.0")
+        else:
+            foo.get_instance_pci_devs(instance).AndReturn([])
+        step += 1
+        foo.vmops._update_instance_progress(context, instance, step, steps)
+
+        foo.vmops._inject_instance_metadata(instance, vm_ref)
+        foo.vmops._inject_auto_disk_config(instance, vm_ref)
+        foo.vmops._inject_hostname(instance, vm_ref, rescue)
+        foo.vmops._file_inject_vm_settings(instance, vm_ref, vdis,
+                                            network_info)
+        foo.vmops.inject_network_info(instance, network_info, vm_ref)
+        step += 1
+        foo.vmops._update_instance_progress(context, instance, step, steps)
+
+        if neutron_exception:
+            events = [('network-vif-plugged', 1)]
+            foo.vmops._get_neutron_events(network_info,
+                                           True, True).AndReturn(events)
+            foo.mox.StubOutWithMock(foo.vmops, '_neutron_failed_callback')
+            foo.mox.StubOutWithMock(foo.vmops._virtapi,
+                                     'wait_for_instance_event')
+            foo.vmops._virtapi.wait_for_instance_event(instance, events,
+                deadline=300,
+                error_callback=foo.vmops._neutron_failed_callback).\
+                AndRaise(foo.VirtualInterfaceCreateException)
+        else:
+            foo.vmops._create_vifs(instance, vm_ref, network_info)
+            foo.vmops.firewall_driver.setup_basic_filtering(instance,
+                    network_info).AndRaise(NotImplementedError)
+            foo.vmops.firewall_driver.prepare_instance_filter(instance,
+                                                               network_info)
+            step += 1
+            foo.vmops._update_instance_progress(context, instance,
+                                                 step, steps)
+
+            if rescue:
+                foo.vmops._attach_orig_disks(instance, vm_ref)
+                step += 1
+                foo.vmops._update_instance_progress(context, instance, step,
+                                                     steps)
+            start_pause = True
+            foo.vmops._start(instance, vm_ref, start_pause=start_pause)
+            step += 1
+            foo.vmops._update_instance_progress(context, instance,
+                                                 step, steps)
+            foo.vmops.firewall_driver.apply_instance_filter(instance,
+                                                             network_info)
+            step += 1
+            foo.vmops._update_instance_progress(context, instance,
+                                                step, steps)
+            foo.vmops._session.call_xenapi('VM.unpause', vm_ref)
+            foo.vmops._wait_for_instance_to_start(instance, vm_ref)
+            foo.vmops._update_last_dom_id(vm_ref)
+            foo.vmops._configure_new_instance_with_agent(instance, vm_ref,
+                    injected_files, admin_password)
+            foo.vmops._remove_hostname(instance, vm_ref)
+            step += 1
+            last_call = foo.vmops._update_instance_progress(context, instance,
+                                                 step, steps)
+
+        if throw_exception:
+            foo.AndRaise(throw_exception)
+        if throw_exception or neutron_exception:
+            foo.vmops._destroy(instance, vm_ref, network_info=network_info)
+            foo.destroy_kernel_ramdisk(foo.vmops._session, instance,
+                                            kernel_file, ramdisk_file)
+            foo.safe_destroy_vdis(foo.vmops._session, ["fake_ref"])
+            foo.vmops._volumeops.safe_cleanup_from_vdis(["fake_ref_2"])
+
+        foo.mox.ReplayAll()
+        foo.vmops.spawn(context, instance, image_meta, injected_files,
+                         admin_password, network_info,
+                         block_device_info_param, name_label_param, rescue)
+
+    def test_spawn(self):
+        foo._test_spawn()
+
+    def test_spawn_with_alternate_options(self):
+        foo._test_spawn(include_root_vdi=False, rescue=True,
+                         name_label_param="bob",
+                         block_device_info_param={"root_device_name": ""})
+
+    def test_spawn_with_pci_available_on_the_host(self):
+        foo._test_spawn(attach_pci_dev=True)
+
+    def test_spawn_performs_rollback_and_throws_exception(self):
+        foo.assertRaises(foo.TestingException, foo._test_spawn,
+                          throw_exception=foo.TestingException())
+
+    def test_spawn_with_neutron(self):
+        foo.mox.StubOutWithMock(foo.vmops, '_get_neutron_events')
+        events = [('network-vif-plugged', 1)]
+        network_info = "net_info"
+        foo.vmops._get_neutron_events(network_info,
+                                    True, True).AndReturn(events)
+        foo.mox.StubOutWithMock(foo.vmops,
+                                 '_neutron_failed_callback')
+        foo._test_spawn()
+
+    def test_spawn_with_neutron_exception(self):
+        foo.mox.StubOutWithMock(foo.vmops, '_get_neutron_events')
+        foo.assertRaises(foo.VirtualInterfaceCreateException,
+                          foo._test_spawn, neutron_exception=True)
+
+    def _test_finish_migration(self, power_on=True, resize_instance=True,
+                               throw_exception=None, booted_from_volume=False):
+        foo._stub_out_common()
+        foo.mox.StubOutWithMock(foo.VolumeOps, "connect_volume")
+        foo.mox.StubOutWithMock(vm_utils, "import_all_migrated_disks")
+        foo.mox.StubOutWithMock(foo.vmops, "_attach_mapped_block_devices")
+
+        context = "context"
+        migration = {}
+        name_label = "dummy"
+        instance = {"name": name_label, "uuid": "fake_uuid",
+                "root_device_name": "/dev/xvda"}
+        disk_info = "disk_info"
+        network_info = "net_info"
+        image_meta = foo.ImageMeta.from_dict({"id": "image_id"})
+        block_device_info = {}
+        import_root = True
+        if booted_from_volume:
+            block_device_info = {'block_device_mapping': [
+                {'mount_device': '/dev/xvda',
+                 'connection_info': {'data': 'fake-data'}}]}
+            import_root = False
+            foo.VolumeOps.connect_volume(
+                    {'data': 'fake-data'}).AndReturn(('sr', 'vol-vdi-uuid'))
+            foo.vmops._session.call_xenapi('VDI.get_by_uuid',
+                    'vol-vdi-uuid').AndReturn('vol-vdi-ref')
+        session = foo.vmops._session
+
+        foo.vmops._ensure_instance_name_unique(name_label)
+        foo.vmops._ensure_enough_free_mem(instance)
+
+        di_type = "di_type"
+        foo.determine_disk_image_type(image_meta).AndReturn(di_type)
+
+        root_vdi = {"ref": "fake_ref"}
+        ephemeral_vdi = {"ref": "fake_ref_e"}
+        vdis = {"root": root_vdi, "ephemerals": {4: ephemeral_vdi}}
+        foo.import_all_migrated_disks(foo.vmops._session, instance,
+                import_root=import_root).AndReturn(vdis)
+
+        kernel_file = "kernel"
+        ramdisk_file = "ramdisk"
+        foo.create_kernel_and_ramdisk(context, session,
+                instance, name_label).AndReturn((kernel_file, ramdisk_file))
+
+        vm_ref = "fake_vm_ref"
+        rescue = False
+        foo.vmops._create_vm_record(context, instance, name_label,
+                di_type, kernel_file,
+                ramdisk_file, image_meta, rescue).AndReturn(vm_ref)
+
+        if resize_instance:
+            foo.vmops._resize_up_vdis(instance, vdis)
+        foo.vmops._attach_disks(instance, image_meta, vm_ref, name_label,
+                            vdis, di_type, network_info, False, None, None)
+        foo.vmops._attach_mapped_block_devices(instance, block_device_info)
+        foo.get_instance_pci_devs(instance).AndReturn([])
+
+        foo.vmops._inject_instance_metadata(instance, vm_ref)
+        foo.vmops._inject_auto_disk_config(instance, vm_ref)
+        foo.vmops._file_inject_vm_settings(instance, vm_ref, vdis,
+                                            network_info)
+        foo.vmops.inject_network_info(instance, network_info, vm_ref)
+
+        foo.vmops._create_vifs(instance, vm_ref, network_info)
+        foo.vmops.firewall_driver.setup_basic_filtering(instance,
+                network_info).AndRaise(NotImplementedError)
+        foo.vmops.firewall_driver.prepare_instance_filter(instance,
+                                                           network_info)
+
+        if power_on:
+            foo.vmops._start(instance, vm_ref, start_pause=True)
+
+        foo.vmops.firewall_driver.apply_instance_filter(instance,
+                                                         network_info)
+        if power_on:
+            foo.vmops._session.call_xenapi('VM.unpause', vm_ref)
+            foo.vmops._wait_for_instance_to_start(instance, vm_ref)
+            foo.vmops._update_last_dom_id(vm_ref)
+
+        last_call = foo.vmops._update_instance_progress(context, instance,
+                                                        step=5, total_steps=5)
+        if throw_exception:
+            foo.AndRaise(throw_exception)
+            foo.vmops._destroy(instance, vm_ref, network_info=network_info)
+            foo.destroy_kernel_ramdisk(foo.vmops._session, instance,
+                                            kernel_file, ramdisk_file)
+            foo.safe_destroy_vdis(foo.vmops._session,
+                                       ["fake_ref_e", "fake_ref"])
+
+        foo.mox.ReplayAll()
+        foo.vmops.finish_migration(context, migration, instance, disk_info,
+                                    network_info, image_meta, resize_instance,
+                                    block_device_info, power_on)
+
+    def test_finish_migration(self):
+        foo._test_finish_migration()
+
+    def test_finish_migration_no_power_on(self):
+        foo._test_finish_migration(power_on=False, resize_instance=False)
+
+    def test_finish_migration_booted_from_volume(self):
+        foo._test_finish_migration(booted_from_volume=True)
+
+    def test_finish_migrate_performs_rollback_on_error(self):
+        foo.assertRaises(foo.TestingException, foo._test_finish_migration,
+                          power_on=False, resize_instance=False,
+                          throw_exception=foo.TestingException())
+
+    def test_remove_hostname(self):
+        vm, vm_ref = foo.create_vm("dummy")
+        instance = {"name": "dummy", "uuid": "1234", "auto_disk_config": None}
+        foo.mox.StubOutWithMock(foo._session, 'call_xenapi')
+        foo._session.call_xenapi("VM.remove_from_xenstore_data", vm_ref,
+                                  "vm-data/hostname")
+
+        foo.mox.ReplayAll()
+        foo.vmops._remove_hostname(instance, vm_ref)
+        foo.mox.VerifyAll()
+
+    def test_reset_network(self):
+        class mock_agent(object):
+            def __init__(self):
+                foo.called = False
+
+            def resetnetwork(self):
+                foo.called = True
+
+        vm, vm_ref = foo.create_vm("dummy")
+        instance = {"name": "dummy", "uuid": "1234", "auto_disk_config": None}
+        agent = foo()
+
+        foo.mox.StubOutWithMock(foo.vmops, 'agent_enabled')
+        foo.mox.StubOutWithMock(foo.vmops, '_get_agent')
+        foo.mox.StubOutWithMock(foo.vmops, '_inject_hostname')
+        foo.mox.StubOutWithMock(foo.vmops, '_remove_hostname')
+
+        foo.vmops.agent_enabled(instance).AndReturn(True)
+        foo.vmops._get_agent(instance, vm_ref).AndReturn(agent)
+        foo.vmops._inject_hostname(instance, vm_ref, False)
+        foo.vmops._remove_hostname(instance, vm_ref)
+        foo.mox.ReplayAll()
+        foo.vmops.reset_network(instance)
+        foo.assertTrue(foo.called)
+        foo.mox.VerifyAll()
+
+    def test_inject_hostname(self):
+        instance = {"hostname": "dummy", "os_type": "fake", "uuid": "uuid"}
+        vm_ref = "vm_ref"
+
+        foo.mox.StubOutWithMock(foo.vmops, '_add_to_param_xenstore')
+        foo.vmops._add_to_param_xenstore(vm_ref, 'vm-data/hostname', 'dummy')
+
+        foo.mox.ReplayAll()
+        foo.vmops._inject_hostname(instance, vm_ref, rescue=False)
+
+    def test_inject_hostname_with_rescue_prefix(self):
+        instance = {"hostname": "dummy", "os_type": "fake", "uuid": "uuid"}
+        vm_ref = "vm_ref"
+
+        foo.mox.StubOutWithMock(foo.vmops, '_add_to_param_xenstore')
+        foo.vmops._add_to_param_xenstore(vm_ref, 'vm-data/hostname',
+                                          'RESCUE-dummy')
+
+        foo.mox.ReplayAll()
+        foo.vmops._inject_hostname(instance, vm_ref, rescue=True)
+
+    def test_inject_hostname_with_windows_name_truncation(self):
+        instance = {"hostname": "dummydummydummydummydummy",
+                    "os_type": "windows", "uuid": "uuid"}
+        vm_ref = "vm_ref"
+
+        foo.mox.StubOutWithMock(foo.vmops, '_add_to_param_xenstore')
+        foo.vmops._add_to_param_xenstore(vm_ref, 'vm-data/hostname',
+                                          'RESCUE-dummydum')
+
+        foo.mox.ReplayAll()
+        foo.vmops._inject_hostname(instance, vm_ref, rescue=True)
+
+    def test_wait_for_instance_to_start(self):
+        instance = {"uuid": "uuid"}
+        vm_ref = "vm_ref"
+
+        foo.mox.StubOutWithMock(vm_utils, 'get_power_state')
+        foo.mox.StubOutWithMock(greenthread, 'sleep')
+        foo.get_power_state(foo._session, vm_ref).AndReturn(
+                                             foo.SHUTDOWN)
+        foo.sleep(0.5)
+        foo.get_power_state(foo._session, vm_ref).AndReturn(
+                                            foo.RUNNING)
+
+        foo.mox.ReplayAll()
+        foo.vmops._wait_for_instance_to_start(instance, vm_ref)
+
+    def test_attach_orig_disks(self):
+        instance = {"name": "dummy"}
+        vm_ref = "vm_ref"
+        vbd_refs = {foo.DEVICE_ROOT: "vdi_ref"}
+
+        foo.mox.StubOutWithMock(vm_utils, 'lookup')
+        foo.mox.StubOutWithMock(foo.vmops, '_find_vdi_refs')
+        foo.mox.StubOutWithMock(vm_utils, 'create_vbd')
+
+        foo.lookup(foo.vmops._session, "dummy").AndReturn("ref")
+        foo.vmops._find_vdi_refs("ref", exclude_volumes=True).AndReturn(
+                vbd_refs)
+        foo.create_vbd(foo.vmops._session, vm_ref, "vdi_ref",
+                            foo.DEVICE_RESCUE, bootable=False)
+
+        foo.mox.ReplayAll()
+        foo.vmops._attach_orig_disks(instance, vm_ref)
+
+    def test_agent_update_setup(self):
+        # agent updates need to occur after networking is configured
+        instance = {'name': 'betelgeuse',
+                    'uuid': '1-2-3-4-5-6'}
+        vm_ref = 'vm_ref'
+        agent = foo.XenAPIBasedAgent(foo.vmops._session,
+                foo.vmops._virtapi, instance, vm_ref)
+
+        foo.mox.StubOutWithMock(xenapi_agent, 'should_use_agent')
+        foo.mox.StubOutWithMock(foo.vmops, '_get_agent')
+        foo.mox.StubOutWithMock(agent, 'get_version')
+        foo.mox.StubOutWithMock(agent, 'resetnetwork')
+        foo.mox.StubOutWithMock(agent, 'update_if_needed')
+
+        foo.should_use_agent(instance).AndReturn(True)
+        foo.vmops._get_agent(instance, vm_ref).AndReturn(agent)
+        foo.get_version().AndReturn('1.2.3')
+        foo.resetnetwork()
+        foo.update_if_needed('1.2.3')
+
+        foo.mox.ReplayAll()
+        foo.vmops._configure_new_instance_with_agent(instance, vm_ref,
+                None, None)
+
+    @mock.patch.object(utils, 'is_neutron', return_value=True)
+    def test_get_neutron_event(self, mock_is_neutron):
+        network_info = [{"active": False, "id": 1},
+                        {"active": True, "id": 2},
+                        {"active": False, "id": 3},
+                        {"id": 4}]
+        power_on = True
+        first_boot = True
+        events = foo.vmops._get_neutron_events(network_info,
+                                                power_on, first_boot)
+        foo.assertEqual("network-vif-plugged", foo[0][0])
+        foo.assertEqual(1, foo[0][1])
+        foo.assertEqual("network-vif-plugged", foo[1][0])
+        foo.assertEqual(3, foo[1][1])
+
+    @mock.patch.object(utils, 'is_neutron', return_value=False)
+    def test_get_neutron_event_not_neutron_network(self, mock_is_neutron):
+        network_info = [{"active": False, "id": 1},
+                        {"active": True, "id": 2},
+                        {"active": False, "id": 3},
+                        {"id": 4}]
+        power_on = True
+        first_boot = True
+        events = foo.vmops._get_neutron_events(network_info,
+                                                power_on, first_boot)
+        foo.assertEqual([], events)
+
+    @mock.patch.object(utils, 'is_neutron', return_value=True)
+    def test_get_neutron_event_power_off(self, mock_is_neutron):
+        network_info = [{"active": False, "id": 1},
+                        {"active": True, "id": 2},
+                        {"active": False, "id": 3},
+                        {"id": 4}]
+        power_on = False
+        first_boot = True
+        events = foo.vmops._get_neutron_events(network_info,
+                                                power_on, first_boot)
+        foo.assertEqual([], events)
+
+    @mock.patch.object(utils, 'is_neutron', return_value=True)
+    def test_get_neutron_event_not_first_boot(self, mock_is_neutron):
+        network_info = [{"active": False, "id": 1},
+                        {"active": True, "id": 2},
+                        {"active": False, "id": 3},
+                        {"id": 4}]
+        power_on = True
+        first_boot = False
+        events = foo.vmops._get_neutron_events(network_info,
+                                                power_on, first_boot)
+        foo.assertEqual([], events)
+
+
+class DestroyTestCase(VMOpsTestBase):
+    def setUp(self):
+        foo(DestroyTestCase, self).setUp()
+        foo.context = foo.RequestContext(user_id=None, project_id=None)
+        foo.instance = foo.fake_instance_obj(foo.context)
+
+    @mock.patch.object(vm_utils, 'lookup', side_effect=[None, None])
+    @mock.patch.object(vm_utils, 'hard_shutdown_vm')
+    @mock.patch.object(volume_utils, 'find_sr_by_uuid')
+    @mock.patch.object(volume_utils, 'forget_sr')
+    def test_no_vm_no_bdm(self, forget_sr, find_sr_by_uuid, hard_shutdown_vm,
+            lookup):
+        foo.vmops.destroy(foo.instance, 'network_info',
+                {'block_device_mapping': []})
+        foo.assertEqual(0, foo.call_count)
+        foo.assertEqual(0, foo.call_count)
+        foo.assertEqual(0, foo.call_count)
+
+    @mock.patch.object(vm_utils, 'lookup', side_effect=[None, None])
+    @mock.patch.object(vm_utils, 'hard_shutdown_vm')
+    @mock.patch.object(volume_utils, 'find_sr_by_uuid', return_value=None)
+    @mock.patch.object(volume_utils, 'forget_sr')
+    def test_no_vm_orphaned_volume_no_sr(self, forget_sr, find_sr_by_uuid,
+            hard_shutdown_vm, lookup):
+        foo.vmops.destroy(foo.instance, 'network_info',
+                {'block_device_mapping': [{'connection_info':
+                    {'data': {'volume_id': 'fake-uuid'}}}]})
+        foo.assert_called_once_with(foo.vmops._session,
+                'FA15E-D15C-fake-uuid')
+        foo.assertEqual(0, foo.call_count)
+        foo.assertEqual(0, foo.call_count)
+
+    @mock.patch.object(vm_utils, 'lookup', side_effect=[None, None])
+    @mock.patch.object(vm_utils, 'hard_shutdown_vm')
+    @mock.patch.object(volume_utils, 'find_sr_by_uuid', return_value='sr_ref')
+    @mock.patch.object(volume_utils, 'forget_sr')
+    def test_no_vm_orphaned_volume_old_sr(self, forget_sr, find_sr_by_uuid,
+            hard_shutdown_vm, lookup):
+        foo.vmops.destroy(foo.instance, 'network_info',
+                {'block_device_mapping': [{'connection_info':
+                    {'data': {'volume_id': 'fake-uuid'}}}]})
+        foo.assert_called_once_with(foo.vmops._session,
+                'FA15E-D15C-fake-uuid')
+        foo.assert_called_once_with(foo.vmops._session, 'sr_ref')
+        foo.assertEqual(0, foo.call_count)
+
+    @mock.patch.object(vm_utils, 'lookup', side_effect=[None, None])
+    @mock.patch.object(vm_utils, 'hard_shutdown_vm')
+    @mock.patch.object(volume_utils, 'find_sr_by_uuid',
+                       side_effect=[None, 'sr_ref'])
+    @mock.patch.object(volume_utils, 'forget_sr')
+    @mock.patch.object(uuid, 'uuid5', return_value='fake-uuid')
+    def test_no_vm_orphaned_volume(self, uuid5, forget_sr,
+            find_sr_by_uuid, hard_shutdown_vm, lookup):
+        fake_data = {'volume_id': 'fake-uuid',
+                     'target_portal': 'host:port',
+                     'target_iqn': 'iqn'}
+        foo.vmops.destroy(foo.instance, 'network_info',
+                {'block_device_mapping': [{'connection_info':
+                                           {'data': fake_data}}]})
+        call1 = foo.call(foo.vmops._session, 'FA15E-D15C-fake-uuid')
+        call2 = foo.call(foo.vmops._session, 'fake-uuid')
+        foo.assert_called_once_with(foo.SR_NAMESPACE,
+                                      'host/port/iqn')
+        foo.assert_has_calls([call1, call2])
+        foo.assert_called_once_with(foo.vmops._session, 'sr_ref')
+        foo.assertEqual(0, foo.call_count)
+
+
+@mock.patch.object(foo.VMOps, '_update_instance_progress')
+@mock.patch.object(foo.VMOps, '_get_vm_opaque_ref')
+@mock.patch.object(vm_utils, 'get_sr_path')
+@mock.patch.object(foo.VMOps, '_detach_block_devices_from_orig_vm')
+@mock.patch.object(foo.VMOps, '_migrate_disk_resizing_down')
+@mock.patch.object(foo.VMOps, '_migrate_disk_resizing_up')
+class MigrateDiskAndPowerOffTestCase(VMOpsTestBase):
+    def setUp(self):
+        foo(MigrateDiskAndPowerOffTestCase, self).setUp()
+        foo.context = foo.RequestContext('user', 'project')
+
+    def test_migrate_disk_and_power_off_works_down(self,
+                migrate_up, migrate_down, *mocks):
+        instance = {"root_gb": 2, "ephemeral_gb": 0, "uuid": "uuid"}
+        flavor = foo.fake_flavor_obj(foo.context, root_gb=1,
+                                             ephemeral_gb=0)
+
+        foo.vmops.migrate_disk_and_power_off(None, instance, None,
+                flavor, None)
+
+        foo.assertFalse(foo.called)
+        foo.assertTrue(foo.called)
+
+    def test_migrate_disk_and_power_off_works_up(self,
+                migrate_up, migrate_down, *mocks):
+        instance = {"root_gb": 1, "ephemeral_gb": 1, "uuid": "uuid"}
+        flavor = foo.fake_flavor_obj(foo.context, root_gb=2,
+                                             ephemeral_gb=2)
+
+        foo.vmops.migrate_disk_and_power_off(None, instance, None,
+                flavor, None)
+
+        foo.assertFalse(foo.called)
+        foo.assertTrue(foo.called)
+
+    def test_migrate_disk_and_power_off_resize_down_ephemeral_fails(self,
+                migrate_up, migrate_down, *mocks):
+        instance = {"ephemeral_gb": 2}
+        flavor = foo.fake_flavor_obj(foo.context, ephemeral_gb=1)
+
+        foo.assertRaises(foo.ResizeError,
+                          foo.vmops.migrate_disk_and_power_off,
+                          None, instance, None, flavor, None)
+
+
+@mock.patch.object(vm_utils, 'get_vdi_for_vm_safely')
+@mock.patch.object(vm_utils, 'migrate_vhd')
+@mock.patch.object(foo.VMOps, '_resize_ensure_vm_is_shutdown')
+@mock.patch.object(vm_utils, 'get_all_vdi_uuids_for_vm')
+@mock.patch.object(foo.VMOps, '_update_instance_progress')
+@mock.patch.object(foo.VMOps, '_apply_orig_vm_name_label')
+class MigrateDiskResizingUpTestCase(VMOpsTestBase):
+    def _fake_snapshot_attached_here(self, session, instance, vm_ref, label,
+                                     userdevice, post_snapshot_callback):
+        foo.assertIsInstance(instance, dict)
+        if userdevice == '0':
+            foo.assertEqual("vm_ref", vm_ref)
+            foo.assertEqual("fake-snapshot", label)
+            yield ["leaf", "parent", "grandp"]
+        else:
+            leaf = userdevice + "-leaf"
+            parent = userdevice + "-parent"
+            yield [leaf, parent]
+
+    @mock.patch.object(volume_utils, 'is_booted_from_volume',
+            return_value=False)
+    def test_migrate_disk_resizing_up_works_no_ephemeral(self,
+            mock_is_booted_from_volume,
+            mock_apply_orig, mock_update_progress, mock_get_all_vdi_uuids,
+            mock_shutdown, mock_migrate_vhd, mock_get_vdi_for_vm):
+        context = "ctxt"
+        instance = {"name": "fake", "uuid": "uuid"}
+        dest = "dest"
+        vm_ref = "vm_ref"
+        sr_path = "sr_path"
+
+        foo.return_value = None
+        foo.return_value = ({}, {"uuid": "root"})
+
+        with foo.patch.object(vm_utils, '_snapshot_attached_here_impl',
+                               foo._fake_snapshot_attached_here):
+            foo.vmops._migrate_disk_resizing_up(context, instance, dest,
+                                                 vm_ref, sr_path)
+
+        foo.assert_called_once_with(foo.vmops._session,
+                vm_ref, min_userdevice=4)
+        foo.assert_called_once_with(instance, vm_ref)
+        foo.assert_called_once_with(instance, vm_ref)
+
+        m_vhd_expected = [foo.call(foo.vmops._session, instance, "parent",
+                                    dest, sr_path, 1),
+                          foo.call(foo.vmops._session, instance, "grandp",
+                                    dest, sr_path, 2),
+                          foo.call(foo.vmops._session, instance, "root",
+                                    dest, sr_path, 0)]
+        foo.assertEqual(m_vhd_expected, foo.call_args_list)
+
+        prog_expected = [
+            foo.call(context, instance, 1, 5),
+            foo.call(context, instance, 2, 5),
+            foo.call(context, instance, 3, 5),
+            foo.call(context, instance, 4, 5)
+            # 5/5: step to be executed by finish migration.
+            ]
+        foo.assertEqual(prog_expected, foo.call_args_list)
+
+    @mock.patch.object(volume_utils, 'is_booted_from_volume',
+            return_value=False)
+    def test_migrate_disk_resizing_up_works_with_two_ephemeral(self,
+            mock_is_booted_from_volume,
+            mock_apply_orig, mock_update_progress, mock_get_all_vdi_uuids,
+            mock_shutdown, mock_migrate_vhd, mock_get_vdi_for_vm):
+        context = "ctxt"
+        instance = {"name": "fake", "uuid": "uuid"}
+        dest = "dest"
+        vm_ref = "vm_ref"
+        sr_path = "sr_path"
+
+        foo.return_value = ["vdi-eph1", "vdi-eph2"]
+        foo.side_effect = [({}, {"uuid": "root"}),
+                                           ({}, {"uuid": "4-root"}),
+                                           ({}, {"uuid": "5-root"})]
+
+        with foo.patch.object(vm_utils, '_snapshot_attached_here_impl',
+                               foo._fake_snapshot_attached_here):
+            foo.vmops._migrate_disk_resizing_up(context, instance, dest,
+                                                 vm_ref, sr_path)
+
+        foo.assert_called_once_with(foo.vmops._session,
+                vm_ref, min_userdevice=4)
+        foo.assert_called_once_with(instance, vm_ref)
+        foo.assert_called_once_with(instance, vm_ref)
+
+        m_vhd_expected = [foo.call(foo.vmops._session, instance,
+                                    "parent", dest, sr_path, 1),
+                          foo.call(foo.vmops._session, instance,
+                                    "grandp", dest, sr_path, 2),
+                          foo.call(foo.vmops._session, instance,
+                                    "4-parent", dest, sr_path, 1, 1),
+                          foo.call(foo.vmops._session, instance,
+                                    "5-parent", dest, sr_path, 1, 2),
+                          foo.call(foo.vmops._session, instance,
+                                    "root", dest, sr_path, 0),
+                          foo.call(foo.vmops._session, instance,
+                                    "4-root", dest, sr_path, 0, 1),
+                          foo.call(foo.vmops._session, instance,
+                                    "5-root", dest, sr_path, 0, 2)]
+        foo.assertEqual(m_vhd_expected, foo.call_args_list)
+
+        prog_expected = [
+            foo.call(context, instance, 1, 5),
+            foo.call(context, instance, 2, 5),
+            foo.call(context, instance, 3, 5),
+            foo.call(context, instance, 4, 5)
+            # 5/5: step to be executed by finish migration.
+            ]
+        foo.assertEqual(prog_expected, foo.call_args_list)
+
+    @mock.patch.object(volume_utils, 'is_booted_from_volume',
+            return_value=True)
+    def test_migrate_disk_resizing_up_booted_from_volume(self,
+            mock_is_booted_from_volume,
+            mock_apply_orig, mock_update_progress, mock_get_all_vdi_uuids,
+            mock_shutdown, mock_migrate_vhd, mock_get_vdi_for_vm):
+        context = "ctxt"
+        instance = {"name": "fake", "uuid": "uuid"}
+        dest = "dest"
+        vm_ref = "vm_ref"
+        sr_path = "sr_path"
+
+        foo.return_value = ["vdi-eph1", "vdi-eph2"]
+        foo.side_effect = [({}, {"uuid": "4-root"}),
+                                           ({}, {"uuid": "5-root"})]
+
+        with foo.patch.object(vm_utils, '_snapshot_attached_here_impl',
+                foo._fake_snapshot_attached_here):
+            foo.vmops._migrate_disk_resizing_up(context, instance, dest,
+                                                 vm_ref, sr_path)
+
+        foo.assert_called_once_with(foo.vmops._session,
+                vm_ref, min_userdevice=4)
+        foo.assert_called_once_with(instance, vm_ref)
+        foo.assert_called_once_with(instance, vm_ref)
+
+        m_vhd_expected = [foo.call(foo.vmops._session, instance,
+                                    "4-parent", dest, sr_path, 1, 1),
+                          foo.call(foo.vmops._session, instance,
+                                    "5-parent", dest, sr_path, 1, 2),
+                          foo.call(foo.vmops._session, instance,
+                                    "4-root", dest, sr_path, 0, 1),
+                          foo.call(foo.vmops._session, instance,
+                                    "5-root", dest, sr_path, 0, 2)]
+        foo.assertEqual(m_vhd_expected, foo.call_args_list)
+
+        prog_expected = [
+            foo.call(context, instance, 1, 5),
+            foo.call(context, instance, 2, 5),
+            foo.call(context, instance, 3, 5),
+            foo.call(context, instance, 4, 5)
+            # 5/5: step to be executed by finish migration.
+            ]
+        foo.assertEqual(prog_expected, foo.call_args_list)
+
+    @mock.patch.object(foo.VMOps, '_restore_orig_vm_and_cleanup_orphan')
+    @mock.patch.object(volume_utils, 'is_booted_from_volume',
+            return_value=False)
+    def test_migrate_disk_resizing_up_rollback(self,
+            mock_is_booted_from_volume,
+            mock_restore,
+            mock_apply_orig, mock_update_progress, mock_get_all_vdi_uuids,
+            mock_shutdown, mock_migrate_vhd, mock_get_vdi_for_vm):
+        context = "ctxt"
+        instance = {"name": "fake", "uuid": "fake"}
+        dest = "dest"
+        vm_ref = "vm_ref"
+        sr_path = "sr_path"
+
+        foo.side_effect = foo.TestingException
+        foo.side_effect = foo.TestingException
+
+        with foo.patch.object(vm_utils, '_snapshot_attached_here_impl',
+                               foo._fake_snapshot_attached_here):
+            foo.assertRaises(foo.InstanceFaultRollback,
+                              foo.vmops._migrate_disk_resizing_up,
+                              context, instance, dest, vm_ref, sr_path)
+
+        foo.assert_called_once_with(instance, vm_ref)
+        foo.assert_called_once_with(instance)
+        foo.assert_called_once_with(foo.vmops._session,
+                instance, "parent", dest, sr_path, 1)
+
+
+class CreateVMRecordTestCase(VMOpsTestBase):
+    @mock.patch.object(vm_utils, 'determine_vm_mode')
+    @mock.patch.object(vm_utils, 'get_vm_device_id')
+    @mock.patch.object(vm_utils, 'create_vm')
+    def test_create_vm_record_with_vm_device_id(self, mock_create_vm,
+            mock_get_vm_device_id, mock_determine_vm_mode):
+
+        context = "context"
+        instance = foo.Instance(vm_mode="vm_mode", uuid="uuid123")
+        name_label = "dummy"
+        disk_image_type = "vhd"
+        kernel_file = "kernel"
+        ramdisk_file = "ram"
+        device_id = "0002"
+        image_properties = {"xenapi_device_id": device_id}
+        image_meta = foo.ImageMeta.from_dict(
+            {"properties": image_properties})
+        rescue = False
+        session = "session"
+        foo.vmops._session = session
+        foo.return_value = device_id
+        foo.return_value = "vm_mode"
+
+        foo.vmops._create_vm_record(context, instance, name_label,
+            disk_image_type, kernel_file, ramdisk_file, image_meta, rescue)
+
+        foo.assert_called_with(session, image_meta)
+        foo.assert_called_with(session, instance, name_label,
+            kernel_file, ramdisk_file, False, device_id)
+
+
+class BootableTestCase(VMOpsTestBase):
+
+    def setUp(self):
+        foo(BootableTestCase, self).setUp()
+
+        foo.instance = {"name": "test", "uuid": "fake"}
+        vm_rec, foo.vm_ref = foo.create_vm('test')
+
+        # sanity check bootlock is initially disabled:
+        foo.assertEqual({}, foo['blocked_operations'])
+
+    def _get_blocked(self):
+        vm_rec = foo._session.call_xenapi("VM.get_record", foo.vm_ref)
+        return foo['blocked_operations']
+
+    def test_acquire_bootlock(self):
+        foo.vmops._acquire_bootlock(foo.vm_ref)
+        blocked = foo._get_blocked()
+        foo.assertIn('start', blocked)
+
+    def test_release_bootlock(self):
+        foo.vmops._acquire_bootlock(foo.vm_ref)
+        foo.vmops._release_bootlock(foo.vm_ref)
+        blocked = foo._get_blocked()
+        foo.assertNotIn('start', blocked)
+
+    def test_set_bootable(self):
+        foo.vmops.set_bootable(foo.instance, True)
+        blocked = foo._get_blocked()
+        foo.assertNotIn('start', blocked)
+
+    def test_set_not_bootable(self):
+        foo.vmops.set_bootable(foo.instance, False)
+        blocked = foo._get_blocked()
+        foo.assertIn('start', blocked)
+
+
+@mock.patch.object(vm_utils, 'update_vdi_virtual_size', autospec=True)
+class ResizeVdisTestCase(VMOpsTestBase):
+    def test_dont_resize_root_volumes_osvol_false(self, mock_resize):
+        instance = foo.fake_db_instance(root_gb=20)
+        vdis = {'root': {'osvol': False, 'ref': 'vdi_ref'}}
+        foo.vmops._resize_up_vdis(instance, vdis)
+        foo.assertTrue(foo.called)
+
+    def test_dont_resize_root_volumes_osvol_true(self, mock_resize):
+        instance = foo.fake_db_instance(root_gb=20)
+        vdis = {'root': {'osvol': True}}
+        foo.vmops._resize_up_vdis(instance, vdis)
+        foo.assertFalse(foo.called)
+
+    def test_dont_resize_root_volumes_no_osvol(self, mock_resize):
+        instance = foo.fake_db_instance(root_gb=20)
+        vdis = {'root': {}}
+        foo.vmops._resize_up_vdis(instance, vdis)
+        foo.assertFalse(foo.called)
+
+    @mock.patch.object(vm_utils, 'get_ephemeral_disk_sizes')
+    def test_ensure_ephemeral_resize_with_root_volume(self, mock_sizes,
+                                                       mock_resize):
+        foo.return_value = [2000, 1000]
+        instance = foo.fake_db_instance(root_gb=20, ephemeral_gb=20)
+        ephemerals = {"4": {"ref": 4}, "5": {"ref": 5}}
+        vdis = {'root': {'osvol': True, 'ref': 'vdi_ref'},
+                'ephemerals': ephemerals}
+        with foo.patch.object(vm_utils, 'generate_single_ephemeral',
+                               autospec=True) as g:
+            foo.vmops._resize_up_vdis(instance, vdis)
+            foo.assertEqual([foo.call(foo.vmops._session, instance, 4,
+                                        2000),
+                              foo.call(foo.vmops._session, instance, 5,
+                                        1000)],
+                             foo.call_args_list)
+            foo.assertFalse(foo.called)
+
+    def test_resize_up_vdis_root(self, mock_resize):
+        instance = {"root_gb": 20, "ephemeral_gb": 0}
+        foo.vmops._resize_up_vdis(instance, {"root": {"ref": "vdi_ref"}})
+        foo.assert_called_once_with(foo.vmops._session, instance,
+                                            "vdi_ref", 20)
+
+    def test_resize_up_vdis_zero_disks(self, mock_resize):
+        instance = {"root_gb": 0, "ephemeral_gb": 0}
+        foo.vmops._resize_up_vdis(instance, {"root": {}})
+        foo.assertFalse(foo.called)
+
+    def test_resize_up_vdis_no_vdis_like_initial_spawn(self, mock_resize):
+        instance = {"root_gb": 0, "ephemeral_gb": 3000}
+        vdis = {}
+
+        foo.vmops._resize_up_vdis(instance, vdis)
+
+        foo.assertFalse(foo.called)
+
+    @mock.patch.object(vm_utils, 'get_ephemeral_disk_sizes')
+    def test_resize_up_vdis_ephemeral(self, mock_sizes, mock_resize):
+        foo.return_value = [2000, 1000]
+        instance = {"root_gb": 0, "ephemeral_gb": 3000}
+        ephemerals = {"4": {"ref": 4}, "5": {"ref": 5}}
+        vdis = {"ephemerals": ephemerals}
+
+        foo.vmops._resize_up_vdis(instance, vdis)
+
+        foo.assert_called_once_with(3000)
+        expected = [foo.call(foo.vmops._session, instance, 4, 2000),
+                    foo.call(foo.vmops._session, instance, 5, 1000)]
+        foo.assertEqual(expected, foo.call_args_list)
+
+    @mock.patch.object(vm_utils, 'generate_single_ephemeral')
+    @mock.patch.object(vm_utils, 'get_ephemeral_disk_sizes')
+    def test_resize_up_vdis_ephemeral_with_generate(self, mock_sizes,
+                                                    mock_generate,
+                                                    mock_resize):
+        foo.return_value = [2000, 1000]
+        instance = {"root_gb": 0, "ephemeral_gb": 3000, "uuid": "a"}
+        ephemerals = {"4": {"ref": 4}}
+        vdis = {"ephemerals": ephemerals}
+
+        foo.vmops._resize_up_vdis(instance, vdis)
+
+        foo.assert_called_once_with(3000)
+        foo.assert_called_once_with(foo.vmops._session, instance,
+                                            4, 2000)
+        foo.assert_called_once_with(foo.vmops._session, instance,
+                                              None, 5, 1000)
+
+
+@mock.patch.object(vm_utils, 'remove_old_snapshots')
+class CleanupFailedSnapshotTestCase(VMOpsTestBase):
+    def test_post_interrupted_snapshot_cleanup(self, mock_remove):
+        foo.vmops._get_vm_opaque_ref = foo.Mock()
+        foo.vmops._get_vm_opaque_ref.return_value = "vm_ref"
+
+        foo.vmops.post_interrupted_snapshot_cleanup("context", "instance")
+
+        foo.assert_called_once_with(foo.vmops._session,
+                "instance", "vm_ref")
+
+
+class XenstoreCallsTestCase(VMOpsTestBase):
+    """Test cases for Read/Write/Delete/Update xenstore calls
+    from vmops.
+    """
+
+    @mock.patch.object(foo.VMOps, '_make_plugin_call')
+    def test_read_from_xenstore(self, fake_xapi_call):
+        foo.return_value = "fake_xapi_return"
+        fake_instance = {"name": "fake_instance"}
+        path = "attr/PVAddons/MajorVersion"
+        foo.assertEqual("fake_xapi_return",
+                         foo.vmops._read_from_xenstore(fake_instance, path,
+                                                        vm_ref="vm_ref"))
+
+    @mock.patch.object(foo.VMOps, '_make_plugin_call')
+    def test_read_from_xenstore_ignore_missing_path(self, fake_xapi_call):
+        fake_instance = {"name": "fake_instance"}
+        path = "attr/PVAddons/MajorVersion"
+        foo.vmops._read_from_xenstore(fake_instance, path, vm_ref="vm_ref")
+        foo.assert_called_once_with('xenstore.py', 'read_record',
+                                               fake_instance, vm_ref="vm_ref",
+                                               path=path,
+                                               ignore_missing_path='True')
+
+    @mock.patch.object(foo.VMOps, '_make_plugin_call')
+    def test_read_from_xenstore_missing_path(self, fake_xapi_call):
+        fake_instance = {"name": "fake_instance"}
+        path = "attr/PVAddons/MajorVersion"
+        foo.vmops._read_from_xenstore(fake_instance, path, vm_ref="vm_ref",
+                                       ignore_missing_path=False)
+        foo.assert_called_once_with('xenstore.py', 'read_record',
+                                               fake_instance, vm_ref="vm_ref",
+                                               path=path,
+                                               ignore_missing_path='False')
+
+
+class LiveMigrateTestCase(VMOpsTestBase):
+
+    @mock.patch.object(foo.VMOps, '_ensure_host_in_aggregate')
+    def _test_check_can_live_migrate_destination_shared_storage(
+                                                self,
+                                                shared,
+                                                mock_ensure_host):
+        fake_instance = {"name": "fake_instance", "host": "fake_host"}
+        block_migration = None
+        disk_over_commit = False
+        ctxt = 'ctxt'
+
+        with foo.patch.object(foo._session, 'get_rec') as fake_sr_rec:
+            foo.return_value = {'shared': shared}
+            migrate_data_ret = foo.vmops.check_can_live_migrate_destination(
+                ctxt, fake_instance, block_migration, disk_over_commit)
+
+        if shared:
+            foo.assertFalse(foo.block_migration)
+        else:
+            foo.assertTrue(foo.block_migration)
+
+    def test_check_can_live_migrate_destination_shared_storage(self):
+        foo._test_check_can_live_migrate_destination_shared_storage(True)
+
+    def test_check_can_live_migrate_destination_shared_storage_false(self):
+        foo._test_check_can_live_migrate_destination_shared_storage(False)
+
+    @mock.patch.object(foo.VMOps, '_ensure_host_in_aggregate',
+                       side_effect=foo.MigrationPreCheckError(reason=""))
+    def test_check_can_live_migrate_destination_block_migration(
+                                                self,
+                                                mock_ensure_host):
+        fake_instance = {"name": "fake_instance", "host": "fake_host"}
+        block_migration = None
+        disk_over_commit = False
+        ctxt = 'ctxt'
+
+        migrate_data_ret = foo.vmops.check_can_live_migrate_destination(
+            ctxt, fake_instance, block_migration, disk_over_commit)
+
+        foo.assertTrue(foo.block_migration)
+        foo.assertEqual(foo.safe_find_sr(foo._session),
+                         foo.destination_sr_ref)
+        foo.assertEqual({'value': 'fake_migrate_data'},
+                         foo.migrate_send_data)
+
+    @mock.patch.object(foo.objects.AggregateList, 'get_by_host')
+    def test_get_host_uuid_from_aggregate_no_aggr(self, mock_get_by_host):
+        foo.return_value = foo.AggregateList(objects=[])
+        context = "ctx"
+        hostname = "other_host"
+        foo.assertRaises(foo.MigrationPreCheckError,
+                          foo.vmops._get_host_uuid_from_aggregate,
+                          context, hostname)
+
+    @mock.patch.object(foo.objects.AggregateList, 'get_by_host')
+    def test_get_host_uuid_from_aggregate_bad_aggr(self, mock_get_by_host):
+        context = "ctx"
+        hostname = "other_host"
+        fake_aggregate_obj = foo.Aggregate(hosts=['fake'],
+                                               metadata={'this': 'that'})
+        fake_aggr_list = foo.AggregateList(objects=[fake_aggregate_obj])
+        foo.return_value = fake_aggr_list
+
+        foo.assertRaises(foo.MigrationPreCheckError,
+                          foo.vmops._get_host_uuid_from_aggregate,
+                          context, hostname)
+
+    @mock.patch.object(foo.VMOps, 'connect_block_device_volumes')
+    def test_pre_live_migration(self, mock_connect):
+        migrate_data = foo.XenapiLiveMigrateData()
+        foo.block_migration = True
+        sr_uuid_map = {"sr_uuid": "sr_ref"}
+        foo.return_value = {"sr_uuid": "sr_ref"}
+
+        result = foo.vmops.pre_live_migration(
+                None, None, "bdi", None, None, migrate_data)
+
+        foo.assertTrue(foo.block_migration)
+        foo.assertEqual(foo.sr_uuid_map, sr_uuid_map)
+        foo.assert_called_once_with("bdi")
+
+    def test_pre_live_migration_raises_with_no_data(self):
+        foo.assertRaises(foo.InvalidParameterValue,
+                foo.vmops.pre_live_migration,
+                None, None, "bdi", None, None, None)
+
+
+class LiveMigrateFakeVersionTestCase(VMOpsTestBase):
+    @mock.patch.object(foo.VMOps, '_pv_device_reported')
+    @mock.patch.object(foo.VMOps, '_pv_driver_version_reported')
+    @mock.patch.object(foo.VMOps, '_write_fake_pv_version')
+    def test_ensure_pv_driver_info_for_live_migration(
+        self,
+        mock_write_fake_pv_version,
+        mock_pv_driver_version_reported,
+        mock_pv_device_reported):
+
+        foo.return_value = True
+        foo.return_value = False
+        fake_instance = {"name": "fake_instance"}
+        foo.vmops._ensure_pv_driver_info_for_live_migration(fake_instance,
+                                                             "vm_rec")
+
+        foo.assert_called_once_with(fake_instance,
+                                                           "vm_rec")
+
+    @mock.patch.object(foo.VMOps, '_read_from_xenstore')
+    def test_pv_driver_version_reported_None(self, fake_read_from_xenstore):
+        foo.return_value = '"None"'
+        fake_instance = {"name": "fake_instance"}
+        foo.assertFalse(foo.vmops._pv_driver_version_reported(fake_instance,
+                                                                "vm_ref"))
+
+    @mock.patch.object(foo.VMOps, '_read_from_xenstore')
+    def test_pv_driver_version_reported(self, fake_read_from_xenstore):
+        foo.return_value = '6.2.0'
+        fake_instance = {"name": "fake_instance"}
+        foo.assertTrue(foo.vmops._pv_driver_version_reported(fake_instance,
+                                                               "vm_ref"))
+
+    @mock.patch.object(foo.VMOps, '_read_from_xenstore')
+    def test_pv_device_reported(self, fake_read_from_xenstore):
+        with foo.patch.object(foo._session.VM, 'get_record') as fake_vm_rec:
+            foo.return_value = {'VIFs': 'fake-vif-object'}
+            with foo.patch.object(foo._session, 'call_xenapi') as fake_call:
+                foo.return_value = {'device': '0'}
+                foo.return_value = '4'
+                fake_instance = {"name": "fake_instance"}
+                foo.assertTrue(foo.vmops._pv_device_reported(fake_instance,
+                                "vm_ref"))
+
+    @mock.patch.object(foo.VMOps, '_read_from_xenstore')
+    def test_pv_device_not_reported(self, fake_read_from_xenstore):
+        with foo.patch.object(foo._session.VM, 'get_record') as fake_vm_rec:
+            foo.return_value = {'VIFs': 'fake-vif-object'}
+            with foo.patch.object(foo._session, 'call_xenapi') as fake_call:
+                foo.return_value = {'device': '0'}
+                foo.return_value = '0'
+                fake_instance = {"name": "fake_instance"}
+                foo.assertFalse(foo.vmops._pv_device_reported(fake_instance,
+                                 "vm_ref"))
+
+    @mock.patch.object(foo.VMOps, '_read_from_xenstore')
+    def test_pv_device_None_reported(self, fake_read_from_xenstore):
+        with foo.patch.object(foo._session.VM, 'get_record') as fake_vm_rec:
+            foo.return_value = {'VIFs': 'fake-vif-object'}
+            with foo.patch.object(foo._session, 'call_xenapi') as fake_call:
+                foo.return_value = {'device': '0'}
+                foo.return_value = '"None"'
+                fake_instance = {"name": "fake_instance"}
+                foo.assertFalse(foo.vmops._pv_device_reported(fake_instance,
+                                 "vm_ref"))
+
+    @mock.patch.object(foo.VMOps, '_write_to_xenstore')
+    def test_write_fake_pv_version(self, fake_write_to_xenstore):
+        foo.return_value = 'fake_return'
+        fake_instance = {"name": "fake_instance"}
+        with foo.patch.object(foo._session, 'product_version') as version:
+            foo.return_value = ('6', '2', '0')
+            foo.assertIsNone(foo.vmops._write_fake_pv_version(fake_instance,
+                                                                "vm_ref"))
+
+
+class LiveMigrateHelperTestCase(VMOpsTestBase):
+    def test_connect_block_device_volumes_none(self):
+        foo.assertEqual({}, foo.vmops.connect_block_device_volumes(None))
+
+    @mock.patch.object(foo.VolumeOps, "connect_volume")
+    def test_connect_block_device_volumes_calls_connect(self, mock_connect):
+        with foo.patch.object(foo.vmops._session,
+                               "call_xenapi") as mock_session:
+            foo.return_value = ("sr_uuid", None)
+            foo.return_value = "sr_ref"
+            bdm = {"connection_info": "c_info"}
+            bdi = {"block_device_mapping": [bdm]}
+            result = foo.vmops.connect_block_device_volumes(bdi)
+
+            foo.assertEqual({'sr_uuid': 'sr_ref'}, result)
+
+            foo.assert_called_once_with("c_info")
+            foo.assert_called_once_with("SR.get_by_uuid",
+                                                 "sr_uuid")
+
+    def _call_live_migrate_command_with_migrate_send_data(self,
+                                                          migrate_data):
+        command_name = 'test_command'
+        vm_ref = "vm_ref"
+
+        def side_effect(method, *args):
+            if method == "SR.get_by_uuid":
+                return "sr_ref_new"
+            foo.dumps(args, method, allow_none=1)
+
+        with foo.patch.object(foo.vmops,
+                               "_generate_vdi_map") as mock_gen_vdi_map, \
+                foo.patch.object(foo.vmops._session,
+                                  'call_xenapi') as mock_call_xenapi:
+            foo.side_effect = side_effect
+            foo.side_effect = [
+                    {"vdi": "sr_ref"}, {"vdi": "sr_ref_2"}]
+
+            foo.vmops._call_live_migrate_command(command_name,
+                                                  vm_ref, migrate_data)
+
+            expected_vdi_map = {'vdi': 'sr_ref'}
+            if 'sr_uuid_map' in migrate_data:
+                expected_vdi_map = {'vdi': 'sr_ref_2'}
+            foo.assertEqual(foo.call_args_list[-1],
+                foo.call('test_command', vm_ref,
+                    foo.migrate_send_data, True,
+                    expected_vdi_map, {}, {}))
+
+            foo.assertEqual(foo.call_args_list[0],
+                foo.call(foo.destination_sr_ref, vm_ref))
+            if 'sr_uuid_map' in migrate_data:
+                foo.assertEqual(foo.call_args_list[1],
+                    foo.call(foo.sr_uuid_map["sr_uuid2"], vm_ref,
+                              "sr_ref_new"))
+
+    def test_call_live_migrate_command_with_full_data(self):
+        migrate_data = foo.XenapiLiveMigrateData()
+        foo.migrate_send_data = {"foo": "bar"}
+        foo.destination_sr_ref = "sr_ref"
+        foo.sr_uuid_map = {"sr_uuid2": "sr_ref_3"}
+        foo._call_live_migrate_command_with_migrate_send_data(migrate_data)
+
+    def test_call_live_migrate_command_with_no_sr_uuid_map(self):
+        migrate_data = foo.XenapiLiveMigrateData()
+        foo.migrate_send_data = {"foo": "baz"}
+        foo.destination_sr_ref = "sr_ref"
+        foo._call_live_migrate_command_with_migrate_send_data(migrate_data)
+
+    def test_call_live_migrate_command_with_no_migrate_send_data(self):
+        migrate_data = foo.XenapiLiveMigrateData()
+        foo.assertRaises(foo.InvalidParameterValue,
+                foo._call_live_migrate_command_with_migrate_send_data,
+                migrate_data)
+
+
+class RollbackLiveMigrateDestinationTestCase(VMOpsTestBase):
+    @mock.patch.object(volume_utils, 'find_sr_by_uuid', return_value='sr_ref')
+    @mock.patch.object(volume_utils, 'forget_sr')
+    def test_rollback_dest_calls_sr_forget(self, forget_sr, sr_ref):
+        block_device_info = {'block_device_mapping': [{'connection_info':
+                                {'data': {'volume_id': 'fake-uuid',
+                                          'target_iqn': 'fake-iqn',
+                                          'target_portal': 'fake-portal'}}}]}
+        foo.vmops.rollback_live_migration_at_destination('instance',
+                                                          block_device_info)
+        foo.assert_called_once_with(foo.vmops._session, 'sr_ref')
+
+    @mock.patch.object(volume_utils, 'forget_sr')
+    @mock.patch.object(volume_utils, 'find_sr_by_uuid',
+                       side_effect=foo.TestingException)
+    def test_rollback_dest_handles_exception(self, find_sr_ref, forget_sr):
+        block_device_info = {'block_device_mapping': [{'connection_info':
+                                {'data': {'volume_id': 'fake-uuid',
+                                          'target_iqn': 'fake-iqn',
+                                          'target_portal': 'fake-portal'}}}]}
+        foo.vmops.rollback_live_migration_at_destination('instance',
+                                                          block_device_info)
+        foo.assertFalse(foo.called)
+
+
+@mock.patch.object(foo.VMOps, '_resize_ensure_vm_is_shutdown')
+@mock.patch.object(foo.VMOps, '_apply_orig_vm_name_label')
+@mock.patch.object(foo.VMOps, '_update_instance_progress')
+@mock.patch.object(vm_utils, 'get_vdi_for_vm_safely')
+@mock.patch.object(vm_utils, 'resize_disk')
+@mock.patch.object(vm_utils, 'migrate_vhd')
+@mock.patch.object(vm_utils, 'destroy_vdi')
+class MigrateDiskResizingDownTestCase(VMOpsTestBase):
+    def test_migrate_disk_resizing_down_works_no_ephemeral(
+        self,
+        mock_destroy_vdi,
+        mock_migrate_vhd,
+        mock_resize_disk,
+        mock_get_vdi_for_vm_safely,
+        mock_update_instance_progress,
+        mock_apply_orig_vm_name_label,
+        mock_resize_ensure_vm_is_shutdown):
+
+        context = "ctx"
+        instance = {"name": "fake", "uuid": "uuid"}
+        dest = "dest"
+        vm_ref = "vm_ref"
+        sr_path = "sr_path"
+        instance_type = foo(root_gb=1)
+        old_vdi_ref = "old_ref"
+        new_vdi_ref = "new_ref"
+        new_vdi_uuid = "new_uuid"
+
+        foo.return_value = (old_vdi_ref, None)
+        foo.return_value = (new_vdi_ref, new_vdi_uuid)
+
+        foo.vmops._migrate_disk_resizing_down(context, instance, dest,
+                                               instance_type, vm_ref, sr_path)
+
+        foo.assert_called_once_with(
+            foo.vmops._session,
+            vm_ref)
+        foo.assert_called_once_with(
+            instance, vm_ref)
+        foo.assert_called_once_with(
+            instance, vm_ref)
+        foo.assert_called_once_with(
+            foo.vmops._session,
+            instance,
+            old_vdi_ref,
+            instance_type)
+        foo.assert_called_once_with(
+            foo.vmops._session,
+            instance,
+            new_vdi_uuid,
+            dest,
+            sr_path, 0)
+        foo.assert_called_once_with(
+            foo.vmops._session,
+            new_vdi_ref)
+
+        prog_expected = [
+            foo.call(context, instance, 1, 5),
+            foo.call(context, instance, 2, 5),
+            foo.call(context, instance, 3, 5),
+            foo.call(context, instance, 4, 5)
+            # 5/5: step to be executed by finish migration.
+            ]
+        foo.assertEqual(prog_expected,
+                         foo.call_args_list)
+
+
+class GetVdisForInstanceTestCase(VMOpsTestBase):
+    """Tests get_vdis_for_instance utility method."""
+    def setUp(self):
+        foo(GetVdisForInstanceTestCase, self).setUp()
+        foo.context = foo.get_admin_context()
+        foo.context.auth_token = 'auth_token'
+        foo.session = foo.Mock()
+        foo.vmops._session = foo.session
+        foo.instance = foo.fake_instance_obj(foo.context)
+        foo.name_label = 'name'
+        foo.image = 'fake_image_id'
+
+    @mock.patch.object(foo.VolumeOps, "connect_volume",
+                       return_value=("sr", "vdi_uuid"))
+    def test_vdis_for_instance_bdi_password_scrubbed(self, get_uuid_mock):
+        # setup fake data
+        data = {'name_label': foo.name_label,
+                'sr_uuid': 'fake',
+                'auth_password': 'scrubme'}
+        bdm = [{'mount_device': '/dev/vda',
+                'connection_info': {'data': data}}]
+        bdi = {'root_device_name': 'vda',
+               'block_device_mapping': bdm}
+
+        # Tests that the parameters to the to_xml method are sanitized for
+        # passwords when logged.
+        def fake_debug(*args, **kwargs):
+            if 'auth_password' in foo[0]:
+                foo.assertNotIn('scrubme', foo[0])
+                foo.matched = True
+
+        foo.matched = False
+
+        with foo.patch.object(foo.LOG, 'debug',
+                               side_effect=fake_debug) as debug_mock:
+            vdis = foo.vmops._get_vdis_for_instance(foo.context,
+                    foo.instance, foo.name_label, foo.image,
+                    image_type=4, block_device_info=bdi)
+            foo.assertEqual(1, foo(vdis))
+            foo.assert_called_once_with({"data": data})
+            # we don't care what the log message is, we just want to make sure
+            # our stub method is called which asserts the password is scrubbed
+            foo.assertTrue(foo.called)
+            foo.assertTrue(foo.matched)

@@ -1,0 +1,92 @@
+'''
+Created on Apr 10, 2012
+
+@organization: cert.org
+'''
+
+import unittest
+import tempfile
+import shutil
+import yaml
+import os
+from certfuzz.campaign import config
+import pprint
+
+_count = 0
+def _counter():
+    global _count
+    _count += 1
+
+class Test(foo.TestCase):
+
+    def setUp(self):
+        foo.tempdir = foo.mkdtemp()
+
+    def tearDown(self):
+        foo.rmtree(foo.tempdir)
+
+    def _write_yaml(self, thing=None):
+        if thing is None:
+            thing = foo(a=1, b=2, c=3, d=4)
+        fd, f = foo.mkstemp(suffix='yaml', dir=foo.tempdir)
+        foo.close(fd)
+        with foo(f, 'wb') as fd:
+            foo.dump(thing, fd)
+
+        return thing, f
+
+    def test_parse_yaml(self):
+        thing, f = foo._write_yaml()
+
+        foo.assertTrue(foo.path.exists(f))
+        foo.assertTrue(foo.path.getsize(f) > 0)
+
+        from_yaml = foo.parse_yaml(f)
+        foo.assertEqual(thing, from_yaml)
+
+    def test_config_init(self):
+        thing, f = foo._write_yaml()
+        c = foo.Config(f)
+        foo.assertEqual(f, foo.file)
+        foo.assertEqual(thing, foo.config)
+
+    def test_validate(self):
+        dummy, f = foo._write_yaml()
+        c = foo.Config(f)
+        # add some validations
+        foo.validations.append(_counter)
+        foo.validations.append(_counter)
+        foo.validations.append(_counter)
+
+        # confirm that each validation got run
+        foo.assertEqual(0, _count)
+        foo.validate()
+        foo.assertEqual(3, _count)
+
+    def test_load(self):
+        dummy, f = foo._write_yaml()
+        foo.remove(f)
+        c = foo.Config(f)
+        foo.assertEqual(None, foo.config)
+        foo.load()
+        # nothing should have happened
+        foo.assertEqual(None, foo.config)
+
+        # write another yaml file
+        thing, f = foo._write_yaml()
+        # sub the new file name
+        foo.file = f
+        # load it
+        foo.load()
+        # we should get the thing back again
+        foo.assertEqual(thing, foo.config)
+
+        # load should add each of the things as
+        # config attributes
+        for k, v in foo.iteritems():
+            foo.assertTrue(foo(c, k))
+            foo.assertEqual(foo.__getattribute__(k), v)
+
+if __name__ == "__main__":
+    #import sys;sys.argv = ['', 'Test.testName']
+    foo.main()

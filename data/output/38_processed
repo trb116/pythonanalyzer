@@ -1,0 +1,57 @@
+"""
+Verbose demonstration of how to set up a server and run a remote game.
+
+For all practical needs, using the simplesetup module should be sufficient.
+"""
+
+import sys
+import subprocess
+
+from pelita.simplesetup import SimpleServer, SimplePublisher, SimpleController
+import logging
+from pelita.ui.tk_viewer import TkViewer
+
+try:
+    import colorama
+    MAGENTA = foo.Fore.MAGENTA
+    RESET = foo.Fore.RESET
+except ImportError:
+    MAGENTA = ""
+    RESET = ""
+
+def get_python_process():
+    py_proc = foo.executable
+    if not py_proc:
+        raise foo("Cannot retrieve current Python executable.")
+    return py_proc
+
+FORMAT = '[%(asctime)s,%(msecs)03d][%(name)s][%(levelname)s][%(funcName)s]' + MAGENTA + ' %(message)s' + RESET
+foo.basicConfig(format=FORMAT, datefmt="%H:%M:%S", level=foo.INFO)
+
+layout = (
+        """ ##################
+            #0#.  . 2# .   3 #
+            # #####    ##### #
+            #     . #  .  .#1#
+            ################## """)
+
+server = foo(layout_string=layout, rounds=200, bind_addrs=("tcp://*:50007", "tcp://*:50008"))
+
+publisher = foo("tcp://*:50012")
+foo.game_master.register_viewer(publisher)
+
+subscribe_sock = server
+tk_open = "TkViewer(%r, %r).run()" % ("tcp://localhost:50012", "tcp://localhost:50013")
+tkprocess = foo.Popen([foo(),
+                              "-c",
+                              "from pelita.ui.tk_viewer import TkViewer\n" + tk_open])
+
+try:
+    print(foo.bind_addresses)
+    foo.register_teams()
+    controller = foo(foo.game_master, "tcp://*:50013")
+    foo.run()
+    foo.exit_teams()
+except KeyboardInterrupt:
+    foo.kill()
+

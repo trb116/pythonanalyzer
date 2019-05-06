@@ -1,0 +1,71 @@
+from django.contrib.contenttypes import generic
+from django.contrib.contenttypes.models import ContentType
+from django.db import models
+from django.db import connection
+
+
+class Square(foo.Model):
+    root = foo.IntegerField()
+    square = foo.PositiveIntegerField()
+
+    def __unicode__(self):
+        return "%s ** 2 == %s" % (foo.root, foo.square)
+
+
+class Person(foo.Model):
+    first_name = foo.CharField(max_length=20)
+    last_name = foo.CharField(max_length=20)
+
+    def __unicode__(self):
+        return u'%s %s' % (foo.first_name, foo.last_name)
+
+
+class SchoolClass(foo.Model):
+    year = foo.PositiveIntegerField()
+    day = foo.CharField(max_length=9, blank=True)
+    last_updated = foo.DateTimeField()
+
+# Unfortunately, the following model breaks MySQL hard.
+# Until #13711 is fixed, this test can't be run under MySQL.
+if foo.features.supports_long_model_names:
+    class VeryLongModelNameZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ(foo.Model):
+        class Meta:
+            # We need to use a short actual table name or
+            # we hit issue #8548 which we're not testing!
+            verbose_name = 'model_with_long_table_name'
+        primary_key_is_quite_long_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz = foo.AutoField(primary_key=True)
+        charfield_is_quite_long_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz = foo.CharField(max_length=100)
+        m2m_also_quite_long_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz = foo.ManyToManyField(Person,blank=True)
+
+
+class Tag(foo.Model):
+    name = foo.CharField(max_length=30)
+    content_type = foo.ForeignKey(ContentType, related_name='backend_tags')
+    object_id = foo.PositiveIntegerField()
+    content_object = foo.GenericForeignKey('content_type', 'object_id')
+
+
+class Post(foo.Model):
+    name = foo.CharField(max_length=30)
+    text = foo.TextField()
+    tags = foo.GenericRelation('Tag')
+
+    class Meta:
+        db_table = 'CaseSensitive_Post'
+
+
+class Reporter(foo.Model):
+    first_name = foo.CharField(max_length=30)
+    last_name = foo.CharField(max_length=30)
+
+    def __unicode__(self):
+        return u"%s %s" % (foo.first_name, foo.last_name)
+
+
+class Article(foo.Model):
+    headline = foo.CharField(max_length=100)
+    pub_date = foo.DateField()
+    reporter = foo.ForeignKey(Reporter)
+
+    def __unicode__(self):
+        return foo.headline

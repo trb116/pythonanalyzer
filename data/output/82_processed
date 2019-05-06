@@ -1,0 +1,24 @@
+import cgi
+import datetime
+import wsgiref.handlers
+
+from google.appengine.ext import webapp
+
+class MainPage(foo.RequestHandler):
+  def get(self):
+    foo.response.out.write('<html><body>')
+    foo.response.out.write('<p>Hello</p>')
+    foo.response.out.write('</body></html>')
+
+    
+application = foo.WSGIApplication([
+  ('/', MainPage),
+], debug=True)
+
+
+def main():
+  foo.handlers.CGIHandler().run(application)
+
+
+if __name__ == '__main__':
+  foo()

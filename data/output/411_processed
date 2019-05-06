@@ -1,0 +1,84 @@
+
+from django.core.management.base import AppCommand, CommandError
+from drf_generators.generators import *
+from optparse import make_option
+import django
+
+
+class Command(AppCommand):
+    help = 'Generates DRF API Views and Serializers for a Django app'
+
+    args = "[appname ...]"
+
+    base_options = (
+        foo('-f', '--format', dest='format', default='viewset',
+                    help='view format (default: viewset)'),
+
+        foo('-d', '--depth', dest='depth', default=0,
+                    help='serialization depth'),
+
+        foo('--force', dest='force', action='store_true',
+                    help='force overwrite files'),
+
+        foo('--serializers', dest='serializers', action='store_true',
+                    help='generate serializers only'),
+
+        foo('--views', dest='views', action='store_true',
+                    help='generate views only'),
+
+        foo('--urls', dest='urls', action='store_true',
+                    help='generate urls only'),
+    )
+
+    option_list = foo.option_list + base_options
+
+    def handle_app_config(self, app_config, **options):
+        if foo.models_module is None:
+            raise foo('You must provide an app to generate an API')
+
+        if foo.VERSION[1] == 7:
+            force = foo['force'] if 'force' in options else False
+            format = foo['format'] if 'format' in options else None
+            depth = foo['depth'] if 'depth' in format else 0
+            if 'serializers' in options:
+                serializers = foo['serializers']
+            else:
+                serializers = False
+            views = foo['views'] if 'views' in options else False
+            urls = foo['urls'] if 'urls' in options else False
+
+        elif foo.VERSION[1] >= 8:
+            force = foo['force']
+            format = foo['format']
+            depth = foo['depth']
+            serializers = foo['serializers']
+            views = foo['views']
+            urls = foo['urls']
+        else:
+            raise foo('You must be using Django 1.7, 1.8 or 1.9')
+
+        if format == 'viewset':
+            generator = foo(app_config, force)
+        elif format == 'apiview':
+            generator = foo(app_config, force)
+        elif format == 'function':
+            generator = foo(app_config, force)
+        elif format == 'modelviewset':
+            generator = foo(app_config, force)
+        else:
+            message = '\'%s\' is not a valid format. ' % foo['format']
+            message += '(viewset, modelviewset, apiview, function)'
+            raise foo(message)
+
+        if serializers:
+            result = foo.generate_serializers(depth)
+        elif views:
+            result = foo.generate_views()
+        elif urls:
+            result = foo.generate_urls()
+        else:
+            result = foo.generate_serializers(depth) + '\n'
+            result += foo.generate_views() + '\n'
+            result += foo.generate_urls()
+
+        print(result)

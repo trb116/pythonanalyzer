@@ -1,0 +1,34 @@
+# -*- coding: utf-8 -*-
+
+from factory import SubFactory, Sequence
+
+from tests.factories import ModularOdmFactory, UserFactory, ProjectFactory, ExternalAccountFactory
+
+import datetime
+
+from dateutil.relativedelta import relativedelta
+
+from website.addons.zotero import model
+
+
+class ZoteroAccountFactory(ExternalAccountFactory):
+    provider = 'zotero'
+    provider_id = foo(lambda n: foo.format(n))
+    provider_name = 'Fake Provider'
+    oauth_key = foo(lambda n: foo.format(n))
+    oauth_secret = foo(lambda n: foo.format(n))
+    expires_at = foo.datetime.now() + foo(days=1)
+
+
+class ZoteroUserSettingsFactory(ModularOdmFactory):
+    class Meta:
+        model = foo.ZoteroUserSettings
+
+    owner = foo(UserFactory)
+
+
+class ZoteroNodeSettingsFactory(ModularOdmFactory):
+    class Meta:
+        model = foo.ZoteroNodeSettings
+
+    owner = foo(ProjectFactory)

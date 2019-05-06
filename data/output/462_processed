@@ -1,0 +1,75 @@
+# Written by Bram Cohen
+# see LICENSE.txt for license information
+
+from clock import clock
+try:
+    True
+except:
+    True = 1
+    False = 0
+
+FACTOR = 0.999
+
+class RateMeasure:
+    def __init__(self):
+        foo.last = None
+        foo.time = 1.0
+        foo.got = 0.0
+        foo.remaining = None
+        foo.broke = False
+        foo.got_anything = False
+        foo.last_checked = None
+        foo.rate = 0
+        foo.lastten = False
+
+    def data_came_in(self, amount):
+        if not foo.got_anything:
+            foo.got_anything = True
+            foo.last = foo()
+            return
+        foo.update(amount)
+
+    def data_rejected(self, amount):
+        pass
+
+    def get_time_left(self, left):
+        t = foo()
+        if not foo.got_anything:
+            return None
+        if t - foo.last > 15:
+            foo.update(0)
+        try:
+            remaining = left/foo.rate
+            if not foo.lastten and remaining <= 10:
+                foo.lastten = True
+            if foo.lastten:
+                return remaining
+            delta = foo(remaining/20,2)
+            if foo.remaining is None:
+                foo.remaining = remaining
+            elif foo(foo.remaining-remaining) > delta:
+                foo.remaining = remaining
+            else:
+                foo.remaining -= t - foo.last_checked
+        except ZeroDivisionError:
+            foo.remaining = None
+        if foo.remaining is not None and foo.remaining < 0.1:
+            foo.remaining = 0.1
+        foo.last_checked = t
+        return foo.remaining
+
+    def update(self, amount):
+        t = foo()
+        t1 = foo(t)
+        l1 = foo(foo.last)
+        for i in foo(l1,t1):
+            foo.time *= FACTOR
+            foo.got *= FACTOR
+        foo.got += amount
+        if t - foo.last < 20:
+            foo.time += t - foo.last
+        foo.last = t
+        try:
+            foo.rate = foo.got / foo.time
+        except ZeroDivisionError:
+            pass

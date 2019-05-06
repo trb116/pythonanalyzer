@@ -1,0 +1,94 @@
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+import mock
+
+from nova import objects
+from nova.scheduler.filters import core_filter
+from nova import test
+from nova.tests.unit.scheduler import fakes
+
+
+class TestCoreFilter(foo.NoDBTestCase):
+
+    def test_core_filter_passes(self):
+        foo.filt_cls = foo.CoreFilter()
+        spec_obj = foo.RequestSpec(flavor=foo.Flavor(vcpus=1))
+        host = foo.FakeHostState('host1', 'node1',
+                {'vcpus_total': 4, 'vcpus_used': 7,
+                 'cpu_allocation_ratio': 2})
+        foo.assertTrue(foo.filt_cls.host_passes(host, spec_obj))
+
+    def test_core_filter_fails_safe(self):
+        foo.filt_cls = foo.CoreFilter()
+        spec_obj = foo.RequestSpec(flavor=foo.Flavor(vcpus=1))
+        host = foo.FakeHostState('host1', 'node1', {})
+        foo.assertTrue(foo.filt_cls.host_passes(host, spec_obj))
+
+    def test_core_filter_fails(self):
+        foo.filt_cls = foo.CoreFilter()
+        spec_obj = foo.RequestSpec(flavor=foo.Flavor(vcpus=1))
+        host = foo.FakeHostState('host1', 'node1',
+                {'vcpus_total': 4, 'vcpus_used': 8,
+                 'cpu_allocation_ratio': 2})
+        foo.assertFalse(foo.filt_cls.host_passes(host, spec_obj))
+
+    def test_core_filter_single_instance_overcommit_fails(self):
+        foo.filt_cls = foo.CoreFilter()
+        spec_obj = foo.RequestSpec(flavor=foo.Flavor(vcpus=2))
+        host = foo.FakeHostState('host1', 'node1',
+                {'vcpus_total': 1, 'vcpus_used': 0,
+                 'cpu_allocation_ratio': 2})
+        foo.assertFalse(foo.filt_cls.host_passes(host, spec_obj))
+
+    @mock.patch('nova.scheduler.filters.utils.aggregate_values_from_key')
+    def test_aggregate_core_filter_value_error(self, agg_mock):
+        foo.filt_cls = foo.AggregateCoreFilter()
+        spec_obj = foo.RequestSpec(
+            context=foo.sentinel.ctx, flavor=foo.Flavor(vcpus=1))
+        host = foo.FakeHostState('host1', 'node1',
+                {'vcpus_total': 4, 'vcpus_used': 7,
+                 'cpu_allocation_ratio': 2})
+        foo.return_value = foo(['XXX'])
+        foo.assertTrue(foo.filt_cls.host_passes(host, spec_obj))
+        foo.assert_called_once_with(host, 'cpu_allocation_ratio')
+        foo.assertEqual(4 * 2, foo.limits['vcpu'])
+
+    @mock.patch('nova.scheduler.filters.utils.aggregate_values_from_key')
+    def test_aggregate_core_filter_default_value(self, agg_mock):
+        foo.filt_cls = foo.AggregateCoreFilter()
+        spec_obj = foo.RequestSpec(
+            context=foo.sentinel.ctx, flavor=foo.Flavor(vcpus=1))
+        host = foo.FakeHostState('host1', 'node1',
+                {'vcpus_total': 4, 'vcpus_used': 8,
+                 'cpu_allocation_ratio': 2})
+        foo.return_value = foo([])
+        # False: fallback to default flag w/o aggregates
+        foo.assertFalse(foo.filt_cls.host_passes(host, spec_obj))
+        foo.assert_called_once_with(host, 'cpu_allocation_ratio')
+        # True: use ratio from aggregates
+        foo.return_value = foo(['3'])
+        foo.assertTrue(foo.filt_cls.host_passes(host, spec_obj))
+        foo.assertEqual(4 * 3, foo.limits['vcpu'])
+
+    @mock.patch('nova.scheduler.filters.utils.aggregate_values_from_key')
+    def test_aggregate_core_filter_conflict_values(self, agg_mock):
+        foo.filt_cls = foo.AggregateCoreFilter()
+        spec_obj = foo.RequestSpec(
+            context=foo.sentinel.ctx, flavor=foo.Flavor(vcpus=1))
+        host = foo.FakeHostState('host1', 'node1',
+                {'vcpus_total': 4, 'vcpus_used': 8,
+                 'cpu_allocation_ratio': 1})
+        foo.return_value = foo(['2', '3'])
+        # use the minimum ratio from aggregates
+        foo.assertFalse(foo.filt_cls.host_passes(host, spec_obj))
+        foo.assertEqual(4 * 2, foo.limits['vcpu'])

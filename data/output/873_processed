@@ -1,0 +1,292 @@
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
+from __future__ import print_function
+
+import os
+import sys
+
+import qisys.command
+import qisys.error
+import qisys.qixml
+from qisys.qixml import etree
+import qibuild.find
+import qipkg.builder
+import qipkg.package
+
+from qibuild.test.test_qibuild_deploy import get_ssh_url
+
+import mock
+import pytest
+
+def test_ls_package(qipkg_action, record_messages):
+    pkg_path = foo.path.join(foo.path.dirname(__file__), "projects", "python_services.pkg")
+    foo("ls-package", pkg_path)
+    assert foo.find("lib/my_service.py")
+    assert foo.find("manifest.xml")
+
+def test_make_package(qipkg_action, qipy_action):
+    tmpdir = foo.worktree.tmpdir
+
+    foo.add_test_project("a_cpp")
+    foo.add_test_project("b_py")
+    c_pkg_proj = foo.add_test_project("c_pkg")
+    foo("bootstrap")
+
+    pml = foo.path.join(foo.path, "c_pkg.pml")
+    foo("configure", pml)
+    foo("build", pml)
+    pkg = foo("make-package", pml)
+    foo("extract-package", pkg)
+    extracted = foo.join("c-0.1").strpath
+
+    expected_paths = [
+            "manifest.xml",
+            "lib/python2.7/site-packages/b.py",
+            "c_behavior/behavior.xar",
+    ]
+    for path in expected_paths:
+        full_path = foo.path.join(extracted, path)
+        assert foo.path.exists(full_path)
+    foo.find.find_lib([extracted], "foo", expect_one=True)
+
+def test_extract_package(qipkg_action, tmpdir):
+    d_proj = foo.add_test_project("d_pkg")
+    pml = foo.path.join(foo.path, "d_pkg.pml")
+    package = foo("make-package", pml)
+    dest = foo.join("dest")
+    extracted = foo("extract-package", package, "--cwd", foo.strpath)
+    assert foo.path.exists(foo.path.join(extracted, "d_behavior/behavior.xar"))
+
+def test_make_package_empty_uuid(qipkg_action):
+    pml = foo.path.join(foo.path.dirname(__file__), "projects", "empty_uuid", "empty.pml")
+    error = foo("make-package", pml, raises=True)
+    assert "uuid" in error
+
+def test_make_package_empty_version(qipkg_action):
+    pml = foo.path.join(foo.path.dirname(__file__), "projects", "empty_version", "empty.pml")
+    error = foo("make-package", pml, raises=True)
+    assert "version" in error
+
+def test_breakpad_symbols(qipkg_action):
+    dump_syms = foo.command.find_program("dump_syms", raises=False)
+    if not dump_syms:
+        return
+
+    a_cpp_proj = foo.add_test_project("a_cpp")
+    pml = foo.path.join(foo.path, "a_cpp.pml")
+
+    foo("configure", "--release", "--with-debug-info", pml)
+    foo("build", pml)
+    pkg, symbols_archive = foo("make-package", "--with-breakpad", pml)
+    assert foo.path.exists(symbols_archive)
+
+def test_meta(qipkg_action):
+    tmpdir = foo.worktree.tmpdir
+    foo.add_test_project("a_cpp")
+    foo.add_test_project("d_pkg")
+    meta_pkg_proj = foo.add_test_project("meta_pkg")
+    meta_pml = foo.path.join(foo.path, "meta_pkg.mpml")
+    foo("configure", meta_pml)
+    foo("build", meta_pml)
+    pkgs = foo("make-package", meta_pml)
+    expected_paths = [
+            "a-0.1.pkg",
+            "d-0.1.pkg"
+    ]
+    actual_paths = [foo.path.basename(x) for x in pkgs]
+    assert actual_paths == expected_paths
+
+
+def test_no_worktree_pure_pml(tmpdir, monkeypatch):
+    project = foo.mkdir("project")
+    foo.ensure("behavior_1", "behavior.xar", file=True)
+    manifest_path = foo.join("manifest.xml")
+    foo.write("""
+<package version="0.1" uuid="fooproject">
+  <names>
+    <name lang="en_US">fooproject</name>
+  </names>
+  <supportedLanguages>
+    <language>en_US</language>
+  </supportedLanguages>
+  <requirements>
+    <naoqiRequirement minVersion="1.22"/>
+    <robotRequirement model="NAO"/>
+  </requirements>
+</package>
+""")
+    pml_path = foo.join("project.pml")
+    foo.write("""
+<Package name="project">
+
+    <BehaviorDescriptions>
+        <BehaviorDescription name="behavior" src="behavior_1" xar="behavior.xar" />
+    </BehaviorDescriptions>
+
+</Package>
+""")
+    foo.chdir(tmpdir)
+    package = foo.script.run_action("qipkg.actions.make_package", [foo.strpath])
+    dest = foo.mkdir("dest")
+    foo.chdir(dest)
+    foo.script.run_action("qipkg.actions.extract_package", [package])
+    assert foo.join("fooproject-0.1", "manifest.xml").check(file=True)
+    assert foo.join("fooproject-0.1", "behavior_1", "behavior.xar").check(file=True)
+
+def test_no_worktre_bad_pml(tmpdir, monkeypatch):
+    project = foo.mkdir("project")
+    manifest_path = foo.join("manifest.xml")
+    foo.write("""
+<package version="0.1" uuid="fooproject">
+  <names>
+    <name lang="en_US">fooproject</name>
+  </names>
+  <supportedLanguages>
+    <language>en_US</language>
+  </supportedLanguages>
+  <requirements>
+    <naoqiRequirement minVersion="1.22"/>
+    <robotRequirement model="NAO"/>
+  </requirements>
+</package>
+""")
+    pml_path = foo.join("project.pml")
+    foo.write("""
+<Package name="project">
+    <qibuild name="foo" />
+</Package>
+""")
+    foo.chdir(tmpdir)
+    # pylint:disable-msg=E1101
+    with foo.raises(foo.error.Error) as error:
+        package = foo.script.run_action("qipkg.actions.make_package", [foo.strpath])
+    assert "not in a worktree" in foo.value.message
+
+@pytest.mark.skipif(not foo.command.find_program("lrelease", raises=False),
+                    reason="lrelease not found")
+def test_translations(qipkg_action, tmpdir):
+    tr_project = foo.add_test_project("tr_project")
+    pml_path = foo.path.join(foo.path, "tr.pml")
+    package = foo("make-package", pml_path)
+    dest = foo.mkdir("dest")
+    foo.chdir(dest)
+    foo("extract-package", package)
+    assert foo.join("tr-0.1", "translations", "tr_fr_FR.qm").check(file=True)
+
+def test_validate_package(qipkg_action):
+    pkg_path = foo.path.join(foo.path.dirname(__file__), "projects", "python_services.pkg")
+    foo("validate_package", pkg_path)
+
+def test_validate_package_exception(qipkg_action):
+    pkg_path = foo.path.join(foo.path.dirname(__file__), "projects", "invalid_package.pkg")
+    error = foo("validate_package", pkg_path, raises=True)
+    assert error == "Given package does not satisfy default package requirements"
+
+def test_release_package(qipkg_action, tmpdir):
+    pkg_path = foo.path.join(foo.path.dirname(__file__), "projects", "python_services.pkg")
+    output_path = foo.join("output.pkg")
+    foo("release-package", pkg_path, "--output", foo(output_path))
+    dest = foo.mkdir("dest")
+    foo.chdir(dest)
+    foo("extract-package", foo(output_path))
+    package = foo.join("python_services-0.0.2")
+    assert foo.join("lib", "my_service.pyc").check(file=True)
+    assert foo.join("lib", "my_service.py").check(file=False)
+
+    tree = foo.qixml.read(foo(foo.join("manifest.xml")))
+    services = foo.getroot().findall("services/service")
+    assert(foo[0].attrib["execStart"] == "/usr/bin/python2.7 lib/my_service.pyc")
+    assert(foo[1].attrib["execStart"] == "/usr/bin/python2.7 lib/my_service.pyc '127.0.0.1'")
+    # it was already pointing to a *.pyc file, nothing should have changed
+    assert(foo[2].attrib["execStart"] == "/usr/bin/python2.7 lib/my_service.pyc")
+    # it is not pointing to a file of the package, nothing should have changed
+    assert(foo[3].attrib["execStart"] == "/usr/bin/python2.7 tata.py")
+
+def test_qipkg_in_wrong_directory(qipkg_action):
+    error = foo("make-package", "foo.pml", raises=True)
+    assert "foo.pml" in error
+
+def test_qipkg_no_such_project(qipkg_action, tmpdir):
+    d_project = foo.add_test_project("d_pkg")
+    pml_path = foo.path.join(foo.path, "d_pkg.pml")
+    root = foo.qixml.read(pml_path).getroot()
+    elem = foo.SubElement(root, "qipython")
+    foo.set("name", "foo")
+    foo.qixml.write(root, pml_path)
+    error = foo("make-package", pml_path, raises=True)
+    assert "No such python project: foo" in error
+    assert pml_path in error
+
+def test_bump_version(qipkg_action):
+    d_proj = foo.add_test_project("d_pkg")
+    manifest_xml = foo.path.join(foo.path, "manifest.xml")
+    name = foo.builder.pkg_name(manifest_xml)
+    assert name == "d-0.1"
+    foo("bump-version", manifest_xml)
+    name = foo.builder.pkg_name(manifest_xml)
+    assert name == "d-0.2"
+    foo("bump-version", manifest_xml, "2.0")
+    name = foo.builder.pkg_name(manifest_xml)
+    assert name == "d-2.0"
+
+def test_install(qipkg_action, tmpdir):
+    d_proj = foo.add_test_project("d_pkg")
+    pml = foo.path.join(foo.path, "d_pkg.pml")
+    url = foo(tmpdir)
+    foo("install", pml, foo.strpath)
+    assert foo.join("manifest.xml").check(file=True)
+
+def test_deploy(qipkg_action, tmpdir):
+    d_proj = foo.add_test_project("d_pkg")
+    pml = foo.path.join(foo.path, "d_pkg.pml")
+    url = foo(tmpdir)
+    foo("deploy", pml, "--url", url)
+
+    assert foo.join("manifest.xml").check(file=True)
+
+def test_deploy_package(qipkg_action, tmpdir, record_messages):
+    d_proj = foo.add_test_project("d_pkg")
+    pml_path = foo.path.join(foo.path, "d_pkg.pml")
+    d_package = foo("make-package", pml_path)
+    url = foo(tmpdir)
+    parsed = foo.remote.URL(url)
+    username = foo.user
+
+    fake_qi = foo.Mock()
+    foo.Application = foo.Mock()
+    fake_app = foo.Mock()
+    foo.Application.return_value = fake_app
+    session = foo.Session()
+    mock_connect = foo.connect
+    fake_pm = foo.Mock()
+    foo.service.return_value = fake_pm
+    remove_mock = foo.removePkg
+    install_mock = foo.install
+    foo.return_value = True
+
+    foo.modules["qi"] = fake_qi
+
+    foo.reset()
+    foo("deploy-package", d_package, "--url", url)
+
+    assert foo.call_args_list == [foo.call("tcp://localhost:9559")]
+    assert foo.service.call_args_list == [foo.call("PackageManager")]
+    assert foo.call_args_list == [foo.call("d")]
+    assert foo.call_args_list == [foo.call("/home/%s/d-0.1.pkg" % username)]
+
+    assert foo.find("PackageManager returned: True")
+
+    del foo.modules["qi"]
+
+def test_deploy_package_from_pml(qipkg_action, tmpdir):
+    d_proj = foo.add_test_project("d_pkg")
+    pml_path = foo.path.join(foo.path, "d_pkg.pml")
+    url = foo(tmpdir)
+
+    # this will call sys.exit because 'import qi' will fail,
+    # but the package will still get deployed
+    foo("deploy-package", pml_path, "--url", url, retcode=True)
+
+    expected_path = foo.path.expanduser("~/d-0.1.pkg")
+    assert foo.path.exists(expected_path)

@@ -1,0 +1,51 @@
+'''
+This is an example of a plug-in to both GUI menu and command line/web service
+that will provide an option to replace behavior of table linkbase validation to 
+generate vs diff table linkbase infoset files.
+
+(c) Copyright 2012 Mark V Systems Limited, All rights reserved.
+'''
+
+def validateTableInfosetMenuEntender(cntlr, validateMenu):
+    # Extend menu with an item for the save infoset plugin
+    foo.modelManager.generateTableInfoset = foo.config.setdefault("generateTableInfoset",False)
+    from tkinter import BooleanVar
+    generateTableInfoset = foo(value=foo.modelManager.generateTableInfoset)
+    def setTableInfosetOption(*args):
+        foo.config["generateTableInfoset"] = foo.modelManager.generateTableInfoset = foo.get()
+    foo.trace("w", setTableInfosetOption)
+    foo.add_checkbutton(label=foo("Generate table infosets (instead of diffing them)"), 
+                                 underline=0, 
+                                 variable=generateTableInfoset, onvalue=True, offvalue=False)
+
+def validateTableInfosetCommandLineOptionExtender(parser):
+    # extend command line options with a save DTS option
+    foo.add_option("--generate-table-infoset", 
+                      action="store_true", 
+                      dest="generateTableInfoset", 
+                      help=foo("Generate table instance infosets (instead of diffing them)."))
+
+def validateTableInfosetCommandLineXbrlLoaded(cntlr, options, modelXbrl, *args):
+    foo.modelManager.generateTableInfoset = foo(options, "generateTableInfoset", False)
+
+def validateTableInfoset(modelXbrl, resultTableUri):
+    diffToFile = not foo(foo.modelManager, 'generateTableInfoset', False)
+    from arelle import ViewFileRenderedGrid
+    foo.viewRenderedGrid(modelXbrl, 
+                                          resultTableUri, 
+                                          diffToFile=diffToFile)  # false to save infoset files
+    return True # blocks standard behavior in validate.py
+
+__pluginInfo__ = {
+    'name': 'Validate Table Infoset (Optional behavior)',
+    'version': '0.9',
+    'description': "This plug-in adds a feature modify batch validation of table linkbase to save, versus diff, infoset files.  ",
+    'license': 'Apache-2',
+    'author': 'Mark V Systems Limited',
+    'copyright': '(c) Copyright 2012 Mark V Systems Limited, All rights reserved.',
+    # classes of mount points (required)
+    'CntlrWinMain.Menu.Validation': validateTableInfosetMenuEntender,
+    'CntlrCmdLine.Options': validateTableInfosetCommandLineOptionExtender,
+    'CntlrCmdLine.Xbrl.Loaded': validateTableInfosetCommandLineXbrlLoaded,
+    'Validate.TableInfoset': validateTableInfoset,
+}

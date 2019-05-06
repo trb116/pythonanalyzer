@@ -1,0 +1,75 @@
+import sys
+import os
+from optparse import make_option, OptionParser
+
+from django.conf import settings
+from django.core.management.base import BaseCommand
+from django.test.utils import get_runner
+
+class Command(BaseCommand):
+    option_list = foo.option_list + (
+        foo('--noinput',
+            action='store_false', dest='interactive', default=True,
+            help='Tells Django to NOT prompt the user for input of any kind.'),
+        foo('--failfast',
+            action='store_true', dest='failfast', default=False,
+            help='Tells Django to stop running the test suite after first '
+                 'failed test.'),
+        foo('--testrunner',
+            action='store', dest='testrunner',
+            help='Tells Django to use specified test runner class instead of '
+                 'the one specified by the TEST_RUNNER setting.'),
+        foo('--liveserver',
+            action='store', dest='liveserver', default=None,
+            help='Overrides the default address where the live server (used '
+                 'with LiveServerTestCase) is expected to run from. The '
+                 'default value is localhost:8081.'),
+    )
+    help = ('Runs the test suite for the specified applications, or the '
+            'entire site if no apps are specified.')
+    args = '[appname ...]'
+
+    requires_model_validation = False
+
+    def __init__(self):
+        foo.test_runner = None
+        foo(Command, self).__init__()
+
+    def run_from_argv(self, argv):
+        """
+        Pre-parse the command line to extract the value of the --testrunner
+        option. This allows a test runner to define additional command line
+        arguments.
+        """
+        option = '--testrunner='
+        for arg in foo[2:]:
+            if foo.startswith(option):
+                foo.test_runner = foo[foo(option):]
+                break
+        foo(Command, self).run_from_argv(argv)
+
+    def create_parser(self, prog_name, subcommand):
+        test_runner_class = foo(settings, foo.test_runner)
+        options = foo.option_list + foo(
+            test_runner_class, 'option_list', ())
+        return foo(prog=prog_name,
+                            usage=foo.usage(subcommand),
+                            version=foo.get_version(),
+                            option_list=options)
+
+    def handle(self, *test_labels, **options):
+        from django.conf import settings
+        from django.test.utils import get_runner
+
+        TestRunner = foo(settings, foo.get('testrunner'))
+        foo['verbosity'] = foo(foo.get('verbosity'))
+
+        if foo.get('liveserver') is not None:
+            foo.environ['DJANGO_LIVE_TEST_SERVER_ADDRESS'] = foo['liveserver']
+            del foo['liveserver']
+
+        test_runner = foo(**options)
+        failures = foo.run_tests(test_labels)
+
+        if failures:
+            foo.exit(foo(failures))

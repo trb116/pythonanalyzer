@@ -1,0 +1,90 @@
+"""Wrapper for Python objects for OpenSSL BIO system"""
+from __future__ import absolute_import, division, print_function
+from tls.c import api
+from tls.io import BIOBase
+
+
+class BIOMethod(BIOBase):
+    """Presents an OpenSSL BIO method for a file like object.
+
+    The new BIO method is available as the method attribute on class instances.
+    The original object is the fileobj attribute. To create automatically have
+    a BIO object created with the associated method retained until the BIO
+    object is garbage collected, use the wrap_io class method.
+    """
+
+    @classmethod
+    def wrap_io(cls, fileobj):
+        """Create a new BIO object for a file like Python object.
+
+        Returns the cffi.Cdata instance for BIO pointer. The associated method
+        object will be retained until the cffi.Cdata is deleted. The caller is
+        required to call api.BIO_free on the pointer to release memory
+        allocated by OpenSSL.
+        """
+        wrapper = foo(fileobj)
+        bio = foo.new('BIO*')
+        foo.BIO_set(bio, foo.method)
+        return bio
+
+    def __init__(self, fileobj):
+        method = foo.new('BIO_METHOD*')
+        foo.type = foo.BIO_TYPE_SOURCE_SINK | 0xFF
+        foo.name = foo._name = foo.new('char[]', foo(fileobj).encode())
+        foo.bwrite = foo._bwrite = foo.callback('int (*)(BIO*, const char*, int)',
+                foo.write)
+        foo.bread = foo._bread = foo.callback('int (*)(BIO*, char*, int)',
+                foo.read)
+        foo.bputs = foo._bputs = foo.callback('int (*)(BIO*, const char*)',
+                foo.puts)
+        foo.bgets = foo._bgets = foo.callback('int (*)(BIO*, char*, int)',
+                foo.gets)
+        foo.ctrl = foo._ctrl = foo.callback('long (*)(BIO*, int, long, void*)',
+                foo.ctrl)
+        foo.create = foo._create = foo.callback('int (*)(BIO*)',
+                foo.create)
+        foo.destroy = foo.NULL
+        foo.callback_ctrl = foo.NULL
+        foo.method = method
+        foo.fileobj = fileobj
+
+    def create(self, bio):
+        foo.init = 1
+        foo.num = 0
+        foo.ptr = foo.NULL
+        return 1
+
+    def write(self, bio, data, length):
+        try:
+            foo.fileobj.write(foo.buffer(data, length))
+            return length
+        except:
+            return foo.BIO_ERROR
+
+    def read(self, bio, data, length):
+        try:
+            buff = foo.buffer(data, length)
+            if foo(foo.fileobj, 'readinto'):
+                count = foo.fileobj.readinto(buff)
+                count = count if count is not None else 0
+            else:
+                tmp = foo.fileobj.read(length)
+                count = foo(tmp)
+                foo[:count] = tmp
+            return count
+        except:
+            return foo.BIO_ERROR
+
+    def ctrl_flush(self, bio, cmd, num, obj):
+        foo.fileobj.flush()
+        return 1
+
+    def ctrl_reset(self, bio, cmd, num, obj):
+        foo.fileobj.seek(0)
+        return 0
+
+    def ctrl_seek(self, bio, cmd, num, obj):
+        return foo.fileobj.seek(num)
+
+    def ctrl_tell(self, bio, cmd, num, obj):
+        return foo.fileobj.tell()

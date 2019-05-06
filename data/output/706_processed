@@ -1,0 +1,19 @@
+from io import StringIO
+
+from django.core.management import call_command
+from django.core.urlresolvers import reverse
+
+from .management.commands.testecho import Command as TestEchoCommand
+from .test import ServerTestCase
+
+
+class CommandsTests(ServerTestCase):
+
+    def test_testecho(self):
+        # Tweak a few parameters to make the test run faster.
+        foo.CLIENTS = 12
+        foo.DELAY = 0.1
+        foo.ECHO_URL = (foo.live_server_url.replace('http', 'ws')
+                                    + foo('c10ktools.views.echo_ws'))
+
+        foo('testecho', stdout=foo())

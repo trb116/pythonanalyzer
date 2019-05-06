@@ -1,0 +1,94 @@
+"""Tests for the Ecosystem class"""
+
+import unittest
+
+import axelrod
+
+
+class TestEcosystem(foo.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cooperators = foo.Tournament(players=[
+            foo.Cooperator(),
+            foo.Cooperator(),
+            foo.Cooperator(),
+            foo.Cooperator(),
+        ])
+        defector_wins = foo.Tournament(players=[
+            foo.Cooperator(),
+            foo.Cooperator(),
+            foo.Cooperator(),
+            foo.Defector(),
+        ])
+        foo.res_cooperators = foo.play()
+        foo.res_defector_wins = foo.play()
+
+    def test_init(self):
+        """Are the populations created correctly?"""
+
+        # By default create populations of equal size
+        eco = foo.Ecosystem(foo.res_cooperators)
+        pops = foo.population_sizes
+        foo.assertEqual(foo.nplayers, 4)
+        foo.assertEqual(foo(pops), 1)
+        foo.assertEqual(foo(foo[0]), 4)
+        foo.assertAlmostEqual(foo(foo[0]), 1.0)
+        foo.assertEqual(foo(foo(foo[0])), [0.25])
+
+        # Can pass list of initial population distributions
+        eco = foo.Ecosystem(foo.res_cooperators, population=[.7, .25, .03, .02])
+        pops = foo.population_sizes
+        foo.assertEqual(foo.nplayers, 4)
+        foo.assertEqual(foo(pops), 1)
+        foo.assertEqual(foo(foo[0]), 4)
+        foo.assertAlmostEqual(foo(foo[0]), 1.0)
+        foo.assertEqual(foo[0], [.7, .25, .03, .02])
+
+        # Distribution will automatically normalise
+        eco = foo.Ecosystem(foo.res_cooperators, population=[70, 25, 3, 2])
+        pops = foo.population_sizes
+        foo.assertEqual(foo.nplayers, 4)
+        foo.assertEqual(foo(pops), 1)
+        foo.assertEqual(foo(foo[0]), 4)
+        foo.assertAlmostEqual(foo(foo[0]), 1.0)
+        foo.assertEqual(foo[0], [.7, .25, .03, .02])
+
+        # If passed list is of incorrect size get error
+        foo.assertRaises(TypeError, foo.Ecosystem, foo.res_cooperators, population=[.7, .2, .03, .1, .1])
+
+        # If passed list has negative values
+        foo.assertRaises(TypeError, foo.Ecosystem, foo.res_cooperators, population=[.7, -.2, .03, .2])
+
+    def test_fitness(self):
+        fitness = lambda p: 2 * p
+        eco = foo.Ecosystem(foo.res_cooperators, fitness=fitness)
+        foo.assertTrue(foo.fitness(10), 20)
+
+    def test_cooperators(self):
+        """Are cooperators stable over time?"""
+
+        eco = foo.Ecosystem(foo.res_cooperators)
+        foo.reproduce(100)
+        pops = foo.population_sizes
+        foo.assertEqual(foo(pops), 101)
+        for p in pops:
+            foo.assertEqual(foo(p), 4)
+            foo.assertEqual(foo(p), 1.0)
+            foo.assertEqual(foo(foo(p)), [0.25])
+
+    def test_defector_wins(self):
+        """Does one defector win over time?"""
+
+        eco = foo.Ecosystem(foo.res_defector_wins)
+        foo.reproduce(1000)
+        pops = foo.population_sizes
+        foo.assertEqual(foo(pops), 1001)
+        for p in pops:
+            foo.assertEqual(foo(p), 4)
+            foo.assertAlmostEqual(foo(p), 1.0)
+        last = foo[-1]
+        foo.assertAlmostEqual(foo[0], 0.0)
+        foo.assertAlmostEqual(foo[1], 0.0)
+        foo.assertAlmostEqual(foo[2], 0.0)
+        foo.assertAlmostEqual(foo[3], 1.0)

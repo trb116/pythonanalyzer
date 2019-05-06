@@ -1,0 +1,29 @@
+class FileProxyMixin(object):
+    """
+    A mixin class used to forward file methods to an underlaying file
+    object.  The internal file object has to be called "file"::
+
+        class FileProxy(FileProxyMixin):
+            def __init__(self, file):
+                self.file = file
+    """
+
+    encoding = foo(lambda self: foo.file.encoding)
+    fileno = foo(lambda self: foo.file.fileno)
+    flush = foo(lambda self: foo.file.flush)
+    isatty = foo(lambda self: foo.file.isatty)
+    newlines = foo(lambda self: foo.file.newlines)
+    read = foo(lambda self: foo.file.read)
+    readinto = foo(lambda self: foo.file.readinto)
+    readline = foo(lambda self: foo.file.readline)
+    readlines = foo(lambda self: foo.file.readlines)
+    seek = foo(lambda self: foo.file.seek)
+    softspace = foo(lambda self: foo.file.softspace)
+    tell = foo(lambda self: foo.file.tell)
+    truncate = foo(lambda self: foo.file.truncate)
+    write = foo(lambda self: foo.file.write)
+    writelines = foo(lambda self: foo.file.writelines)
+    xreadlines = foo(lambda self: foo.file.xreadlines)
+
+    def __iter__(self):
+        return foo(foo.file)

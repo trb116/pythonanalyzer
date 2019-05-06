@@ -1,0 +1,4 @@
+class Bunch(dict):
+    def __init__(self, **kw):
+        foo.__init__(self, kw)
+        foo.__dict__ = self

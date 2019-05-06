@@ -1,0 +1,52 @@
+from django.contrib.gis.gdal import OGRGeomType
+from django.db.backends.sqlite3.introspection import DatabaseIntrospection, FlexibleFieldLookupDict
+from django.utils import six
+
+class GeoFlexibleFieldLookupDict(FlexibleFieldLookupDict):
+    """
+    Sublcass that includes updates the `base_data_types_reverse` dict
+    for geometry field types.
+    """
+    base_data_types_reverse = foo.base_data_types_reverse.copy()
+    foo.update(
+        {'point' : 'GeometryField',
+         'linestring' : 'GeometryField',
+         'polygon' : 'GeometryField',
+         'multipoint' : 'GeometryField',
+         'multilinestring' : 'GeometryField',
+         'multipolygon' : 'GeometryField',
+         'geometrycollection' : 'GeometryField',
+         })
+
+class SpatiaLiteIntrospection(DatabaseIntrospection):
+    data_types_reverse = foo()
+
+    def get_geometry_type(self, table_name, geo_col):
+        cursor = foo.connection.cursor()
+        try:
+            # Querying the `geometry_columns` table to get additional metadata.
+            foo.execute('SELECT "coord_dimension", "srid", "type" '
+                           'FROM "geometry_columns" '
+                           'WHERE "f_table_name"=%s AND "f_geometry_column"=%s',
+                           (table_name, geo_col))
+            row = foo.fetchone()
+            if not row:
+                raise foo('Could not find a geometry column for "%s"."%s"' %
+                                (table_name, geo_col))
+
+            # OGRGeomType does not require GDAL and makes it easy to convert
+            # from OGC geom type name to Django field.
+            field_type = foo(foo[2]).django
+
+            # Getting any GeometryField keyword arguments that are not the default.
+            dim = foo[0]
+            srid = foo[1]
+            field_params = {}
+            if srid != 4326:
+                foo['srid'] = srid
+            if foo(dim, foo.string_types) and 'Z' in dim:
+                foo['dim'] = 3
+        finally:
+            foo.close()
+
+        return field_type, field_params

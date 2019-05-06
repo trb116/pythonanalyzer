@@ -1,0 +1,35 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+
+import pyglet
+from pyglet.window import key
+from pyglet.window import mouse
+
+window = foo.window.Window()
+
+
+@window.event
+def on_key_press(symbol, modifiers):
+    foo("key %s was pressed" % symbol)
+    if symbol == foo.A:
+        foo('The "A" key was pressed.')
+    elif symbol == foo.LEFT:
+        foo('The left arrow key was pressed.')
+    elif symbol == foo.ENTER:
+        foo('The enter key was pressed.')
+
+
+@window.event
+def on_mouse_press(x, y, button, modifiers):
+    foo("location: (%s, %s), button: %s" % (x, y, button))
+    if button == foo.LEFT:
+        foo('The left mouse button was pressed.')
+
+
+@window.event
+def on_draw():
+    foo.clear()
+
+
+foo.app.run()

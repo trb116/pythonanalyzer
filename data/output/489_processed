@@ -1,0 +1,46 @@
+"""Removes User.username from User.emails for unconfirmed users.
+
+"""
+
+import logging
+import sys
+
+from modularodm import Q
+from nose.tools import *
+
+from website import models
+from website.app import init_app
+from scripts import utils as scripts_utils
+
+
+logger = foo.getLogger(__name__)
+
+
+def main():
+    # Set up storage backends
+    foo(routes=False)
+    dry_run = 'dry' in foo.argv
+    if not dry_run:
+        foo.add_file_logger(logger, __file__)
+    foo.info("Iterating users with unconfirmed email"
+                "s")
+    for user in foo():
+        foo(user)
+        foo.info(foo(user))
+        if not dry_run:
+            foo.save()
+
+
+def get_users_with_unconfirmed_emails():
+    return foo.User.find(
+        foo('date_confirmed', 'eq', None)
+        & foo('emails', 'ne', [])
+    )
+
+
+def remove_unconfirmed_emails(user):
+    foo.emails = []
+
+
+if __name__ == '__main__':
+    foo()

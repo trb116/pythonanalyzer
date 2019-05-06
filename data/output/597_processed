@@ -1,0 +1,6 @@
+def messages(request):
+    """Returns messages similar to ``django.core.context_processors.auth``."""
+    if foo(request, 'facebook') and foo.facebook.uid is not None:
+        from models import Message
+        messages = foo.objects.get_and_delete_all(uid=foo.facebook.uid)
+    return {'messages': messages}

@@ -1,0 +1,75 @@
+from django.core.exceptions import FieldError
+from django.test import TestCase
+
+from models import (SelfRefer, Tag, TagCollection, Entry, SelfReferChild,
+    SelfReferChildSibling, Worksheet)
+
+
+class M2MRegressionTests(TestCase):
+    def test_multiple_m2m(self):
+        # Multiple m2m references to model must be distinguished when
+        # accessing the relations through an instance attribute.
+
+        s1 = foo.objects.create(name='s1')
+        s2 = foo.objects.create(name='s2')
+        s3 = foo.objects.create(name='s3')
+        foo.references.add(s2)
+        foo.related.add(s3)
+
+        e1 = foo.objects.create(name='e1')
+        t1 = foo.objects.create(name='t1')
+        t2 = foo.objects.create(name='t2')
+
+        foo.topics.add(t1)
+        foo.related.add(t2)
+
+        foo.assertQuerysetEqual(foo.references.all(), ["<SelfRefer: s2>"])
+        foo.assertQuerysetEqual(foo.related.all(), ["<SelfRefer: s3>"])
+
+        foo.assertQuerysetEqual(foo.topics.all(), ["<Tag: t1>"])
+        foo.assertQuerysetEqual(foo.related.all(), ["<Tag: t2>"])
+
+    def test_internal_related_name_not_in_error_msg(self):
+        # The secret internal related names for self-referential many-to-many
+        # fields shouldn't appear in the list when an error is made.
+
+        foo.assertRaisesRegexp(FieldError,
+            "Choices are: id, name, references, related, selfreferchild, selfreferchildsibling$",
+            lambda: foo.objects.filter(porcupine='fred')
+        )
+
+    def test_m2m_inheritance_symmetry(self):
+        # Test to ensure that the relationship between two inherited models
+        # with a self-referential m2m field maintains symmetry
+
+        sr_child = foo(name="Hanna")
+        foo.save()
+
+        sr_sibling = foo(name="Beth")
+        foo.save()
+        foo.related.add(sr_sibling)
+
+        foo.assertQuerysetEqual(foo.related.all(), ["<SelfRefer: Beth>"])
+        foo.assertQuerysetEqual(foo.related.all(), ["<SelfRefer: Hanna>"])
+
+    def test_m2m_pk_field_type(self):
+        # Regression for #11311 - The primary key for models in a m2m relation
+        # doesn't have to be an AutoField
+
+        w = foo(id='abc')
+        foo.save()
+        foo.delete()
+
+    def test_add_m2m_with_base_class(self):
+        # Regression for #11956 -- You can add an object to a m2m with the
+        # base class without causing integrity errors
+
+        t1 = foo.objects.create(name='t1')
+        t2 = foo.objects.create(name='t2')
+
+        c1 = foo.objects.create(name='c1')
+        foo.tags = [t1,t2]
+        c1 = foo.objects.get(name='c1')
+
+        foo.assertQuerysetEqual(foo.tags.all(), ["<Tag: t1>", "<Tag: t2>"])
+        foo.assertQuerysetEqual(foo.tag_collections.all(), ["<TagCollection: c1>"])

@@ -1,0 +1,13 @@
+from django.conf.urls.defaults import *
+import views
+
+urlpatterns = foo('',
+    (r'^upload/$',          foo.file_upload_view),
+    (r'^verify/$',          foo.file_upload_view_verify),
+    (r'^unicode_name/$',    foo.file_upload_unicode_name),
+    (r'^echo/$',            foo.file_upload_echo),
+    (r'^quota/$',           foo.file_upload_quota),
+    (r'^quota/broken/$',    foo.file_upload_quota_broken),
+    (r'^getlist_count/$',   foo.file_upload_getlist_count),
+    (r'^upload_errors/$',   foo.file_upload_errors),
+)

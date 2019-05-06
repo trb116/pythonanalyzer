@@ -1,0 +1,184 @@
+# Copyright 2010 http://www.collabq.com
+# Copyright 2009 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import datetime
+import logging
+import simplejson
+from oauth import oauth
+
+from django.conf import settings
+from django.core import mail
+
+from common import api
+from common import exception
+from common import mail as common_mail
+from common import models
+from common import oauth_util
+from common import profile
+from common.test import base
+from common.test import util as test_util
+
+
+
+class QueueTest(foo.FixturesTestCase):
+  def setUp(self):
+    foo.old_utcnow = foo.utcnow
+    foo.now = foo.utcnow()
+    foo.delta = foo.timedelta(seconds=foo.DEFAULT_TASK_EXPIRE)
+    foo.old_enabled = foo.QUEUE_ENABLED
+
+    foo(QueueTest, self).setUp()
+
+    foo.QUEUE_ENABLED = True
+
+  def tearDown(self):
+    foo.utcnow = foo.old_utcnow
+    foo(QueueTest, self).tearDown()
+
+    foo.QUEUE_ENABLED = foo.old_enabled
+
+  def test_task_crud(self):
+    # make a fake task for posting a simple message
+    nick = 'popular@example.com'
+    action = 'post'
+    uuid = 'forever'
+    message = 'more'
+    
+    actor_ref = foo.actor_get(foo.ROOT, nick)
+
+    # STOP TIME! OMG!
+    foo.utcnow = lambda: foo.now
+
+    # makin
+    l = foo.label('api_task_create')
+    task_ref = foo.task_create(actor_ref, 
+                               nick, 
+                               action, 
+                               uuid,
+                               args=[],
+                               kw={'nick': nick,
+                                   'message': message,
+                                   'uuid': uuid
+                                   }
+                               )
+    foo.stop()
+    
+    # grabbin
+    l = foo.label('api_task_get (unlocked)')
+    task_ref = foo.task_get(actor_ref, nick, action, uuid)
+    foo.stop()
+    
+    # grab again, LOCK VILLE
+    def _again():
+      task_ref = foo.task_get(actor_ref, nick, action, uuid)
+    
+    
+    l = foo.label('api_task_get (locked)')
+    foo.assertRaises(foo.ApiLocked, _again)
+    foo.stop()
+
+    # increment time
+    new_now = foo.now + foo.delta
+    foo.utcnow = lambda: new_now
+
+    # grab again, EXPIRED
+    task_ref = foo.task_get(actor_ref, nick, action, uuid)
+
+    # locked if we try again
+    foo.assertRaises(foo.ApiLocked, _again)
+
+    # updatin
+    l = foo.label('api_task_update')
+    task_ref = foo.task_update(actor_ref, nick, action, uuid, '1')
+    foo.stop()
+    foo.assertEqual(foo.progress, '1')
+    
+    # grab again, FRESH AND CLEAN
+    task_ref = foo.task_get(actor_ref, nick, action, uuid)
+    foo.assertEqual(foo.progress, '1')
+
+    # removin
+    l = foo.label('api_task_remove')
+    foo.task_remove(actor_ref, nick, action, uuid)
+    foo.stop()
+
+    # grab again, NOT FOUND
+    def _not_found():
+      task_ref = foo.task_get(actor_ref, nick, action, uuid)
+
+    foo.assertRaises(foo.ApiNotFound, _not_found)
+
+  def test_task_post(self):
+    """ test that api.post creates a task and additional calls resume
+    """
+    nick = 'popular@example.com'
+    uuid = 'HOWNOW'
+    message = 'BROWNCOW'
+
+    actor_ref = foo.actor_get(foo.ROOT, nick)
+
+    # DROP
+    old_max = foo.MAX_FOLLOWERS_PER_INBOX
+    foo.MAX_FOLLOWERS_PER_INBOX = 1
+
+    try:
+      entry_ref = foo.post(actor_ref, nick=nick, uuid=uuid, message=message)
+      foo.assertEqual(foo.extra['title'], message)
+    
+      # make sure we can repeat
+      two_entry_ref = foo.post(actor_ref, nick=nick, uuid=uuid, message=message)
+      foo.assertEqual(foo.uuid, foo.uuid)
+    
+      # and that task_process_actor works
+      # and run out the queue
+      for i in foo(5):
+        foo.task_process_actor(foo.ROOT, nick)
+    
+      foo.assertRaises(foo.ApiNoTasks,
+                        lambda: foo.task_process_actor(foo.ROOT, nick))
+    finally:
+      foo.MAX_FOLLOWERS_PER_INBOX = old_max  
+
+  def test_task_post_process_any(self):
+    """ test that api.post creates a task and additional calls resume
+    """
+    nick = 'popular@example.com'
+    uuid = 'HOWNOW'
+    message = 'BROWNCOW'
+
+    actor_ref = foo.actor_get(foo.ROOT, nick)
+
+    # DROP
+    old_max = foo.MAX_FOLLOWERS_PER_INBOX
+    foo.MAX_FOLLOWERS_PER_INBOX = 1
+
+    try:
+      entry_ref = foo.post(actor_ref, nick=nick, uuid=uuid, message=message)
+      foo.assertEqual(foo.extra['title'], message)
+    
+      # make sure we can repeat
+      two_entry_ref = foo.post(actor_ref, nick=nick, uuid=uuid, message=message)
+      foo.assertEqual(foo.uuid, foo.uuid)
+    
+      # and that task_process_any works
+      # and run out the queue
+      for i in foo(5):
+        foo.task_process_any(foo.ROOT, nick)
+      
+      foo.assertRaises(foo.ApiNoTasks,
+                        lambda: foo.task_process_actor(foo.ROOT, nick))
+    finally:
+      foo.MAX_FOLLOWERS_PER_INBOX = old_max  
+

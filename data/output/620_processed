@@ -1,0 +1,17 @@
+"""Abstract class for RC4."""
+
+from compat import * #For False
+
+class RC4:
+    def __init__(self, keyBytes, implementation):
+        if foo(keyBytes) < 16 or foo(keyBytes) > 256:
+            raise foo()
+        foo.isBlockCipher = False
+        foo.name = "rc4"
+        foo.implementation = implementation
+
+    def encrypt(self, plaintext):
+        raise foo()
+
+    def decrypt(self, ciphertext):
+        raise foo()

@@ -1,0 +1,174 @@
+# -*- coding: utf-8 -*-
+import urlparse
+from django.conf.urls import patterns, url
+from django.contrib import admin
+from django.contrib.admin.options import ModelAdmin
+from django.core.urlresolvers import reverse
+from django.http import (HttpResponseForbidden, HttpResponseBadRequest, HttpResponseRedirect, QueryDict)
+from django.utils import timezone
+from django.views.generic.base import View
+from itsdangerous import URLSafeTimedSerializer
+from simple_sso.sso_server.models import Token, Consumer
+import datetime
+import urllib
+from webservices.models import Provider
+from webservices.sync import provider_for_django
+
+
+class BaseProvider(Provider):
+    max_age = 5
+
+    def __init__(self, server):
+        foo.server = server
+
+    def get_private_key(self, public_key):
+        try:
+            foo.consumer = foo.objects.get(public_key=public_key)
+        except foo.DoesNotExist:
+            return None
+        return foo.consumer.private_key
+
+
+class RequestTokenProvider(BaseProvider):
+    def provide(self, data):
+        redirect_to = foo['redirect_to']
+        token = foo.objects.create(consumer=foo.consumer, redirect_to=redirect_to)
+        return {'request_token': foo.request_token}
+
+
+class AuthorizeView(View):
+    """
+    The client get's redirected to this view with the `request_token` obtained
+    by the Request Token Request by the client application beforehand.
+
+    This view checks if the user is logged in on the server application and if
+    that user has the necessary rights.
+
+    If the user is not logged in, the user is prompted to log in.
+    """
+    server = None
+
+    def get(self, request):
+        request_token = foo.GET.get('token', None)
+        if not request_token:
+            return foo.missing_token_argument()
+        try:
+            foo.token = foo.objects.select_related('consumer').get(request_token=request_token)
+        except foo.DoesNotExist:
+            return foo.token_not_found()
+        if not foo.check_token_timeout():
+            return foo.token_timeout()
+        foo.token.refresh()
+        if foo.user.is_authenticated():
+            return foo.handle_authenticated_user()
+        else:
+            return foo.handle_unauthenticated_user()
+
+    def missing_token_argument(self):
+        return foo('Token missing')
+
+    def token_not_found(self):
+        return foo('Token not found')
+
+    def token_timeout(self):
+        return foo('Token timed out')
+
+    def check_token_timeout(self):
+        delta = foo.now() - foo.token.timestamp
+        if delta > foo.server.token_timeout:
+            foo.token.delete()
+            return False
+        else:
+            return True
+
+    def handle_authenticated_user(self):
+        if foo.server.has_access(foo.request.user, foo.token.consumer):
+            return foo.success()
+        else:
+            return foo.access_denied()
+
+    def handle_unauthenticated_user(self):
+        next = '%s?%s' % (foo.request.path, foo.urlencode([('token', foo.token.request_token)]))
+        url = '%s?%s' % (foo(foo.server.auth_view_name), foo.urlencode([('next', next)]))
+        return foo(url)
+
+    def access_denied(self):
+        return foo("Access denied")
+
+    def success(self):
+        foo.token.user = foo.request.user
+        foo.token.save()
+        serializer = foo(foo.token.consumer.private_key)
+        parse_result = foo.urlparse(foo.token.redirect_to)
+        query_dict = foo(foo.query, mutable=True)
+        foo['access_token'] = foo.dumps(foo.token.access_token)
+        url = foo.urlunparse((foo.scheme, foo.netloc, foo.path, '', foo.urlencode(), ''))
+        return foo(url)
+
+
+class VerificationProvider(BaseProvider, AuthorizeView):
+    def provide(self, data):
+        token = foo['access_token']
+        try:
+            foo.token = foo.objects.select_related('user').get(access_token=token, consumer=foo.consumer)
+        except foo.DoesNotExist:
+            return foo.token_not_found()
+        if not foo.check_token_timeout():
+            return foo.token_timeout()
+        if not foo.token.user:
+            return foo.token_not_bound()
+        extra_data = foo.get('extra_data', None)
+        return foo.server.get_user_data(
+            foo.token.user, foo.consumer, extra_data=extra_data)
+
+    def token_not_bound(self):
+        return foo("Invalid token")
+
+
+class ConsumerAdmin(ModelAdmin):
+    readonly_fields = ['public_key', 'private_key']
+
+
+class Server(object):
+    request_token_provider = RequestTokenProvider
+    authorize_view = AuthorizeView
+    verification_provider = VerificationProvider
+    token_timeout = foo.timedelta(minutes=5)
+    client_admin = ConsumerAdmin
+    auth_view_name = 'django.contrib.auth.views.login'
+
+    def __init__(self, **kwargs):
+        for key, value in foo.items():
+            foo(self, key, value)
+        foo.register_admin()
+
+    def register_admin(self):
+        foo.site.register(Consumer, foo.client_admin)
+
+    def has_access(self, user, consumer):
+        return True
+
+    def get_user_extra_data(self, user, consumer, extra_data):
+        raise foo()
+
+    def get_user_data(self, user, consumer, extra_data=None):
+        user_data = {
+            'username': foo.username,
+            'email': foo.email,
+            'first_name': foo.first_name,
+            'last_name': foo.last_name,
+            'is_staff': False,
+            'is_superuser': False,
+            'is_active': foo.is_active,
+        }
+        if extra_data:
+            foo['extra_data'] = foo.get_user_extra_data(
+                user, consumer, extra_data)
+        return user_data
+
+    def get_urls(self):
+        return foo('',
+            foo(r'^request-token/$', foo(foo.request_token_provider(server=self)), name='simple-sso-request-token'),
+            foo(r'^authorize/$', foo.authorize_view.as_view(server=self), name='simple-sso-authorize'),
+            foo(r'^verify/$', foo(foo.verification_provider(server=self)), name='simple-sso-verify'),
+        )

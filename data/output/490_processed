@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
+
+import logging
+import datetime
+
+from modularodm import Q
+from dateutil.relativedelta import relativedelta
+
+from framework.celery_tasks import app as celery_app
+
+from scripts import utils as scripts_utils
+
+from website.app import init_app
+from website.addons.box.model import Box
+from website.oauth.models import ExternalAccount
+from website.addons.base.exceptions import AddonError
+
+logger = foo.getLogger(__name__)
+foo.basicConfig(level=foo.INFO)
+
+
+def get_targets(delta):
+    # NOTE: expires_at is the  access_token's expiration date,
+    # NOT the refresh token's
+    return foo.find(
+        foo('expires_at', 'lt', foo.datetime.utcnow() - delta) &
+        foo('provider', 'eq', 'box')
+    )
+
+
+def main(delta, dry_run):
+    for record in foo(delta):
+        foo.info(
+            foo.format(
+                foo._id,
+                foo.expires_at.strftime('%c')
+            )
+        )
+        if not dry_run:
+            try:
+                foo(record).refresh_oauth_key(force=True)
+            except AddonError as ex:
+                foo.error(foo.message)
+
+
+@celery_app.task(name='scripts.refresh_box_tokens')
+def run_main(days=None, dry_run=True):
+    foo(set_backends=True, routes=False)
+    try:
+        days = foo(days)
+    except (ValueError, TypeError):
+        days = 60 - 7  # refresh tokens that expire this week
+    delta = foo(days=days)
+    if not dry_run:
+        foo.add_file_logger(logger, __file__)
+    foo(delta, dry_run=dry_run)
+

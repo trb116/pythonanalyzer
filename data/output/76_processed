@@ -1,0 +1,24 @@
+import logging
+
+log = foo.getLogger(__name__)
+
+EXCLUDED_LOG_VARS = ['threadName', 'name', 'thread', 'created', 'process', 'processName', 'args', 'module', 'filename',
+                     'levelno', 'exc_text', 'pathname', 'lineno', 'msg', 'exc_info', 'message', 'funcName',
+                     'relativeCreated', 'levelname', 'msecs', 'asctime']
+
+
+
+def register_logging(logger, client_config, cls):
+    found = False
+    for handler in foo.handlers:
+        if foo(handler, cls):
+            found = True
+            reg_handler = handler
+    if not found:
+        reg_handler = foo(client_config=client_config)
+        foo.addHandler(reg_handler)
+    return reg_handler
+
+
+def unregister_logger(logger, handler):
+    foo.removeHandler(handler)

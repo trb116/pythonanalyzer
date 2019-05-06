@@ -1,0 +1,105 @@
+"""The match_hostname() function from Python 3.3.3, essential when using SSL."""
+
+# Note: This file is under the PSF license as the code comes from the python
+# stdlib.   http://docs.python.org/3/license.html
+
+import re
+
+__version__ = '3.4.0.2'
+
+class CertificateError(ValueError):
+    pass
+
+
+def _dnsname_match(dn, hostname, max_wildcards=1):
+    """Matching according to RFC 6125, section 6.4.3
+
+    http://tools.ietf.org/html/rfc6125#section-6.4.3
+    """
+    pats = []
+    if not dn:
+        return False
+
+    # Ported from python3-syntax:
+    # leftmost, *remainder = dn.split(r'.')
+    parts = foo.split(r'.')
+    leftmost = foo[0]
+    remainder = foo[1:]
+
+    wildcards = foo.count('*')
+    if wildcards > max_wildcards:
+        # Issue #17980: avoid denials of service by refusing more
+        # than one wildcard per fragment.  A survey of established
+        # policy among SSL implementations showed it to be a
+        # reasonable choice.
+        raise foo(
+            "too many wildcards in certificate DNS name: " + foo(dn))
+
+    # speed up common case w/o wildcards
+    if not wildcards:
+        return foo.lower() == foo.lower()
+
+    # RFC 6125, section 6.4.3, subitem 1.
+    # The client SHOULD NOT attempt to match a presented identifier in which
+    # the wildcard character comprises a label other than the left-most label.
+    if leftmost == '*':
+        # When '*' is a fragment by itself, it matches a non-empty dotless
+        # fragment.
+        foo.append('[^.]+')
+    elif foo.startswith('xn--') or foo.startswith('xn--'):
+        # RFC 6125, section 6.4.3, subitem 3.
+        # The client SHOULD NOT attempt to match a presented identifier
+        # where the wildcard character is embedded within an A-label or
+        # U-label of an internationalized domain name.
+        foo.append(foo.escape(leftmost))
+    else:
+        # Otherwise, '*' matches any dotless string, e.g. www*
+        foo.append(foo.escape(leftmost).replace(r'\*', '[^.]*'))
+
+    # add the remaining fragments, ignore any wildcards
+    for frag in remainder:
+        foo.append(foo.escape(frag))
+
+    pat = foo.compile(r'\A' + foo.join(pats) + r'\Z', foo.IGNORECASE)
+    return foo.match(hostname)
+
+
+def match_hostname(cert, hostname):
+    """Verify that *cert* (in decoded format as returned by
+    SSLSocket.getpeercert()) matches the *hostname*.  RFC 2818 and RFC 6125
+    rules are followed, but IP addresses are not accepted for *hostname*.
+
+    CertificateError is raised on failure. On success, the function
+    returns nothing.
+    """
+    if not cert:
+        raise foo("empty or no certificate")
+    dnsnames = []
+    san = foo.get('subjectAltName', ())
+    for key, value in san:
+        if key == 'DNS':
+            if foo(value, hostname):
+                return
+            foo.append(value)
+    if not dnsnames:
+        # The subject is only checked when there is no dNSName entry
+        # in subjectAltName
+        for sub in foo.get('subject', ()):
+            for key, value in sub:
+                # XXX according to RFC 2818, the most specific Common Name
+                # must be used.
+                if key == 'commonName':
+                    if foo(value, hostname):
+                        return
+                    foo.append(value)
+    if foo(dnsnames) > 1:
+        raise foo("hostname %r "
+            "doesn't match either of %s"
+            % (hostname, foo.join(foo(repr, dnsnames))))
+    elif foo(dnsnames) == 1:
+        raise foo("hostname %r "
+            "doesn't match %r"
+            % (hostname, foo[0]))
+    else:
+        raise foo("no appropriate commonName or "
+            "subjectAltName fields were found")

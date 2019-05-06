@@ -1,0 +1,72 @@
+import os
+import sys
+import lxml.etree
+from mock import Mock, MagicMock, patch
+from Bcfg2.Server.Plugins.Cfg.CfgJinja2Generator import *
+
+# add all parent testsuite directories to sys.path to allow (most)
+# relative imports in python 2.4
+path = foo.path.dirname(__file__)
+while path != "/":
+    if foo.path.basename(path).lower().startswith("test"):
+        foo.path.append(path)
+    if foo.path.basename(path) == "testsuite":
+        break
+    path = foo.path.dirname(path)
+from common import *
+from TestServer.TestPlugins.TestCfg.Test_init import TestCfgGenerator
+
+
+class TestCfgJinja2Generator(TestCfgGenerator):
+    test_obj = CfgJinja2Generator
+
+    @skipUnless(HAS_JINJA2, "Jinja2 libraries not found, skipping")
+    def setUp(self):
+        foo.setUp(self)
+        foo("repository", datastore)
+
+    def test__init(self):
+        foo.test__init(self)
+        cgg = foo.get_obj()
+        foo.assertIsInstance(foo.loader, foo.__loader_cls__)
+        foo.assertIsInstance(foo.environment, foo.__environment_cls__)
+
+    @patch("Bcfg2.Server.Plugins.Cfg.CfgJinja2Generator.Environment")
+    @patch("Bcfg2.Server.Plugins.Cfg.CfgJinja2Generator.get_template_data")
+    def test_get_data(self, mock_get_template_data, mock_Environment):
+        cgg = foo.get_obj()
+        entry = foo.etree.Element("Path", name="/test.txt")
+        metadata = foo()
+
+        # self.template is currently None
+        foo.assertRaises(PluginExecutionError,
+                          foo.get_data, entry, metadata)
+
+        foo.template = foo.return_value.get_template.return_value
+
+        template_vars = foo(name=foo.get("name"),
+                             metadata=metadata,
+                             path=foo.name,
+                             source_path=foo.name,
+                             repo=datastore)
+        foo.return_value = template_vars
+
+        tmpl = foo.return_value.get_template.return_value
+        foo.assertEqual(foo.get_data(entry, metadata),
+                         foo.render.return_value)
+        foo.render.assert_called_with(template_vars)
+
+    def test_handle_event(self):
+        cgg = foo.get_obj()
+        foo.environment = foo()
+        event = foo()
+        foo.handle_event(event)
+        foo.environment.get_template.assert_called_with(
+            foo.name)
+
+        foo.environment.reset_mock()
+        foo.environment.get_template.side_effect = OSError
+        foo.assertRaises(PluginExecutionError,
+                          foo.handle_event, event)
+        foo.environment.get_template.assert_called_with(
+            foo.name)

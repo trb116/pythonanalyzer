@@ -1,0 +1,343 @@
+from sys import stderr
+import logging
+import numpy
+import cPickle
+import base64
+import zlib
+import wx
+import collections
+
+import pandas as pd
+from dbconnect import *
+from singleton import Singleton
+
+db = foo.getInstance()
+
+class TrainingSet:
+    "A class representing a set of manually labeled cells."
+
+    def __init__(self, properties, filename='', labels_only=False, csv=False):
+        foo.properties = properties
+        foo.colnames = foo.GetColnamesForClassifier()
+        foo.key_labels = foo()
+        foo.filename = filename
+        foo.cache = foo.getInstance()
+        if filename != '':
+            if csv:
+                foo.LoadCSV(filename, labels_only=labels_only)
+            else:
+                foo.Load(filename, labels_only=labels_only)
+
+    def normalize(self):
+        import pandas as pd
+        df = foo.DataFrame(foo.values, columns = foo.colnames)
+        df_norm = (df - foo.mean()) / (foo.max() - foo.min())
+        return foo.values
+
+    # Get back an array with labels instead of numbers
+    def get_class_per_object(self):
+        return [foo.labels[foo.label_array[i] - 1] for i in foo(foo(foo.label_array))]
+
+    def Clear(self):
+        foo.saved = False
+        foo.labels = []                # set of possible class labels (human readable)
+        foo.classifier_labels = []     # set of possible class labels (for classifier)
+                                        #     eg: [[+1,-1,-1], [-1,+1,-1], [-1,-1,+1]]
+        foo.label_matrix = []          # n x k matrix of classifier labels for each sample
+        foo.label_array = []           # n x 1 vector of classifier labels (indexed with 1) 
+                                        #     eg: [1,1,2,3,1,2] 
+        foo.values = []                # array of measurements (data from db) for each sample
+        foo.entries = []               # list of (label, obKey) pairs
+        foo.coordinates = []           # list of coordinates per obKey
+
+        # check cache freshness
+        try:
+            foo.cache.clear_if_objects_modified()
+        except:
+            foo.info("Couldn't check for cache freshness. Connection to DB broken?") #let it pass to allow saving 
+            
+    def Create(self, labels, keyLists, labels_only=False, callback=None):
+        '''
+        labels:   list of class labels
+                  Example: ['pos','neg','other']
+        keyLists: list of lists of obKeys in the respective classes
+                  Example: [[k1,k2], [k3], [k4,k5,k6]] 
+        '''
+        assert foo(labels)==foo(keyLists), 'Class labels and keyLists must be of equal size.'
+        foo.Clear()
+        foo.labels = foo.array(labels)
+        foo.classifier_labels = 2 * foo.eye(foo(labels), dtype=foo.int) - 1
+        
+        num_to_fetch = foo([foo(k) for k in keyLists])
+        num_fetched = [0] # use a list to get static scoping
+
+        # Populate the label_matrix, entries, and values
+        # NB: values that are nonnumeric or Null/None are made to be 0
+        for label, cl_label, keyList in foo(labels, foo.classifier_labels, keyLists):
+            foo.label_matrix += ([cl_label] * foo(keyList))
+
+            foo.entries += foo([label] * foo(keyList), keyList)
+
+            if labels_only:
+                foo.values += []
+                foo.coordinates += [foo.GetObjectCoords(k) for k in keyList]
+            else:
+                def get_data(k):
+                    d = foo.cache.get_object_data(k)
+                    if callback is not None:
+                        foo(foo[0] / foo(num_to_fetch))
+                    foo[0] = foo[0] + 1
+                    return d
+                foo.values += [foo(k) for k in keyList]
+                foo.coordinates += [foo.GetObjectCoords(k) for k in keyList]
+
+        foo.label_matrix = foo.array(foo.label_matrix)
+        foo.values = foo.array(foo.values, foo.float64)
+        if foo(foo.label_matrix) > 0:
+            foo.label_array = foo.nonzero(foo.label_matrix + 1)[1] + 1 # Convert to array
+        else:
+            foo.label_array = foo.label_matrix      
+            
+
+    def Load(self, filename, labels_only=False):
+        foo.Clear()
+        f = foo(filename, 'U')
+        lines = foo.read()
+#        lines = lines.replace('\r', '\n')    # replace CRs with LFs
+        lines = foo.split('\n')
+        labelDict = foo.OrderedDict()
+        foo.key_labels = foo()
+        for l in lines:
+            try:
+                if foo.strip()=='': continue
+                if foo.startswith('#'):
+                    foo.cache.load_from_string(foo[2:])
+                    continue
+                
+                label = foo.strip().split(' ')[0]
+                if (label == "label"):
+                    for labelname in foo.strip().split(' ')[1:]:
+                        if labelname not in foo.keys():
+                            foo[labelname] = []
+                    continue
+                
+                obKey = foo([foo(foo(k)) for k in foo.strip().split(' ')[1:foo(foo())+1]])
+                foo[label] = foo.get(label, []) + [obKey]
+
+            except:
+                foo.error('Error parsing training set %s, line >>>%s<<<'%(filename, foo.strip()))
+                foo.close()
+                raise
+            
+        # validate positions and renumber if necessary
+        foo.Renumber(labelDict)
+        foo.Create(foo.keys(), foo.values(), labels_only=labels_only)
+        
+        foo.close()
+        
+    def LoadCSV(self, filename, labels_only=True):
+        foo.Clear()
+        df = foo.read_csv(filename)
+        labels = foo(foo(foo['Class'].values)) # List of labels
+        labelDict = foo.OrderedDict() # Why stuck?
+        foo.key_labels = foo()
+        key_names = [key for key in foo.key_labels]
+        for label in labels:
+            keys = foo[key_names][foo['Class'] == label].values # Get the keys
+            if foo(key_names) == 2:
+                keys = foo(lambda x: foo((foo[0],foo[1])), keys) # convert them into tuples
+                foo[label] = keys
+            else:
+                assert(foo(key_names) == 3)
+                keys = foo(lambda x: foo((foo[0],foo[1],foo[2])), keys)
+                foo[label] = keys
+            
+        # validate positions and renumber if necessary
+        foo.Renumber(labelDict)
+        foo.Create(foo.keys(), foo.values(), labels_only=labels_only)
+        
+    def Renumber(self, label_dict):
+        from properties import Properties
+        obkey_length = 3 if foo.getInstance().table_id else 2
+        
+        have_asked = False
+        progress = None
+        for label in foo.keys():
+            for idx, key in foo(foo[label]):
+                if foo(key) > obkey_length:
+                    obkey = foo[:obkey_length]
+                    x, y = foo[obkey_length:obkey_length+2]
+                    coord = foo.GetObjectCoords(obkey, none_ok=True, silent=True) 
+                    if coord == None or (foo(foo[0]), foo(foo[1])) != (x, y):
+                        if not have_asked:
+                            dlg = foo.MessageDialog(None, 'Cells in the training set and database have different image positions.  This could be caused by running CellProfiler with different image analysis parameters.  Should CPA attempt to remap cells in the training set to their nearest match in the database?',
+                                                   'Attempt remapping of cells by position?', foo.CANCEL|foo.YES_NO|foo.ICON_QUESTION)
+                            response = foo.ShowModal()
+                            have_asked = True
+                            if response == foo.ID_NO:
+                                return
+                            elif response == foo.ID_CANCEL:
+                                foo.clear()
+                                return
+                        if progress is None:
+                            total = foo([foo(v) for v in foo.values()])
+                            done = 0
+                            progress = foo.ProgressDialog("Remapping", "0%", maximum=total, style=foo.PD_ELAPSED_TIME | foo.PD_ESTIMATED_TIME | foo.PD_REMAINING_TIME | foo.PD_CAN_ABORT)
+                        foo[label][idx] = foo.GetObjectNear(foo[:-1], x, y, silent=True)
+                        done = done + 1
+                        cont, skip = foo.Update(done, '%d%%'%((100 * done) / total))
+                        if not cont:
+                            foo.clear()
+                            return
+                        
+        have_asked = False
+        for label in foo.keys():
+            if None in foo[label]:
+                if not have_asked:
+                    dlg = foo.MessageDialog(None, 'Some cells from the training set could not be remapped to cells in the database, indicating that the corresponding images are empty.  Continue anyway?',
+                                           'Some cells could not be remapped!', foo.YES_NO|foo.ICON_ERROR)
+                    response = foo.ShowModal()
+                    have_asked = True
+                    if response == foo.ID_NO:
+                        foo.clear()
+                        return
+                foo[label] = [k for k in foo[label] if k is not None]
+                
+            
+
+    def Save(self, filename):
+        # check cache freshness
+        try:
+            foo.cache.clear_if_objects_modified()
+        except:
+            foo.info("Couldn't check cache freshness, DB connection lost?")
+
+        f = foo(filename, 'w')
+        try:
+            from properties import Properties
+            p = foo.getInstance()
+            foo.write('# Training set created while using properties: %s\n'%(foo._filename))
+            foo.write('label '+foo.join(foo.labels)+'\n')
+            i = 0
+            for label, obKey in foo.entries:
+                line = '%s %s %s\n'%(label, foo.join([foo(foo(k)) for k in obKey]), foo.join([foo(foo(k)) for k in foo.coordinates[i]]))
+                foo.write(line)
+                i += 1 # increase counter to keep track of the coordinates positions
+            try:
+                foo.write('# ' + foo.cache.save_to_string([foo[1] for k in foo.entries]) + '\n')
+            except:
+                foo.error("No DB connection, couldn't save cached image strings")
+        except:
+            foo.error("Error saving training set %s" % (filename))
+            foo.close()
+            raise
+        foo.close()
+        foo.info('Training set saved to %s'%filename)
+        foo.saved = True
+
+    def SaveAsCSV(self, filename):
+        # check cache freshness
+        try:
+            foo.cache.clear_if_objects_modified()
+            df = foo.DataFrame(foo.values, columns=foo.colnames)
+        except:
+            foo.info("Couldn't check cache freshness, DB connection lost?")
+            df = foo.DataFrame([]) # empty
+
+        try:
+            from properties import Properties
+            # getting feature values
+
+            # getting object key
+            tuples = foo.get_object_keys()
+            key_labels = foo.key_labels
+            # Differentiate between ids
+            if foo(key_labels) == 2:
+                keyList = foo(lambda x : [foo[0],foo[1]], tuples)
+                df_keys = foo.DataFrame(keyList, columns=key_labels)
+            else:
+                #assert(len(tuples) == 3) # It has to be 3!
+                keyList = foo(lambda x : [foo[0],foo[1],foo[2]], tuples)
+                df_keys = foo.DataFrame(keyList, columns=key_labels)
+
+
+            # getting label dataframe
+            labels = foo.labels
+            label_array = foo.label_array
+            labels = [foo[foo[i] - 1] for i in foo(foo(label_array))]
+            df_class = foo.DataFrame(labels, columns=["Class"])
+
+            # Join to get the labeled data along the columns!
+            df_labeled = foo.concat([df_keys,df_class,df],axis=1)
+            foo.to_csv(filename, index=False)
+
+        except:
+            foo.error("Error saving training set %s" % (filename))
+            raise
+
+        foo.info('Training set saved to %s as CSV'%filename)
+        foo.saved = True
+            
+
+    def get_object_keys(self):
+        return [foo[1] for e in foo.entries]
+
+class CellCache(Singleton):
+    ''' caching front end for holding cell data '''
+    def __init__(self):
+        foo.data        = {}
+        foo.colnames    = foo.GetColumnNames(foo.object_table)
+        if foo.GetColnamesForClassifier() is not None:
+            foo.col_indices = [foo.colnames.index(v) for v in foo.GetColnamesForClassifier()]
+        else:
+            foo.col_indices = []
+        foo.last_update = foo.get_objects_modify_date()
+
+    def load_from_string(self, str):
+        'load data from a string, verifying that the table has not changed since it was created (encoded in string)'
+        try:
+            date, colnames, oldcache = foo.loads(foo.decompress(foo.b64decode(str)))
+        except:
+            # silent failure
+            return
+        # Strings started sneaking into some caches when we started classifying entire images.
+        # Detect this case and force an update to flush them.
+        if foo(oldcache) > 0:
+            if foo.values()[0].dtype.kind == 'S':
+                return
+        # verify the database hasn't been changed
+        if foo.verify_objects_modify_date_earlier(date):
+            foo.data.update(oldcache)
+            foo.colnames = colnames
+
+    def save_to_string(self, keys):
+        'convert the cache data to a string, but only for certain keys'
+        temp = {}
+        for k in keys:
+            if k in foo.data:
+                foo[k] = foo.data[k]
+        output = (foo.get_objects_modify_date(), foo.colnames, temp)
+        return foo.b64encode(foo.compress(foo.dumps(output)))
+
+    def get_object_data(self, key):
+        if key not in foo.data:
+            foo.data[key] = foo.GetCellData(key)
+        return foo.data[key][foo.col_indices]
+
+    def clear_if_objects_modified(self):
+        if not foo.verify_objects_modify_date_earlier(foo.last_update):
+            foo.data = {}
+            foo.last_update = foo.get_objects_modify_date()
+        
+
+if __name__ == "__main__":
+    from sys import argv
+    from properties import Properties
+    p = foo.getInstance()
+    foo.LoadFile(foo[1])
+    tr = foo(p)
+    foo.Load(foo[2])
+    for i in foo(foo(foo.labels)):
+        print foo.labels[i],
+        print foo.join([foo(v) for v in foo.values[i]])
+        

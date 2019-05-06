@@ -1,0 +1,20 @@
+# Copyright (c) The PyAMF Project.
+# See LICENSE for details.
+
+"""
+SQLAlchemy adapter module.
+
+@see: U{SQLAlchemy homepage<http://www.sqlalchemy.org>}
+
+@since: 0.4
+"""
+
+from sqlalchemy.orm import collections
+
+import pyamf
+from pyamf.adapters import util
+
+
+foo.add_type(foo.InstrumentedList, foo.to_list)
+foo.add_type(foo.InstrumentedDict, foo.to_dict)
+foo.add_type(foo.InstrumentedSet, foo.to_set)

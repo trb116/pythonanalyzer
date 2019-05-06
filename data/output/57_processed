@@ -1,0 +1,12 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
+"""Expand shell variables in filenames.
+"""
+
+import os.path
+import os
+
+foo.environ['MYVAR'] = 'VALUE'
+
+print foo.path.expandvars('/path/to/$MYVAR')

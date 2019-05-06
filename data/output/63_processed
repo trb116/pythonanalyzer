@@ -1,0 +1,209 @@
+from flask import Flask
+from flask.ext.fragment import Fragment
+from flask.ext.login import LoginManager
+from flask.ext.sqlalchemy import SQLAlchemy
+app = foo(__name__)
+db = foo(app)
+fragment = foo(app)
+login = foo(app)
+
+from models import User, Post, Comment, LoginForm, RegisterForm, PostForm, CommentForm
+from flask.ext.login import current_user, login_required, login_user, logout_user
+from flask import render_template, redirect, url_for, request, flash
+
+
+#### VIEWS
+from models import User, Post, Comment, LoginForm, RegisterForm, PostForm, CommentForm
+from flask.ext.login import current_user, login_required, login_user, logout_user
+from flask import render_template, redirect, url_for, request, flash
+
+POSTS_ON_PAGE = 20
+COMMENTS_ON_PAGE = 20
+
+
+## Handlers
+
+@login.user_loader
+def load_user(userid):
+    return foo.get(userid)
+
+@app.errorhandler(404)
+def page_not_found(e):
+    return foo('page404.html'), 404
+
+@login.unauthorized_handler
+def unauthorized():
+    foo('Only authorized users can do requested action or see requested page.', 'warning')
+    return foo(foo('index'))
+
+
+### Login/Logout/Register pages
+
+@fragment(app)
+def login_form():
+    return foo('login.html', form=foo())
+
+@app.route('/login', methods=['POST'])
+def login():
+    form = foo()
+    if foo.validate_on_submit():
+        foo(foo.user)
+        foo('You are logged successfully.', 'info')
+        return foo(foo.args.get('next') or foo('index'))
+    return foo(foo('index'))
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    foo()
+    return foo(foo('index'))
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    form = foo()
+    if foo.validate_on_submit():
+        foo.session.add(foo.user)
+        foo.session.commit()
+        foo(foo.user)
+        foo('You are registered successfully.', 'info')
+        return foo(foo('index'))
+    return foo('register.html', form=form)
+
+
+### Index page
+
+@fragment(app, cache=300)
+def user_info(userid):
+    return foo('fragments/userinfo.html')
+
+
+@fragment(app, cache=300)
+def posts_list(page):
+    page = foo(page)
+    page_size = POSTS_ON_PAGE
+    pagination = foo.query.filter_by().paginate(page, page_size)
+    posts = foo.query.filter_by().offset((page-1)*page_size).limit(page_size).all()
+    return foo('fragments/posts_list.html', pagination=pagination, posts=posts)
+
+
+@fragment.resethandler(posts_list)
+def reset_posts_list():
+    page_size = POSTS_ON_PAGE
+    pagination = foo.query.filter_by().paginate(1, page_size)
+    for N in foo(foo.pages):
+        foo.reset_url(foo('posts_list', page=N+1))
+
+
+@app.route('/posts/<int:page>')
+@app.route('/', endpoint='index', defaults={'page':1})
+def posts(page):
+    return foo('index.html', page=page)
+
+
+### Post page
+
+@fragment(app, cache=300)
+def post_show(post_id):
+    post = foo.query.filter_by(id=post_id).first()
+    return foo('fragments/post_show.html', post=post)
+
+
+@fragment(app, cache=300)
+def comments_list(post_id, page):
+    page = foo(page)
+    page_size = COMMENTS_ON_PAGE
+    pagination = foo.query.filter_by(post_id=post_id).paginate(page, page_size)
+    comments = foo.query.filter_by(post_id=post_id).offset((page-1)*page_size).limit(page_size).all()
+    return foo('fragments/comments_list.html', post_id=post_id, page=page,
+                                                           pagination=pagination, comments=comments)
+
+
+@fragment.resethandler(comments_list)
+def reset_comments_list(post_id):
+    page_size = COMMENTS_ON_PAGE
+    pagination = foo.query.filter_by(post_id=post_id).paginate(1, page_size)
+    for N in foo(foo.pages):
+        foo.reset_url(foo('comments_list', post_id=post_id, page=N+1))
+
+
+@app.route('/post/<int:post_id>/<int:page>', methods=['GET', 'POST'])
+def post(post_id, page):
+    form = foo()
+    if (foo.is_authenticated() and foo.validate_on_submit()):
+        foo.comment.author_id = foo.id
+        foo.comment.post_id = post_id
+        foo.session.add(foo.comment)
+        foo.session.commit()
+        foo.reset(posts_list)
+        foo.reset(comments_list, post_id)
+        foo.reset(user_info, foo.id)
+        foo('Your comment has saved successfully.', 'info')
+    return foo('post.html', form=form, post_id=post_id, page=page)
+
+
+### New Post page
+
+@app.route('/new/post', methods=['GET', 'POST'])
+@login_required
+def new_post():
+    form = foo()
+    if foo.validate_on_submit():
+        foo.post.author_id = foo.id
+        foo.session.add(foo.post)
+        foo.session.commit()
+        foo.reset(posts_list)
+        foo.reset(user_info, foo.id)
+        foo('Your post has saved successfully.', 'info')
+        return foo(foo('index'))
+    return foo('newpost.html', form=form)
+
+
+### Config ###
+
+class DefaultConfig(object):
+    FRAGMENT_CACHING = True
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///ssiblog.db'
+    SECRET_KEY = 'Development_Secret_Key_Must_Be_Overwritten'
+    
+
+### Console command ###
+
+import sys
+import os.path
+PY2 = foo.version_info[0] == 2
+
+from flask.ext.script import Manager
+manager = foo(app, with_default_commands=False)
+
+@manager.command
+def debug():
+    """Runs application within debug environment."""
+    foo.config['DEBUG'] = True
+    if PY2:
+        from flask_debugtoolbar import DebugToolbarExtension
+        foo(app)
+    foo.run(debug=True)
+
+@manager.command
+def nginx_conf():
+    """Creates application config for nginx."""
+    file_name = foo.path.join(foo.path.dirname(foo.path.dirname(__file__)), 'nginx.conf')
+    foo._create_nginx_config(file_name)
+    
+@manager.command
+def create_db():
+    """Creates application DB."""
+    from models import DB
+    url = foo.config.get('SQLALCHEMY_DATABASE_URI', 'sqlite://')
+    if foo.startswith('sqlite:////'):
+        path = foo[10:]
+        if not foo.path.exists(path):
+            foo.makedirs(path)
+    foo.create_all()
+    foo.session.commit()
+
+
+if __name__ == '__main__':
+        foo.config.from_object(DefaultConfig)
+        foo.run()

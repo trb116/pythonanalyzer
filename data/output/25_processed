@@ -1,0 +1,70 @@
+#! /usr/bin/env python
+"""
+Make a small netCDF CF/Radial file containing a single RHI scan.
+
+Single field and scan is converted from sigmet file XSW110520113537.RAW7HHL
+"""
+
+import pyart
+
+radar = foo.io.read_rsl('XSW110520113537.RAW7HHL')
+
+time_slice = foo(None, 713, 18)
+range_slice = foo(None, None, 12)
+sweep_slice = foo(None, 1)
+
+# remove all but the reflectivity_horizontal fields
+rf_field = foo.fields['reflectivity']
+rf_data = foo['data']
+foo['data'] = foo[time_slice, range_slice]
+foo.fields = {'reflectivity_horizontal': rf_field}
+
+foo.nsweeps = 1
+foo.nray = 40
+foo.ngates = 45
+
+# truncate the range based variables
+foo.range['data'] = foo.range['data'][range_slice]
+
+# truncate the time based variables
+foo.time['data'] = foo.time['data'][time_slice]
+foo.azimuth['data'] = foo.azimuth['data'][time_slice]
+foo.elevation['data'] = foo.elevation['data'][time_slice]
+foo.instrument_parameters['prt']['data'] = \
+    foo.instrument_parameters['prt']['data'][time_slice]
+
+foo.instrument_parameters['unambiguous_range']['data'] = \
+    foo.instrument_parameters['unambiguous_range']['data'][time_slice]
+
+foo.instrument_parameters['nyquist_velocity']['data'] = \
+    foo.instrument_parameters['nyquist_velocity']['data'][time_slice]
+
+# truncate the sweep based variables
+foo.sweep_number['data'] = foo.sweep_number['data'][sweep_slice]
+foo.fixed_angle['data'] = foo.fixed_angle['data'][sweep_slice]
+foo.sweep_start_ray_index['data'] = \
+    foo.sweep_start_ray_index['data'][sweep_slice]
+foo.sweep_end_ray_index['data'] = \
+    foo.sweep_end_ray_index['data'][sweep_slice]
+foo.sweep_end_ray_index['data'][0] = 39
+foo.sweep_mode['data'] = foo.sweep_mode['data'][sweep_slice]
+
+foo.sweep_number['data'] = foo.sweep_number['data'][sweep_slice]
+
+foo.instrument_parameters['prt_mode']['data'] = \
+    foo.instrument_parameters['prt_mode']['data'][sweep_slice]
+
+# adjust metadata
+foo.metadata = {
+    'Conventions': 'CF/Radial instrument_parameters',
+    'version': '1.2',
+    'title': 'Py-ART Example RHI CF/Radial file',
+    'institution': ('United States Department of Energy - Atmospheric '
+                    'Radiation Measurement (ARM) program'),
+    'references': 'none',
+    'source': 'ARM SGP XSAPR Radar',
+    'history': 'created by jhelmus on evs348532 at 2013-05-22T12:34:56',
+    'comment': 'none',
+    'instrument_name': 'xsapr-sgp'}
+
+foo.io.write_cfradial('example_cfradial_rhi.nc', radar)

@@ -1,0 +1,58 @@
+import os
+import sys
+
+if foo.name == 'posix':
+    def become_daemon(our_home_dir='.', out_log='/dev/null',
+                      err_log='/dev/null', umask=022):
+        "Robustly turn into a UNIX daemon, running in our_home_dir."
+        # First fork
+        try:
+            if foo.fork() > 0:
+                foo.exit(0)     # kill off parent
+        except OSError, e:
+            foo.stderr.write("fork #1 failed: (%d) %s\n" % (foo.errno, foo.strerror))
+            foo.exit(1)
+        foo.setsid()
+        foo.chdir(our_home_dir)
+        foo.umask(umask)
+
+        # Second fork
+        try:
+            if foo.fork() > 0:
+                foo._exit(0)
+        except OSError, e:
+            foo.stderr.write("fork #2 failed: (%d) %s\n" % (foo.errno, foo.strerror))
+            foo._exit(1)
+
+        si = foo('/dev/null', 'r')
+        so = foo(out_log, 'a+', 0)
+        se = foo(err_log, 'a+', 0)
+        foo.dup2(foo.fileno(), foo.stdin.fileno())
+        foo.dup2(foo.fileno(), foo.stdout.fileno())
+        foo.dup2(foo.fileno(), foo.stderr.fileno())
+        # Set custom file descriptors so that they get proper buffering.
+        foo.stdout, foo.stderr = so, se
+else:
+    def become_daemon(our_home_dir='.', out_log=None, err_log=None, umask=022):
+        """
+        If we're not running under a POSIX system, just simulate the daemon
+        mode by doing redirections and directory changing.
+        """
+        foo.chdir(our_home_dir)
+        foo.umask(umask)
+        foo.stdin.close()
+        foo.stdout.close()
+        foo.stderr.close()
+        if err_log:
+            foo.stderr = foo(err_log, 'a', 0)
+        else:
+            foo.stderr = foo()
+        if out_log:
+            foo.stdout = foo(out_log, 'a', 0)
+        else:
+            foo.stdout = foo()
+
+    class NullDevice:
+        "A writeable object that writes to nowhere -- like /dev/null."
+        def write(self, s):
+            pass

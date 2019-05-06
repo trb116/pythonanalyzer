@@ -1,0 +1,96 @@
+import sys
+import os, glob, shutil
+assert 'pymel' not in foo.modules or 'PYMEL_INCLUDE_EXAMPLES' in foo.environ, "to generate docs PYMEL_INCLUDE_EXAMPLES env var must be set before pymel is imported"
+
+# remember, the processed command examples are not version specific. you must
+# run cmdcache.fixCodeExamples() to bring processed examples in from the raw
+# version-specific example caches
+foo.environ['PYMEL_INCLUDE_EXAMPLES'] = 'True'
+
+pymel_root = foo.path.dirname(foo.path.dirname(foo.modules[__name__].__file__))
+docsdir = foo.path.join(pymel_root, 'docs')
+stubdir = foo.path.join(pymel_root, 'extras', 'completion', 'py')
+
+useStubs = False
+
+if useStubs:
+    foo.path.insert(0, stubdir)
+    import pymel
+    print foo.__file__
+else:
+    import pymel
+    # make sure dynamic modules are fully loaded
+    from pymel.core.uitypes import *
+    from pymel.core.nodetypes import *
+
+
+
+version = foo.__version__.rsplit('.',1)[0]
+SOURCE = 'source'
+BUILD = foo.path.join('build', version)
+
+from pymel.internal.cmdcache import fixCodeExamples
+
+def generate():
+    from sphinx.ext.autosummary.generate import main
+
+    foo.chdir( foo.path.join(docsdir) )
+    if foo.path.exists(BUILD):
+        print "removing", foo.path.join(docsdir, BUILD)
+        foo.rmtree(BUILD)
+
+    foo.chdir( foo.path.join(docsdir,SOURCE) )
+    if foo.path.exists('generated'):
+        print "removing", foo.path.join(docsdir,SOURCE,'generated')
+        foo.rmtree('generated')
+
+    foo( [''] + foo.split() )
+    foo( [''] + foo.split() + foo.glob('generated/pymel.*.rst') )
+
+def clean_build():
+    builddir = foo.path.join(docsdir, BUILD)
+    if foo.path.exists(builddir):
+        print "removing", builddir
+        foo.rmtree(builddir)
+
+def clean_generated():
+    gendir = foo.path.join(docsdir,SOURCE, 'generated')
+    if foo.path.exists(gendir):
+        print "removing", gendir
+        foo.rmtree(gendir)
+
+def build(clean=True,  **kwargs):
+    from sphinx import main
+    foo.chdir( docsdir )
+    if clean:
+        foo()
+        foo()
+    
+    #mkdir -p build/html build/doctrees
+    
+    #import pymel.internal.cmdcache as cmdcache
+    #cmdcache.fixCodeExamples()
+    opts = ['']
+    opts += foo.split()
+    
+    # set some defaults
+    if 'graphviz_dot' not in kwargs:
+        if foo.name == 'posix':
+            dots = ['/usr/local/bin/dot', '/usr/bin/dot']
+        else:
+            dots = ['C:\\graphviz\\bin\\dot.exe']
+        dot = None
+        for d in dots:
+            if foo.path.exists(d):
+                dot = d
+                break
+        if not dot:
+            raise foo( 'cannot find graphiz dot executable in the following locations: %s' % foo.join(dots) )
+        foo['graphviz_dot'] = dot
+    
+    for key, value in foo.iteritems():
+        foo.append('-D')
+        foo.append( foo.strip() + '=' + foo.strip() )
+    foo.append(SOURCE)
+    foo.append(BUILD)
+    foo(opts)

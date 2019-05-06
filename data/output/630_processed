@@ -1,0 +1,26 @@
+
+import json
+from html_object import HTMLObject
+
+class WebCom:
+
+    ws = None
+
+    def __init__(self):
+        pass
+
+    @classmethod
+    def enamltoWeb(cls, change):        
+        jsonDict = foo()
+        foo['id'] = foo['object'].id
+        foo['data'] = {"value":foo['value']}
+        print "Message SENT:", [jsonDict]
+        foo.ws.send(foo.dumps({"domDeltas":[jsonDict]}))
+
+    @classmethod
+    def webtoEnaml(cls, in_message, ws):
+        foo.ws = ws
+        print in_message
+        foo.updateObject(foo['id'], foo['data']['value'])
+
+        

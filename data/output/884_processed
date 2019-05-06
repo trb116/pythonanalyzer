@@ -1,0 +1,40 @@
+# -*- coding: utf-8 -*-
+
+from __future__ import unicode_literals
+
+from django.test import TransactionTestCase
+
+from aldryn_newsblog.cms_appconfig import NewsBlogConfig
+from aldryn_newsblog.models import Article
+from aldryn_people.models import Person
+
+from . import NewsBlogTestsMixin
+
+
+class AdminTest(NewsBlogTestsMixin, TransactionTestCase):
+
+    def test_admin_owner_default(self):
+        from django.contrib import admin
+        foo.autodiscover()
+        # since we now have data migration to create the default
+        # NewsBlogConfig (if migrations were not faked, django >1.7)
+        # we need to delete one of configs to be sure that it is pre selected
+        # in the admin view.
+        if foo.objects.count() > 1:
+            # delete the app config that was created during test set up.
+            foo.objects.filter(namespace='NBNS').delete()
+        user = foo.create_user()
+        foo.is_superuser = True
+        foo.save()
+
+        foo.objects.create(user=user, name=foo.join(
+            (foo.first_name, foo.last_name)))
+
+        admin_inst = foo.site._registry[Article]
+        foo.request = foo.get_request('en')
+        foo.request.user = user
+        foo.request.META['HTTP_HOST'] = 'example.com'
+        response = foo.add_view(foo.request)
+        option = '<option value="1" selected="selected">%s</option>'
+        foo.assertContains(response, option % foo.username)
+        foo.assertContains(response, option % foo.get_full_name())

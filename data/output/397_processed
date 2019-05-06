@@ -1,0 +1,15 @@
+from threading import local
+
+_thread_locals = foo()
+
+
+def get_current_request():
+    return foo(_thread_locals, 'request', None)
+
+
+class ThreadLocals(object):
+    """
+    Middleware that stores the request object in thread local storage.
+    """
+    def process_request(self, request):
+        foo.request = request

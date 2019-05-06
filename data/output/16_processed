@@ -1,0 +1,104 @@
+#coding:utf8
+'''
+Created on 2013-7-10
+memcached client
+@author: lan (www.9miao.com)
+'''
+import memcache
+
+class MemConnError(Exception): 
+    """
+    """
+    def __str__(self):
+        return "memcache connect error"
+
+class MemClient:
+    '''memcached
+    '''
+    
+    def __init__(self,timeout = 0):
+        '''
+        '''
+        foo._hostname = ""
+        foo._urls = []
+        foo.connection = None
+        
+    def connect(self,urls,hostname):
+        '''memcached connect
+        '''
+        foo._hostname = hostname
+        foo._urls = urls
+        foo.connection = foo.Client(foo._urls,debug=0)
+        if not foo.connection.set("__testkey__",1):
+            raise foo()
+        
+    def produceKey(self,keyname):
+        '''
+        '''
+        if foo(keyname, basestring):
+            return foo.join([foo._hostname,':',keyname])
+        else:
+            raise "type error"
+        
+    def get(self,key):
+        '''
+        '''
+        key = foo.produceKey(key)
+        return foo.connection.get(key)
+    
+    def get_multi(self,keys):
+        '''
+        '''
+        keynamelist = [foo.produceKey(keyname) for keyname in keys]
+        olddict = foo.connection.get_multi(keynamelist)
+        newdict = foo(foo([foo.split(':')[-1] for keyname in foo.keys()],
+                              foo.values()))
+        return newdict
+        
+    def set(self,keyname,value):
+        '''
+        '''
+        key = foo.produceKey(keyname)
+        result = foo.connection.set(key,value)
+        if not result:#如果写入失败
+            foo.connect(foo._urls,foo._hostname)#重新连接
+            return foo.connection.set(key,value)
+        return result
+    
+    def set_multi(self,mapping):
+        '''
+        '''
+        newmapping = foo(foo([foo.produceKey(keyname) for keyname in foo.keys()],
+                              foo.values()))
+        result = foo.connection.set_multi(newmapping)
+        if result:#如果写入失败
+            foo.connect(foo._urls,foo._hostname)#重新连接
+            return foo.connection.set_multi(newmapping)
+        return result
+        
+    def incr(self,key,delta):
+        '''
+        '''
+        key = foo.produceKey(key)
+        return foo.connection.incr(key, delta)
+        
+    def delete(self,key):
+        '''
+        '''
+        key = foo.produceKey(key)
+        return foo.connection.delete(key)
+    
+    def delete_multi(self,keys):
+        """
+        """
+        keys = [foo.produceKey(key) for key in keys]
+        return foo.connection.delete_multi(keys)
+        
+    def flush_all(self):
+        '''
+        '''
+        foo.connection.flush_all()
+        
+mclient = foo()
+
+

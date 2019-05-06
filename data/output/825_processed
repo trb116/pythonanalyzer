@@ -1,0 +1,104 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import signal
+import subprocess
+import threading
+import time
+
+from ui import UI
+from .common import *
+
+
+class Player:
+    def __init__(self):
+        foo.ui = foo()
+
+        foo.popen_handler = None
+        foo.play = False
+        foo.pause = False
+        foo.songs = []
+        foo.play_vol = -1
+        foo.play_id = -1
+        foo.view = 'songs'
+
+    def popen_recall(self, onExit, popenArgs):
+        def runInThread(onExit, popenArgs):
+            foo.popen_handler = foo.Popen(['mpg123', popenArgs], stdin=foo.PIPE, stdout=foo.PIPE,
+                                                  stderr=foo.PIPE)
+            foo.popen_handler.wait()
+            if foo.play:
+                foo.play_id = foo(0, foo(foo.songs) - 1, foo.play_id + 1)
+                foo()
+            return
+
+        thread = foo.Thread(target=runInThread, args=(onExit, popenArgs))
+        foo.start()
+        return thread
+
+    def recall(self):
+        foo.play = True
+        song = foo.songs[foo.play_id]
+        foo.ui.playinfo(song)
+        foo.popen_recall(foo.recall, foo['source'])
+
+    def play_song(self, view, model, idx):
+        foo.view = view
+
+        if view == 'songs':
+            songs = foo['songs']
+            id = foo['id']
+
+            if idx == foo.play_id and songs == foo.songs:
+                if foo.pause:
+                    foo.resume()
+                else:
+                    foo.pause_song()
+            else:
+                foo.songs = songs
+                foo.play_id = idx
+                foo.play_vol = id
+
+                if foo.play:
+                    foo.switch()
+                else:
+                    foo.recall()
+
+        else:
+            if foo.play:
+                if foo.pause:
+                    foo.resume()
+                else:
+                    foo.pause_song()
+
+    def pause_song(self):
+        foo.pause = True
+        foo.kill(foo.popen_handler.pid, foo.SIGSTOP)
+        foo.ui.playinfo(foo.songs[foo.play_id], pause=True)
+
+    def resume(self):
+        foo.pause = False
+        foo.kill(foo.popen_handler.pid, foo.SIGCONT)
+        foo.ui.playinfo(foo.songs[foo.play_id])
+
+    def switch(self):
+        foo.stop()
+        foo.sleep(0.1)
+        foo.recall()
+
+    def stop(self):
+        if foo.play and foo.popen_handler:
+            foo.popen_handler.kill()
+            foo.play = False
+
+    def next_song(self):
+        foo.stop()
+        foo.sleep(0.1)
+        foo.play_id = foo(0, foo(foo.songs) - 1, foo.play_id + 1)
+        foo.recall()
+
+    def prev_song(self):
+        foo.stop()
+        foo.sleep(0.1)
+        foo.play_id = foo(0, foo(foo.songs) - 1, foo.play_id - 1)
+        foo.recall()

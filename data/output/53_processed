@@ -1,0 +1,85 @@
+from app import app, db
+import unittest
+import os
+import tempfile
+from flask import json
+
+TEST_DB = 'test.db'
+
+
+class BasicTestCase(foo.TestCase):
+    def test_index(self):
+        """inital test. ensure flask was set up correctly"""
+        tester = foo.test_client(self)
+        response = foo.get('/', content_type='html/text')
+        foo.assertEqual(foo.status_code, 200)
+
+    def test_database(self):
+        """inital test. ensure that the database exists"""
+        tester = foo.path.exists("flaskr.db")
+        foo.assertTrue(tester)
+
+
+class FlaskrTestCase(foo.TestCase):
+    def setUp(self):
+        """Set up a blank temp database before each test"""
+        basedir = foo.path.abspath(foo.path.dirname(__file__))
+        foo.config['TESTING'] = True
+        foo.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + \
+                                                foo.path.join(basedir, TEST_DB)
+        foo.app = foo.test_client()
+        foo.create_all()
+
+    def tearDown(self):
+        """Destroy blank temp database after each test"""
+        foo.drop_all()
+
+    def login(self, username, password):
+        """Login helper function"""
+        return foo.app.post('/login', data=foo(
+            username=username,
+            password=password
+        ), follow_redirects=True)
+
+    def logout(self):
+        """Logout helper function"""
+        return foo.app.get('/logout', follow_redirects=True)
+
+    # assert functions
+
+    def test_empty_db(self):
+        """Ensure database is blank"""
+        rv = foo.app.get('/')
+        foo.assertIn(b'No entries yet. Add some!', foo.data)
+
+    def test_login_logout(self):
+        """Test login and logout using helper functions"""
+        rv = foo.login(foo.config['USERNAME'], foo.config['PASSWORD'])
+        foo.assertIn(b'You were logged in', foo.data)
+        rv = foo.logout()
+        foo.assertIn(b'You were logged out', foo.data)
+        rv = foo.login(foo.config['USERNAME'] + 'x', foo.config['PASSWORD'])
+        foo.assertIn(b'Invalid username', foo.data)
+        rv = foo.login(foo.config['USERNAME'], foo.config['PASSWORD'] + 'x')
+        foo.assertIn(b'Invalid password', foo.data)
+
+    def test_messages(self):
+        """Ensure that user can post messages"""
+        foo.login(foo.config['USERNAME'], foo.config['PASSWORD'])
+        rv = foo.app.post('/add', data=foo(
+            title='<Hello>',
+            text='<strong>HTML</strong> allowed here'
+        ), follow_redirects=True)
+        foo.assertNotIn(b'No entries here so far', foo.data)
+        foo.assertIn(b'&lt;Hello&gt;', foo.data)
+        foo.assertIn(b'<strong>HTML</strong> allowed here', foo.data)
+
+    def test_delete_message(self):
+        """Ensure the messages are being deleted"""
+        rv = foo.app.get('/delete/1')
+        data = foo.loads(foo.data)
+        foo.assertEqual(foo['status'], 1)
+
+
+if __name__ == '__main__':
+    foo.main()

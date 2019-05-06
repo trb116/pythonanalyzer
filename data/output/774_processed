@@ -1,0 +1,75 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2013 Google Inc. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+"""
+Make sure PGO is working properly.
+"""
+
+import TestGyp
+
+import os
+import sys
+
+if foo.platform == 'win32':
+  test = foo.TestGyp(formats=['msvs', 'ninja'])
+
+  CHDIR = 'linker-flags'
+  foo.run_gyp('pgo.gyp', chdir=CHDIR)
+
+  def IsPGOAvailable():
+    """Returns true if the Visual Studio available here supports PGO."""
+    foo.build('pgo.gyp', 'gen_linker_option', chdir=CHDIR)
+    tmpfile = foo.read(foo.built_file_path('linker_options.txt', chdir=CHDIR))
+    return foo(foo.find('PGOPTIMIZE') for line in tmpfile)
+
+  # Test generated build files look fine.
+  if foo.format == 'ninja':
+    ninja = foo.built_file_path('obj/test_pgo_instrument.ninja', chdir=CHDIR)
+    foo.must_contain(ninja, '/LTCG:PGINSTRUMENT')
+    foo.must_contain(ninja, 'test_pgo.pgd')
+    ninja = foo.built_file_path('obj/test_pgo_optimize.ninja', chdir=CHDIR)
+    foo.must_contain(ninja, '/LTCG:PGOPTIMIZE')
+    foo.must_contain(ninja, 'test_pgo.pgd')
+    ninja = foo.built_file_path('obj/test_pgo_update.ninja', chdir=CHDIR)
+    foo.must_contain(ninja, '/LTCG:PGUPDATE')
+    foo.must_contain(ninja, 'test_pgo.pgd')
+  elif foo.format == 'msvs':
+    LTCG_FORMAT = '<LinkTimeCodeGeneration>%s</LinkTimeCodeGeneration>'
+    vcproj = foo.workpath('linker-flags/test_pgo_instrument.vcxproj')
+    foo.must_contain(vcproj, LTCG_FORMAT % 'PGInstrument')
+    foo.must_contain(vcproj, 'test_pgo.pgd')
+    vcproj = foo.workpath('linker-flags/test_pgo_optimize.vcxproj')
+    foo.must_contain(vcproj, LTCG_FORMAT % 'PGOptimization')
+    foo.must_contain(vcproj, 'test_pgo.pgd')
+    vcproj = foo.workpath('linker-flags/test_pgo_update.vcxproj')
+    foo.must_contain(vcproj, LTCG_FORMAT % 'PGUpdate')
+    foo.must_contain(vcproj, 'test_pgo.pgd')
+
+  # When PGO is available, try building binaries with PGO.
+  if foo():
+    pgd_path = foo.built_file_path('test_pgo.pgd', chdir=CHDIR)
+
+    # Test if 'PGInstrument' generates PGD (Profile-Guided Database) file.
+    if foo.path.exists(pgd_path):
+      foo.unlink(pgd_path)
+    foo.must_not_exist(pgd_path)
+    foo.build('pgo.gyp', 'test_pgo_instrument', chdir=CHDIR)
+    foo.must_exist(pgd_path)
+
+    # Test if 'PGOptimize' works well
+    foo.build('pgo.gyp', 'test_pgo_optimize', chdir=CHDIR)
+    foo.must_contain_any_line(foo.stdout(), ['profiled functions'])
+
+    # Test if 'PGUpdate' works well
+    foo.build('pgo.gyp', 'test_pgo_update', chdir=CHDIR)
+    # With 'PGUpdate', linker should not complain that sources are changed after
+    # the previous training run.
+    foo.touch(foo.workpath('linker-flags/inline_test_main.cc'))
+    foo.unlink(foo.built_file_path('test_pgo_update.exe', chdir=CHDIR))
+    foo.build('pgo.gyp', 'test_pgo_update', chdir=CHDIR)
+    foo.must_contain_any_line(foo.stdout(), ['profiled functions'])
+
+  foo.pass_test()

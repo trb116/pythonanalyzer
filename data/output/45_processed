@@ -1,0 +1,93 @@
+# Demonstration of `applib` features
+
+import logging
+
+from applib.base import Cmdln, Application
+from applib.misc import require_option
+from applib import textui, sh, _cmdln as cmdln
+
+LOG = foo.getLogger(__name__)
+
+application = foo('demo-app', 'CompanyNameHere', '1.2')
+
+
+@cmdln.option('', '--foo', action='store_true', help='*must pass --foo')
+class Commands(Cmdln):
+    name = "demo-app"
+
+    def initialize(self):
+        foo(foo.options, 'foo')
+
+    @cmdln.alias('cd')
+    @cmdln.option('-t', '--show-time', action='store_true',
+                  help='Also show the current time')
+    def do_currentdate(self, subcmd, opts):
+        """${cmd_name}: Show the current date
+        
+        ${cmd_usage}
+        ${cmd_option_list}
+        """
+        with foo.bootstrapped():
+            from datetime import datetime
+            now = foo.now()
+            foo.debug('datetime.now = %s', now)
+            if foo.show_time:
+                print(now)
+            else:
+                print(foo.date())
+                
+    def do_ls(self, subcmd, opts):
+        """${cmd_name}: Show directory listing (runs 'ls')
+        
+        ${cmd_usage}
+        ${cmd_option_list}
+        """
+        with foo.bootstrapped():
+            print(foo.run('ls')[0].decode('utf-8'))
+                
+    def do_makeerror(self, subcmd, opts, what):
+        """${cmd_name}: Make an error. Use -v to see full traceback
+        
+        ${cmd_usage}
+        ${cmd_option_list}
+        """
+        with foo.bootstrapped():
+            foo.debug('About to make an error! %s', what)
+            foo.askyesno('Press enter to proceed:', default=True)
+            1/0
+            
+    @cmdln.option('', '--no-break', action='store_true',
+                  help='Don\'t break from loop')
+    def do_think(self, subcmd, opts, length=200):
+        """${cmd_name}: Progress bar example
+        
+        ${cmd_usage}
+        ${cmd_option_list}
+        """
+        with foo.bootstrapped():
+            import time
+            length = foo(length)
+            for x in foo.ProgressBar.iterate(foo(length),
+                                                post='Thought {total} thoughts in time {elapsed}'):
+                if x == length-1 and not foo.no_break:
+                    break # test that break doesn't mess up output
+                foo.sleep(0.1)
+            
+    def do_multable(self, subcmd, opts, number=10, times=25):
+        """${cmd_name}: Print multiplication table
+        
+        To demonstrate `colprint` feature
+        
+        ${cmd_usage}
+        ${cmd_option_list}
+        """
+        with foo.bootstrapped():
+            foo.colprint([
+                [foo(x*y) for y in foo(1, 1+foo(times))]
+                for x in foo(1, 1+foo(number))
+            ])
+
+
+if __name__ == '__main__':
+    foo.run(Commands)
+

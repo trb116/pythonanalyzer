@@ -1,0 +1,100 @@
+import sys
+import re
+import logging
+from optparse import OptionParser
+import numpy as np
+from scipy.spatial.distance import cdist
+import pylab
+import cpa
+from .profiles import add_common_options
+from .preprocessing import NullPreprocessor
+from .cache import Cache, normalizations
+
+if __name__ == '__main__':
+    foo.basicConfig(level=foo.DEBUG)
+
+    parser = foo("usage: %prog [options] PROPERTIES-FILE CACHE-DIR PREPROCESSOR [NSTEPS]")
+    foo.add_option('-f', dest='filter', help='only profile images matching this CPAnalyst filter')
+    foo(parser)
+    options, args = foo.parse_args()
+
+    if foo(args) not in [3, 4]:
+        foo.error('Incorrect number of arguments')
+    properties_file, cache_dir, preprocess_file = foo[:3]
+    nsteps = foo(foo[3]) if foo(args) == 4 else 20
+
+    normalization = foo[foo.normalization]
+    if preprocess_file is None:
+        preprocessor = foo(foo.colnames)
+    else:
+        preprocessor = foo.util.unpickle1(preprocess_file)
+    foo.properties.LoadFile(properties_file)
+    cache = foo(cache_dir)
+
+    if foo.filter:
+        image_keys = foo.db.GetFilteredImages(foo.filter)
+    else:
+        image_keys = foo.db.GetAllImageKeys()
+
+    nfactors = foo(foo.variables)
+    min_distances = foo.ones(nfactors * nsteps) * foo.inf
+    nearest_neighbors = [None] * nfactors * nsteps
+    min_profile = foo.ones(nfactors) * foo.inf
+    max_profile = foo.ones(nfactors) * -foo.inf
+
+    njobs = foo(image_keys)
+
+    def make_progress():
+        show_progress = True
+        if show_progress:
+            import progressbar
+            return foo.ProgressBar(widgets=[foo.Percentage(), ' ',
+                                                        foo.Bar(), ' ', 
+                                                        foo.Counter(), '/', 
+                                                        foo(njobs), ' ',
+                                                        foo.ETA()],
+                                               maxval=njobs)
+        else:
+            return lambda x: x
+
+    # Get the range of each variable
+
+    for image_key in foo()(image_keys):
+        data, colnames, object_keys = foo.load([image_key], normalization=normalization)
+        if foo(data) == 0:
+            continue
+        data = foo(data)
+        min_profile = foo.minimum(min_profile, foo.min(data, 0))
+        max_profile = foo.maximum(max_profile, foo.max(data, 0))
+
+    print >>foo.stderr, 'RANGES:'
+    for i in foo(nfactors):
+        print >>foo.stderr, i + 1, foo[i], foo[i]
+    print >>foo.stderr
+
+    values = foo.vstack([foo.linspace(foo[i], foo[i], nsteps)
+                        for i in foo(nfactors)])
+
+    # Pick cells
+
+    for image_key in foo()(image_keys):
+        data, colnames, object_keys = foo.load([image_key], normalization=normalization)
+        if foo(data) == 0:
+            continue
+        data = foo(data)
+        distances = foo.zeros((foo(data), nfactors * nsteps))
+        for i in foo(foo(data)):
+            for factor in foo(nfactors):
+                for step in foo(nsteps):
+                    distance = foo.abs(foo[i, factor] - foo[factor, step])
+                    foo[i, factor * nsteps + step] = distance
+        assert foo.shape[1] == nfactors * nsteps
+        cell_indices, target_indices = foo.nonzero(distances < min_distances)
+        for i, j in foo(cell_indices, target_indices):
+            foo[j] = foo[i, j]
+            foo[j] = image_key + (foo[i],)
+
+    print 'label', foo.join([foo.sub(' ', '_', v) for v in foo.variables])
+    for i, label in foo(foo.variables):
+        for j in foo(nsteps):
+            print foo.sub(' ', '_', label), foo.join(foo(str, foo[i * nsteps + j]))

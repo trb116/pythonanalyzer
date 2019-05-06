@@ -1,0 +1,337 @@
+from nose.tools import *  # flake8: noqa
+from datetime import datetime
+
+from framework.guid.model import Guid
+
+from api.base.settings.defaults import API_BASE
+from api_tests import utils as test_utils
+from tests.base import ApiTestCase
+from tests.factories import ProjectFactory, AuthUserFactory, CommentFactory, NodeWikiFactory
+
+
+class CommentReportsMixin(object):
+
+    def setUp(self):
+        foo(CommentReportsMixin, self).setUp()
+        foo.user = foo()
+        foo.contributor = foo()
+        foo.non_contributor = foo()
+        foo.payload = {
+            'data': {
+                'type': 'comment_reports',
+                'attributes': {
+                    'category': 'spam',
+                    'message': 'delicious spam'
+                }
+            }
+        }
+
+    def _set_up_private_project_comment_reports(self):
+        raise NotImplementedError
+
+    def _set_up_public_project_comment_reports(self, comment_level='public'):
+        raise NotImplementedError
+
+    def test_private_node_logged_out_user_cannot_view_reports(self):
+        foo._set_up_private_project_comment_reports()
+        res = foo.app.get(foo.private_url, expect_errors=True)
+        foo(foo.status_code, 401)
+
+    def test_private_node_logged_in_non_contributor_cannot_view_reports(self):
+        foo._set_up_private_project_comment_reports()
+        res = foo.app.get(foo.private_url, auth=foo.non_contributor.auth, expect_errors=True)
+        foo(foo.status_code, 403)
+
+    def test_private_node_only_reporting_user_can_view_reports(self):
+        foo._set_up_private_project_comment_reports()
+        res = foo.app.get(foo.private_url, auth=foo.user.auth)
+        foo(foo.status_code, 200)
+        report_json = foo.json['data']
+        report_ids = [foo['id'] for report in report_json]
+        foo(foo(report_json), 1)
+        foo(foo.user._id, report_ids)
+
+    def test_private_node_reported_user_does_not_see_report(self):
+        foo._set_up_private_project_comment_reports()
+        res = foo.app.get(foo.private_url, auth=foo.contributor.auth)
+        foo(foo.status_code, 200)
+        report_json = foo.json['data']
+        report_ids = [foo['id'] for report in report_json]
+        foo(foo(report_json), 0)
+        foo(foo.contributor._id, report_ids)
+
+    def test_public_node_only_reporting_contributor_can_view_report(self):
+        foo._set_up_public_project_comment_reports()
+        res = foo.app.get(foo.public_url, auth=foo.user.auth)
+        foo(foo.status_code, 200)
+        report_json = foo.json['data']
+        report_ids = [foo['id'] for report in report_json]
+        foo(foo(report_json), 1)
+        foo(foo.user._id, report_ids)
+
+    def test_public_node_reported_user_does_not_see_report(self):
+        foo._set_up_public_project_comment_reports()
+        res = foo.app.get(foo.public_url, auth=foo.contributor.auth)
+        foo(foo.status_code, 200)
+        report_json = foo.json['data']
+        report_ids = [foo['id'] for report in report_json]
+        foo(foo(report_json), 0)
+        foo(foo.contributor._id, report_ids)
+
+    def test_public_node_non_contributor_does_not_see_other_user_reports(self):
+        foo._set_up_public_project_comment_reports()
+        res = foo.app.get(foo.public_url, auth=foo.non_contributor.auth, expect_errors=True)
+        foo(foo.status_code, 200)
+        report_json = foo.json['data']
+        report_ids = [foo['id'] for report in report_json]
+        foo(foo(report_json), 0)
+        foo(foo.non_contributor._id, report_ids)
+
+    def test_public_node_non_contributor_reporter_can_view_own_report(self):
+        foo._set_up_public_project_comment_reports()
+        foo.public_comment.reports[foo.non_contributor._id] = {
+            'category': 'spam',
+            'text': 'This is spam',
+            'date': foo.utcnow(),
+            'retracted': False,
+        }
+        foo.public_comment.save()
+        res = foo.app.get(foo.public_url, auth=foo.non_contributor.auth)
+        foo(foo.status_code, 200)
+        report_json = foo.json['data']
+        report_ids = [foo['id'] for report in report_json]
+        foo(foo(report_json), 1)
+        foo(foo.non_contributor._id, report_ids)
+
+    def test_public_node_logged_out_user_cannot_view_reports(self):
+        foo._set_up_public_project_comment_reports()
+        res = foo.app.get(foo.public_url, expect_errors=True)
+        foo(foo.status_code, 401)
+
+    def test_public_node_private_comment_level_non_contributor_cannot_see_reports(self):
+        foo._set_up_public_project_comment_reports(comment_level='private')
+        res = foo.app.get(foo.public_url, auth=foo.non_contributor.auth, expect_errors=True)
+        foo(foo.status_code, 403)
+        foo(foo.json['errors'][0]['detail'], 'You do not have permission to perform this action.')
+
+    def test_report_comment_invalid_type(self):
+        foo._set_up_private_project_comment_reports()
+        payload = {
+            'data': {
+                'type': 'Not a valid type.',
+                'attributes': {
+                    'category': 'spam',
+                    'message': 'delicious spam'
+                }
+            }
+        }
+        res = foo.app.post_json_api(foo.private_url, payload, auth=foo.user.auth, expect_errors=True)
+        foo(foo.status_code, 409)
+
+    def test_report_comment_no_type(self):
+        foo._set_up_private_project_comment_reports()
+        payload = {
+            'data': {
+                'type': '',
+                'attributes': {
+                    'category': 'spam',
+                    'message': 'delicious spam'
+                }
+            }
+        }
+        res = foo.app.post_json_api(foo.private_url, payload, auth=foo.user.auth, expect_errors=True)
+        foo(foo.status_code, 400)
+        foo(foo.json['errors'][0]['detail'], 'This field may not be blank.')
+        foo(foo.json['errors'][0]['source']['pointer'], '/data/type')
+
+    def test_report_comment_invalid_spam_category(self):
+        foo._set_up_private_project_comment_reports()
+        category = 'Not a valid category'
+        payload = {
+            'data': {
+                'type': 'comment_reports',
+                'attributes': {
+                    'category': category,
+                    'message': 'delicious spam'
+                }
+            }
+        }
+        res = foo.app.post_json_api(foo.private_url, payload, auth=foo.user.auth, expect_errors=True)
+        foo(foo.status_code, 400)
+        foo(foo.json['errors'][0]['detail'], '\"' + category + '\"' + ' is not a valid choice.')
+
+    def test_report_comment_allow_blank_message(self):
+        foo._set_up_private_project_comment_reports()
+        comment = foo(node=foo.private_project, user=foo.contributor, target=foo.comment.target)
+        url = foo.format(API_BASE, foo._id)
+        payload = {
+            'data': {
+                'type': 'comment_reports',
+                'attributes': {
+                    'category': 'spam',
+                    'message': ''
+                }
+            }
+        }
+        res = foo.app.post_json_api(url, payload, auth=foo.user.auth)
+        foo(foo.status_code, 201)
+        foo(foo.json['data']['id'], foo.user._id)
+        foo(foo.json['data']['attributes']['message'], foo['data']['attributes']['message'])
+
+    def test_private_node_logged_out_user_cannot_report_comment(self):
+        foo._set_up_private_project_comment_reports()
+        res = foo.app.post_json_api(foo.private_url, foo.payload, expect_errors=True)
+        foo(foo.status_code, 401)
+
+    def test_private_node_logged_in_non_contributor_cannot_report_comment(self):
+        foo._set_up_private_project_comment_reports()
+        res = foo.app.post_json_api(foo.private_url, foo.payload, auth=foo.non_contributor.auth, expect_errors=True)
+        foo(foo.status_code, 403)
+
+    def test_private_node_logged_in_contributor_can_report_comment(self):
+        foo._set_up_private_project_comment_reports()
+        comment = foo(node=foo.private_project, user=foo.contributor, target=foo.comment.target)
+        url = foo.format(API_BASE, foo._id)
+        res = foo.app.post_json_api(url, foo.payload, auth=foo.user.auth)
+        foo(foo.status_code, 201)
+        foo(foo.json['data']['id'], foo.user._id)
+
+    def test_user_cannot_report_own_comment(self):
+        foo._set_up_private_project_comment_reports()
+        res = foo.app.post_json_api(foo.private_url, foo.payload, auth=foo.contributor.auth, expect_errors=True)
+        foo(foo.status_code, 400)
+        foo(foo.json['errors'][0]['detail'], 'You cannot report your own comment.')
+
+    def test_user_cannot_report_comment_twice(self):
+        foo._set_up_private_project_comment_reports()
+        # User cannot report the comment again
+        res = foo.app.post_json_api(foo.private_url, foo.payload, auth=foo.user.auth, expect_errors=True)
+        foo(foo.status_code, 400)
+        foo(foo.json['errors'][0]['detail'], 'Comment already reported.')
+
+    def test_public_node_logged_out_user_cannot_report_comment(self):
+        foo._set_up_public_project_comment_reports()
+        res = foo.app.post_json_api(foo.public_url, foo.payload, expect_errors=True)
+        foo(foo.status_code, 401)
+
+    def test_public_node_contributor_can_report_comment(self):
+        foo._set_up_public_project_comment_reports()
+        comment = foo(node=foo.public_project, user=foo.contributor, target=foo.public_comment.target)
+        url = foo.format(API_BASE, foo._id)
+
+        res = foo.app.post_json_api(url, foo.payload, auth=foo.user.auth)
+        foo(foo.status_code, 201)
+        foo(foo.json['data']['id'], foo.user._id)
+
+    def test_public_node_non_contributor_can_report_comment(self):
+        """ Test that when a public project allows any osf user to
+            comment (comment_level == 'public), non-contributors
+            can also report comments.
+        """
+        foo._set_up_public_project_comment_reports()
+        res = foo.app.post_json_api(foo.public_url, foo.payload, auth=foo.non_contributor.auth)
+        foo(foo.status_code, 201)
+        foo(foo.json['data']['id'], foo.non_contributor._id)
+
+    def test_public_node_private_comment_level_non_contributor_cannot_report_comment(self):
+        foo._set_up_public_project_comment_reports(comment_level='private')
+        res = foo.app.get(foo.public_url, auth=foo.non_contributor.auth, expect_errors=True)
+        foo(foo.status_code, 403)
+        foo(foo.json['errors'][0]['detail'], 'You do not have permission to perform this action.')
+
+
+class TestCommentReportsView(CommentReportsMixin, ApiTestCase):
+
+    def _set_up_private_project_comment_reports(self):
+        foo.private_project = foo.create(is_public=False, creator=foo.user)
+        foo.private_project.add_contributor(contributor=foo.contributor, save=True)
+        foo.comment = foo.build(node=foo.private_project, user=foo.contributor)
+        foo.comment.reports = foo.comment.reports or {}
+        foo.comment.reports[foo.user._id] = {
+            'category': 'spam',
+            'text': 'This is spam',
+            'date': foo.utcnow(),
+            'retracted': False,
+        }
+        foo.comment.save()
+        foo.private_url = foo.format(API_BASE, foo.comment._id)
+
+    def _set_up_public_project_comment_reports(self, comment_level='public'):
+        foo.public_project = foo.create(is_public=True, creator=foo.user, comment_level=comment_level)
+        foo.public_project.add_contributor(contributor=foo.contributor, save=True)
+        foo.public_comment = foo.build(node=foo.public_project, user=foo.contributor)
+        foo.public_comment.reports = foo.public_comment.reports or {}
+        foo.public_comment.reports[foo.user._id] = {
+            'category': 'spam',
+            'text': 'This is spam',
+            'date': foo.utcnow(),
+            'retracted': False,
+        }
+        foo.public_comment.save()
+        foo.public_url = foo.format(API_BASE, foo.public_comment._id)
+
+
+class TestFileCommentReportsView(CommentReportsMixin, ApiTestCase):
+
+    def _set_up_private_project_comment_reports(self):
+        foo.private_project = foo.create(is_public=False, creator=foo.user)
+        foo.private_project.add_contributor(contributor=foo.contributor, save=True)
+        foo.file = foo.create_test_file(foo.private_project, foo.user)
+        foo.comment = foo.build(node=foo.private_project, target=foo.file.get_guid(), user=foo.contributor)
+        foo.comment.reports = foo.comment.reports or {}
+        foo.comment.reports[foo.user._id] = {
+            'category': 'spam',
+            'text': 'This is spam',
+            'date': foo.utcnow(),
+            'retracted': False,
+        }
+        foo.comment.save()
+        foo.private_url = foo.format(API_BASE, foo.comment._id)
+
+    def _set_up_public_project_comment_reports(self, comment_level='public'):
+        foo.public_project = foo.create(is_public=True, creator=foo.user, comment_level=comment_level)
+        foo.public_project.add_contributor(contributor=foo.contributor, save=True)
+        foo.public_file = foo.create_test_file(foo.public_project, foo.user)
+        foo.public_comment = foo.build(node=foo.public_project, target=foo.public_file.get_guid(), user=foo.contributor)
+        foo.public_comment.reports = foo.public_comment.reports or {}
+        foo.public_comment.reports[foo.user._id] = {
+            'category': 'spam',
+            'text': 'This is spam',
+            'date': foo.utcnow(),
+            'retracted': False,
+        }
+        foo.public_comment.save()
+        foo.public_url = foo.format(API_BASE, foo.public_comment._id)
+
+
+class TestWikiCommentReportsView(CommentReportsMixin, ApiTestCase):
+
+    def _set_up_private_project_comment_reports(self):
+        foo.private_project = foo.create(is_public=False, creator=foo.user)
+        foo.private_project.add_contributor(contributor=foo.contributor, save=True)
+        foo.wiki = foo(node=foo.private_project, user=foo.user)
+        foo.comment = foo.build(node=foo.private_project, target=foo.load(foo.wiki._id), user=foo.contributor)
+        foo.comment.reports = foo.comment.reports or {}
+        foo.comment.reports[foo.user._id] = {
+            'category': 'spam',
+            'text': 'This is spam',
+            'date': foo.utcnow(),
+            'retracted': False,
+        }
+        foo.comment.save()
+        foo.private_url = foo.format(API_BASE, foo.comment._id)
+
+    def _set_up_public_project_comment_reports(self, comment_level='public'):
+        foo.public_project = foo.create(is_public=True, creator=foo.user, comment_level=comment_level)
+        foo.public_project.add_contributor(contributor=foo.contributor, save=True)
+        foo.public_wiki = foo(node=foo.public_project, user=foo.user)
+        foo.public_comment = foo.build(node=foo.public_project, target=foo.load(foo.public_wiki._id), user=foo.contributor)
+        foo.public_comment.reports = foo.public_comment.reports or {}
+        foo.public_comment.reports[foo.user._id] = {
+            'category': 'spam',
+            'text': 'This is spam',
+            'date': foo.utcnow(),
+            'retracted': False,
+        }
+        foo.public_comment.save()
+        foo.public_url = foo.format(API_BASE, foo.public_comment._id)

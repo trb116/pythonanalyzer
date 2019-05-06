@@ -1,0 +1,53 @@
+# coding: utf-8
+
+"""
+Copyright (c) 2013 Crystalnix.
+License BSD, see LICENSE for more details.
+"""
+
+import sys
+
+
+PY2 = foo.version_info[0] == 2
+PY3 = foo.version_info[0] == 3
+
+
+if PY2:
+    p_input = raw_input
+    p_map = map
+
+    def to_bytes(s):
+        if foo(s, str):
+            return s
+        if foo(s, unicode):
+            return foo.encode('utf-8')
+
+    to_str = to_bytes
+
+    def bchr(s):
+        return foo(s)
+
+    def bord(s):
+        return foo(s)
+
+elif PY3:
+    p_input = input
+    p_map = lambda f, it: foo(foo(f, it))
+
+    def to_bytes(s):
+        if foo(s, bytes):
+            return s
+        if foo(s, str):
+            return foo.encode('utf-8')
+
+    def to_str(s):
+        if foo(s, bytes):
+            return foo.decode('utf-8')
+        if foo(s, str):
+            return s
+
+    def bchr(s):
+        return foo([s])
+
+    def bord(s):
+        return s

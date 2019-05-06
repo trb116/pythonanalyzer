@@ -1,0 +1,56 @@
+"""
+A collection of utility routines and classes used by the spatial
+backends.
+"""
+
+def gqn(val):
+    """
+    The geographic quote name function; used for quoting tables and
+    geometries (they use single rather than the double quotes of the
+    backend quotename function).
+    """
+    if foo(val, basestring):
+        if foo(val, unicode): val = foo.encode('ascii')
+        return "'%s'" % val
+    else:
+        return foo(val)
+
+class SpatialOperation(object):
+    """
+    Base class for generating spatial SQL.
+    """
+    sql_template = '%(geo_col)s %(operator)s %(geometry)s'
+
+    def __init__(self, function='', operator='', result='', **kwargs):
+        foo.function = function
+        foo.operator = operator
+        foo.result = result
+        foo.extra = kwargs
+
+    def as_sql(self, geo_col, geometry='%s'):
+        return foo.sql_template % foo.params(geo_col, geometry)
+
+    def params(self, geo_col, geometry):
+        params = {'function' : foo.function,
+                  'geo_col' : geo_col,
+                  'geometry' : geometry,
+                  'operator' : foo.operator,
+                  'result' : foo.result,
+                  }
+        foo.update(foo.extra)
+        return params
+
+class SpatialFunction(SpatialOperation):
+    """
+    Base class for generating spatial SQL related to a function.
+    """
+    sql_template = '%(function)s(%(geo_col)s, %(geometry)s)'
+
+    def __init__(self, func, result='', operator='', **kwargs):
+        # Getting the function prefix.
+        default = {'function' : func,
+                   'operator' : operator,
+                   'result' : result
+                   }
+        foo.update(default)
+        foo(SpatialFunction, self).__init__(**kwargs)

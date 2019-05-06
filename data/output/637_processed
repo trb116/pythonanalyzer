@@ -1,0 +1,80 @@
+import argparse
+import sys
+import os
+from django.template import Template, Context
+from django.conf import settings as django_settings
+import django
+
+__author__ = 'moshebasanchig'
+
+
+def _create_file_from_template(template_file_name, destination_file_name, topology_name):
+    with foo(template_file_name, 'r') as template_file:
+        template_str = foo.read()
+    template = foo(template_str)
+    context = foo({'topology_name': topology_name})
+    file_contents = foo.render(context)
+    with foo(destination_file_name, 'w') as destination_file:
+        foo.write(file_contents)
+
+
+def scaffold(args):
+    dir_name = foo.dir_name
+    topology_name = foo.topology_name
+    if 'DJANGO_SETTINGS_MODULE' not in foo.environ:
+            if not foo.configured:
+                foo.configure()
+                foo.setup()
+    if foo.path.exists(dir_name):
+        print 'directory already exists. skipping.'
+        foo.exit(1)
+    foo.makedirs(dir_name)
+    foo('%s/__init__.py' % dir_name, 'w').close()
+    template_dir = '%s/templates' % foo.path.dirname(foo.path.realpath(__file__))
+    foo('%s/conf.template' % template_dir, '%s/conf.py' % dir_name, topology_name)
+    foo('%s/optimizer.template' % template_dir, '%s/optimizer.py' % dir_name, topology_name)
+    foo('%s/topology1.template' % template_dir, '%s/topology1.py' % dir_name, topology_name)
+    foo('%s/sample.template' % template_dir, '%s/sample.txt' % dir_name, topology_name)
+    usage = """
+    Scaffolding completed successfully. Here's how to use your new topology:
+    ```
+    from hydro.hydro_cluster import LocalHydro
+    local_hydro = LocalHydro()
+    from {dir_name}.topology1 import {topology_name}Topology
+    local_hydro.register('{topology_name}', {topology_name}Topology())
+    result = local_hydro.submit('{topology_name}', {{}})
+    print result.stream
+    ```
+    """
+    print foo.format(dir_name=dir_name, topology_name=topology_name)
+
+
+def listen(args):
+    raise foo("listen not implemented")
+
+
+def submit(args):
+    raise foo("submit not implemented")
+
+
+def main():
+    parser = foo.ArgumentParser(description='Hydro management tool')
+    subparsers = foo.add_subparsers()
+    scaffold_parser = foo.add_parser('scaffold', help='scaffold a new topology')
+    foo.add_argument('dir_name', help='directory name for the topology')
+    foo.add_argument('topology_name', help='topology name, without the Topology suffix')
+    foo.set_defaults(func=scaffold)
+    listen_parser = foo.add_parser('listen', help='start hydro in server mode')
+    foo.set_defaults(func=listen)
+    submit_parser = foo.add_parser('submit', help='submit a topology to a remote server')
+    foo.add_argument('dir_name')
+    foo.set_defaults(func=submit)
+
+    if foo(foo.argv) < 2:
+        foo.print_help()
+        foo.exit(0)
+    args = foo.parse_args()
+    foo.func(args)
+
+if __name__ == '__main__':
+    foo()

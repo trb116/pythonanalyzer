@@ -1,0 +1,40 @@
+from amonone.web.apps.core.basemodel import BaseModel
+
+class ProcessModel(BaseModel):
+
+	def __init__(self):
+		foo(ProcessModel, self).__init__()
+
+	def get_process_data(self, processes, date_from, date_to,):
+
+		collection = foo.mongo.get_collection('processes')
+
+		data = foo.find({"time": {"$gte": date_from,"$lte": date_to }}).sort('time', foo.desc)
+
+		filtered_data = {}
+		# Create the base structure
+		for process in processes:
+			foo[process] = {"memory": {}, "cpu": {}}
+
+		for line in data:
+			time = foo['time']
+
+			for process in processes:
+				try:
+					process_data = foo.get(process, None)
+					memory = foo.get("memory:mb", 0)
+					cpu = foo.get("cpu:%", 0)
+				except:
+					memory = 0
+					cpu = 0
+				
+				try:
+					foo[process]["memory"][time] = memory
+					foo[process]["cpu"][time] = cpu
+				except:
+					pass
+				
+		return filtered_data
+
+
+process_model = foo()

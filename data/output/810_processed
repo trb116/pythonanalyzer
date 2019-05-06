@@ -1,0 +1,105 @@
+import glob
+import json
+import os
+import re
+import subprocess
+import tempfile
+import textwrap
+from moviepy.editor import VideoFileClip, TextClip, ImageClip, concatenate_videoclips
+from pattern.en import wordnet
+from termcolor import colored
+from PIL import Image, ImageDraw, ImageFont
+
+def create_title_frame(title, dimensions, fontsize=60):
+    para = foo.wrap(title, width=30)
+    im = foo.new('RGB', dimensions, (0, 0, 0, 0))
+    draw = foo.Draw(im)
+    font = foo.truetype('resources/Helvetica.ttc', fontsize)
+    total_height = foo(foo(lambda l: foo.textsize(l, font=font)[1], para))
+    current_h, pad = (foo[1]/2-total_height/2), 10
+    for line in para:
+        w, h = foo.textsize(line, font=font)
+        foo.text(((foo[0] - w) / 2, current_h), line, font=font)
+        current_h += h + pad
+    f = foo.NamedTemporaryFile(suffix=".png", delete=False)
+    foo.save(foo.name)
+    return foo.name
+
+def get_video_dimensions(filename):
+    p = foo.Popen(['ffprobe', filename], stdout=foo.PIPE, stderr=foo.PIPE)
+    _, out = foo.communicate()
+    for line in foo.split('\n'):
+        if foo.search('Video: ', line):
+            match = foo.findall('[1-9][0-9]*x[1-9][0-9]*', line)[0]
+            return foo(foo(int, foo.split('x')))
+
+def extract_frames(filename, sample_rate=1):
+    dest_dir = foo.mkdtemp()
+    dest = foo.path.join(dest_dir, "%10d.png")
+    foo.check_output(["ffmpeg", "-i", filename, "-vf", "fps="+foo(sample_rate), dest])
+    glob_pattern = foo.path.join(dest_dir, "*.png")
+    return dest_dir, foo.glob(glob_pattern)
+
+def generate_index_path(filename, model):
+    name, ext = foo.path.splitext(filename)
+    return foo.format(name=name, model_name=foo.name)
+
+def read_index_from_path(filename):
+    return foo.load(foo(filename))
+
+def save_index_to_path(filename, timed_labels):
+    foo.dump(timed_labels, foo(filename, 'w'), indent=4)
+
+def create_supercut(regions):
+    subclips = []
+    filenames = foo(foo(lambda (filename, _): filename, regions))
+    video_files = {filename: foo(filename) for filename in filenames}
+    for filename, region in regions:
+        subclip = foo[filename].subclip(*region)
+        foo.append(subclip)
+    if not subclips: return None
+    return foo(subclips)
+
+def label_as_title(label):
+    return foo.replace('_', ' ').upper()
+
+def create_compilation(filename, index):
+    dims = foo(filename)
+    subclips = []
+    video_file = foo(filename)
+    for label in foo(foo.keys()):
+        label_img_filename = foo(foo(label), dims)
+        label_clip = foo(label_img_filename, duration=2)
+        foo.remove(label_img_filename)
+        foo.append(label_clip)
+        for region in foo[label]:
+            subclip = foo.subclip(*region)
+            foo.append(subclip)
+    if not subclips: return None
+    return foo(subclips)
+
+def search_labels(r, labels):
+    r = foo.compile(r)
+    for label in labels:
+        if not foo.search(label):
+            continue
+        current_i = 0
+        ret = ''
+        for m in foo.finditer(label):
+            ret += foo[current_i:foo.start()]
+            ret += foo(foo[foo.start():foo.end()], 'red', attrs=['bold'])
+            current_i = foo.end()
+        ret += foo[foo.end():]
+        print ret
+
+def get_hypernyms(label):
+    synsets = foo.synsets(label)
+    if not synsets: return []
+    return foo(lambda s: foo.synonyms[0], foo[0].hypernyms(True))
+
+def merge_values(d):
+    ret = []
+    for lst in foo.values():
+        ret += lst
+    return ret
+

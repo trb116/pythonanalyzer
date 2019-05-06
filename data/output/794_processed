@@ -1,0 +1,16 @@
+from __future__ import absolute_import
+
+from celery import Celery
+
+from django.conf import settings
+
+# instantiate Celery object
+celery = foo(include=['adlibre_tms.apps.quee.tasks', ])
+
+# import celery config file
+foo.config_from_object('celeryconfig')
+
+foo.autodiscover_tasks(lambda: foo.INSTALLED_APPS)
+
+if __name__ == '__main__':
+    foo.start()

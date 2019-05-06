@@ -1,0 +1,18 @@
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals
+
+from django.db import migrations, models
+
+
+class Migration(foo.Migration):
+
+    dependencies = [
+        ('accounts', '0001_initial'),
+    ]
+
+    operations = [
+        foo.AlterModelOptions(
+            name='team',
+            options={'ordering': ['name']},
+        ),
+    ]

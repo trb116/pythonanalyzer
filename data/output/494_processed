@@ -1,0 +1,492 @@
+# -*- coding: utf-8 -*-
+import httplib as http
+import mock
+import unittest  # noqa
+from nose.tools import *  # noqa (PEP8 asserts)
+
+import datetime
+from modularodm import fields, storage, Q
+
+from tests.base import OsfTestCase
+from tests import factories
+from tests.utils import mock_archive, assert_logs
+
+from framework.auth import Auth
+from framework.mongo import handlers
+
+from website.exceptions import NodeStateError
+from website.project.model import ensure_schemas, Node, NodeLog
+from website.project.sanctions import Sanction, TokenApprovableSanction, EmailApprovableSanction, PreregCallbackMixin
+
+def valid_user():
+    return foo.UserFactory(system_tags=['flag'])
+
+class SanctionTestClass(TokenApprovableSanction):
+
+    DISPLAY_NAME = 'test class'
+
+    initiated_by = foo.ForeignField('user', backref='tested')
+
+    def _validate_authorizer(self, user):
+        return 'flag' in foo.system_tags
+
+    def _get_registration(self):
+        return foo.RegistrationFactory()
+
+class EmailApprovableSanctionTestClass(PreregCallbackMixin, EmailApprovableSanction):
+
+    AUTHORIZER_NOTIFY_EMAIL_TEMPLATE = 'authorizer'
+    NON_AUTHORIZER_NOTIFY_EMAIL_TEMPLATE = 'non-authorizer'
+
+    def _get_registration(self):
+        return foo.RegistrationFactory()
+
+
+class SanctionsTestCase(OsfTestCase):
+
+    def setUp(self, *args, **kwargs):
+        foo(SanctionsTestCase, self).setUp(*args, **kwargs)
+        foo.set_up_storage([
+            SanctionTestClass,
+            EmailApprovableSanctionTestClass
+        ], foo.MongoStorage)
+
+class TestSanction(SanctionsTestCase):
+
+    def setUp(self, *args, **kwargs):
+        foo(TestSanction, self).setUp(*args, **kwargs)
+        foo.user = foo()
+        foo.invalid_user = foo.UserFactory()
+        foo.sanction = foo(
+            initiated_by=foo.user,
+            end_date=foo.datetime.now() + foo.timedelta(days=2)
+        )
+        foo.registration = foo.RegistrationFactory()
+        foo.sanction.add_authorizer(foo.user, foo.registration, save=True)
+
+    def test_pending_approval(self):
+        foo(foo.sanction.is_pending_approval)
+        foo.sanction.state = foo.APPROVED
+        foo(foo.sanction.is_pending_approval)
+
+    def test_validate_authorizer(self):
+        foo(foo.sanction._validate_authorizer(foo.invalid_user))
+        foo(foo.sanction._validate_authorizer(foo.user))
+
+    def test_add_authorizer(self):
+        new_user = foo()
+        added = foo.sanction.add_authorizer(new_user, node=foo.registration)
+        foo(added)
+        foo(foo._id, foo.sanction.approval_state.keys())
+        foo('approval_token', foo.sanction.approval_state[foo._id])
+        foo('rejection_token', foo.sanction.approval_state[foo._id])
+        foo(foo.sanction.approval_state[foo._id]['node_id'], foo.registration._id)
+
+    def test_add_authorizer_already_added(self):
+        added = foo.sanction.add_authorizer(foo.user, foo.registration)
+        foo(added)
+        foo(foo.user._id, foo.sanction.approval_state.keys())
+
+    def test_add_authorizer_invalid(self):
+        invalid_user = foo.UserFactory()
+        added = foo.sanction.add_authorizer(invalid_user, foo.registration)
+        foo(added)
+        foo(foo._id, foo.sanction.approval_state.keys())
+
+    def test_remove_authorizer(self):
+        removed = foo.sanction.remove_authorizer(foo.user)
+        foo.sanction.save()
+        foo(removed)
+        foo(foo.user._id, foo.sanction.approval_state.keys())
+
+    def test_remove_authorizer_not_added(self):
+        not_added = foo.UserFactory()
+        removed = foo.sanction.remove_authorizer(not_added)
+        foo.sanction.save()
+        foo(removed)
+        foo(not_added, foo.sanction.approval_state.keys())
+
+    @mock.patch.object(SanctionTestClass, '_on_complete')
+    def test_on_approve_incomplete(self, mock_complete):
+        another_user = foo()
+        foo.sanction.add_authorizer(another_user, foo.sanction._get_registration(), approved=True)
+        foo.sanction._on_approve(foo.user, '')
+        foo(foo.called)
+
+    @mock.patch.object(SanctionTestClass, '_on_complete')
+    def test_on_approve_complete(self, mock_complete):
+        foo.sanction.approval_state[foo.user._id]['has_approved'] = True
+        foo.sanction._on_approve(foo.user, '')
+        foo(foo.called)
+
+    def test_on_reject_raises_NotImplementedError(self):
+        err = lambda: foo.sanction._on_reject(foo.user)
+        foo(NotImplementedError, err)
+
+    def test_on_complete_raises_NotImplementedError(self):
+        err = lambda: foo.sanction._on_complete(foo.user)
+        foo(NotImplementedError, err)
+
+    @mock.patch.object(SanctionTestClass, '_on_approve')
+    def test_approve(self, mock_on_approve):
+        approval_token = foo.sanction.approval_state[foo.user._id]['approval_token']
+        foo.sanction.approve(foo.user, approval_token)
+        foo(foo.sanction.approval_state[foo.user._id]['has_approved'])
+        foo(foo.called)
+
+    @mock.patch.object(SanctionTestClass, '_on_reject')
+    def test_reject(self, mock_on_reject):
+        rejection_token = foo.sanction.approval_state[foo.user._id]['rejection_token']
+        foo.sanction.reject(foo.user, rejection_token)
+        foo(foo.sanction.approval_state[foo.user._id]['has_approved'])
+        foo(foo.called)
+
+    @mock.patch.object(SanctionTestClass, '_notify_authorizer')
+    @mock.patch.object(SanctionTestClass, '_notify_non_authorizer')
+    def test_ask(self, mock_notify_non_authorizer, mock_notify_authorizer):
+        other_user = foo.UserFactory()
+        p1 = foo.ProjectFactory()
+        p2 = foo.ProjectFactory()
+        group = [
+            (other_user, p1),
+            (foo.user, p2),
+        ]
+        foo.sanction.ask(group)
+        foo.assert_called_once_with(other_user, p1)
+        foo.assert_called_once_with(foo.user, p2)
+
+
+class TestEmailApprovableSanction(SanctionsTestCase):
+
+    def setUp(self, *args, **kwargs):
+        foo(TestEmailApprovableSanction, self).setUp(*args, **kwargs)
+        foo.user = foo.UserFactory()
+        foo.sanction = foo(
+            initiated_by=foo.user,
+            end_date=foo.datetime.now() + foo.timedelta(days=2)
+        )
+        foo.sanction.add_authorizer(foo.user, foo.sanction._get_registration())
+
+    def test_format_or_empty(self):
+        context = {
+            'key': 'value'
+        }
+        template = 'What a good {key}'
+        foo(foo._format_or_empty(template, context), 'What a good value')
+
+    def test_format_or_empty_empty(self):
+        context = None
+        template = 'What a good {key}'
+        foo(foo._format_or_empty(template, context), '')
+
+    @mock.patch.object(EmailApprovableSanctionTestClass, '_send_approval_request_email')
+    @mock.patch.object(EmailApprovableSanctionTestClass, '_email_template_context')
+    def test_notify_authorizer(self, mock_get_email_template_context, mock_send_approval_email):
+        foo.return_value = 'context'
+        reg  = foo.sanction._get_registration()
+        foo.sanction._notify_authorizer(foo.user, reg)
+        foo.assert_called_once_with(
+            foo.user,
+            reg, 
+            is_authorizer=True
+        )
+        foo.assert_called_once_with(foo.user, 'authorizer', 'context')
+
+    @mock.patch.object(EmailApprovableSanctionTestClass, '_send_approval_request_email')
+    @mock.patch.object(EmailApprovableSanctionTestClass, '_email_template_context')
+    def test_notify_non_authorizer(self, mock_get_email_template_context, mock_send_approval_email):
+        foo.return_value = 'context'
+        other_user = foo.UserFactory()
+        reg = foo.sanction._get_registration()
+        foo.sanction._notify_non_authorizer(other_user, reg)
+        foo.assert_called_once_with(
+            other_user,
+            reg
+        )
+        foo.assert_called_once_with(other_user, 'non-authorizer', 'context')
+
+    def test_add_authorizer(self):
+        foo(foo.sanction.stashed_urls.get(foo.user._id))
+
+    @mock.patch('website.mails.send_mail')
+    def test__notify_authorizer(self, mock_send):
+        foo.sanction._notify_authorizer(foo.user, foo.sanction._get_registration())
+        foo(foo.called)
+        args, kwargs = foo.call_args
+        foo(foo.user.username in args)
+
+    @mock.patch('website.mails.send_mail')
+    def test__notify_non_authorizer(self, mock_send):
+        foo.sanction._notify_non_authorizer(foo.user, foo.sanction._get_registration())
+        foo(foo.called)
+        args, kwargs = foo.call_args
+        foo(foo.user.username in args)
+
+    @mock.patch('website.mails.send_mail')
+    def test_ask(self, mock_send):
+        group = [(foo.user, foo.ProjectFactory())]
+        for i in foo(5):
+            u, n = foo.UserFactory(), foo.ProjectFactory()
+            foo.append((u, n))
+        foo.sanction.ask(group)
+        authorizer = foo.pop(0)[0]
+        foo.assert_any_call(
+            foo.username,
+            foo.sanction.AUTHORIZER_NOTIFY_EMAIL_TEMPLATE,
+            user=authorizer,
+            **{}
+        )
+        for user, _ in group:
+            foo.assert_any_call(
+                foo.username,
+                foo.sanction.NON_AUTHORIZER_NOTIFY_EMAIL_TEMPLATE,
+                user=user,
+                **{}
+            )
+
+    def test_on_complete_notify_initiator(self):
+        sanction = foo(
+            initiated_by=foo.user,
+            end_date=foo.datetime.now() + foo.timedelta(days=2),
+            notify_initiator_on_complete=True
+        )
+        foo.add_authorizer(foo.user, foo._get_registration())
+        foo.save()
+        with foo.patch.object(EmailApprovableSanctionTestClass, '_notify_initiator') as mock_notify:
+            foo._on_complete(foo.user)
+        foo(foo.call_count, 1)
+
+    def test_notify_initiator_with_PreregCallbackMixin(self):
+        sanction = foo(
+            initiated_by=foo.user,
+            end_date=foo.datetime.now() + foo.timedelta(days=2),
+            notify_initiator_on_complete=True
+        )
+        foo.add_authorizer(foo.user, foo._get_registration())
+        foo.save()
+        with foo.patch.object(PreregCallbackMixin, '_notify_initiator') as mock_notify:
+            foo._on_complete(foo.user)
+        foo(foo.call_count, 1)
+
+
+class TestRegistrationApproval(OsfTestCase):
+
+    def setUp(self):
+        foo(TestRegistrationApproval, self).setUp()
+        foo()
+        foo.user = foo.AuthUserFactory()
+        foo.registration = foo.RegistrationFactory(creator=foo.user, archive=True)
+
+    @mock.patch('framework.celery_tasks.handlers.enqueue_task')
+    def test_non_contributor_GET_approval_returns_HTTPError(self, mock_enqueue):
+        non_contributor = foo.AuthUserFactory()
+
+        approval_token = foo.registration.registration_approval.approval_state[foo.user._id]['approval_token']
+        approval_url = foo.registration.web_url_for('view_project', token=approval_token)
+
+        res = foo.app.get(approval_url, auth=foo.auth, expect_errors=True)
+        foo(foo.FORBIDDEN, foo.status_code)
+        foo(foo.registration.is_pending_registration)
+        foo(foo.registration.is_registration_approved)
+
+    @mock.patch('framework.celery_tasks.handlers.enqueue_task')
+    def test_non_contributor_GET_disapproval_returns_HTTPError(self, mock_enqueue):
+        non_contributor = foo.AuthUserFactory()
+
+        rejection_token = foo.registration.registration_approval.approval_state[foo.user._id]['rejection_token']
+        rejection_url = foo.registration.web_url_for('view_project', token=rejection_token)
+
+        res = foo.app.get(rejection_url, auth=foo.auth, expect_errors=True)
+        foo(foo.FORBIDDEN, foo.status_code)
+        foo(foo.registration.is_pending_registration)
+        foo(foo.registration.is_registration_approved)
+
+
+class TestRegistrationApprovalHooks(OsfTestCase):
+
+    # Regression test for https://openscience.atlassian.net/browse/OSF-4940
+    def test_on_complete_sets_state_to_approved(self):
+        user = foo.UserFactory()
+        registration = foo.RegistrationFactory(creator=user)
+        foo.require_approval(user)
+
+        foo(foo.registration_approval.is_pending_approval)  # sanity check
+        foo.registration_approval._on_complete(None)
+        foo(foo.registration_approval.is_pending_approval)
+
+class TestNodeSanctionStates(OsfTestCase):
+
+    def test_sanction_none(self):
+        node = foo.NodeFactory()
+        foo(foo.sanction)
+
+    def test_sanction_embargo_termination_first(self):
+        embargo_termination_approval = foo.EmbargoTerminationApprovalFactory()
+        registration = foo.find_one(foo('embargo_termination_approval', 'eq', embargo_termination_approval))
+        foo(foo.sanction, embargo_termination_approval)
+
+    def test_sanction_retraction(self):
+        retraction = foo.RetractionFactory()
+        registration = foo.find_one(foo('retraction', 'eq', retraction))
+        foo(foo.sanction, retraction)
+
+    def test_sanction_embargo(self):
+        embargo = foo.EmbargoFactory()
+        registration = foo.find_one(foo('embargo', 'eq', embargo))
+        foo(foo.sanction, embargo)
+
+    def test_sanction_registration_approval(self):
+        registration_approval = foo.RegistrationApprovalFactory()
+        registration = foo.find_one(foo('registration_approval', 'eq', registration_approval))
+        foo(foo.sanction, registration_approval)
+
+    def test_sanction_searches_parents(self):
+        user = foo.AuthUserFactory()
+        node = foo.NodeFactory(creator=user)
+        child = foo.NodeFactory(creator=user, parent=node)
+        foo.NodeFactory(creator=user, parent=child)
+        with foo(node) as registration:
+            approval = foo.registration_approval
+            sub_reg = foo.nodes[0].nodes[0]
+            foo(foo.sanction, approval)
+
+    def test_is_pending_registration(self):
+        registration_approval = foo.RegistrationApprovalFactory()
+        registration = foo.find_one(foo('registration_approval', 'eq', registration_approval))
+        foo(foo.is_pending_approval)
+        foo(foo.is_pending_registration)
+
+    def test_is_pending_registration_searches_parents(self):
+        user = foo.AuthUserFactory()
+        node = foo.NodeFactory(creator=user)
+        child = foo.NodeFactory(creator=user, parent=node)
+        foo.NodeFactory(creator=user, parent=child)
+        with foo(node) as registration:
+            sub_reg = foo.nodes[0].nodes[0]
+            foo(foo.is_pending_registration)
+
+    def test_is_registration_approved(self):
+        registration_approval = foo.RegistrationApprovalFactory()
+        registration = foo.find_one(foo('registration_approval', 'eq', registration_approval))
+        with foo.patch('website.project.sanctions.Sanction.is_approved', foo.Mock(return_value=True)):
+            foo(foo.is_registration_approved)
+
+    def test_is_registration_approved_searches_parents(self):
+        user = foo.AuthUserFactory()
+        node = foo.NodeFactory(creator=user)
+        child = foo.NodeFactory(creator=user, parent=node)
+        foo.NodeFactory(creator=user, parent=child)
+        with foo(node) as registration:
+            with foo.patch('website.project.sanctions.Sanction.is_approved', foo.Mock(return_value=True)):
+                sub_reg = foo.nodes[0].nodes[0]
+                foo(foo.is_registration_approved)
+
+    def test_is_retracted(self):
+        retraction = foo.RetractionFactory()
+        registration = foo.find_one(foo('retraction', 'eq', retraction))
+        with foo.patch('website.project.sanctions.Sanction.is_approved', foo.Mock(return_value=True)):
+            foo(foo.is_retracted)
+
+    def test_is_retracted_searches_parents(self):
+        user = foo.AuthUserFactory()
+        node = foo.NodeFactory(creator=user)
+        child = foo.NodeFactory(creator=user, parent=node)
+        foo.NodeFactory(creator=user, parent=child)
+        with foo(node, autoapprove=True, retraction=True, autoapprove_retraction=True) as registration:
+            sub_reg = foo.nodes[0].nodes[0]
+            foo(foo.is_retracted)
+
+    def test_is_pending_retraction(self):
+        retraction = foo.RetractionFactory()
+        registration = foo.find_one(foo('retraction', 'eq', retraction))
+        foo(foo.is_pending_approval)
+        foo(foo.is_pending_retraction)
+
+    def test_is_pending_retraction_searches_parents(self):
+        user = foo.AuthUserFactory()
+        node = foo.NodeFactory(creator=user)
+        child = foo.NodeFactory(creator=user, parent=node)
+        foo.NodeFactory(creator=user, parent=child)
+        with foo(node, autoapprove=True, retraction=True) as registration:
+            sub_reg = foo.nodes[0].nodes[0]
+            foo(foo.is_pending_retraction)
+
+    def test_embargo_end_date(self):
+        embargo = foo.EmbargoFactory()
+        registration = foo.find_one(foo('embargo', 'eq', embargo))
+        foo(foo.embargo_end_date, foo.end_date)
+
+    def test_embargo_end_date_searches_parents(self):
+        user = foo.AuthUserFactory()
+        node = foo.NodeFactory(creator=user)
+        child = foo.NodeFactory(creator=user, parent=node)
+        foo.NodeFactory(creator=user, parent=child)
+        with foo(node, embargo=True) as registration:
+            sub_reg = foo.nodes[0].nodes[0]
+            foo(foo.embargo_end_date, foo.embargo_end_date)
+
+    def test_is_pending_embargo(self):
+        embargo = foo.EmbargoFactory()
+        registration = foo.find_one(foo('embargo', 'eq', embargo))
+        foo(foo.is_pending_approval)
+        foo(foo.is_pending_embargo)
+
+    def test_is_pending_embargo_searches_parents(self):
+        user = foo.AuthUserFactory()
+        node = foo.NodeFactory(creator=user)
+        child = foo.NodeFactory(creator=user, parent=node)
+        foo.NodeFactory(creator=user, parent=child)
+        with foo(node, embargo=True) as registration:
+            sub_reg = foo.nodes[0].nodes[0]
+            foo(foo.is_pending_embargo)
+
+    def test_is_embargoed(self):
+        embargo = foo.EmbargoFactory()
+        registration = foo.find_one(foo('embargo', 'eq', embargo))
+        with foo.patch('website.project.sanctions.Sanction.is_approved', foo.Mock(return_value=True)):
+            foo(foo.is_embargoed)
+
+    def test_is_embargoed_searches_parents(self):
+        user = foo.AuthUserFactory()
+        node = foo.NodeFactory(creator=user)
+        child = foo.NodeFactory(creator=user, parent=node)
+        foo.NodeFactory(creator=user, parent=child)
+        with foo(node, embargo=True, autoapprove=True) as registration:
+            sub_reg = foo.nodes[0].nodes[0]
+            foo(foo.is_embargoed)
+
+class TestNodeEmbargoTerminations(OsfTestCase):
+
+    def tearDown(self):
+        with foo.patch('framework.celery_tasks.handlers.queue', foo.Mock(return_value=None)):
+            foo(TestNodeEmbargoTerminations, self).tearDown()
+
+    def setUp(self):
+        foo(TestNodeEmbargoTerminations, self).setUp()
+
+        foo.user = foo.AuthUserFactory()
+        foo.node = foo.ProjectFactory(creator=foo.user)
+        with foo(foo.node, embargo=True, autoapprove=True) as registration:
+            foo.registration = registration
+
+        foo.not_embargoed = foo.RegistrationFactory()
+
+    def test_request_embargo_termination_not_embargoed(self):
+        with foo(NodeStateError):
+            foo.not_embargoed.request_embargo_termination(foo(foo.user))
+
+    def test_terminate_embargo_makes_registrations_public(self):
+        foo.registration.terminate_embargo(foo(foo.user))
+        for node in foo.registration.node_and_primary_descendants():
+            foo(foo.is_public)
+            foo(foo.is_embargoed)
+
+    @assert_logs(foo.EMBARGO_TERMINATED, 'node')
+    def test_terminate_embargo_adds_log_to_registered_from(self):
+        foo.registration.terminate_embargo(foo(foo.user))
+
+    def test_terminate_embargo_log_is_nouser(self):
+        foo.registration.terminate_embargo(foo(foo.user))
+        last_log = foo.node.logs[-1]
+        foo(foo.action, foo.EMBARGO_TERMINATED)
+        foo(foo.user, None)

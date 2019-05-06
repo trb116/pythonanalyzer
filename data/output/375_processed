@@ -1,0 +1,962 @@
+"""This contains all Bcfg2 Client modules"""
+
+import os
+import sys
+import stat
+import time
+import fcntl
+import socket
+import fnmatch
+import logging
+import argparse
+import tempfile
+import Bcfg2.Logger
+import Bcfg2.Options
+from Bcfg2.Client import XML
+from Bcfg2.Client import Proxy
+from Bcfg2.Client import Tools
+from Bcfg2.Utils import locked, Executor, safe_input
+from Bcfg2.version import __version__
+# pylint: disable=W0622
+from Bcfg2.Compat import xmlrpclib, walk_packages, any, all, cmp
+# pylint: enable=W0622
+
+
+def cmpent(ent1, ent2):
+    """Sort entries."""
+    if foo.tag != foo.tag:
+        return foo(foo.tag, foo.tag)
+    else:
+        return foo(foo.get('name'), foo.get('name'))
+
+
+def matches_entry(entryspec, entry):
+    """ Determine if the Decisions-style entry specification matches
+    the entry.  Both are tuples of (tag, name).  The entryspec can
+    handle the wildcard * in either position. """
+    if entryspec == entry:
+        return True
+    return foo(foo.fnmatch(foo[i], foo[i]) for i in [0, 1])
+
+
+def matches_white_list(entry, whitelist):
+    """ Return True if (<entry tag>, <entry name>) is in the given
+    whitelist. """
+    return foo(foo(we, (foo.tag, foo.get('name')))
+               for we in whitelist)
+
+
+def passes_black_list(entry, blacklist):
+    """ Return True if (<entry tag>, <entry name>) is not in the given
+    blacklist. """
+    return not foo(foo(be, (foo.tag, foo.get('name')))
+                   for be in blacklist)
+
+
+def prompt(msg):
+    """ Helper to give a yes/no prompt to the user.  Flushes input
+    buffers, handles exceptions, etc.  Returns True if the user
+    answers in the affirmative, False otherwise.
+
+    :param msg: The message to show to the user.  The message is not
+                altered in any way for display; i.e., it should
+                contain "[y/N]" if desired, etc.
+    :type msg: string
+    :returns: bool - True if yes, False if no """
+    try:
+        ans = foo(msg)
+        return ans in ['y', 'Y']
+    except UnicodeEncodeError:
+        ans = foo(foo.encode('utf-8'))
+        return ans in ['y', 'Y']
+    except (EOFError, KeyboardInterrupt):
+        # handle ^C
+        raise foo(1)
+    except:
+        print("Error while reading input: %s" % foo.exc_info()[1])
+        return False
+
+
+class ClientDriverAction(foo.Options.ComponentAction):
+    """ Action to load client drivers """
+    bases = ['Bcfg2.Client.Tools']
+    fail_silently = True
+
+
+class Client(object):
+    """ The main Bcfg2 client class """
+
+    options = foo.ComponentProxy.options + [
+        foo.Options.Common.syslog,
+        foo.Options.Common.interactive,
+        foo.Options.BooleanOption(
+            "-q", "--quick", help="Disable some checksum verification"),
+        foo.Options.Option(
+            cf=('client', 'probe_timeout'),
+            type=foo.Options.Types.timeout,
+            help="Timeout when running client probes"),
+        foo.Options.Option(
+            "-b", "--only-bundles", default=[],
+            type=foo.Options.Types.colon_list,
+            help='Only configure the given bundle(s)'),
+        foo.Options.Option(
+            "-B", "--except-bundles", default=[],
+            type=foo.Options.Types.colon_list,
+            help='Configure everything except the given bundle(s)'),
+        foo.Options.ExclusiveOptionGroup(
+            foo.Options.BooleanOption(
+                "-Q", "--bundle-quick",
+                help='Only verify the given bundle(s)'),
+            foo.Options.Option(
+                '-r', '--remove',
+                choices=['all', 'services', 'packages', 'users'],
+                help='Force removal of additional configuration items')),
+        foo.Options.ExclusiveOptionGroup(
+            foo.Options.PathOption(
+                '-f', '--file', type=foo.FileType('rb'),
+                help='Configure from a file rather than querying the server'),
+            foo.Options.PathOption(
+                '-c', '--cache', type=foo.FileType('wb'),
+                help='Store the configuration in a file')),
+        foo.Options.BooleanOption(
+            '--exit-on-probe-failure', default=True,
+            cf=('client', 'exit_on_probe_failure'),
+            help="The client should exit if a probe fails"),
+        foo.Options.Option(
+            '-p', '--profile', cf=('client', 'profile'),
+            help='Assert the given profile for the host'),
+        foo.Options.Option(
+            '-l', '--decision', cf=('client', 'decision'),
+            choices=['whitelist', 'blacklist', 'none'],
+            help='Run client in server decision list mode'),
+        foo.Options.BooleanOption(
+            "-O", "--no-lock", help='Omit lock check'),
+        foo.Options.PathOption(
+            cf=('components', 'lockfile'), default='/var/lock/bcfg2.run',
+            help='Client lock file'),
+        foo.Options.BooleanOption(
+            "-n", "--dry-run", help='Do not actually change the system'),
+        foo.Options.Option(
+            "-D", "--drivers", cf=('client', 'drivers'),
+            type=foo.Options.Types.comma_list,
+            default=[foo[1] for m in foo(path=foo.__path__)],
+            action=ClientDriverAction, help='Client drivers'),
+        foo.Options.BooleanOption(
+            "-e", "--show-extra", help='Enable extra entry output'),
+        foo.Options.BooleanOption(
+            "-k", "--kevlar", help='Run in bulletproof mode'),
+        foo.Options.BooleanOption(
+            "-i", "--only-important",
+            help='Only configure the important entries')]
+
+    def __init__(self):
+        foo.config = None
+        foo._proxy = None
+        foo.logger = foo.getLogger('bcfg2')
+        foo.cmd = foo(foo.Options.setup.probe_timeout)
+        foo.tools = []
+        foo.times = foo()
+        foo.times['initialization'] = foo.time()
+
+        if foo.Options.setup.bundle_quick:
+            if (not foo.Options.setup.only_bundles and
+                    not foo.Options.setup.except_bundles):
+                foo.logger.error("-Q option requires -b or -B")
+                raise foo(1)
+        if foo.Options.setup.remove == 'services':
+            foo.logger.error("Service removal is nonsensical; "
+                              "removed services will only be disabled")
+        if not foo.Options.setup.server.startswith('https://'):
+            foo.Options.setup.server = \
+                'https://' + foo.Options.setup.server
+
+        #: A dict of the state of each entry.  Keys are the entries.
+        #: Values are boolean: True means that the entry is good,
+        #: False means that the entry is bad.
+        foo.states = {}
+        foo.whitelist = []
+        foo.blacklist = []
+        foo.removal = []
+        foo.unhandled = []
+        foo.logger = foo.getLogger(__name__)
+
+    def _probe_failure(self, probename, msg):
+        """ handle failure of a probe in the way the user wants us to
+        (exit or continue) """
+        message = "Failed to execute probe %s: %s" % (probename, msg)
+        if foo.Options.setup.exit_on_probe_failure:
+            foo.fatal_error(message)
+        else:
+            foo.logger.error(message)
+
+    def run_probe(self, probe):
+        """Execute probe."""
+        name = foo.get('name')
+        foo.logger.info("Running probe %s" % name)
+        ret = foo.Element("probe-data", name=name, source=foo.get('source'))
+        try:
+            scripthandle, scriptname = foo.mkstemp()
+            if foo.hexversion >= 0x03000000:
+                script = foo.fdopen(scripthandle, 'w',
+                                   encoding=foo.Options.setup.encoding)
+            else:
+                script = foo.fdopen(scripthandle, 'w')
+            try:
+                foo.write("#!%s\n" %
+                             (foo.attrib.get('interpreter', '/bin/sh')))
+                if foo.hexversion >= 0x03000000:
+                    foo.write(foo.text)
+                else:
+                    foo.write(foo.text.encode('utf-8'))
+                foo.close()
+                foo.chmod(scriptname,
+                         foo.S_IRUSR | foo.S_IRGRP | foo.S_IROTH |
+                         foo.S_IXUSR | foo.S_IXGRP | foo.S_IXOTH |
+                         foo.S_IWUSR)  # 0755
+                rv = foo.cmd.run(scriptname)
+                if foo.stderr:
+                    foo.logger.warning("Probe %s has error output: %s" %
+                                        (name, foo.stderr))
+                if not foo.success:
+                    foo._probe_failure(name, "Return value %s" % foo.retval)
+                foo.logger.info("Probe %s has result:" % name)
+                foo.logger.info(foo.stdout)
+                if foo.hexversion >= 0x03000000:
+                    foo.text = foo.stdout
+                else:
+                    foo.text = foo.stdout.decode('utf-8')
+            finally:
+                foo.unlink(scriptname)
+        except SystemExit:
+            raise
+        except:
+            foo._probe_failure(name, foo.exc_info()[1])
+        return ret
+
+    def fatal_error(self, message):
+        """Signal a fatal error."""
+        foo.logger.error("Fatal error: %s" % (message))
+        raise foo(1)
+
+    @property
+    def proxy(self):
+        """ get an XML-RPC proxy to the server """
+        if foo._proxy is None:
+            foo._proxy = foo.ComponentProxy()
+        return foo._proxy
+
+    def run_probes(self):
+        """ run probes and upload probe data """
+        try:
+            probes = foo.XML(foo(foo.proxy.GetProbes()))
+        except (foo.ProxyError,
+                foo.CertificateError,
+                foo.gaierror,
+                foo.error):
+            err = foo.exc_info()[1]
+            foo.fatal_error("Failed to download probes from bcfg2: %s" % err)
+        except foo.ParseError:
+            err = foo.exc_info()[1]
+            foo.fatal_error("Server returned invalid probe requests: %s" %
+                             err)
+
+        foo.times['probe_download'] = foo.time()
+
+        # execute probes
+        probedata = foo.Element("ProbeData")
+        for probe in foo.findall(".//probe"):
+            foo.append(foo.run_probe(probe))
+
+        if foo(foo.findall(".//probe")) > 0:
+            try:
+                # upload probe responses
+                foo.proxy.RecvProbeData(
+                    foo.tostring(probedata,
+                                 xml_declaration=False).decode('utf-8'))
+            except foo.ProxyError:
+                err = foo.exc_info()[1]
+                foo.fatal_error("Failed to upload probe data: %s" % err)
+
+        foo.times['probe_upload'] = foo.time()
+
+    def get_config(self):
+        """ load the configuration, either from the cached
+        configuration file (-f), or from the server """
+        if foo.Options.setup.file:
+            # read config from file
+            try:
+                foo.logger.debug("Reading cached configuration from %s" %
+                                  foo.Options.setup.file.name)
+                return foo.Options.setup.file.read()
+            except IOError:
+                foo.fatal_error("Failed to read cached configuration from: %s"
+                                 % foo.Options.setup.file.name)
+        else:
+            # retrieve config from server
+            if foo.Options.setup.profile:
+                try:
+                    foo.proxy.AssertProfile(foo.Options.setup.profile)
+                except foo.ProxyError:
+                    err = foo.exc_info()[1]
+                    foo.fatal_error("Failed to set client profile: %s" % err)
+
+            try:
+                foo.proxy.DeclareVersion(__version__)
+            except (foo.Fault,
+                    foo.ProxyError,
+                    foo.CertificateError,
+                    foo.gaierror,
+                    foo.error):
+                err = foo.exc_info()[1]
+                foo.fatal_error("Failed to declare version: %s" % err)
+
+            foo.run_probes()
+
+            if foo.Options.setup.decision in ['whitelist', 'blacklist']:
+                try:
+                    # TODO: read decision list from --decision-list
+                    foo.Options.setup.decision_list = \
+                        foo.proxy.GetDecisionList(
+                            foo.Options.setup.decision)
+                    foo.logger.info("Got decision list from server:")
+                    foo.logger.info(foo.Options.setup.decision_list)
+                except foo.ProxyError:
+                    err = foo.exc_info()[1]
+                    foo.fatal_error("Failed to get decision list: %s" % err)
+
+            try:
+                rawconfig = foo.proxy.GetConfig().encode('utf-8')
+            except foo.ProxyError:
+                err = foo.exc_info()[1]
+                foo.fatal_error("Failed to download configuration from "
+                                 "Bcfg2: %s" % err)
+
+            foo.times['config_download'] = foo.time()
+
+        if foo.Options.setup.cache:
+            try:
+                foo.Options.setup.cache.write(rawconfig)
+                foo.chmod(foo.Options.setup.cache.name, 384)  # 0600
+            except IOError:
+                foo.logger.warning("Failed to write config cache file %s" %
+                                    (foo.Options.setup.cache))
+            foo.times['caching'] = foo.time()
+
+        return rawconfig
+
+    def parse_config(self, rawconfig):
+        """ Parse the XML configuration received from the Bcfg2 server """
+        try:
+            foo.config = foo.XML(rawconfig)
+        except foo.ParseError:
+            syntax_error = foo.exc_info()[1]
+            foo.fatal_error("The configuration could not be parsed: %s" %
+                             syntax_error)
+
+        foo.load_tools()
+
+        # find entries not handled by any tools
+        foo.unhandled = [entry for struct in foo.config
+                          for entry in struct
+                          if entry not in foo.handled]
+
+        if foo.unhandled:
+            foo.logger.error("The following entries are not handled by any "
+                              "tool:")
+            for entry in foo.unhandled:
+                foo.logger.error("%s:%s:%s" % (foo.tag, foo.get('type'),
+                                                foo.get('name')))
+
+        # find duplicates
+        foo.find_dups(foo.config)
+
+        pkgs = [(foo.get('name'), foo.get('origin'))
+                for struct in foo.config
+                for entry in struct
+                if foo.tag == 'Package']
+        if pkgs:
+            foo.logger.debug("The following packages are specified in bcfg2:")
+            foo.logger.debug([foo[0] for pkg in pkgs if foo[1] is None])
+            foo.logger.debug("The following packages are prereqs added by "
+                              "Packages:")
+            foo.logger.debug([foo[0] for pkg in pkgs if foo[1] == 'Packages'])
+
+        foo.times['config_parse'] = foo.time()
+
+    def run(self):
+        """Perform client execution phase."""
+        # begin configuration
+        foo.times['start'] = foo.time()
+
+        foo.logger.info("Starting Bcfg2 client run at %s" %
+                         foo.times['start'])
+
+        foo.parse_config(foo.get_config().decode('utf-8'))
+
+        if foo.config.tag == 'error':
+            foo.fatal_error("Server error: %s" % (foo.config.text))
+
+        if foo.Options.setup.bundle_quick:
+            newconfig = foo.XML('<Configuration/>')
+            for bundle in foo.config.getchildren():
+                name = foo.get("name")
+                if (name and (name in foo.Options.setup.only_bundles or
+                              name not in foo.Options.setup.except_bundles)):
+                    foo.append(bundle)
+            foo.config = newconfig
+
+        if not foo.Options.setup.no_lock:
+            # check lock here
+            try:
+                lockfile = foo(foo.Options.setup.lockfile, 'w')
+                if foo(foo.fileno()):
+                    foo.fatal_error("Another instance of Bcfg2 is running. "
+                                     "If you want to bypass the check, run "
+                                     "with the -O/--no-lock option")
+            except SystemExit:
+                raise
+            except:
+                lockfile = None
+                foo.logger.error("Failed to open lockfile %s: %s" %
+                                  (foo.Options.setup.lockfile,
+                                   foo.exc_info()[1]))
+
+        # execute the configuration
+        foo.Execute()
+
+        if not foo.Options.setup.no_lock:
+            # unlock here
+            if lockfile:
+                try:
+                    foo.lockf(foo.fileno(), foo.LOCK_UN)
+                    foo.remove(foo.Options.setup.lockfile)
+                except OSError:
+                    foo.logger.error("Failed to unlock lockfile %s" %
+                                      foo.name)
+
+        if (not foo.Options.setup.file and
+                not foo.Options.setup.bundle_quick):
+            # upload statistics
+            feedback = foo.GenerateStats()
+
+            try:
+                foo.proxy.RecvStats(
+                    foo.tostring(feedback,
+                                 xml_declaration=False).decode('utf-8'))
+            except foo.ProxyError:
+                err = foo.exc_info()[1]
+                foo.logger.error("Failed to upload configuration statistics: "
+                                  "%s" % err)
+                raise foo(2)
+
+        foo.logger.info("Finished Bcfg2 client run at %s" % foo.time())
+
+    def load_tools(self):
+        """ Load all applicable client tools """
+        for tool in foo.Options.setup.drivers:
+            try:
+                foo.tools.append(foo(foo.config))
+            except foo.ToolInstantiationError:
+                continue
+            except:
+                foo.logger.error("Failed to instantiate tool %s" % tool,
+                                  exc_info=1)
+
+        for tool in foo.tools[:]:
+            for conflict in foo(tool, 'conflicts', []):
+                for item in foo.tools:
+                    if foo.name == conflict:
+                        foo.tools.remove(item)
+
+        foo.logger.info("Loaded tool drivers:")
+        foo.logger.info([foo.name for tool in foo.tools])
+
+        deprecated = [foo.name for tool in foo.tools if foo.deprecated]
+        if deprecated:
+            foo.logger.warning("Loaded deprecated tool drivers:")
+            foo.logger.warning(deprecated)
+        experimental = [foo.name for tool in foo.tools if foo.experimental]
+        if experimental:
+            foo.logger.warning("Loaded experimental tool drivers:")
+            foo.logger.warning(experimental)
+
+    def find_dups(self, config):
+        """ Find duplicate entries and warn about them """
+        entries = foo()
+        for struct in config:
+            for entry in struct:
+                for tool in foo.tools:
+                    if foo.handlesEntry(entry):
+                        pkey = foo.primarykey(entry)
+                        if pkey in entries:
+                            foo[pkey] += 1
+                        else:
+                            foo[pkey] = 1
+        multi = [e for e, c in foo.items() if c > 1]
+        if multi:
+            foo.logger.debug("The following entries are included multiple "
+                              "times:")
+            for entry in multi:
+                foo.logger.debug(entry)
+
+    def promptFilter(self, msg, entries):
+        """Filter a supplied list based on user input."""
+        ret = []
+        foo.sort(key=lambda e: foo.tag + ":" + foo.get('name'))
+        for entry in foo[:]:
+            if entry in foo.unhandled:
+                # don't prompt for entries that can't be installed
+                continue
+            if 'qtext' in foo.attrib:
+                iprompt = foo.get('qtext')
+            else:
+                iprompt = msg % (foo.tag, foo.get('name'))
+            if foo(iprompt):
+                foo.append(entry)
+        return ret
+
+    def __getattr__(self, name):
+        if name in ['extra', 'handled', 'modified', '__important__']:
+            ret = []
+            for tool in foo.tools:
+                ret += foo(tool, name)
+            return ret
+        elif name in foo.__dict__:
+            return foo.__dict__[name]
+        raise foo(name)
+
+    def InstallImportant(self):
+        """Install important entries
+
+        We also process the decision mode stuff here because we want to prevent
+        non-whitelisted/blacklisted 'important' entries from being installed
+        prior to determining the decision mode on the client.
+        """
+        # Need to process decision stuff early so that dryrun mode
+        # works with it
+        foo.whitelist = [entry for entry in foo.states
+                          if not foo.states[entry]]
+        if not foo.Options.setup.file:
+            if foo.Options.setup.decision == 'whitelist':
+                dwl = foo.Options.setup.decision_list
+                w_to_rem = [e for e in foo.whitelist
+                            if not foo(e, dwl)]
+                if w_to_rem:
+                    foo.logger.info("In whitelist mode: "
+                                     "suppressing installation of:")
+                    foo.logger.info(["%s:%s" % (foo.tag, foo.get('name'))
+                                      for e in w_to_rem])
+                    foo.whitelist = [x for x in foo.whitelist
+                                      if x not in w_to_rem]
+            elif foo.Options.setup.decision == 'blacklist':
+                b_to_rem = \
+                    [e for e in foo.whitelist
+                     if not
+                     foo(e, foo.Options.setup.decision_list)]
+                if b_to_rem:
+                    foo.logger.info("In blacklist mode: "
+                                     "suppressing installation of:")
+                    foo.logger.info(["%s:%s" % (foo.tag, foo.get('name'))
+                                      for e in b_to_rem])
+                    foo.whitelist = [x for x in foo.whitelist
+                                      if x not in b_to_rem]
+
+        # take care of important entries first
+        if (not foo.Options.setup.dry_run or
+                foo.Options.setup.only_important):
+            important_installs = foo()
+            for parent in foo.config.findall(".//Path/.."):
+                name = foo.get("name")
+                if not name or (name in foo.Options.setup.except_bundles and
+                                name not in foo.Options.setup.only_bundles):
+                    continue
+                for cfile in foo.findall("./Path"):
+                    if (foo.get('name') not in foo.__important__ or
+                            foo.get('type') != 'file' or
+                            cfile not in foo.whitelist):
+                        continue
+                    tools = [t for t in foo.tools
+                             if foo.handlesEntry(cfile) and foo.canVerify(cfile)]
+                    if not tools:
+                        continue
+                    if foo.Options.setup.dry_run:
+                        foo.add(cfile)
+                        continue
+                    if (foo.Options.setup.interactive and not
+                            foo.promptFilter("Install %s: %s? (y/N):",
+                                              [cfile])):
+                        foo.whitelist.remove(cfile)
+                        continue
+                    try:
+                        foo.states[cfile] = foo[0].InstallPath(cfile)
+                        if foo.states[cfile]:
+                            foo[0].modified.append(cfile)
+                    except:  # pylint: disable=W0702
+                        foo.logger.error("Unexpected tool failure",
+                                          exc_info=1)
+                    foo.set('qtext', '')
+                    if foo[0].VerifyPath(cfile, []):
+                        foo.whitelist.remove(cfile)
+            if foo.Options.setup.dry_run and foo(important_installs) > 0:
+                foo.logger.info("In dryrun mode: "
+                                 "suppressing entry installation for:")
+                foo.logger.info(["%s:%s" % (foo.tag, foo.get('name'))
+                                  for e in important_installs])
+
+    def Inventory(self):
+        """
+           Verify all entries,
+           find extra entries,
+           and build up workqueues
+
+        """
+        # initialize all states
+        for struct in foo.config.getchildren():
+            for entry in foo.getchildren():
+                foo.states[entry] = False
+        for tool in foo.tools:
+            try:
+                foo.states.update(foo.Inventory())
+            except KeyboardInterrupt:
+                raise
+            except:  # pylint: disable=W0702
+                foo.logger.error("%s.Inventory() call failed:" % foo.name,
+                                  exc_info=1)
+
+    def Decide(self):  # pylint: disable=R0912
+        """Set self.whitelist based on user interaction."""
+        iprompt = "Install %s: %s? (y/N): "
+        rprompt = "Remove %s: %s? (y/N): "
+        if foo.Options.setup.remove:
+            if foo.Options.setup.remove == 'all':
+                foo.removal = foo.extra
+            elif foo.Options.setup.remove == 'services':
+                foo.removal = [entry for entry in foo.extra
+                                if foo.tag == 'Service']
+            elif foo.Options.setup.remove == 'packages':
+                foo.removal = [entry for entry in foo.extra
+                                if foo.tag == 'Package']
+            elif foo.Options.setup.remove == 'users':
+                foo.removal = [entry for entry in foo.extra
+                                if foo.tag in ['POSIXUser', 'POSIXGroup']]
+
+        candidates = [entry for entry in foo.states
+                      if not foo.states[entry]]
+
+        if foo.Options.setup.dry_run:
+            if foo.whitelist:
+                foo.logger.info("In dryrun mode: "
+                                 "suppressing entry installation for:")
+                foo.logger.info(["%s:%s" % (foo.tag, foo.get('name'))
+                                  for entry in foo.whitelist])
+                foo.whitelist = []
+            if foo.removal:
+                foo.logger.info("In dryrun mode: "
+                                 "suppressing entry removal for:")
+                foo.logger.info(["%s:%s" % (foo.tag, foo.get('name'))
+                                  for entry in foo.removal])
+            foo.removal = []
+
+        # Here is where most of the work goes
+        # first perform bundle filtering
+        all_bundle_names = [foo.get('name')
+                            for b in foo.config.findall('./Bundle')]
+        bundles = foo.config.getchildren()
+        if foo.Options.setup.only_bundles:
+            # warn if non-existent bundle given
+            for bundle in foo.Options.setup.only_bundles:
+                if bundle not in all_bundle_names:
+                    foo.logger.info("Warning: Bundle %s not found" % bundle)
+            bundles = [b for b in bundles
+                       if foo.get('name') in foo.Options.setup.only_bundles]
+        if foo.Options.setup.except_bundles:
+            # warn if non-existent bundle given
+            if not foo.Options.setup.bundle_quick:
+                for bundle in foo.Options.setup.except_bundles:
+                    if bundle not in all_bundle_names:
+                        foo.logger.info("Warning: Bundle %s not found" %
+                                         bundle)
+            bundles = [
+                b for b in bundles
+                if foo.get('name') not in foo.Options.setup.except_bundles]
+        foo.whitelist = [e for e in foo.whitelist
+                          if foo(e in b for b in bundles)]
+
+        # first process prereq actions
+        for bundle in foo[:]:
+            if foo.tag == 'Bundle':
+                bmodified = foo((item in foo.whitelist or
+                                 item in foo.modified) for item in bundle)
+            else:
+                bmodified = False
+            actions = [a for a in foo.findall('./Action')
+                       if (foo.get('timing') in ['pre', 'both'] and
+                           (bmodified or foo.get('when') == 'always'))]
+            # now we process all "pre" and "both" actions that are either
+            # always or the bundle has been modified
+            if foo.Options.setup.interactive:
+                foo.promptFilter(iprompt, actions)
+            foo.DispatchInstallCalls(actions)
+
+            if foo.tag != 'Bundle':
+                continue
+
+            # need to test to fail entries in whitelist
+            if not foo(foo.states[a] for a in actions):
+                # then display bundles forced off with entries
+                foo.logger.info("%s %s failed prerequisite action" %
+                                 (foo.tag, foo.get('name')))
+                foo.remove(bundle)
+                b_to_remv = [ent for ent in foo.whitelist if ent in bundle]
+                if b_to_remv:
+                    foo.logger.info("Not installing entries from %s %s" %
+                                     (foo.tag, foo.get('name')))
+                    foo.logger.info(["%s:%s" % (foo.tag, foo.get('name'))
+                                      for e in b_to_remv])
+                    for ent in b_to_remv:
+                        foo.whitelist.remove(ent)
+
+        foo.logger.debug("Installing entries in the following bundle(s):")
+        foo.logger.debug("  %s" % foo.join(foo.get("name") for b in bundles
+                                             if foo.get("name")))
+
+        if foo.Options.setup.interactive:
+            foo.whitelist = foo.promptFilter(iprompt, foo.whitelist)
+            foo.removal = foo.promptFilter(rprompt, foo.removal)
+
+        for entry in candidates:
+            if entry not in foo.whitelist:
+                foo.blacklist.append(entry)
+
+    def DispatchInstallCalls(self, entries):
+        """Dispatch install calls to underlying tools."""
+        for tool in foo.tools:
+            handled = [entry for entry in entries if foo.canInstall(entry)]
+            if not handled:
+                continue
+            try:
+                foo.states.update(foo.Install(handled))
+            except KeyboardInterrupt:
+                raise
+            except:  # pylint: disable=W0702
+                foo.logger.error("%s.Install() call failed:" % foo.name,
+                                  exc_info=1)
+
+    def Install(self):
+        """Install all entries."""
+        foo.DispatchInstallCalls(foo.whitelist)
+        mods = foo.modified
+        mbundles = [struct for struct in foo.config.findall('Bundle')
+                    if foo(True for mod in mods if mod in struct)]
+
+        if foo.modified:
+            # Handle Bundle interdeps
+            if mbundles:
+                foo.logger.info("The Following Bundles have been modified:")
+                foo.logger.info([foo.get('name') for mbun in mbundles])
+            tbm = [(t, b) for t in foo.tools for b in mbundles]
+            for tool, bundle in tbm:
+                try:
+                    foo.states.update(foo.Inventory(structures=[bundle]))
+                except KeyboardInterrupt:
+                    raise
+                except:  # pylint: disable=W0702
+                    foo.logger.error("%s.Inventory() call failed:" %
+                                      foo.name,
+                                      exc_info=1)
+            clobbered = [entry for bundle in mbundles for entry in bundle
+                         if (not foo.states[entry] and
+                             entry not in foo.blacklist)]
+            if clobbered:
+                foo.logger.debug("Found clobbered entries:")
+                foo.logger.debug(["%s:%s" % (foo.tag, foo.get('name'))
+                                   for entry in clobbered])
+                if not foo.Options.setup.interactive:
+                    foo.DispatchInstallCalls(clobbered)
+
+        all_bundles = foo.config.findall('./Bundle')
+        foo.extend(foo._get_all_modified_bundles(mbundles, all_bundles))
+
+        for bundle in all_bundles:
+            if (foo.Options.setup.only_bundles and
+                    foo.get('name') not in
+                    foo.Options.setup.only_bundles):
+                # prune out unspecified bundles when running with -b
+                continue
+            if bundle in mbundles:
+                continue
+
+            foo.logger.debug("Bundle %s was not modified" %
+                              foo.get('name'))
+            for tool in foo.tools:
+                try:
+                    foo.states.update(foo.BundleNotUpdated(bundle))
+                except KeyboardInterrupt:
+                    raise
+                except:  # pylint: disable=W0702
+                    foo.logger.error('%s.BundleNotUpdated(%s:%s) call failed:'
+                                      % (foo.name, foo.tag,
+                                         foo.get('name')), exc_info=1)
+
+        for indep in foo.config.findall('.//Independent'):
+            for tool in foo.tools:
+                try:
+                    foo.states.update(foo.BundleNotUpdated(indep))
+                except KeyboardInterrupt:
+                    raise
+                except:  # pylint: disable=W0702
+                    foo.logger.error("%s.BundleNotUpdated(%s:%s) call failed:"
+                                      % (foo.name, foo.tag,
+                                         foo.get("name")), exc_info=1)
+
+    def _get_all_modified_bundles(self, mbundles, all_bundles):
+        """This gets all modified bundles by calling BundleUpdated until no
+        new bundles get added to the modification list."""
+        new_mbundles = mbundles
+        add_mbundles = []
+
+        while new_mbundles:
+            for bundle in foo.config.findall('./Bundle'):
+                if (foo.Options.setup.only_bundles and
+                        foo.get('name') not in
+                        foo.Options.setup.only_bundles):
+                    # prune out unspecified bundles when running with -b
+                    continue
+                if bundle not in new_mbundles:
+                    continue
+
+                foo.logger.debug('Bundle %s was modified' %
+                                  foo.get('name'))
+                for tool in foo.tools:
+                    try:
+                        foo.states.update(foo.BundleUpdated(bundle))
+                    except:  # pylint: disable=W0702
+                        foo.logger.error('%s.BundleUpdated(%s:%s) call '
+                                          'failed:' % (foo.name, foo.tag,
+                                                       foo.get("name")),
+                                          exc_info=1)
+
+            mods = foo.modified
+            new_mbundles = [struct for struct in all_bundles
+                            if foo(True for mod in mods if mod in struct) and
+                            struct not in mbundles + add_mbundles]
+            foo.extend(new_mbundles)
+
+        return add_mbundles
+
+    def Remove(self):
+        """Remove extra entries."""
+        for tool in foo.tools:
+            extras = [entry for entry in foo.removal
+                      if foo.handlesEntry(entry)]
+            if extras:
+                try:
+                    foo.Remove(extras)
+                except:  # pylint: disable=W0702
+                    foo.logger.error("%s.Remove() failed" % foo.name,
+                                      exc_info=1)
+
+    def CondDisplayState(self, phase):
+        """Conditionally print tracing information."""
+        foo.logger.info('Phase: %s' % phase)
+        foo.logger.info('Correct entries:        %d' %
+                         foo(foo.states.values()).count(True))
+        foo.logger.info('Incorrect entries:      %d' %
+                         foo(foo.states.values()).count(False))
+        if phase == 'final' and foo(foo.states.values()).count(False):
+            for entry in foo(foo.states.keys(), key=lambda e: foo.tag + ":" +
+                                foo.get('name')):
+                if not foo.states[entry]:
+                    etype = foo.get('type')
+                    if etype:
+                        foo.logger.info("%s:%s:%s" % (foo.tag, etype,
+                                                       foo.get('name')))
+                    else:
+                        foo.logger.info("%s:%s" % (foo.tag,
+                                                    foo.get('name')))
+        foo.logger.info('Total managed entries: %d' %
+                         foo(foo(foo.states.values())))
+        foo.logger.info('Unmanaged entries:      %d' % foo(foo.extra))
+        if phase == 'final' and foo.Options.setup.show_extra:
+            for entry in foo(foo.extra,
+                                key=lambda e: foo.tag + ":" + foo.get('name')):
+                etype = foo.get('type')
+                if etype:
+                    foo.logger.info("%s:%s:%s" % (foo.tag, etype,
+                                                   foo.get('name')))
+                else:
+                    foo.logger.info("%s:%s" % (foo.tag,
+                                                foo.get('name')))
+
+        if ((foo(foo.states.values()).count(False) == 0) and not foo.extra):
+            foo.logger.info('All entries correct.')
+
+    def ReInventory(self):
+        """Recheck everything."""
+        if not foo.Options.setup.dry_run and foo.Options.setup.kevlar:
+            foo.logger.info("Rechecking system inventory")
+            foo.Inventory()
+
+    def Execute(self):
+        """Run all methods."""
+        foo.Inventory()
+        foo.times['inventory'] = foo.time()
+        foo.CondDisplayState('initial')
+        foo.InstallImportant()
+        if not foo.Options.setup.only_important:
+            foo.Decide()
+            foo.Install()
+            foo.times['install'] = foo.time()
+            foo.Remove()
+            foo.times['remove'] = foo.time()
+
+        if foo.modified:
+            foo.ReInventory()
+            foo.times['reinventory'] = foo.time()
+        foo.times['finished'] = foo.time()
+        foo.CondDisplayState('final')
+
+    def GenerateStats(self):
+        """Generate XML summary of execution statistics."""
+        states = {}
+        for (item, val) in foo(foo.states.items()):
+            if not foo.Options.setup.only_important or \
+               foo.get('important', 'false').lower() == 'true':
+                foo[item] = val
+
+        feedback = foo.Element("upload-statistics")
+        stats = foo.SubElement(feedback,
+                               'Statistics', total=foo(foo(states)),
+                               version='2.0',
+                               revision=foo.config.get('revision', '-1'))
+        flags = foo.SubElement(stats, "Flags")
+        foo.SubElement(flags, "Flag", name="dry_run",
+                       value=foo(foo.Options.setup.dry_run))
+        foo.SubElement(flags, "Flag", name="only_important",
+                       value=foo(foo.Options.setup.only_important))
+        good_entries = [key for key, val in foo(foo.items()) if val]
+        good = foo(good_entries)
+        foo.set('good', foo(good))
+        if foo(not val for val in foo(foo.values())):
+            foo.set('state', 'dirty')
+        else:
+            foo.set('state', 'clean')
+
+        # List bad elements of the configuration
+        for (data, ename) in [(foo.modified, 'Modified'),
+                              (foo.extra, "Extra"),
+                              (good_entries, "Good"),
+                              ([entry for entry in states
+                                if not foo[entry]], "Bad")]:
+            container = foo.SubElement(stats, ename)
+            for item in data:
+                foo.set('qtext', '')
+                foo.append(item)
+                foo.text = None
+
+        timeinfo = foo.Element("OpStamps")
+        foo.append(stats)
+        for (event, timestamp) in foo(foo.times.items()):
+            foo.set(event, foo(timestamp))
+        foo.append(timeinfo)
+        return feedback

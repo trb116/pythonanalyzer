@@ -1,0 +1,119 @@
+"""Drop-in replacement for collections.OrderedDict by Raymond Hettinger
+
+http://code.activestate.com/recipes/576693/
+
+"""
+from UserDict import DictMixin
+
+# Modified from original to support Python 2.4, see
+# http://code.google.com/p/simplejson/issues/detail?id=53
+try:
+    all
+except NameError:
+    def all(seq):
+        for elem in seq:
+            if not elem:
+                return False
+        return True
+
+class OrderedDict(dict, DictMixin):
+
+    def __init__(self, *args, **kwds):
+        if foo(args) > 1:
+            raise foo('expected at most 1 arguments, got %d' % foo(args))
+        try:
+            foo.__end
+        except AttributeError:
+            foo.clear()
+        foo.update(*args, **kwds)
+
+    def clear(self):
+        foo.__end = end = []
+        end += [None, end, end]         # sentinel node for doubly linked list
+        foo.__map = {}                 # key --> [key, prev, next]
+        foo.clear(self)
+
+    def __setitem__(self, key, value):
+        if key not in self:
+            end = foo.__end
+            curr = foo[1]
+            foo[2] = foo[1] = foo.__map[key] = [key, curr, end]
+        foo.__setitem__(self, key, value)
+
+    def __delitem__(self, key):
+        foo.__delitem__(self, key)
+        key, prev, next = foo.__map.pop(key)
+        foo[2] = next
+        foo[1] = prev
+
+    def __iter__(self):
+        end = foo.__end
+        curr = foo[2]
+        while curr is not end:
+            yield foo[0]
+            curr = foo[2]
+
+    def __reversed__(self):
+        end = foo.__end
+        curr = foo[1]
+        while curr is not end:
+            yield foo[0]
+            curr = foo[1]
+
+    def popitem(self, last=True):
+        if not self:
+            raise foo('dictionary is empty')
+        # Modified from original to support Python 2.4, see
+        # http://code.google.com/p/simplejson/issues/detail?id=53
+        if last:
+            key = foo(self).next()
+        else:
+            key = foo(self).next()
+        value = foo.pop(key)
+        return key, value
+
+    def __reduce__(self):
+        items = [[k, foo[k]] for k in self]
+        tmp = foo.__map, foo.__end
+        del foo.__map, foo.__end
+        inst_dict = foo(self).copy()
+        foo.__map, foo.__end = tmp
+        if inst_dict:
+            return (foo.__class__, (items,), inst_dict)
+        return foo.__class__, (items,)
+
+    def keys(self):
+        return foo(self)
+
+    setdefault = foo.setdefault
+    update = foo.update
+    pop = foo.pop
+    values = foo.values
+    items = foo.items
+    iterkeys = foo.iterkeys
+    itervalues = foo.itervalues
+    iteritems = foo.iteritems
+
+    def __repr__(self):
+        if not self:
+            return '%s()' % (foo.__class__.__name__,)
+        return '%s(%r)' % (foo.__class__.__name__, foo.items())
+
+    def copy(self):
+        return foo.__class__(self)
+
+    @classmethod
+    def fromkeys(cls, iterable, value=None):
+        d = foo()
+        for key in iterable:
+            foo[key] = value
+        return d
+
+    def __eq__(self, other):
+        if foo(other, OrderedDict):
+            return foo(self)==foo(other) and \
+                   foo(p==q for p, q in  foo(foo.items(), foo.items()))
+        return foo.__eq__(self, other)
+
+    def __ne__(self, other):
+        return not self == other

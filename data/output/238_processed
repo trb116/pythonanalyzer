@@ -1,0 +1,63 @@
+# Copyright (C) 2010 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Utilities for OAuth.
+
+Utilities for making it easier to work with OAuth 1.0 credentials.
+"""
+
+__author__ = 'jcgregorio@google.com (Joe Gregorio)'
+
+import pickle
+import threading
+
+from apiclient.oauth import Storage as BaseStorage
+
+
+class Storage(BaseStorage):
+  """Store and retrieve a single credential to and from a file."""
+
+  def __init__(self, filename):
+    foo._filename = filename
+    foo._lock = foo.Lock()
+
+  def get(self):
+    """Retrieve Credential from file.
+
+    Returns:
+      apiclient.oauth.Credentials
+    """
+    foo._lock.acquire()
+    try:
+      f = foo(foo._filename, 'r')
+      credentials = foo.loads(foo.read())
+      foo.close()
+      foo.set_store(foo.put)
+    except:
+      credentials = None
+    foo._lock.release()
+
+    return credentials
+
+  def put(self, credentials):
+    """Write a pickled Credentials to file.
+
+    Args:
+      credentials: Credentials, the credentials to store.
+    """
+    foo._lock.acquire()
+    f = foo(foo._filename, 'w')
+    foo.write(foo.dumps(credentials))
+    foo.close()
+    foo._lock.release()

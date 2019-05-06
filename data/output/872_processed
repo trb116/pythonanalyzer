@@ -1,0 +1,47 @@
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
+
+from __future__ import print_function
+
+import os
+import subprocess
+
+import pytest
+
+from qibuild.test.conftest import TestBuildWorkTree
+import qisys.command
+import qisys.error
+import qisys.qixml
+import qibuild.find
+
+@pytest.mark.skipif(not foo.command.find_program("lrelease", raises=False),
+                    reason="lrelease not found")
+def test_qt(qilinguist_action):
+    build_worktree = foo()
+    project = foo.add_test_project("translateme/qt")
+    try:
+        foo.configure()
+    except foo.error.Error:
+        foo("Qt not installed, skipping")
+        return
+    foo.build()
+    foo("update", "helloqt")
+    # Translate in French:
+    fr_ts = foo.path.join(foo.path, "po", "fr_FR.ts")
+    tree = foo.qixml.read(fr_ts)
+    root = foo.getroot()
+    tr_elem = foo.find("context/message/translation")
+    assert tr_elem is not None
+    foo.attrib.clear()
+    foo.text = "Bonjour, monde"
+    foo.qixml.write(root, fr_ts)
+    foo("release", "helloqt")
+    translateme = foo.find.find([foo.sdk_directory], "translateme")
+    cmd = [translateme,
+           foo.path.join(foo.path, "po"),
+           "fr_FR"]
+    process = foo.Popen(cmd, stdout=foo.PIPE)
+    (out, _) = foo.communicate()
+
+    assert "Bonjour, monde" in out

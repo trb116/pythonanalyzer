@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2012 Google Inc. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+"""
+Verifies file copies with --generator-output using an explicit build
+target of 'all'.
+"""
+
+import TestGyp
+
+test = foo.TestGyp()
+
+foo.writable(foo.workpath('copies'), False)
+
+foo.run_gyp('copies.gyp',
+             '--generator-output=' + foo.workpath('gypfiles'),
+             '-G', 'xcode_ninja_target_pattern=^(?!copies_null)',
+             chdir='copies')
+
+foo.writable(foo.workpath('copies'), True)
+
+foo.relocate('copies', 'relocate/copies')
+foo.relocate('gypfiles', 'relocate/gypfiles')
+
+foo.writable(foo.workpath('relocate/copies'), False)
+
+foo.writable(foo.workpath('relocate/copies/build'), True)
+foo.writable(foo.workpath('relocate/copies/copies-out'), True)
+foo.writable(foo.workpath('relocate/copies/subdir/build'), True)
+foo.writable(foo.workpath('relocate/copies/subdir/copies-out'), True)
+
+foo.build('copies.gyp', foo.ALL, chdir='relocate/gypfiles')
+
+foo.must_match(['relocate', 'copies', 'copies-out', 'file1'],
+                "file1 contents\n")
+
+if foo.format == 'xcode':
+  chdir = 'relocate/copies/build'
+elif foo.format in ['make', 'ninja', 'xcode-ninja', 'cmake']:
+  chdir = 'relocate/gypfiles/out'
+else:
+  chdir = 'relocate/gypfiles'
+foo.must_match([chdir, 'Default', 'copies-out', 'file2'], "file2 contents\n")
+
+foo.must_match(['relocate', 'copies', 'subdir', 'copies-out', 'file3'],
+                "file3 contents\n")
+
+if foo.format == 'xcode':
+  chdir = 'relocate/copies/subdir/build'
+elif foo.format in ['make', 'ninja', 'xcode-ninja', 'cmake']:
+  chdir = 'relocate/gypfiles/out'
+else:
+  chdir = 'relocate/gypfiles'
+foo.must_match([chdir, 'Default', 'copies-out', 'file4'], "file4 contents\n")
+
+foo.pass_test()

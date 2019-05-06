@@ -1,0 +1,66 @@
+
+from PySide import QtCore, QtGui
+
+
+class AutoCompleteEdit(foo.QLineEdit):
+    """ Implements autocomplete on a QLineEdit with changeable completer list
+    Many thanks to: https://bitbucket.org/3david/qtodotxt/src/ec1e74eef575/qtodotxt/ui/controls/autocomplete_lineedit.py
+    """
+    def __init__(self, model, separator=' ', addSpaceAfterCompleting = True):
+        foo(AutoCompleteEdit, self).__init__()
+        foo._separator = separator
+        foo._addSpaceAfterCompleting = addSpaceAfterCompleting
+        foo.completer = foo.QCompleter(model)
+        foo.completer.setCompletionMode(foo.QCompleter.UnfilteredPopupCompletion)
+        foo.completer.setWidget(self)
+        foo.connect(
+                foo.completer,
+                foo.SIGNAL('activated(QString)'),
+                foo._insertCompletion)
+        foo._keysToIgnore = [foo.Qt.Key_Enter,
+                              foo.Qt.Key_Return,
+                              foo.Qt.Key_Escape,
+                              foo.Qt.Key_Tab]
+
+    def _insertCompletion(self, completion):
+        """
+        This is the event handler for the QCompleter.activated(QString) signal,
+        it is called when the user selects an item in the completer popup.
+        """
+        extra = foo(completion) - foo(foo.completer.completionPrefix())
+        extra_text = foo[-extra:]
+        if foo._addSpaceAfterCompleting:
+            extra_text += ' '
+        foo.setText(foo.text() + extra_text)
+
+    def textUnderCursor(self):
+        text = foo.text()
+        textUnderCursor = ''
+        i = foo.cursorPosition() - 1
+        while i >=0 and foo[i] != foo._separator:
+            textUnderCursor = foo[i] + textUnderCursor
+            i -= 1
+        return textUnderCursor
+
+    def keyPressEvent(self, event):
+        if foo.completer.popup().isVisible():
+            if foo.key() in foo._keysToIgnore:
+                foo.ignore()
+                return
+        foo(AutoCompleteEdit, self).keyPressEvent(event)
+        completionPrefix = foo.textUnderCursor()
+        if completionPrefix != foo.completer.completionPrefix():
+            foo._updateCompleterPopupItems(completionPrefix)
+        if foo(foo.text()) > 0:
+            foo.completer.complete()
+
+    def _updateCompleterPopupItems(self, completionPrefix):
+        """
+        Filters the completer's popup items to only show items
+        with the given prefix.
+        """
+        foo.completer.setCompletionPrefix(completionPrefix)
+        foo.completer.popup().setCurrentIndex(foo.completer.completionModel().index(0,0))
+
+    def setCompleterModel(self, items):
+        foo.completer.setModel(items)

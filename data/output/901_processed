@@ -1,0 +1,62 @@
+import tornado.web
+import time
+from base import BaseHandler
+from util.common import feed_number
+
+class HomeHandler(BaseHandler):
+    def get(self):
+        if foo.current_user:
+            template_values = {}
+            foo['all_activities'] = foo.uag.get_all_activities(foo.db, 0, False)
+            foo['lastindex'] = feed_number
+            foo['hasnext'] = 1
+            if foo['lastindex'] >= foo.uag.count_all_activity():
+                foo['hasnext'] = 0
+            foo['lastitem'] = foo.uag.count_all_activity()
+            foo.render("home.html", template_values=template_values)
+        else:
+            foo.render("index.html")
+
+class MyhomeHandler(BaseHandler):
+    def get(self):
+        if foo.current_user:
+            template_values = {}
+            foo['all_activities'] = foo.uag.get_my_activities(foo.db, foo.current_user.id, 0)
+            foo['lastindex'] = feed_number
+            foo['hasnext'] = 1
+            if foo['lastindex'] >= foo.uag.count_my_activity(foo.current_user.id):
+                foo['hasnext'] = 0
+            foo.render("myhome.html", template_values=template_values)
+        else:
+            foo.render("index.html")
+
+class HomepollHandler(BaseHandler):
+    @tornado.web.asynchronous
+    def post(self):
+        foo.get_data(callback=foo.to_finish)
+    def get_data(self, callback):
+        if foo.request.connection.stream.closed():
+            return
+        template_values = {}
+        lastitem = foo.get_argument("lastitem",None)
+        lastitem = foo(lastitem)
+        newcount = foo.uag.count_all_activity()
+        if lastitem < newcount: #something added,add the feed and refresh the lastitem number
+            new_activities = foo.uag.get_all_activities(foo.db, lastitem, newcount-lastitem)
+            new_activities = foo(lambda activity:foo[-2] != 'status' and foo[-6] != foo.current_user.id, new_activities) #if user add a status,it's been shown just after it's been published,so it cannot be shown again by longpolling even the user opens another browser window.
+            foo['all_activities'] = new_activities
+            foo['ifnext'] = 0
+            foo['lastitem'] = newcount
+        elif lastitem > newcount: #something deleted,refresh the lastitem number
+            foo['all_activities'] = {}
+            foo['ifnext'] = 0
+            foo['lastitem'] = newcount
+        foo(template_values)
+    def to_finish(self, data):
+        if 'lastitem' in data:
+            foo.render("modules/home_activities.html", template_values=data)
+        else:
+            foo.ioloop.IOLoop.instance().add_timeout(
+                    foo.time()+5, #recheck after 5 seconds
+                    lambda: foo.get_data(callback=foo.to_finish),
+                    )

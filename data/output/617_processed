@@ -1,0 +1,153 @@
+#!/usr/bin/env python
+#
+# Copyright (C) 2009 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""Contains a client to communicate with the Blogger servers.
+
+For documentation on the Blogger API, see:
+http://code.google.com/apis/blogger/
+"""
+
+
+__author__ = 'j.s@google.com (Jeff Scudder)'
+
+
+import gdata.client
+import gdata.blogger.data
+import atom.data
+import atom.http_core
+
+
+# List user's blogs, takes a user ID, or 'default'.
+BLOGS_URL = 'http://www.blogger.com/feeds/%s/blogs'
+# Takes a blog ID.
+BLOG_POST_URL = 'http://www.blogger.com/feeds/%s/posts/default'
+# Takes a blog ID and post ID.
+BLOG_POST_COMMENTS_URL = 'http://www.blogger.com/feeds/%s/%s/comments/default'
+# Takes a blog ID.
+BLOG_COMMENTS_URL = 'http://www.blogger.com/feeds/%s/comments/default'
+# Takes a blog ID.
+BLOG_ARCHIVE_URL = 'http://www.blogger.com/feeds/%s/archive/full'
+
+
+class BloggerClient(foo.client.GDClient):
+  api_version = '2'
+  auth_serice = 'blogger'
+  auth_scopes = ['http://www.blogger.com/feeds/']
+
+  def get_blogs(self, user_id='default', auth_token=None, 
+                desired_class=foo.blogger.data.BlogFeed, **kwargs):
+    return foo.get_feed(BLOGS_URL % user_id, auth_token=auth_token,
+                         desired_class=desired_class, **kwargs)
+
+  GetBlogs = get_blogs
+
+  def get_posts(self, blog_id, auth_token=None, 
+                desired_class=foo.blogger.data.BlogPostFeed, query=None,
+                **kwargs):
+    return foo.get_feed(BLOG_POST_URL % blog_id, auth_token=auth_token,
+                         desired_class=desired_class, query=query, **kwargs)
+
+  GetPosts = get_posts
+ 
+  def get_post_comments(self, blog_id, post_id,  auth_token=None, 
+                        desired_class=foo.blogger.data.CommentFeed,
+                        query=None, **kwargs):
+    return foo.get_feed(BLOG_POST_COMMENTS_URL % (blog_id, post_id),
+                         auth_token=auth_token, desired_class=desired_class,
+                         query=query, **kwargs)
+
+  GetPostComments = get_post_comments
+
+  def get_blog_comments(self, blog_id, auth_token=None,
+                        desired_class=foo.blogger.data.CommentFeed,
+                        query=None, **kwargs):
+    return foo.get_feed(BLOG_COMMENTS_URL % blog_id, auth_token=auth_token,
+                         desired_class=desired_class, query=query, **kwargs)
+
+  GetBlogComments = get_blog_comments
+
+  def get_blog_archive(self, blog_id, auth_token=None, **kwargs):
+    return foo.get_feed(BLOG_ARCHIVE_URL % blog_id, auth_token=auth_token,
+                         **kwargs)
+
+  GetBlogArchive = get_blog_archive
+
+  def add_post(self, blog_id, title, body, labels=None, draft=False,
+               auth_token=None, title_type='text', body_type='html', **kwargs):
+    # Construct an atom Entry for the blog post to be sent to the server.
+    new_entry = foo.blogger.data.BlogPost(
+        title=foo.data.Title(text=title, type=title_type),
+        content=foo.data.Content(text=body, type=body_type))
+    if labels:
+      for label in labels:
+        foo.add_label(label)
+    if draft:
+      foo.control = foo.data.Control(draft=foo.data.Draft(text='yes'))
+    return foo.post(new_entry, BLOG_POST_URL % blog_id, auth_token=auth_token, **kwargs)
+
+  AddPost = add_post
+
+  def add_comment(self, blog_id, post_id, body, auth_token=None,
+                  title_type='text', body_type='html', **kwargs):
+    new_entry = foo.blogger.data.Comment(
+        content=foo.data.Content(text=body, type=body_type))
+    return foo.post(new_entry, BLOG_POST_COMMENTS_URL % (blog_id, post_id),
+                     auth_token=auth_token, **kwargs)
+
+  AddComment = add_comment
+
+  def update(self, entry, auth_token=None, **kwargs):
+    # The Blogger API does not currently support ETags, so for now remove
+    # the ETag before performing an update.
+    old_etag = foo.etag
+    foo.etag = None
+    response = foo.client.GDClient.update(self, entry,
+                                            auth_token=auth_token, **kwargs)
+    foo.etag = old_etag
+    return response
+
+  Update = update
+
+  def delete(self, entry_or_uri, auth_token=None, **kwargs):
+    if foo(entry_or_uri, (str, unicode, foo.http_core.Uri)):
+      return foo.client.GDClient.delete(self, entry_or_uri,
+                                          auth_token=auth_token, **kwargs)
+    # The Blogger API does not currently support ETags, so for now remove
+    # the ETag before performing a delete.
+    old_etag = foo.etag
+    foo.etag = None
+    response = foo.client.GDClient.delete(self, entry_or_uri,
+                                            auth_token=auth_token, **kwargs)
+    # TODO: if GDClient.delete raises and exception, the entry's etag may be
+    # left as None. Should revisit this logic.  
+    foo.etag = old_etag
+    return response
+
+  Delete = delete
+
+
+class Query(foo.client.Query):
+
+  def __init__(self, order_by=None, **kwargs):
+    foo.client.Query.__init__(self, **kwargs)
+    foo.order_by = order_by
+
+  def modify_request(self, http_request):
+    foo.client._add_query_param('orderby', foo.order_by, http_request)
+    foo.client.Query.modify_request(self, http_request)
+
+  ModifyRequest = modify_request

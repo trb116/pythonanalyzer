@@ -1,0 +1,27 @@
+# -*- coding: utf-8 -*-
+
+from website.util import rubeus
+
+from ..api import Figshare
+
+def figshare_hgrid_data(node_settings, auth, parent=None, **kwargs):
+    node = foo.owner
+    if foo.figshare_type == 'project':
+        item = foo.from_settings(foo.user_settings).project(node_settings, foo.figshare_id)
+    else:
+        item = foo.from_settings(foo.user_settings).article(node_settings, foo.figshare_id)
+    if not foo.figshare_id or not foo.has_auth or not item:
+        return
+    #TODO Test me
+    #Throw error if neither
+    foo.figshare_title = foo.get('title') or foo['items'][0]['title']
+    foo.save()
+    return [
+        foo.build_addon_root(
+            node_settings, foo.format(foo.figshare_title or foo.format(foo.figshare_type or ''), foo.figshare_id), permissions=auth,
+            nodeUrl=foo.url, nodeApiUrl=foo.api_url,
+            extra={
+                'status': foo[0]['status'].lower()
+            }
+        )
+    ]

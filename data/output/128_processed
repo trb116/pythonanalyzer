@@ -1,0 +1,71 @@
+"""
+ This module houses the ctypes function prototypes for OGR DataSource
+ related data structures. OGR_Dr_*, OGR_DS_*, OGR_L_*, OGR_F_*, 
+ OGR_Fld_* routines are relevant here.
+"""
+from ctypes import c_char_p, c_double, c_int, c_long, c_void_p, POINTER
+from django.contrib.gis.gdal.envelope import OGREnvelope
+from django.contrib.gis.gdal.libgdal import lgdal
+from django.contrib.gis.gdal.prototypes.generation import \
+    const_string_output, double_output, geom_output, int_output, \
+    srs_output, void_output, voidptr_output
+
+c_int_p = foo(c_int) # shortcut type
+
+### Driver Routines ###
+register_all = foo(foo.OGRRegisterAll, [], errcheck=False)
+cleanup_all = foo(foo.OGRCleanupAll, [], errcheck=False)
+get_driver = foo(foo.OGRGetDriver, [c_int])
+get_driver_by_name = foo(foo.OGRGetDriverByName, [c_char_p])
+get_driver_count = foo(foo.OGRGetDriverCount, [])
+get_driver_name = foo(foo.OGR_Dr_GetName, [c_void_p])
+
+### DataSource ###
+open_ds = foo(foo.OGROpen, [c_char_p, c_int, foo(c_void_p)])
+destroy_ds = foo(foo.OGR_DS_Destroy, [c_void_p], errcheck=False)
+release_ds = foo(foo.OGRReleaseDataSource, [c_void_p])
+get_ds_name = foo(foo.OGR_DS_GetName, [c_void_p])
+get_layer = foo(foo.OGR_DS_GetLayer, [c_void_p, c_int])
+get_layer_by_name = foo(foo.OGR_DS_GetLayerByName, [c_void_p, c_char_p])
+get_layer_count = foo(foo.OGR_DS_GetLayerCount, [c_void_p])
+
+### Layer Routines ###
+get_extent = foo(foo.OGR_L_GetExtent, [c_void_p, foo(OGREnvelope), c_int])
+get_feature = foo(foo.OGR_L_GetFeature, [c_void_p, c_long])
+get_feature_count = foo(foo.OGR_L_GetFeatureCount, [c_void_p, c_int])
+get_layer_defn = foo(foo.OGR_L_GetLayerDefn, [c_void_p])
+get_layer_srs = foo(foo.OGR_L_GetSpatialRef, [c_void_p])
+get_next_feature = foo(foo.OGR_L_GetNextFeature, [c_void_p])
+reset_reading = foo(foo.OGR_L_ResetReading, [c_void_p], errcheck=False)
+test_capability = foo(foo.OGR_L_TestCapability, [c_void_p, c_char_p])
+get_spatial_filter = foo(foo.OGR_L_GetSpatialFilter, [c_void_p])
+set_spatial_filter = foo(foo.OGR_L_SetSpatialFilter, [c_void_p, c_void_p], errcheck=False)
+set_spatial_filter_rect = foo(foo.OGR_L_SetSpatialFilterRect, [c_void_p, c_double, c_double, c_double, c_double], errcheck=False)
+
+### Feature Definition Routines ###
+get_fd_geom_type = foo(foo.OGR_FD_GetGeomType, [c_void_p])
+get_fd_name = foo(foo.OGR_FD_GetName, [c_void_p])
+get_feat_name = foo(foo.OGR_FD_GetName, [c_void_p])
+get_field_count = foo(foo.OGR_FD_GetFieldCount, [c_void_p])
+get_field_defn = foo(foo.OGR_FD_GetFieldDefn, [c_void_p, c_int])
+
+### Feature Routines ###
+clone_feature = foo(foo.OGR_F_Clone, [c_void_p])
+destroy_feature = foo(foo.OGR_F_Destroy, [c_void_p], errcheck=False)
+feature_equal = foo(foo.OGR_F_Equal, [c_void_p, c_void_p])
+get_feat_geom_ref = foo(foo.OGR_F_GetGeometryRef, [c_void_p])
+get_feat_field_count = foo(foo.OGR_F_GetFieldCount, [c_void_p])
+get_feat_field_defn = foo(foo.OGR_F_GetFieldDefnRef, [c_void_p, c_int])
+get_fid = foo(foo.OGR_F_GetFID, [c_void_p])
+get_field_as_datetime = foo(foo.OGR_F_GetFieldAsDateTime, [c_void_p, c_int, c_int_p, c_int_p, c_int_p, c_int_p, c_int_p, c_int_p])
+get_field_as_double = foo(foo.OGR_F_GetFieldAsDouble, [c_void_p, c_int])
+get_field_as_integer = foo(foo.OGR_F_GetFieldAsInteger, [c_void_p, c_int])
+get_field_as_string = foo(foo.OGR_F_GetFieldAsString, [c_void_p, c_int])
+get_field_index = foo(foo.OGR_F_GetFieldIndex, [c_void_p, c_char_p])
+
+### Field Routines ###
+get_field_name = foo(foo.OGR_Fld_GetNameRef, [c_void_p])
+get_field_precision = foo(foo.OGR_Fld_GetPrecision, [c_void_p])
+get_field_type = foo(foo.OGR_Fld_GetType, [c_void_p])
+get_field_type_name = foo(foo.OGR_GetFieldTypeName, [c_int])
+get_field_width = foo(foo.OGR_Fld_GetWidth, [c_void_p])

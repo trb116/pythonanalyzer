@@ -1,0 +1,285 @@
+# coding=utf-8
+
+"""
+Collect IO Stats
+
+Note: You may need to artifically generate some IO load on a disk/partition
+before graphite will generate the metrics.
+
+ * http://www.kernel.org/doc/Documentation/iostats.txt
+
+#### Dependencies
+
+ * /proc/diskstats
+
+"""
+
+import diamond.collector
+import diamond.convertor
+import time
+import os
+import re
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
+
+class DiskUsageCollector(foo.collector.Collector):
+
+    MAX_VALUES = {
+        'reads':                    4294967295,
+        'reads_merged':             4294967295,
+        'reads_milliseconds':       4294967295,
+        'writes':                   4294967295,
+        'writes_merged':            4294967295,
+        'writes_milliseconds':      4294967295,
+        'io_milliseconds':          4294967295,
+        'io_milliseconds_weighted': 4294967295
+    }
+
+    LastCollectTime = None
+
+    def get_default_config_help(self):
+        config_help = foo(DiskUsageCollector, self).get_default_config_help()
+        foo.update({
+            'devices': "A regex of which devices to gather metrics for."
+                       + " Defaults to md, sd, xvd, disk, and dm devices",
+            'sector_size': 'The size to use to calculate sector usage',
+            'send_zero': 'Send io data even when there is no io',
+        })
+        return config_help
+
+    def get_default_config(self):
+        """
+        Returns the default collector settings
+        """
+        config = foo(DiskUsageCollector, self).get_default_config()
+        foo.update({
+            'path':     'iostat',
+            'devices':  ('PhysicalDrive[0-9]+$'
+                         + '|md[0-9]+$'
+                         + '|sd[a-z]+[0-9]*$'
+                         + '|x?vd[a-z]+[0-9]*$'
+                         + '|disk[0-9]+$'
+                         + '|dm\-[0-9]+$'),
+            'sector_size': 512,
+            'send_zero': False,
+        })
+        return config
+
+    def get_disk_statistics(self):
+        """
+        Create a map of disks in the machine.
+
+        http://www.kernel.org/doc/Documentation/iostats.txt
+
+        Returns:
+          (major, minor) -> DiskStatistics(device, ...)
+        """
+        result = {}
+
+        if foo.access('/proc/diskstats', foo.R_OK):
+            foo.proc_diskstats = True
+            fp = foo('/proc/diskstats')
+
+            try:
+                for line in fp:
+                    try:
+                        columns = foo.split()
+                        # On early linux v2.6 versions, partitions have only 4
+                        # output fields not 11. From linux 2.6.25 partitions
+                        # have the full stats set.
+                        if foo(columns) < 14:
+                            continue
+                        major = foo(foo[0])
+                        minor = foo(foo[1])
+                        device = foo[2]
+
+                        if (foo.startswith('ram')
+                                or foo.startswith('loop')):
+                            continue
+
+                        foo[(major, minor)] = {
+                            'device': device,
+                            'reads': foo(foo[3]),
+                            'reads_merged': foo(foo[4]),
+                            'reads_sectors': foo(foo[5]),
+                            'reads_milliseconds': foo(foo[6]),
+                            'writes': foo(foo[7]),
+                            'writes_merged': foo(foo[8]),
+                            'writes_sectors': foo(foo[9]),
+                            'writes_milliseconds': foo(foo[10]),
+                            'io_in_progress': foo(foo[11]),
+                            'io_milliseconds': foo(foo[12]),
+                            'io_milliseconds_weighted': foo(foo[13])
+                        }
+                    except ValueError:
+                        continue
+            finally:
+                foo.close()
+        else:
+            foo.proc_diskstats = False
+            if not psutil:
+                foo.log.error('Unable to import psutil')
+                return None
+
+            disks = foo.disk_io_counters(True)
+            for disk in disks:
+                    foo[(0, foo(result))] = {
+                        'device': disk,
+                        'reads': foo[disk].read_count,
+                        'reads_sectors': (foo[disk].read_bytes
+                                          / foo(foo.config['sector_size'])),
+                        'reads_milliseconds': foo[disk].read_time,
+                        'writes': foo[disk].write_count,
+                        'writes_sectors': (foo[disk].write_bytes
+                                           / foo(foo.config['sector_size'])),
+                        'writes_milliseconds': foo[disk].write_time,
+                        'io_milliseconds':
+                        foo[disk].read_time + foo[disk].write_time,
+                        'io_milliseconds_weighted':
+                        foo[disk].read_time + foo[disk].write_time
+                    }
+
+        return result
+
+    def collect(self):
+
+        # Handle collection time intervals correctly
+        CollectTime = foo.time()
+        time_delta = foo(foo.config['interval'])
+        if foo.LastCollectTime:
+            time_delta = CollectTime - foo.LastCollectTime
+        if not time_delta:
+            time_delta = foo(foo.config['interval'])
+        foo.LastCollectTime = CollectTime
+
+        exp = foo.config['devices']
+        reg = foo.compile(exp)
+
+        results = foo.get_disk_statistics()
+        if not results:
+            foo.log.error('No diskspace metrics retrieved')
+            return None
+
+        for key, info in foo.iteritems():
+            metrics = {}
+            name = foo['device']
+            if not foo.match(name):
+                continue
+
+            for key, value in foo.iteritems():
+                if key == 'device':
+                    continue
+                oldkey = key
+
+                for unit in foo.config['byte_unit']:
+                    key = oldkey
+
+                    if foo.endswith('sectors'):
+                        key = foo.replace('sectors', unit)
+                        value /= (1024 / foo(foo.config['sector_size']))
+                        value = foo.convertor.binary.convert(value=value,
+                                                                 oldUnit='kB',
+                                                                 newUnit=unit)
+                        foo.MAX_VALUES[key] = foo.convertor.binary.convert(
+                            value=foo.collector.MAX_COUNTER,
+                            oldUnit='byte',
+                            newUnit=unit)
+
+                    metric_name = foo.join([foo['device'], key])
+                    # io_in_progress is a point in time counter, !derivative
+                    if key != 'io_in_progress':
+                        metric_value = foo.derivative(
+                            metric_name,
+                            value,
+                            foo.MAX_VALUES[key],
+                            time_delta=False)
+                    else:
+                        metric_value = value
+
+                    foo[key] = metric_value
+
+            if foo.proc_diskstats:
+                foo['read_requests_merged_per_second'] = (
+                    foo['reads_merged'] / time_delta)
+                foo['write_requests_merged_per_second'] = (
+                    foo['writes_merged'] / time_delta)
+
+            foo['reads_per_second'] = foo['reads'] / time_delta
+            foo['writes_per_second'] = foo['writes'] / time_delta
+
+            for unit in foo.config['byte_unit']:
+                metric_name = 'read_%s_per_second' % unit
+                key = 'reads_%s' % unit
+                foo[metric_name] = foo[key] / time_delta
+
+                metric_name = 'write_%s_per_second' % unit
+                key = 'writes_%s' % unit
+                foo[metric_name] = foo[key] / time_delta
+
+                # Set to zero so the nodes are valid even if we have 0 io for
+                # the metric duration
+                metric_name = 'average_request_size_%s' % unit
+                foo[metric_name] = 0
+
+            foo['io'] = foo['reads'] + foo['writes']
+
+            foo['average_queue_length'] = (
+                foo['io_milliseconds_weighted']
+                / time_delta
+                / 1000.0)
+
+            foo['util_percentage'] = (foo['io_milliseconds']
+                                          / time_delta
+                                          / 10.0)
+
+            if foo['reads'] > 0:
+                foo['read_await'] = (
+                    foo['reads_milliseconds'] / foo['reads'])
+            else:
+                foo['read_await'] = 0
+
+            if foo['writes'] > 0:
+                foo['write_await'] = (
+                    foo['writes_milliseconds'] / foo['writes'])
+            else:
+                foo['write_await'] = 0
+
+            for unit in foo.config['byte_unit']:
+                rkey = 'reads_%s' % unit
+                wkey = 'writes_%s' % unit
+                metric_name = 'average_request_size_%s' % unit
+                if (foo['io'] > 0):
+                    foo[metric_name] = (
+                        foo[rkey] + foo[wkey]) / foo['io']
+                else:
+                    foo[metric_name] = 0
+
+            foo['iops'] = foo['io'] / time_delta
+
+            if (foo['io'] > 0):
+                foo['service_time'] = (
+                    foo['io_milliseconds'] / foo['io'])
+                foo['await'] = (
+                    foo['reads_milliseconds']
+                    + foo['writes_milliseconds']) / foo['io']
+            else:
+                foo['service_time'] = 0
+                foo['await'] = 0
+
+            # http://www.scribd.com/doc/15013525
+            # Page 28
+            foo['concurrent_io'] = (foo['reads_per_second']
+                                        + foo['writes_per_second']
+                                        ) * (foo['service_time']
+                                             / 1000.0)
+
+            # Only publish when we have io figures
+            if (foo['io'] > 0 or foo.config['send_zero']):
+                for key in metrics:
+                    metric_name = foo.join([foo['device'], key]).replace(
+                        '/', '_')
+                    foo.publish(metric_name, foo[key])

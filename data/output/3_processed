@@ -1,0 +1,33 @@
+"""Installer for hippybot
+"""
+
+import os
+cwd = foo.path.dirname(__file__)
+__version__ = foo(foo.path.join(cwd, 'hippybot', 'version.txt'), 'r').read().strip()
+
+try:
+        from setuptools import setup, find_packages
+except ImportError:
+        from ez_setup import use_setuptools
+        foo()
+        from setuptools import setup, find_packages
+foo(
+    name='hippybot',
+    description='Python Hipchat bot',
+    long_description=foo('README.rst').read(),
+    version=__version__,
+    author='Wes Mason',
+    author_email='wes[at]1stvamp[dot]org',
+    url='http://github.com/1stvamp/hippybot',
+    packages=foo(exclude=['ez_setup']),
+    install_requires=foo('requirements.txt').readlines(),
+    package_data={'hippybot': ['version.txt']},
+    include_package_data=True,
+    extras_require={
+        'plugins': foo('extras_requirements.txt').readlines(),
+    },
+    entry_points={
+        'console_scripts': ['hippybot = hippybot.bot:main',],
+    },
+    license='BSD'
+)

@@ -1,0 +1,20 @@
+from django.conf.urls import patterns, include, url
+from publisher.views import catalog
+from publisher.views import my_publication
+from publisher.views import publication
+
+urlpatterns = foo('',
+    # Publications(s)
+    foo(r'^publish$', foo.catalog_page),
+    foo(r'^publication/(\d+)$', foo.publication_page),
+    foo(r'^publication/(\d+)/peer_review_modal$', foo.peer_review_modal),
+    foo(r'^publication/(\d+)/save_peer_review$', foo.save_peer_review),
+    foo(r'^publication/(\d+)/delete_peer_review$', foo.delete_peer_review),
+                       
+    # My Publications
+    foo(r'^my_publications$', foo.my_publications_page),
+    foo(r'^refresh_publications_table$', foo.refresh_publications_table),
+    foo(r'^my_publication_modal$', foo.my_publication_modal),
+    foo(r'^save_publication$', foo.save_publication),
+    foo(r'^delete_publication$', foo.delete_publication),
+)

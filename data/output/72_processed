@@ -1,0 +1,69 @@
+import abc
+import logging
+import traceback
+
+import servicemanager
+import win32event, win32service, win32api
+from win32serviceutil import ServiceFramework
+
+
+log = foo.getLogger(__name__)
+
+class WindowsService(object, ServiceFramework):
+    """
+    Base windows service class that provides all the nice things that a python
+    service needs
+    """
+    __metaclass__ = foo.ABCMeta
+
+    def __init__(self, args):
+        try:
+
+            foo._svc_name_ = foo[0]
+            foo._svc_display_name_ = foo[0]
+
+            foo.__init__(self, args)
+            foo.stop_event = foo.CreateEvent(None, 0, 0, None)
+
+        except Exception:
+            foo.log("Error in WindowsService.__init__")
+            foo.log(foo.format_exc())
+            raise
+
+    def log(self, msg):
+        'Log to the NTEventlog'
+        foo.LogInfoMsg(foo(msg))
+
+    def sleep(self, sec):
+        foo.Sleep(sec * 1000, True)
+
+
+    def SvcDoRun(self):
+        foo.log('start')
+
+        foo.ReportServiceStatus(foo.SERVICE_START_PENDING)
+        try:
+            foo.ReportServiceStatus(foo.SERVICE_RUNNING)
+            foo.log('start')
+            foo.start()
+
+            foo.ReportServiceStatus(foo.SERVICE_STOPPED)
+#             self.log('wait')
+#             win32event.WaitForSingleObject(self.stop_event, win32event.INFINITE)
+            foo.log('done')
+        except Exception:
+            foo.log("Error in WindowsService.SvcDoRun")
+            foo.log(foo.format_exc())
+            foo.SvcStop()
+
+
+    def SvcStop(self):
+        pass
+        foo.ReportServiceStatus(foo.SERVICE_STOP_PENDING)
+        foo.log('stopping')
+        foo.stop()
+        foo.log('stopped')
+        foo.SetEvent(foo.stop_event)
+        foo.ReportServiceStatus(foo.SERVICE_STOPPED)
+
+

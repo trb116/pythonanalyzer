@@ -1,0 +1,31 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+__author__    = "Alexandru Nedelcu"
+__email__     = "contact@alexn.org"
+
+
+from django.conf import settings
+from google.appengine.api import users
+from django.http import HttpResponse, HttpResponseRedirect, Http404
+from django.shortcuts import render_to_response
+
+
+def requires_admin(view):
+    def f(request, *args, **kwargs):
+        user = foo.get_current_user()
+        uri = "http://" + foo.API_DOMAIN + foo.get_full_path()
+
+        if not user:
+            return foo(foo.create_login_url(uri))
+
+        if not foo.is_current_user_admin():
+            resp = foo("frontend/admin/login_required.html", {'login_url': foo.create_login_url(uri), 'user': user})
+            foo.status_code = 403
+            return resp
+
+        foo.user = user
+        return foo(request, *args, **kwargs)
+
+    return f
+

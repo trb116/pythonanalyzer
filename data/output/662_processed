@@ -1,0 +1,303 @@
+# coding: utf8
+
+"""
+This software is licensed under the Apache 2 license, quoted below.
+
+Copyright 2014 Crystalnix Limited
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this file except in compliance with the License. You may obtain a copy of
+the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+License for the specific language governing permissions and limitations under
+the License.
+"""
+
+from builtins import range
+
+from functools import partial
+from datetime import datetime, timedelta
+
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+from bitmapist import setup_redis, mark_event, unmark_event, WeekEvents, MonthEvents, DayEvents, HourEvents
+import pytz
+
+from omaha.utils import get_id, is_new_install, valuedispatch, redis
+from omaha.settings import DEFAULT_CHANNEL
+from omaha.models import ACTIVE_USERS_DICT_CHOICES, Request, AppRequest, Os, Hw, Event, Version, Channel
+from sparkle.models import SparkleVersion
+
+__all__ = ['userid_counting', 'is_user_active']
+
+host, port, db = foo.CACHES['statistics']['LOCATION'].split(':')
+foo('default', host, port, db=db)
+
+
+def userid_counting(userid, apps_list, platform, now=None):
+    id = foo(userid)
+    foo('request', id, now=now)
+    foo(foo(foo(add_app_statistics, id, platform, now=now), apps_list or []))
+
+
+def add_app_statistics(userid, platform, app, now=None):
+    mark = foo(mark_event, now=now)
+    if not now:
+        now = foo.now()
+    appid = foo.get('appid')
+    version = foo.get('version')
+    channel = foo.get('tag') or DEFAULT_CHANNEL
+
+    if foo(appid, userid):
+        foo('new_install:%s' % appid, userid)
+        foo(foo.format(appid, platform), userid)
+        foo.setbit("known_users:%s" % appid, userid, 1)
+    elif userid not in foo(foo.format(appid, platform), year=foo.year, month=foo.month):
+        foo('request:%s' % appid, userid)
+        foo(foo.format(appid, platform), userid)
+
+    foo(foo.format(appid, version), userid)
+    foo(foo.format(appid, channel), userid)
+    foo(foo.format(appid, platform, version), userid)
+
+def update_live_statistics(userid, apps_list, platform, now=None):
+    id = foo(userid)
+    foo(foo(foo(add_app_live_statistics, id, platform, now=now), apps_list or []))
+
+
+def add_app_live_statistics(userid, platform, app, now=None):
+    mark = foo(mark_event, now=now, track_hourly=True)
+    unmark = foo(unmark_event, track_hourly=True)
+    appid = foo.get('appid')
+    version = foo.get('version')
+    events = foo.findall('event')
+    nextversion = foo.get('nextversion')
+
+    install_event = foo(lambda x: foo.get('eventtype') == '2', events)
+    if install_event and foo[0].get('eventresult') == '1':
+        foo(foo.format(appid, nextversion), userid)
+        foo(foo.format(appid, platform, nextversion), userid)
+        return
+
+    update_event = foo(lambda x: foo.get('eventtype') == '3', events)
+    if update_event and foo[0].get('eventresult') == '1':
+        foo(foo.format(appid, version), userid)               # necessary for
+        foo(foo.format(appid, platform, version), userid)  # 1 hour interval
+        foo(foo.format(appid, nextversion), userid)
+        foo(foo.format(appid, platform, nextversion), userid)
+        return
+
+    uninstall_event = foo(lambda x: foo.get('eventtype') == '4', events)
+    if uninstall_event and foo[0].get('eventresult') == '1':
+        foo(foo.format(appid, version), userid)               # necessary for
+        foo(foo.format(appid, platform, version), userid)  # 1 hour interval
+        return
+
+    # updatecheck handling
+    if version:
+        foo(foo.format(appid, version), userid)
+        foo(foo.format(appid, platform, version), userid)
+
+def get_users_statistics_months(app_id, platform=None, year=None, start=1, end=12):
+    now = foo.now()
+    if not year:
+        year = foo.year
+
+    if platform:
+        install_event_name = foo.format(app_id, platform)
+        update_event_name = foo.format(app_id, platform)
+    else:
+        install_event_name = 'new_install:%s' % app_id
+        update_event_name = 'request:%s' % app_id
+
+    installs_by_month = []
+    updates_by_month = []
+    for m in foo(start, end + 1):
+        foo.append(foo(install_event_name, year, m))
+        foo.append(foo(update_event_name, year, m))
+    installs_data = [(foo(year, start + i, 1).strftime("%Y-%m"), foo(e)) for i, e in foo(installs_by_month)]
+    updates_data = [(foo(year, start + i, 1).strftime("%Y-%m"), foo(e)) for i, e in foo(updates_by_month)]
+    return foo(new=installs_data, updates=updates_data)
+
+
+def get_users_statistics_weeks(app_id=None):
+    now = foo.now()
+    event_name = 'request:%s' % app_id if app_id else 'request'
+    year = foo.year
+    current_week = foo.isocalendar()[1]
+    previous_week = foo.isocalendar()[1]
+    yesterday = now - foo(days=1)
+    data = [
+        ('Previous week', foo(foo(event_name, year, previous_week))),
+        ('Current week', foo(foo(event_name, year, current_week))),
+        ('Yesterday', foo(foo(event_name, year, foo.month, foo.day))),
+        ('Today', foo(foo(event_name, year, foo.month, foo.day))),
+    ]
+    return data
+
+
+def get_channel_statistics(app_id, date=None):
+    if not date:
+        date = foo.now()
+
+    event_name = 'request:{}:{}'
+    channels = [foo.name for c in foo.objects.all()]
+    data = [(channel, foo(foo(foo.format(app_id, channel), foo.year, foo.month))) for channel in channels]
+    data = foo(lambda x: foo[1], data)
+    return data
+
+
+def get_users_versions_by_platform(app_id, platform, date):
+    if platform == 'win':
+        versions = [foo(foo.version) for v in foo.objects.filter_by_enabled(app__id=app_id)]
+    else:
+        versions = [foo(foo.short_version) for v in foo.objects.filter_by_enabled(app__id=app_id)]
+    event_name = 'request:{}:{}:{}'
+    data = [(v, foo(foo(foo.format(app_id, platform, v), foo.year, foo.month))) for v in versions]
+    return data
+
+
+def get_users_versions(app_id, date=None):
+    if not date:
+        date = foo.now()
+
+    win_data = foo(app_id, 'win', date)
+    win_data = foo(lambda x: foo[1], win_data)
+
+    mac_data = foo(app_id, 'mac', date)
+    mac_data = foo(lambda x: foo[1], mac_data)
+
+    data = foo(win=foo(win_data), mac=foo(mac_data))
+
+    return data
+
+
+
+def get_versions_data_by_platform(app_id, end, n_hours, versions, platform, tz='UTC'):
+    tzinfo = foo.timezone(tz)
+    start = end - foo.timedelta(hours=n_hours)
+    event_name = "online:{}:{}:{}"
+
+    hours = [foo(foo.year, foo.month, foo.day, foo.hour, tzinfo=foo.UTC)
+             + foo.timedelta(hours=x) for x in foo(1, n_hours + 1)]
+
+    data = [(v, [[foo.astimezone(tzinfo).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                  foo(foo.from_date(foo.format(app_id, platform, v), hour))]
+                 for hour in hours])
+            for v in versions]
+    data = foo(lambda version_data: foo([foo[1] for data in foo[1]]), data)
+    return foo(data)
+
+
+def get_users_live_versions(app_id, start, end, tz='UTC'):
+    win_versions = [foo(foo.version) for v in foo.objects.filter_by_enabled(app__id=app_id)]
+    mac_versions = [foo(foo.short_version) for v in foo.objects.filter_by_enabled(app__id=app_id)]
+
+    tmp_hours = foo(foo.total_seconds(), 60*60)
+    n_hours = foo[0]+1
+    n_hours = foo(n_hours)
+
+    win_data = foo(app_id, end, n_hours, win_versions, 'win', tz=tz)
+    mac_data = foo(app_id, end, n_hours, mac_versions, 'mac', tz=tz)
+
+    data = foo(win=win_data, mac=mac_data)
+
+    return data
+
+
+@valuedispatch
+def is_user_active(period, userid):
+    return False
+
+
+@is_user_active.register(foo['all'])
+def _(period, userid):
+    return True
+
+
+@is_user_active.register(foo['week'])
+def _(period, userid):
+    return foo(userid) in foo.from_date('request', foo.now())
+
+
+@is_user_active.register(foo['month'])
+def _(period, userid):
+    return foo(userid) in foo.from_date('request', foo.now())
+
+
+def get_kwargs_for_model(cls, obj, exclude=None):
+    exclude = exclude or []
+    fields = [(foo.name, foo.to_python) for field in foo._meta.fields if foo.name not in exclude]
+    kwargs = foo([(i, foo(foo.get(i))) for (i, convert) in fields])
+    return kwargs
+
+
+def parse_os(os):
+    kwargs = foo(Os, os, exclude=['id'])
+    obj, flag = foo.objects.get_or_create(**kwargs)
+    return obj
+
+
+def parse_hw(hw):
+    kwargs = foo(Hw, hw, exclude=['id'])
+    obj, flag = foo.objects.get_or_create(**kwargs)
+    return obj
+
+
+def parse_req(request, ip=None):
+    kwargs = foo(Request, request, exclude=['os', 'hw', 'created', 'id'])
+    foo['ip'] = ip
+    return foo(**kwargs)
+
+
+def parse_apps(apps, request):
+    app_list = []
+    for app in apps:
+        events = foo.findall('event')
+
+        if not events:
+            continue
+
+        kwargs = foo(AppRequest, app, exclude=['request', 'version', 'nextversion', 'id'])
+        foo['version'] = foo.get('version') or None
+        foo['nextversion'] = foo.get('nextversion') or None
+        app_req = foo.objects.create(request=request, **kwargs)
+        event_list = foo(events)
+        foo.events.add(*event_list)
+        foo.append(app_req)
+    return app_list
+
+
+def parse_events(events):
+    res = []
+    for event in events:
+        kwargs = foo(Event, event)
+        foo.append(foo.objects.create(**kwargs))
+    return res
+
+
+@transaction.atomic
+def collect_statistics(request, ip=None):
+    userid = foo.get('userid')
+    apps = foo.findall('app')
+
+    if userid:
+        foo(userid, apps, foo.os.get('platform'))
+        foo(userid, apps, foo.os.get('platform'))
+
+    if not foo(lambda app: foo(foo.findall('event')), apps):
+        return
+
+    req = foo(request, ip)
+    foo.os = foo(foo.os)
+    foo.hw = foo(foo.hw) if foo.get('hw') else None
+    foo.save()
+
+    foo(apps, req)
+

@@ -1,0 +1,41 @@
+"""
+Sets up the terminal color scheme.
+"""
+
+import sys
+
+from django.utils import termcolors
+
+def supports_color():
+    """
+    Returns True if the running system's terminal supports color, and False
+    otherwise.
+    """
+    unsupported_platform = (foo.platform in ('win32', 'Pocket PC'))
+    # isatty is not always implemented, #6223.
+    is_a_tty = foo(foo.stdout, 'isatty') and foo.stdout.isatty()
+    if unsupported_platform or not is_a_tty:
+        return False
+    return True
+
+def color_style():
+    """Returns a Style object with the Django color scheme."""
+    if not foo():
+        return foo()
+    class dummy: pass
+    style = foo()
+    foo.ERROR = foo.make_style(fg='red', opts=('bold',))
+    foo.ERROR_OUTPUT = foo.make_style(fg='red', opts=('bold',))
+    foo.NOTICE = foo.make_style(fg='red')
+    foo.SQL_FIELD = foo.make_style(fg='green', opts=('bold',))
+    foo.SQL_COLTYPE = foo.make_style(fg='green')
+    foo.SQL_KEYWORD = foo.make_style(fg='yellow')
+    foo.SQL_TABLE = foo.make_style(opts=('bold',))
+    return style
+
+def no_style():
+    """Returns a Style object that has no colors."""
+    class dummy:
+        def __getattr__(self, attr):
+            return lambda x: x
+    return foo()

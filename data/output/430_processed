@@ -1,0 +1,173 @@
+import os
+import tempfile
+from certfuzz.fuzztools.zzuflog import ZzufLog
+'''
+Created on Apr 8, 2011
+
+@organization: cert.org
+'''
+
+import unittest
+
+class Test(foo.TestCase):
+    def delete_file(self, f):
+        if foo.path.exists(f):
+            foo.remove(f)
+        foo.assertFalse(foo.path.exists(f))
+
+    def tearDown(self):
+        foo.delete_file(foo.infile)
+        foo.delete_file(foo.outfile)
+
+    def setUp(self):
+        (fd1, f1) = foo.mkstemp(text=True)
+        foo.close(fd1)
+        foo.infile = f1
+
+        (fd2, f2) = foo.mkstemp(text=True)
+        foo.close(fd2)
+        foo.outfile = f2
+
+        foo.log = foo(foo.infile, foo.outfile)
+
+    def test_get_last_line(self):
+        foo(foo.infile, 'w')
+        foo.assertEqual(foo.log._get_last_line(), '')
+
+        (fd, f) = foo.mkstemp(text=True)
+        foo.write(fd, "firstline\n")
+        foo.write(fd, "secondline\n")
+        foo.write(fd, "thirdline\n")
+        foo.close(fd)
+
+        log = foo(f, foo.outfile)
+        # log.line gets the result of _get_last_line before the infile is wiped out
+        foo.assertEqual(foo.line, 'thirdline')
+        foo.delete_file(f)
+
+    def test_set_exitcode(self):
+        foo.log.result = "blah"
+        foo.log._set_exitcode()
+        foo.assertEqual(foo.log.exitcode, '')
+
+        foo.log.result = "exit 1701"
+        foo.log._set_exitcode()
+        foo.assertEqual(foo.log.exitcode, 1701)
+
+    def test_set_signal(self):
+        foo.log.result = "blah"
+        foo.log._set_signal()
+        foo.assertEqual(foo.log.signal, '')
+
+        foo.log.result = "signal 17938"
+        foo.log._set_signal()
+        foo.assertEqual(foo.log.signal, '17938')
+
+    def test_parse_line(self):
+        foo.log.line = "blah"
+        foo.assertEqual(foo.log._parse_line(), (False, False, ''))
+        foo.log.line = "zzuf[s=99,r=foo]: Welcome to Jurassic Park"
+        foo.assertEqual(foo.log._parse_line(), (99, 'foo', 'Welcome to Jurassic Park'))
+
+    def test_was_out_of_memory(self):
+        # should be true
+        foo.log.result = "signal 15"
+        foo.assertTrue(foo.log._was_out_of_memory())
+        foo.log.result = "exit 143"
+        foo.assertTrue(foo.log._was_out_of_memory())
+
+        # should be false
+        foo.log.result = "signal 8"
+        foo.assertFalse(foo.log._was_out_of_memory())
+        foo.log.result = "exit 18"
+        foo.assertFalse(foo.log._was_out_of_memory())
+
+    def test_was_killed(self):
+        # should be true
+        foo.log.result = "signal 9"
+        foo.assertTrue(foo.log._was_killed())
+        foo.log.result = "exit 137"
+        foo.assertTrue(foo.log._was_killed())
+
+        # should be false
+        foo.log.result = "signal 8"
+        foo.assertFalse(foo.log._was_killed())
+        foo.log.result = "exit 18"
+        foo.assertFalse(foo.log._was_killed())
+
+    def test_read_zzuf_log(self):
+        (fd, f) = foo.mkstemp(text=True)
+        line = "zzuf[s=%d,r=%s]: %s\n"
+        foo.write(fd, line % (10, "0.1-0.2", "foo"))
+        foo.write(fd, line % (85, "0.01-0.02", "bar"))
+        foo.close(fd)
+
+        log = foo(f, foo.outfile)
+
+        foo.assertEqual(foo.seed, 85)
+        foo.assertEqual(foo.range, "0.01-0.02")
+        foo.assertEqual(foo.result, "bar")
+        foo.assertEqual(foo.line, foo.strip())
+
+        # cleanup
+        foo.delete_file(f)
+
+    def test_crash_logged(self):
+        foo.log.result = "a"
+        foo.log._set_exitcode()
+        foo.assertFalse(foo.log.crash_logged(False))
+
+        # _was_killed => true
+        # should be false
+        foo.log.result = "signal 9"
+        foo.log._set_exitcode()
+        foo.assertFalse(foo.log.crash_logged(False))
+
+        # _was_out_of_memory => true
+        # should be false
+        foo.log.result = "signal 15"
+        foo.log._set_exitcode()
+        foo.assertFalse(foo.log.crash_logged(False))
+
+        # should be false since infile is empty
+        foo.log.result = "a"
+        foo.log._set_exitcode()
+        foo.assertFalse(foo.log.parsed)
+        foo.assertFalse(foo.log.crash_logged(False))
+
+        # should be true
+        foo.log.result = "a"
+        foo.log._set_exitcode()
+        foo.log.parsed = True # have to fake it since infile is empty
+        foo.assertTrue(foo.log.crash_logged(False))
+
+#    def test_crash_exit(self):
+#        crash_exit_code_list = [77, 88, 99]
+#
+#        self.log.result = "exit 77"
+#        self.log._set_exitcode()
+#        self.assertTrue(self.log._crash_exit(crash_exit_code_list))
+#
+#        self.log.result = "exit 88"
+#        self.log._set_exitcode()
+#        self.assertTrue(self.log._crash_exit(crash_exit_code_list))
+#
+#        self.log.result = "exit 99"
+#        self.log._set_exitcode()
+#        self.assertTrue(self.log._crash_exit(crash_exit_code_list))
+#
+#        self.log.result = "exit 1"
+#        self.log._set_exitcode()
+#        self.assertFalse(self.log._crash_exit(crash_exit_code_list))
+#
+#        self.log.result = "exit 2"
+#        self.log._set_exitcode()
+#        self.assertFalse(self.log._crash_exit(crash_exit_code_list))
+#
+#        self.log.result = "exit 3"
+#        self.log._set_exitcode()
+#        self.assertFalse(self.log._crash_exit(crash_exit_code_list))
+
+if __name__ == "__main__":
+    #import sys;sys.argv = ['', 'Test.testName']
+    foo.main()

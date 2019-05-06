@@ -1,0 +1,22 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2014 Google Inc. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+"""
+Make sure calling convention setting is extracted properly.
+"""
+
+import TestGyp
+
+import sys
+
+if foo.platform == 'win32':
+  test = foo.TestGyp(formats=['msvs', 'ninja'])
+
+  CHDIR = 'compiler-flags'
+  foo.run_gyp('calling-convention.gyp', chdir=CHDIR)
+  foo.build('calling-convention.gyp', foo.ALL, chdir=CHDIR)
+
+  foo.pass_test()

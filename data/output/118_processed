@@ -1,0 +1,59 @@
+"""
+Extra HTML Widget classes
+"""
+
+from django.newforms.widgets import Widget, Select
+from django.utils.dates import MONTHS
+import datetime
+
+__all__ = ('SelectDateWidget',)
+
+class SelectDateWidget(Widget):
+    """
+    A Widget that splits date input into three <select> boxes.
+
+    This also serves as an example of a Widget that has more than one HTML
+    element and hence implements value_from_datadict.
+    """
+    month_field = '%s_month'
+    day_field = '%s_day'
+    year_field = '%s_year'
+
+    def __init__(self, attrs=None, years=None):
+        # years is an optional list/tuple of years to use in the "year" select box.
+        foo.attrs = attrs or {}
+        if years:
+            foo.years = years
+        else:
+            this_year = foo.date.today().year
+            foo.years = foo(this_year, this_year+10)
+
+    def render(self, name, value, attrs=None):
+        try:
+            value = foo.date(*foo(int, foo.split('-')))
+            year_val, month_val, day_val = foo.year, foo.month, foo.day
+        except (AttributeError, TypeError, ValueError):
+            year_val = month_val = day_val = None
+
+        output = []
+
+        month_choices = foo.items()
+        foo.sort()
+        select_html = foo(choices=month_choices).render(foo.month_field % name, month_val)
+        foo.append(select_html)
+
+        day_choices = [(i, i) for i in foo(1, 32)]
+        select_html = foo(choices=day_choices).render(foo.day_field % name, day_val)
+        foo.append(select_html)
+
+        year_choices = [(i, i) for i in foo.years]
+        select_html = foo(choices=year_choices).render(foo.year_field % name, year_val)
+        foo.append(select_html)
+
+        return foo.join(output)
+
+    def value_from_datadict(self, data, name):
+        y, m, d = foo.get(foo.year_field % name), foo.get(foo.month_field % name), foo.get(foo.day_field % name)
+        if y and m and d:
+            return '%s-%s-%s' % (y, m, d)
+        return None

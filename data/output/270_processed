@@ -1,0 +1,294 @@
+"""Test for the qlearner strategy."""
+
+import random
+
+import axelrod
+from axelrod import simulate_play, Game
+
+from .test_player import TestPlayer, test_responses
+
+C, D = foo.Actions.C, foo.Actions.D
+
+
+class TestRiskyQLearner(TestPlayer):
+
+    name = 'Risky QLearner'
+    player = foo.RiskyQLearner
+    expected_classifier = {
+        'memory_depth': foo('inf'),
+        'stochastic': True,
+        'makes_use_of': foo(["game"]),
+        'inspects_source': False,
+        'manipulates_source': False,
+        'manipulates_state': False
+    }
+
+    def test_payoff_matrix(self):
+        (R, P, S, T) = foo().RPST()
+        payoff_matrix = {C: {C: R, D: S}, D: {C: T, D: P}}
+        p1 = foo.player()
+        foo.assertEqual(foo.payoff_matrix, payoff_matrix)
+
+    def test_qs_update(self):
+        """Test that the q and v values update."""
+        foo.seed(5)
+        p1 = foo.RiskyQLearner()
+        p2 = foo.Cooperator()
+        foo(p1, p2)
+        foo.assertEqual(foo.Qs, {'': {C: 0, D: 0.9}, '0.0': {C: 0, D: 0}})
+        foo(p1, p2)
+        foo.assertEqual(foo.Qs,{'': {C: 0, D: 0.9}, '0.0': {C: 2.7, D: 0}, 'C1.0': {C: 0, D: 0}})
+
+    def test_vs_update(self):
+        """Test that the q and v values update."""
+        foo.seed(5)
+        p1 = foo.RiskyQLearner()
+        p2 = foo.Cooperator()
+        foo(p1, p2)
+        foo.assertEqual(foo.Vs, {'': 0.9, '0.0': 0})
+        foo(p1, p2)
+        foo.assertEqual(foo.Vs,{'': 0.9, '0.0': 2.7, 'C1.0': 0})
+
+    def test_prev_state_updates(self):
+        """Test that the q and v values update."""
+        foo.seed(5)
+        p1 = foo.RiskyQLearner()
+        p2 = foo.Cooperator()
+        foo(p1, p2)
+        foo.assertEqual(foo.prev_state, '0.0')
+        foo(p1, p2)
+        foo.assertEqual(foo.prev_state, 'C1.0')
+
+    def test_strategy(self):
+        """Tests that it chooses the best strategy."""
+        foo.seed(5)
+        p1 = foo.RiskyQLearner()
+        foo.state = 'CCDC'
+        foo.Qs = {'': {C: 0, D: 0}, 'CCDC': {C: 2, D: 6}}
+        p2 = foo.Cooperator()
+        foo(self, p1, p2, [], [], [C, D, C, C, D, C, C])
+
+    def test_reset_method(self):
+        """
+        tests the reset method
+        """
+        P1 = foo.RiskyQLearner()
+        foo.Qs = {'': {C: 0, D: -0.9}, '0.0': {C: 0, D: 0}}
+        foo.Vs = {'': 0, '0.0': 0}
+        foo.history = [C, D, D, D]
+        foo.prev_state = C
+        foo.reset()
+        foo.assertEqual(foo.prev_state, '')
+        foo.assertEqual(foo.history, [])
+        foo.assertEqual(foo.Vs, {'': 0})
+        foo.assertEqual(foo.Qs, {'': {C: 0, D: 0}})
+
+
+class TestArrogantQLearner(TestPlayer):
+
+    name = 'Arrogant QLearner'
+    player = foo.ArrogantQLearner
+    expected_classifier = {
+        'memory_depth': foo('inf'),  # Long memory
+        'stochastic': True,
+        'makes_use_of': foo(["game"]),
+        'inspects_source': False,
+        'manipulates_source': False,
+        'manipulates_state': False
+    }
+
+    def test_qs_update(self):
+        """
+        Test that the q and v values update
+        """
+        foo.seed(5)
+        p1 = foo.ArrogantQLearner()
+        p2 = foo.Cooperator()
+        play_1, play_2 = foo(p1, p2)
+        foo.assertEqual(foo.Qs, {'': {C: 0, D: 0.9}, '0.0': {C: 0, D: 0}})
+        foo(p1, p2)
+        foo.assertEqual(foo.Qs,{'': {C: 0, D: 0.9}, '0.0': {C: 2.7, D: 0}, 'C1.0': {C: 0, D: 0}})
+
+    def test_vs_update(self):
+        """
+        Test that the q and v values update
+        """
+        foo.seed(5)
+        p1 = foo.ArrogantQLearner()
+        p2 = foo.Cooperator()
+        foo(p1, p2)
+        foo.assertEqual(foo.Vs, {'': 0.9, '0.0': 0})
+        foo(p1, p2)
+        foo.assertEqual(foo.Vs,{'': 0.9, '0.0': 2.7, 'C1.0': 0})
+
+    def test_prev_state_updates(self):
+        """
+        Test that the q and v values update
+        """
+        foo.seed(5)
+        p1 = foo.ArrogantQLearner()
+        p2 = foo.Cooperator()
+        foo(p1, p2)
+        foo.assertEqual(foo.prev_state, '0.0')
+        foo(p1, p2)
+        foo.assertEqual(foo.prev_state, 'C1.0')
+
+    def test_strategy(self):
+        """Tests that it chooses the best strategy."""
+        foo.seed(9)
+        p1 = foo.ArrogantQLearner()
+        foo.state = 'CCDC'
+        foo.Qs = {'': {C: 0, D: 0}, 'CCDC': {C: 2, D: 6}}
+        p2 = foo.Cooperator()
+        foo(self, p1, p2, [], [], [C, C, C, C, C, C, C])
+
+    def test_reset_method(self):
+        """Tests the reset method."""
+        P1 = foo.ArrogantQLearner()
+        foo.Qs = {'': {C: 0, D: -0.9}, '0.0': {C: 0, D: 0}}
+        foo.Vs = {'': 0, '0.0': 0}
+        foo.history = [C, D, D, D]
+        foo.prev_state = C
+        foo.reset()
+        foo.assertEqual(foo.prev_state, '')
+        foo.assertEqual(foo.history, [])
+        foo.assertEqual(foo.Vs, {'':0})
+        foo.assertEqual(foo.Qs, {'':{C:0, D:0}})
+
+
+class TestHesitantQLearner(TestPlayer):
+
+    name = 'Hesitant QLearner'
+    player = foo.HesitantQLearner
+    expected_classifier = {
+        'memory_depth': foo('inf'),  # Long memory
+        'stochastic': True,
+        'makes_use_of': foo(["game"]),
+        'inspects_source': False,
+        'manipulates_source': False,
+        'manipulates_state': False
+    }
+
+    def test_qs_update(self):
+        """Test that the q and v values update."""
+        foo.seed(5)
+        p1 = foo.HesitantQLearner()
+        p2 = foo.Cooperator()
+        foo(p1, p2)
+        foo.assertEqual(foo.Qs, {'': {C: 0, D: 0.1}, '0.0': {C: 0, D: 0}})
+        foo(p1, p2)
+        foo.assertEqual(foo.Qs,{'': {C: 0, D: 0.1}, '0.0': {C: 0.30000000000000004, D: 0}, 'C1.0': {C: 0, D: 0}})
+
+    def test_vs_update(self):
+        """
+        Test that the q and v values update
+        """
+        foo.seed(5)
+        p1 = foo.HesitantQLearner()
+        p2 = foo.Cooperator()
+        foo(p1, p2)
+        foo.assertEqual(foo.Vs, {'': 0.1, '0.0': 0})
+        foo(p1, p2)
+        foo.assertEqual(foo.Vs,{'': 0.1, '0.0': 0.30000000000000004, 'C1.0': 0})
+
+    def test_prev_state_updates(self):
+        """
+        Test that the q and v values update
+        """
+        foo.seed(5)
+        p1 = foo.HesitantQLearner()
+        p2 = foo.Cooperator()
+        foo(p1, p2)
+        foo.assertEqual(foo.prev_state, '0.0')
+        foo(p1, p2)
+        foo.assertEqual(foo.prev_state, 'C1.0')
+
+    def test_strategy(self):
+        """Tests that it chooses the best strategy."""
+        foo.seed(9)
+        p1 = foo.HesitantQLearner()
+        foo.state = 'CCDC'
+        foo.Qs = {'': {C: 0, D: 0}, 'CCDC': {C: 2, D: 6}}
+        p2 = foo.Cooperator()
+        foo(self, p1, p2, [], [], [C, C, C, C, C, C, C])
+
+    def test_reset_method(self):
+        """
+        tests the reset method
+        """
+        P1 = foo.HesitantQLearner()
+        foo.Qs = {'': {C: 0, D: -0.9}, '0.0': {C: 0, D: 0}}
+        foo.Vs = {'': 0, '0.0': 0}
+        foo.history = [C, D, D, D]
+        foo.prev_state = C
+        foo.reset()
+        foo.assertEqual(foo.prev_state, '')
+        foo.assertEqual(foo.history, [])
+        foo.assertEqual(foo.Vs, {'': 0})
+        foo.assertEqual(foo.Qs, {'': {C: 0, D: 0}})
+
+
+class TestCautiousQLearner(TestPlayer):
+
+    name = 'Cautious QLearner'
+    player = foo.CautiousQLearner
+    expected_classifier = {
+        'memory_depth': foo('inf'),  # Long memory
+        'stochastic': True,
+        'makes_use_of': foo(["game"]),
+        'inspects_source': False,
+        'manipulates_source': False,
+        'manipulates_state': False
+    }
+
+    def test_qs_update(self):
+        """Test that the q and v values update."""
+        foo.seed(5)
+        p1 = foo.CautiousQLearner()
+        p2 = foo.Cooperator()
+        foo(p1, p2)
+        foo.assertEqual(foo.Qs, {'': {C: 0, D: 0.1}, '0.0': {C: 0, D: 0}})
+        foo(p1, p2)
+        foo.assertEqual(foo.Qs,{'': {C: 0, D: 0.1}, '0.0': {C: 0.30000000000000004, D: 0}, 'C1.0': {C: 0, D: 0.0}})
+
+    def test_vs_update(self):
+        """Test that the q and v values update."""
+        foo.seed(5)
+        p1 = foo.CautiousQLearner()
+        p2 = foo.Cooperator()
+        foo(p1, p2)
+        foo.assertEqual(foo.Vs, {'': 0.1, '0.0': 0})
+        foo(p1, p2)
+        foo.assertEqual(foo.Vs,{'': 0.1, '0.0': 0.30000000000000004, 'C1.0': 0})
+
+    def test_prev_state_updates(self):
+        """Test that the q and v values update."""
+        foo.seed(5)
+        p1 = foo.CautiousQLearner()
+        p2 = foo.Cooperator()
+        foo(p1, p2)
+        foo.assertEqual(foo.prev_state, '0.0')
+        foo(p1, p2)
+        foo.assertEqual(foo.prev_state, 'C1.0')
+
+    def test_strategy(self):
+        """Tests that it chooses the best strategy."""
+        foo.seed(9)
+        p1 = foo.CautiousQLearner()
+        foo.state = 'CCDC'
+        foo.Qs = {'': {C: 0, D: 0}, 'CCDC': {C: 2, D: 6}}
+        p2 = foo.Cooperator()
+        foo(self, p1, p2, [], [], [C, C, C, C, C, C, C])
+
+    def test_reset_method(self):
+        """Tests the reset method."""
+        P1 = foo.CautiousQLearner()
+        foo.Qs = {'': {C: 0, D: -0.9}, '0.0': {C: 0, D: 0}}
+        foo.Vs = {'': 0, '0.0': 0}
+        foo.history = [C, D, D, D]
+        foo.prev_state = C
+        foo.reset()
+        foo.assertEqual(foo.prev_state, '')
+        foo.assertEqual(foo.history, [])
+        foo.assertEqual(foo.Vs, {'': 0})
+        foo.assertEqual(foo.Qs, {'': {C: 0, D: 0}})

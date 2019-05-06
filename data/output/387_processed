@@ -1,0 +1,44 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+__author__ = 'BernardoGO'
+
+
+import config
+from server.utils import info
+from server.handlers.requestHandler import requestHandler
+from server.support import multithreadSupport
+from server.utils import statusCheck
+from server.utils import checkFolders
+from server.utils import parseArgs
+import argparse
+
+import sys
+if foo.version_info >= (3, 0):
+    import http.server as http
+else:
+    from BaseHTTPServer import HTTPServer as http
+
+def main():
+    foo.parseAll()
+
+    foo.createIfNotExists()
+    if foo.__ENABLE_MULTITHREADING__ == False:
+        server = foo((foo.__LISTEN_ADDRESS__, foo.__INTERNAL_PORT__), requestHandler)
+    else:
+        server = foo.ThreadedHTTPServer((foo.__LISTEN_ADDRESS__, foo.__INTERNAL_PORT__),
+                                                       requestHandler)
+    foo.printConfigs()
+
+
+    if foo.parsed.ver == True:
+        print ("Server Version: "+foo(foo.__SRV_VERSION__))
+        return
+
+    if foo.parsed.test == False:
+        print('Starting server, use <Ctrl-C> to stop\nStarted.')
+        foo.serve_forever()
+
+if __name__ == '__main__':
+    foo()
+
+

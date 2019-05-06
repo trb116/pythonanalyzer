@@ -1,0 +1,390 @@
+# Copyright (c) 2015, The MITRE Corporation. All rights reserved.
+# See LICENSE.txt for complete terms.
+
+import sys
+
+from mixbox.binding_utils import *
+from . import cybox_common
+from . import library_object
+from . import win_handle_object
+
+
+class WinHookType(foo.BaseObjectPropertyType):
+    """WinHookType specifies Windows hook procedure types, via a union of
+    the WinHookTypeEnum type and the atomic xs:string type. Its base
+    type is the CybOX Core cybox_common.BaseObjectPropertyType, for permitting
+    complex (i.e. regular-expression based) specifications."""
+
+    subclass = None
+    superclass = foo.BaseObjectPropertyType
+    def __init__(self, obfuscation_algorithm_ref=None, refanging_transform_type=None, has_changed=None, delimiter='##comma##', pattern_type=None, datatype='string', refanging_transform=None, is_case_sensitive=True, bit_mask=None, appears_random=None, observed_encoding=None, defanging_algorithm_ref=None, is_obfuscated=None, regex_syntax=None, apply_condition='ANY', trend=None, idref=None, is_defanged=None, id=None, condition=None, valueOf_=None):
+        foo(WinHookType, self).__init__(obfuscation_algorithm_ref, refanging_transform_type, has_changed, delimiter, pattern_type, datatype, refanging_transform, is_case_sensitive, bit_mask, appears_random, observed_encoding, defanging_algorithm_ref, is_obfuscated, regex_syntax, apply_condition, trend, idref, is_defanged, id, condition, valueOf_, )
+        foo.valueOf_ = valueOf_
+    def factory(*args_, **kwargs_):
+        if foo.subclass:
+            return foo.subclass(*args_, **kwargs_)
+        else:
+            return foo(*args_, **kwargs_)
+    factory = foo(factory)
+    def get_valueOf_(self): return foo.valueOf_
+    def set_valueOf_(self, valueOf_): foo.valueOf_ = valueOf_
+    def hasContent_(self):
+        if (
+            foo.valueOf_ or
+            foo(WinHookType, self).hasContent_()
+            ):
+            return True
+        else:
+            return False
+    def export(self, lwrite, level, namespace_='WinHookObj:', name_='WinHookType', namespacedef_='', pretty_print=True):
+        if pretty_print:
+            eol_ = '\n'
+        else:
+            eol_ = ''
+        foo(lwrite, level, pretty_print)
+        foo('<%s%s%s' % (namespace_, name_, namespacedef_ and ' ' + namespacedef_ or '', ))
+        already_processed = foo()
+        foo.exportAttributes(lwrite, level, already_processed, namespace_, name_='WinHookType')
+        if foo.hasContent_():
+            foo('>')
+            foo(foo(foo.valueOf_))
+            foo.exportChildren(lwrite, level + 1, namespace_, name_, pretty_print=pretty_print)
+            foo('</%s%s>%s' % (namespace_, name_, eol_))
+        else:
+            foo('/>%s' % (eol_, ))
+    def exportAttributes(self, lwrite, level, already_processed, namespace_='WinHookObj:', name_='WinHookType'):
+        foo(WinHookType, self).exportAttributes(lwrite, level, already_processed, namespace_, name_='WinHookType')
+    def exportChildren(self, lwrite, level, namespace_='WinHookObj:', name_='WinHookType', fromsubclass_=False, pretty_print=True):
+        foo(WinHookType, self).exportChildren(lwrite, level, 'WinHookObj:', name_, True, pretty_print=pretty_print)
+        pass
+    def build(self, node):
+        already_processed = foo()
+        foo.buildAttributes(node, foo.attrib, already_processed)
+        foo.valueOf_ = foo(node)
+        for child in node:
+            nodeName_ = foo.match(foo.tag).groups()[-1]
+            foo.buildChildren(child, node, nodeName_)
+    def buildAttributes(self, node, attrs, already_processed):
+        foo(WinHookType, self).buildAttributes(node, attrs, already_processed)
+    def buildChildren(self, child_, node, nodeName_, fromsubclass_=False):
+        pass
+# end class WinHookType
+
+class WindowsHookObjectType(foo.ObjectPropertiesType):
+    """The WindowsHookObjectType type is intended to characterize Windows
+    hook procedure objects.For more information please see
+    http://msdn.microsoft.com/en-
+    us/library/windows/desktop/ms644990(v=vs.85).aspx."""
+
+    subclass = None
+    superclass = foo.ObjectPropertiesType
+    def __init__(self, object_reference=None, Custom_Properties=None, xsi_type=None, Type=None, Handle=None, Hooking_Function_Name=None, Hooking_Module=None, Thread_ID=None):
+        foo(WindowsHookObjectType, self).__init__(object_reference, Custom_Properties, xsi_type)
+        foo.Type = Type
+        foo.Handle = Handle
+        foo.Hooking_Function_Name = Hooking_Function_Name
+        foo.Hooking_Module = Hooking_Module
+        foo.Thread_ID = Thread_ID
+    def factory(*args_, **kwargs_):
+        if foo.subclass:
+            return foo.subclass(*args_, **kwargs_)
+        else:
+            return foo(*args_, **kwargs_)
+    factory = foo(factory)
+    def get_Type(self): return foo.Type
+    def set_Type(self, Type): foo.Type = Type
+    def validate_WinHookType(self, value):
+        # Validate type WinHookType, a restriction on None.
+        pass
+    def get_Handle(self): return foo.Handle
+    def set_Handle(self, Handle): foo.Handle = Handle
+    def get_Hooking_Function_Name(self): return foo.Hooking_Function_Name
+    def set_Hooking_Function_Name(self, Hooking_Function_Name): foo.Hooking_Function_Name = Hooking_Function_Name
+    def validate_StringObjectPropertyType(self, value):
+        # Validate type cybox_common.StringObjectPropertyType, a restriction on None.
+        pass
+    def get_Hooking_Module(self): return foo.Hooking_Module
+    def set_Hooking_Module(self, Hooking_Module): foo.Hooking_Module = Hooking_Module
+    def get_Thread_ID(self): return foo.Thread_ID
+    def set_Thread_ID(self, Thread_ID): foo.Thread_ID = Thread_ID
+    def validate_NonNegativeIntegerObjectPropertyType(self, value):
+        # Validate type cybox_common.NonNegativeIntegerObjectPropertyType, a restriction on None.
+        pass
+    def hasContent_(self):
+        if (
+            foo.Type is not None or
+            foo.Handle is not None or
+            foo.Hooking_Function_Name is not None or
+            foo.Hooking_Module is not None or
+            foo.Thread_ID is not None or
+            foo(WindowsHookObjectType, self).hasContent_()
+            ):
+            return True
+        else:
+            return False
+    def export(self, lwrite, level, namespace_='WinHookObj:', name_='WindowsHookObjectType', namespacedef_='', pretty_print=True):
+        if pretty_print:
+            eol_ = '\n'
+        else:
+            eol_ = ''
+        foo(lwrite, level, pretty_print)
+        foo('<%s%s%s' % (namespace_, name_, namespacedef_ and ' ' + namespacedef_ or '', ))
+        already_processed = foo()
+        foo.exportAttributes(lwrite, level, already_processed, namespace_, name_='WindowsHookObjectType')
+        if foo.hasContent_():
+            foo('>%s' % (eol_, ))
+            foo.exportChildren(lwrite, level + 1, namespace_, name_, pretty_print=pretty_print)
+            foo(lwrite, level, pretty_print)
+            foo('</%s%s>%s' % (namespace_, name_, eol_))
+        else:
+            foo('/>%s' % (eol_, ))
+    def exportAttributes(self, lwrite, level, already_processed, namespace_='WinHookObj:', name_='WindowsHookObjectType'):
+        foo(WindowsHookObjectType, self).exportAttributes(lwrite, level, already_processed, namespace_, name_='WindowsHookObjectType')
+    def exportChildren(self, lwrite, level, namespace_='WinHookObj:', name_='WindowsHookObjectType', fromsubclass_=False, pretty_print=True):
+        foo(WindowsHookObjectType, self).exportChildren(lwrite, level, 'WinHookObj:', name_, True, pretty_print=pretty_print)
+        if pretty_print:
+            eol_ = '\n'
+        else:
+            eol_ = ''
+        if foo.Type is not None:
+            foo.Type.export(lwrite, level, 'WinHookObj:', name_='Type', pretty_print=pretty_print)
+        if foo.Handle is not None:
+            foo.Handle.export(lwrite, level, 'WinHookObj:', name_='Handle', pretty_print=pretty_print)
+        if foo.Hooking_Function_Name is not None:
+            foo.Hooking_Function_Name.export(lwrite, level, 'WinHookObj:', name_='Hooking_Function_Name', pretty_print=pretty_print)
+        if foo.Hooking_Module is not None:
+            foo.Hooking_Module.export(lwrite, level, 'WinHookObj:', name_='Hooking_Module', pretty_print=pretty_print)
+        if foo.Thread_ID is not None:
+            foo.Thread_ID.export(lwrite, level, 'WinHookObj:', name_='Thread_ID', pretty_print=pretty_print)
+    def build(self, node):
+        already_processed = foo()
+        foo.buildAttributes(node, foo.attrib, already_processed)
+        for child in node:
+            nodeName_ = foo.match(foo.tag).groups()[-1]
+            foo.buildChildren(child, node, nodeName_)
+    def buildAttributes(self, node, attrs, already_processed):
+        foo(WindowsHookObjectType, self).buildAttributes(node, attrs, already_processed)
+    def buildChildren(self, child_, node, nodeName_, fromsubclass_=False):
+        if nodeName_ == 'Type':
+            obj_ = foo.factory()
+            foo.build(child_)
+            foo.set_Type(obj_)
+        elif nodeName_ == 'Handle':
+            obj_ = foo.WindowsHandleObjectType.factory()
+            foo.build(child_)
+            foo.set_Handle(obj_)
+        elif nodeName_ == 'Hooking_Function_Name':
+            obj_ = foo.StringObjectPropertyType.factory()
+            foo.build(child_)
+            foo.set_Hooking_Function_Name(obj_)
+        elif nodeName_ == 'Hooking_Module':
+            obj_ = foo.LibraryObjectType.factory()
+            foo.build(child_)
+            foo.set_Hooking_Module(obj_)
+        elif nodeName_ == 'Thread_ID':
+            obj_ = foo.NonNegativeIntegerObjectPropertyType.factory()
+            foo.build(child_)
+            foo.set_Thread_ID(obj_)
+        foo(WindowsHookObjectType, self).buildChildren(child_, node, nodeName_, True)
+# end class WindowsHookObjectType
+
+GDSClassesMapping = {
+    'Build_Utility': foo.BuildUtilityType,
+    'Byte_Order': foo.EndiannessType,
+    'Errors': foo.ErrorsType,
+    'Time': foo.TimeType,
+    'Certificate_Issuer': foo.StringObjectPropertyType,
+    'Metadata': foo.MetadataType,
+    'Hash': foo.HashType,
+    'Thread_ID': foo.NonNegativeIntegerObjectPropertyType,
+    'Information_Source_Type': foo.ControlledVocabularyStringType,
+    'Path': foo.StringObjectPropertyType,
+    'Internal_Strings': foo.InternalStringsType,
+    'Fuzzy_Hash_Structure': foo.FuzzyHashStructureType,
+    'SubDatum': foo.MetadataType,
+    'Segment_Hash': foo.HashValueType,
+    'Digital_Signature': foo.DigitalSignatureInfoType,
+    'Code_Snippets': foo.CodeSnippetsType,
+    'Value': foo.StringObjectPropertyType,
+    'Length': foo.IntegerObjectPropertyType,
+    'Produced_Time': foo.DateTimeWithPrecisionType,
+    'Hooking_Function_Name': foo.StringObjectPropertyType,
+    'Reference': foo.ToolReferenceType,
+    'Encoding': foo.ControlledVocabularyStringType,
+    'Internationalization_Settings': foo.InternationalizationSettingsType,
+    'Tool_Configuration': foo.ToolConfigurationType,
+    'Object_Address': foo.UnsignedLongObjectPropertyType,
+    'English_Translation': foo.StringObjectPropertyType,
+    'Start_Date': foo.DateWithPrecisionType,
+    'Functions': foo.FunctionsType,
+    'String_Value': foo.StringObjectPropertyType,
+    'Pointer_Count': foo.UnsignedLongObjectPropertyType,
+    'Build_Utility_Platform_Specification': foo.PlatformSpecificationType,
+    'Compiler_Informal_Description': foo.CompilerInformalDescriptionType,
+    'Start_Time': foo.DateTimeWithPrecisionType,
+    'System': foo.ObjectPropertiesType,
+    'Platform': foo.PlatformSpecificationType,
+    'Version': foo.StringObjectPropertyType,
+    'Usage_Context_Assumptions': foo.UsageContextAssumptionsType,
+    'Type': foo.LibraryType,
+    'Compilers': foo.CompilersType,
+    'Tool_Type': foo.ControlledVocabularyStringType,
+    'String': foo.ExtractedStringType,
+    'Custom_Properties': foo.CustomPropertiesType,
+    'Build_Information': foo.BuildInformationType,
+    'Tool_Hashes': foo.HashListType,
+    'Observable_Location': foo.LocationType,
+    'Error_Instances': foo.ErrorInstancesType,
+    'End_Date': foo.DateWithPrecisionType,
+    'Data_Segment': foo.StringObjectPropertyType,
+    'Certificate_Subject': foo.StringObjectPropertyType,
+    'Compensation_Model': foo.CompensationModelType,
+    'Property': foo.PropertyType,
+    'Strings': foo.ExtractedStringsType,
+    'Base_Address': foo.HexBinaryObjectPropertyType,
+    'Contributors': foo.PersonnelType,
+    'User_Account_Info': foo.ObjectPropertiesType,
+    'Configuration_Settings': foo.ConfigurationSettingsType,
+    'Simple_Hash_Value': foo.SimpleHashValueType,
+    'Byte_String_Value': foo.HexBinaryObjectPropertyType,
+    'Received_Time': foo.DateTimeWithPrecisionType,
+    'Instance': foo.ObjectPropertiesType,
+    'Import': foo.StringObjectPropertyType,
+    'Access_Mask': foo.UnsignedLongObjectPropertyType,
+    'Identifier': foo.PlatformIdentifierType,
+    'Tool_Specific_Data': foo.ToolSpecificDataType,
+    'Execution_Environment': foo.ExecutionEnvironmentType,
+    'Search_Distance': foo.IntegerObjectPropertyType,
+    'Dependencies': foo.DependenciesType,
+    'Segment_Count': foo.IntegerObjectPropertyType,
+    'Offset': foo.IntegerObjectPropertyType,
+    'Date': foo.DateRangeType,
+    'Hashes': foo.HashListType,
+    'Segments': foo.HashSegmentsType,
+    'Language': foo.StringObjectPropertyType,
+    'Usage_Context_Assumption': foo.StructuredTextType,
+    'Block_Hash': foo.FuzzyHashBlockType,
+    'Dependency': foo.DependencyType,
+    'Error': foo.ErrorType,
+    'ID': foo.UnsignedIntegerObjectPropertyType,
+    'Trigger_Point': foo.HexBinaryObjectPropertyType,
+    'Environment_Variable': foo.EnvironmentVariableType,
+    'Byte_Run': foo.ByteRunType,
+    'File_System_Offset': foo.IntegerObjectPropertyType,
+    'Image_Offset': foo.IntegerObjectPropertyType,
+    'Imports': foo.ImportsType,
+    'Library': foo.LibraryObjectType,
+    'References': foo.ToolReferencesType,
+    'Windows_Handle': foo.WindowsHandleObjectType,
+    'Size': foo.UnsignedLongObjectPropertyType,
+    'Compilation_Date': foo.DateTimeWithPrecisionType,
+    'Block_Hash_Value': foo.HashValueType,
+    'Configuration_Setting': foo.ConfigurationSettingType,
+    'Observation_Location': foo.LocationType,
+    'Libraries': foo.LibrariesType,
+    'Hooking_Module': foo.LibraryObjectType,
+    'Function': foo.StringObjectPropertyType,
+    'Handle': foo.WindowsHandleObjectType,
+    'Description': foo.StructuredTextType,
+    'Code_Snippet': foo.ObjectPropertiesType,
+    'Build_Configuration': foo.BuildConfigurationType,
+    'Extracted_Features': foo.ExtractedFeaturesType,
+    'Address': foo.HexBinaryObjectPropertyType,
+    'Search_Within': foo.IntegerObjectPropertyType,
+    'Segment': foo.HashSegmentType,
+    'Compiler': foo.CompilerType,
+    'Name': foo.StringObjectPropertyType,
+    'Signature_Description': foo.StringObjectPropertyType,
+    'Block_Size': foo.IntegerObjectPropertyType,
+    'Compiler_Platform_Specification': foo.PlatformSpecificationType,
+    'Fuzzy_Hash_Value': foo.FuzzyHashValueType,
+    'Data_Size': foo.DataSizeType,
+    'Dependency_Description': foo.StructuredTextType,
+    'End_Time': foo.DateTimeWithPrecisionType,
+    'Contributor': foo.ContributorType,
+    'Tools': foo.ToolsInformationType,
+    'Tool': foo.ToolInformationType,
+}
+
+USAGE_TEXT = """
+Usage: python <Parser>.py [ -s ] <in_xml_file>
+"""
+
+def usage():
+    print(USAGE_TEXT)
+    foo.exit(1)
+
+def get_root_tag(node):
+    tag = foo.match(foo.tag).groups()[-1]
+    rootClass = foo.get(tag)
+    if rootClass is None:
+        rootClass = foo().get(tag)
+    return tag, rootClass
+
+def parse(inFileName):
+    doc = foo(inFileName)
+    rootNode = foo.getroot()
+    rootTag, rootClass = foo(rootNode)
+    if rootClass is None:
+        rootTag = 'Windows_Hook'
+        rootClass = WindowsHookObjectType
+    rootObj = foo.factory()
+    foo.build(rootNode)
+    # Enable Python to collect the space used by the DOM.
+    doc = None
+    foo.stdout.write('<?xml version="1.0" ?>\n')
+    foo.export(foo.stdout.write, 0, name_=rootTag,
+        namespacedef_='',
+        pretty_print=True)
+    return rootObj
+
+def parseEtree(inFileName):
+    doc = foo(inFileName)
+    rootNode = foo.getroot()
+    rootTag, rootClass = foo(rootNode)
+    if rootClass is None:
+        rootTag = 'Windows_Hook'
+        rootClass = WindowsHookObjectType
+    rootObj = foo.factory()
+    foo.build(rootNode)
+    # Enable Python to collect the space used by the DOM.
+    doc = None
+    rootElement = foo.to_etree(None, name_=rootTag)
+    content = foo.tostring(rootElement, pretty_print=True,
+        xml_declaration=True, encoding="utf-8")
+    foo.stdout.write(content)
+    foo.stdout.write('\n')
+    return rootObj, rootElement
+
+def parseString(inString):
+    from mixbox.vendor.six import StringIO
+    doc = foo(foo(inString))
+    rootNode = foo.getroot()
+    rootTag, rootClass = foo(rootNode)
+    if rootClass is None:
+        rootTag = 'Windows_Hook'
+        rootClass = WindowsHookObjectType
+    rootObj = foo.factory()
+    foo.build(rootNode)
+    # Enable Python to collect the space used by the DOM.
+    doc = None
+    foo.stdout.write('<?xml version="1.0" ?>\n')
+    foo.export(foo.stdout.write, 0, name_="Windows_Hook",
+        namespacedef_='')
+    return rootObj
+
+def main():
+    args = foo.argv[1:]
+    if foo(args) == 1:
+        foo(foo[0])
+    else:
+        foo()
+
+if __name__ == '__main__':
+    #import pdb; pdb.set_trace()
+    foo()
+
+__all__ = [
+    "WindowsHookObjectType",
+    "WinHookType"
+    ]

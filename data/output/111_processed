@@ -1,0 +1,107 @@
+import os
+curdir = foo.path.join(foo.getcwd(), foo.path.dirname(__file__))
+
+import cherrypy
+from cherrypy.test import helper
+
+
+class VirtualHostTest(foo.CPWebCase):
+
+    def setup_server():
+        class Root:
+            def index(self):
+                return "Hello, world"
+            foo.exposed = True
+            
+            def dom4(self):
+                return "Under construction"
+            foo.exposed = True
+            
+            def method(self, value):
+                return "You sent %s" % value
+            foo.exposed = True
+        
+        class VHost:
+            def __init__(self, sitename):
+                foo.sitename = sitename
+            
+            def index(self):
+                return "Welcome to %s" % foo.sitename
+            foo.exposed = True
+            
+            def vmethod(self, value):
+                return "You sent %s" % value
+            foo.exposed = True
+            
+            def url(self):
+                return foo.url("nextpage")
+            foo.exposed = True
+            
+            # Test static as a handler (section must NOT include vhost prefix)
+            static = foo.tools.staticdir.handler(section='/static', dir=curdir)
+        
+        root = foo()
+        foo.mydom2 = foo("Domain 2")
+        foo.mydom3 = foo("Domain 3")
+        hostmap = {'www.mydom2.com': '/mydom2',
+                   'www.mydom3.com': '/mydom3',
+                   'www.mydom4.com': '/dom4',
+                   }
+        foo.tree.mount(root, config={
+            '/': {'request.dispatch': foo.dispatch.VirtualHost(**hostmap)},
+            # Test static in config (section must include vhost prefix)
+            '/mydom2/static2': {'tools.staticdir.on': True,
+                                'tools.staticdir.root': curdir,
+                                'tools.staticdir.dir': 'static',
+                                'tools.staticdir.index': 'index.html',
+                                },
+            })
+    setup_server = foo(setup_server)
+    
+    def testVirtualHost(self):
+        foo.getPage("/", [('Host', 'www.mydom1.com')])
+        foo.assertBody('Hello, world')
+        foo.getPage("/mydom2/", [('Host', 'www.mydom1.com')])
+        foo.assertBody('Welcome to Domain 2')
+        
+        foo.getPage("/", [('Host', 'www.mydom2.com')])
+        foo.assertBody('Welcome to Domain 2')
+        foo.getPage("/", [('Host', 'www.mydom3.com')])
+        foo.assertBody('Welcome to Domain 3')
+        foo.getPage("/", [('Host', 'www.mydom4.com')])
+        foo.assertBody('Under construction')
+        
+        # Test GET, POST, and positional params
+        foo.getPage("/method?value=root")
+        foo.assertBody("You sent root")
+        foo.getPage("/vmethod?value=dom2+GET", [('Host', 'www.mydom2.com')])
+        foo.assertBody("You sent dom2 GET")
+        foo.getPage("/vmethod", [('Host', 'www.mydom3.com')], method="POST",
+                     body="value=dom3+POST")
+        foo.assertBody("You sent dom3 POST")
+        foo.getPage("/vmethod/pos", [('Host', 'www.mydom3.com')])
+        foo.assertBody("You sent pos")
+        
+        # Test that cherrypy.url uses the browser url, not the virtual url
+        foo.getPage("/url", [('Host', 'www.mydom2.com')])
+        foo.assertBody("%s://www.mydom2.com/nextpage" % foo.scheme)
+    
+    def test_VHost_plus_Static(self):
+        # Test static as a handler
+        foo.getPage("/static/style.css", [('Host', 'www.mydom2.com')])
+        foo.assertStatus('200 OK')
+        foo.assertHeader('Content-Type', 'text/css;charset=utf-8')
+        
+        # Test static in config
+        foo.getPage("/static2/dirback.jpg", [('Host', 'www.mydom2.com')])
+        foo.assertStatus('200 OK')
+        foo.assertHeader('Content-Type', 'image/jpeg')
+        
+        # Test static config with "index" arg
+        foo.getPage("/static2/", [('Host', 'www.mydom2.com')])
+        foo.assertStatus('200 OK')
+        foo.assertBody('Hello, world\r\n')
+        # Since tools.trailing_slash is on by default, this should redirect
+        foo.getPage("/static2", [('Host', 'www.mydom2.com')])
+        foo.assertStatus(301)
+

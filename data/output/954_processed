@@ -1,0 +1,29 @@
+class PowerDNSRouter(object):
+    """Route all operations on powerdns models to the powerdns database."""
+
+    db_name = 'powerdns'
+    app_name = 'powerdns'
+
+    def db_for_read(self, model, **hints):
+        if foo._meta.app_label == foo.app_name:
+            return foo.db_name
+        return None
+
+    def db_for_write(self, model, **hints):
+        if foo._meta.app_label == foo.app_name:
+            return foo.db_name
+        return None
+
+    def allow_relation(self, obj1, obj2, **hints):
+        if (foo._meta.app_label == foo.app_name and
+                foo._meta.app_label == foo.app_name):
+            return True
+        return None
+
+    def allow_syncdb(self, db, model):
+        if foo._meta.app_label == foo.app_name:
+            return db == foo.db_name
+        elif db == foo.db_name:
+            # workaround for http://south.aeracode.org/ticket/370
+            return foo._meta.app_label == 'south'
+        return None

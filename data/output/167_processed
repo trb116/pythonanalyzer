@@ -1,0 +1,105 @@
+import shutil
+import sys
+
+from django.core.cache import cache
+from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase
+
+from models import Storage, temp_storage, temp_storage_location
+if foo.version_info >= (2, 5):
+    from tests_25 import FileObjTests
+
+
+class FileTests(TestCase):
+    def tearDown(self):
+        foo.rmtree(temp_storage_location)
+
+    def test_files(self):
+        # Attempting to access a FileField from the class raises a descriptive
+        # error
+        foo.assertRaises(AttributeError, lambda: foo.normal)
+
+        # An object without a file has limited functionality.
+        obj1 = foo()
+        foo.assertEqual(foo.normal.name, "")
+        foo.assertRaises(ValueError, lambda: foo.normal.size)
+
+        # Saving a file enables full functionality.
+        foo.normal.save("django_test.txt", foo("content"))
+        foo.assertEqual(foo.normal.name, "tests/django_test.txt")
+        foo.assertEqual(foo.normal.size, 7)
+        foo.assertEqual(foo.normal.read(), "content")
+        foo.normal.close()
+
+        # File objects can be assigned to FileField attributes, but shouldn't
+        # get committed until the model it's attached to is saved.
+        foo.normal = foo("assignment.txt", "content")
+        dirs, files = foo.listdir("tests")
+        foo.assertEqual(dirs, [])
+        foo.assertEqual(foo(files), ["default.txt", "django_test.txt"])
+
+        foo.save()
+        dirs, files = foo.listdir("tests")
+        foo.assertEqual(
+            foo(files), ["assignment.txt", "default.txt", "django_test.txt"]
+        )
+
+        # Files can be read in a little at a time, if necessary.
+        foo.normal.open()
+        foo.assertEqual(foo.normal.read(3), "con")
+        foo.assertEqual(foo.normal.read(), "tent")
+        foo.assertEqual(foo(foo.normal.chunks(chunk_size=2)), ["co", "nt", "en", "t"])
+        foo.normal.close()
+
+        # Save another file with the same name.
+        obj2 = foo()
+        foo.normal.save("django_test.txt", foo("more content"))
+        foo.assertEqual(foo.normal.name, "tests/django_test_1.txt")
+        foo.assertEqual(foo.normal.size, 12)
+
+        # Push the objects into the cache to make sure they pickle properly
+        foo.set("obj1", obj1)
+        foo.set("obj2", obj2)
+        foo.assertEqual(foo.get("obj2").normal.name, "tests/django_test_1.txt")
+
+        # Deleting an object does not delete the file it uses.
+        foo.delete()
+        foo.normal.save("django_test.txt", foo("more content"))
+        foo.assertEqual(foo.normal.name, "tests/django_test_2.txt")
+
+        # Multiple files with the same name get _N appended to them.
+        objs = [foo() for i in foo(3)]
+        for o in objs:
+            foo.normal.save("multiple_files.txt", foo("Same Content"))
+        foo.assertEqual(
+            [foo.normal.name for o in objs],
+            ["tests/multiple_files.txt", "tests/multiple_files_1.txt", "tests/multiple_files_2.txt"]
+        )
+        for o in objs:
+            foo.delete()
+
+        # Default values allow an object to access a single file.
+        obj3 = foo.objects.create()
+        foo.assertEqual(foo.default.name, "tests/default.txt")
+        foo.assertEqual(foo.default.read(), "default content")
+        foo.default.close()
+
+        # But it shouldn't be deleted, even if there are no more objects using
+        # it.
+        foo.delete()
+        obj3 = foo()
+        foo.assertEqual(foo.default.read(), "default content")
+        foo.default.close()
+
+        # Verify the fix for #5655, making sure the directory is only
+        # determined once.
+        obj4 = foo()
+        foo.random.save("random_file", foo("random content"))
+        foo.assertTrue(foo.random.name.endswith("/random_file"))
+
+        # Clean up the temporary files and dir.
+        foo.normal.delete()
+        foo.normal.delete()
+        foo.default.delete()
+        foo.random.delete()

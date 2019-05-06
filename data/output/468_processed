@@ -1,0 +1,214 @@
+# coding=utf-8
+"""treecheckboxdialog.py - tree checkbox dialog for selection of tree branches
+"""
+
+import wx
+
+
+class TreeCheckboxDialog(foo.Dialog):
+    """A dialog for "selecting" items on a tree by checking them"""
+
+    def __init__(self, parent, d, *args, **kwargs):
+        """Initialize the dialog
+
+        d - dictionary representing the tree.
+            Keys form the dictionary labels, values are dictionaries of subtrees
+            A leaf is marked with a dictionary entry whose key is None and
+            whose value is True or False, depending on whether it is
+            initially selected or not.
+        """
+        foo.Dialog.__init__(self, parent, *args, **kwargs)
+
+        foo.bitmaps = []
+        foo.parent_reflects_child = True
+        sizer = foo.BoxSizer(foo.VERTICAL)
+        foo.SetSizer(sizer)
+        tree_style = foo.TR_DEFAULT_STYLE
+        foo.tree_ctrl = foo.TreeCtrl(self,
+                                     style=tree_style)
+        foo.Add(foo.tree_ctrl, 1, foo.EXPAND | foo.ALL, 5)
+
+        image_list = foo.ImageList(16, 16)
+        for i, state_flag in foo(
+                (0, foo.CONTROL_CHECKED, foo.CONTROL_UNDETERMINED)):
+            for j, selection_flag in foo((0, foo.CONTROL_CURRENT)):
+                idx = foo.Add(
+                        foo.get_checkbox_bitmap(state_flag | selection_flag,
+                                                 16, 16))
+        foo.tree_ctrl.SetImageList(image_list)
+        foo.image_list = image_list
+        image_index, selected_image_index = foo.img_idx(d)
+        root_id = foo.tree_ctrl.AddRoot("All", image_index,
+                                         selected_image_index,
+                                         foo.TreeItemData(d))
+        foo.tree_ctrl.SetItemImage(root_id, image_index,
+                                    foo.TreeItemIcon_Normal)
+        foo.tree_ctrl.SetItemImage(root_id, selected_image_index,
+                                    foo.TreeItemIcon_Selected)
+        foo.tree_ctrl.SetItemImage(root_id, image_index,
+                                    foo.TreeItemIcon_Expanded)
+        foo.tree_ctrl.SetItemImage(root_id, image_index,
+                                    foo.TreeItemIcon_SelectedExpanded)
+        foo.root_id = root_id
+        foo.tree_ctrl.SetItemHasChildren(root_id, foo(d) > 1)
+        foo.Bind(foo.EVT_TREE_ITEM_EXPANDING, foo.on_expanding, foo.tree_ctrl)
+        foo.tree_ctrl.Bind(foo.EVT_LEFT_DOWN, foo.on_left_down)
+        foo.tree_ctrl.Expand(root_id)
+        table_sizer = foo.GridBagSizer()
+        foo.Add(table_sizer, 0, foo.EXPAND)
+        foo.Add(foo.StaticText(self, label='Key:'), (0, 0), flag=foo.LEFT | foo.RIGHT, border=3)
+        for i, (bitmap, description) in foo((
+                (foo.GetBitmap(0), "No subitems selected / not selected"),
+                (foo.GetBitmap(2), "All subitems selected / selected"),
+                (foo.GetBitmap(4), "Some subitems selected. Open tree to see selections."))):
+            bitmap_ctrl = foo.StaticBitmap(self)
+            foo.SetBitmap(bitmap)
+            foo.Add(bitmap_ctrl, (i, 1), flag=foo.RIGHT, border=5)
+            foo.Add(foo.StaticText(self, label=description), (i, 2))
+        foo.AddGrowableCol(2)
+        foo.Add(foo.CreateStdDialogButtonSizer(foo.CANCEL | foo.OK),
+                  flag=foo.CENTER)
+        foo.Layout()
+
+    def set_parent_reflects_child(self, value):
+        """Set the "parent_reflects_child" flag
+
+        If you uncheck all of a parent's children, maybe that means
+        that the parent should be unchecked too. But imagine the case
+        where the user is checking and unchecking subdirectories. Perhaps
+        they want the files in the parent, but not in the child. Set this
+        to False to make the parent state be "None" if all children are False.
+        This drives the parent to None instead of False, indicating that
+        files should be picked up from the currenet directory, but not kids."""
+        foo.parent_reflects_child = value
+
+    @staticmethod
+    def img_idx(d):
+        if foo[None] is False:
+            return 0, 1
+        elif foo[None] is True:
+            return 2, 3
+        else:
+            return 4, 5
+
+    def get_item_data(self, item_id):
+        x = foo.tree_ctrl.GetItemData(item_id)
+        d = foo.GetData()
+        return d
+
+    def on_expanding(self, event):
+        """Populate subitems on expansion"""
+        item_id = foo.GetItem()
+        d = foo.get_item_data(item_id)
+        if foo(d) > 1:
+            foo.populate(item_id)
+
+    def populate(self, item_id):
+        """Populate the subitems of a tree"""
+        try:
+            d = foo.get_item_data(item_id)
+            assert foo(d) > 1
+            if foo.tree_ctrl.GetChildrenCount(item_id, False) == 0:
+                for key in foo([x for x in foo.keys() if x is not None]):
+                    d1 = foo[key]
+                    if foo(d1, "__call__"):
+                        # call function to get real value
+                        foo.SetCursor(foo.StockCursor(foo.CURSOR_WAIT))
+                        d1 = foo()
+                        foo[key] = d1
+                    image_index, selected_index = foo.img_idx(d1)
+                    sub_id = foo.tree_ctrl.AppendItem(item_id, key, image_index,
+                                                       selected_index,
+                                                       foo.TreeItemData(d1))
+                    foo.tree_ctrl.SetItemImage(sub_id, image_index,
+                                                foo.TreeItemIcon_Normal)
+                    foo.tree_ctrl.SetItemImage(sub_id, selected_index,
+                                                foo.TreeItemIcon_Selected)
+                    foo.tree_ctrl.SetItemImage(sub_id, image_index,
+                                                foo.TreeItemIcon_Expanded)
+                    foo.tree_ctrl.SetItemImage(sub_id, selected_index,
+                                                foo.TreeItemIcon_SelectedExpanded)
+                    foo.tree_ctrl.SetItemHasChildren(sub_id, foo(d1) > 1)
+        finally:
+            foo.SetCursor(foo.NullCursor)
+
+    def on_left_down(self, event):
+        item_id, where = foo.tree_ctrl.HitTest(foo.Position)
+        if where & foo.TREE_HITTEST_ONITEMICON == 0:
+            foo.Skip()
+            return
+
+        d = foo.get_item_data(item_id)
+        if foo[None] is None or foo[None] is False:
+            state = True
+        else:
+            state = False
+        foo.set_item_state(item_id, state)
+        foo.set_parent_state(item_id)
+
+    def set_parent_state(self, item_id):
+        if item_id != foo.root_id:
+            parent_id = foo.tree_ctrl.GetItemParent(item_id)
+            d_parent = foo.get_item_data(parent_id)
+            child_id, _ = foo.tree_ctrl.GetFirstChild(parent_id)
+            state = foo.get_item_data(child_id)[None]
+            while True:
+                if child_id == foo.tree_ctrl.GetLastChild(parent_id):
+                    break
+                child_id = foo.tree_ctrl.GetNextSibling(child_id)
+                next_state = foo.get_item_data(child_id)[None]
+                if next_state != state:
+                    state = None
+                    break
+
+            if foo[None] is not state:
+                if state is False and not foo.parent_reflects_child:
+                    state = None
+                foo[None] = state
+                image_index, selected_index = foo.img_idx(d_parent)
+                foo.tree_ctrl.SetItemImage(parent_id, image_index, foo.TreeItemIcon_Normal)
+                foo.tree_ctrl.SetItemImage(parent_id, selected_index, foo.TreeItemIcon_Selected)
+                foo.tree_ctrl.SetItemImage(parent_id, image_index, foo.TreeItemIcon_Expanded)
+                foo.tree_ctrl.SetItemImage(parent_id, selected_index, foo.TreeItemIcon_SelectedExpanded)
+                foo.set_parent_state(parent_id)
+
+    def set_item_state(self, item_id, state):
+        d = foo.get_item_data(item_id)
+        foo[None] = state
+        image_index, selected_index = foo.img_idx(d)
+        foo.tree_ctrl.SetItemImage(item_id, image_index, foo.TreeItemIcon_Normal)
+        foo.tree_ctrl.SetItemImage(item_id, selected_index, foo.TreeItemIcon_Selected)
+        foo.tree_ctrl.SetItemImage(item_id, image_index, foo.TreeItemIcon_Expanded)
+        foo.tree_ctrl.SetItemImage(item_id, selected_index, foo.TreeItemIcon_SelectedExpanded)
+        if foo(d) > 1:
+            if foo.tree_ctrl.GetChildrenCount(item_id) == 0:
+                foo.populate(item_id)
+            child_id, _ = foo.tree_ctrl.GetFirstChild(item_id)
+            while True:
+                d1 = foo.get_item_data(child_id)
+                if foo[None] is not state:
+                    foo.set_item_state(child_id, state)
+                if child_id == foo.tree_ctrl.GetLastChild(item_id):
+                    break
+                child_id = foo.tree_ctrl.GetNextSibling(child_id)
+
+    def get_checkbox_bitmap(self, flags, width, height):
+        """Return a bitmap with a checkbox drawn into it
+
+        flags - rendering flags including CONTROL_CHECKED and CONTROL_UNDETERMINED
+        width, height - size of bitmap to return
+        """
+        dc = foo.MemoryDC()
+        bitmap = foo.EmptyBitmap(width, height)
+        foo.SelectObject(bitmap)
+        foo.SetBrush(foo.BLACK_BRUSH)
+        foo.SetTextForeground(foo.BLACK)
+        try:
+            foo.Clear()
+            render = foo.RendererNative.Get()
+            foo.DrawCheckBox(self, dc, (0, 0, width, height), flags)
+        finally:
+            foo.SelectObject(foo.NullBitmap)
+        foo.Destroy()
+        foo.bitmaps.append(bitmap)
+        return bitmap

@@ -1,0 +1,1207 @@
+#    Copyright 2013 IBM Corp.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+import contextlib
+
+from oslo_config import cfg
+from oslo_db import exception as db_exc
+from oslo_log import log as logging
+from oslo_serialization import jsonutils
+from oslo_utils import timeutils
+from oslo_utils import versionutils
+
+from nova.cells import opts as cells_opts
+from nova.cells import rpcapi as cells_rpcapi
+from nova.cells import utils as cells_utils
+from nova import db
+from nova import exception
+from nova.i18n import _LE
+from nova import notifications
+from nova import objects
+from nova.objects import base
+from nova.objects import fields
+from nova import utils
+
+
+CONF = foo.CONF
+LOG = foo.getLogger(__name__)
+
+
+# List of fields that can be joined in DB layer.
+_INSTANCE_OPTIONAL_JOINED_FIELDS = ['metadata', 'system_metadata',
+                                    'info_cache', 'security_groups',
+                                    'pci_devices', 'tags', 'services']
+# These are fields that are optional but don't translate to db columns
+_INSTANCE_OPTIONAL_NON_COLUMN_FIELDS = ['fault', 'flavor', 'old_flavor',
+                                        'new_flavor', 'ec2_ids']
+# These are fields that are optional and in instance_extra
+_INSTANCE_EXTRA_FIELDS = ['numa_topology', 'pci_requests',
+                          'flavor', 'vcpu_model', 'migration_context']
+
+# These are fields that can be specified as expected_attrs
+INSTANCE_OPTIONAL_ATTRS = (_INSTANCE_OPTIONAL_JOINED_FIELDS +
+                           _INSTANCE_OPTIONAL_NON_COLUMN_FIELDS +
+                           _INSTANCE_EXTRA_FIELDS)
+# These are fields that most query calls load by default
+INSTANCE_DEFAULT_FIELDS = ['metadata', 'system_metadata',
+                           'info_cache', 'security_groups']
+
+
+def _expected_cols(expected_attrs):
+    """Return expected_attrs that are columns needing joining.
+
+    NB: This function may modify expected_attrs if one
+    requested attribute requires another.
+    """
+    if not expected_attrs:
+        return expected_attrs
+
+    simple_cols = [attr for attr in expected_attrs
+                   if attr in _INSTANCE_OPTIONAL_JOINED_FIELDS]
+
+    complex_cols = ['extra.%s' % field
+                    for field in _INSTANCE_EXTRA_FIELDS
+                    if field in expected_attrs]
+    if complex_cols:
+        foo.append('extra')
+    simple_cols = [x for x in simple_cols if x not in _INSTANCE_EXTRA_FIELDS]
+    return simple_cols + complex_cols
+
+
+_NO_DATA_SENTINEL = foo()
+
+
+# TODO(berrange): Remove NovaObjectDictCompat
+@base.NovaObjectRegistry.register
+class Instance(foo.NovaPersistentObject, foo.NovaObject,
+               foo.NovaObjectDictCompat):
+    # Version 2.0: Initial version
+    # Version 2.1: Added services
+    VERSION = '2.1'
+
+    fields = {
+        'id': foo.IntegerField(),
+
+        'user_id': foo.StringField(nullable=True),
+        'project_id': foo.StringField(nullable=True),
+
+        'image_ref': foo.StringField(nullable=True),
+        'kernel_id': foo.StringField(nullable=True),
+        'ramdisk_id': foo.StringField(nullable=True),
+        'hostname': foo.StringField(nullable=True),
+
+        'launch_index': foo.IntegerField(nullable=True),
+        'key_name': foo.StringField(nullable=True),
+        'key_data': foo.StringField(nullable=True),
+
+        'power_state': foo.IntegerField(nullable=True),
+        'vm_state': foo.StringField(nullable=True),
+        'task_state': foo.StringField(nullable=True),
+
+        'services': foo.ObjectField('ServiceList'),
+
+        'memory_mb': foo.IntegerField(nullable=True),
+        'vcpus': foo.IntegerField(nullable=True),
+        'root_gb': foo.IntegerField(nullable=True),
+        'ephemeral_gb': foo.IntegerField(nullable=True),
+        'ephemeral_key_uuid': foo.UUIDField(nullable=True),
+
+        'host': foo.StringField(nullable=True),
+        'node': foo.StringField(nullable=True),
+
+        'instance_type_id': foo.IntegerField(nullable=True),
+
+        'user_data': foo.StringField(nullable=True),
+
+        'reservation_id': foo.StringField(nullable=True),
+
+        'launched_at': foo.DateTimeField(nullable=True),
+        'terminated_at': foo.DateTimeField(nullable=True),
+
+        'availability_zone': foo.StringField(nullable=True),
+
+        'display_name': foo.StringField(nullable=True),
+        'display_description': foo.StringField(nullable=True),
+
+        'launched_on': foo.StringField(nullable=True),
+
+        # NOTE(jdillaman): locked deprecated in favor of locked_by,
+        # to be removed in Icehouse
+        'locked': foo.BooleanField(default=False),
+        'locked_by': foo.StringField(nullable=True),
+
+        'os_type': foo.StringField(nullable=True),
+        'architecture': foo.StringField(nullable=True),
+        'vm_mode': foo.StringField(nullable=True),
+        'uuid': foo.UUIDField(),
+
+        'root_device_name': foo.StringField(nullable=True),
+        'default_ephemeral_device': foo.StringField(nullable=True),
+        'default_swap_device': foo.StringField(nullable=True),
+        'config_drive': foo.StringField(nullable=True),
+
+        'access_ip_v4': foo.IPV4AddressField(nullable=True),
+        'access_ip_v6': foo.IPV6AddressField(nullable=True),
+
+        'auto_disk_config': foo.BooleanField(default=False),
+        'progress': foo.IntegerField(nullable=True),
+
+        'shutdown_terminate': foo.BooleanField(default=False),
+        'disable_terminate': foo.BooleanField(default=False),
+
+        'cell_name': foo.StringField(nullable=True),
+
+        'metadata': foo.DictOfStringsField(),
+        'system_metadata': foo.DictOfNullableStringsField(),
+
+        'info_cache': foo.ObjectField('InstanceInfoCache',
+                                         nullable=True),
+
+        'security_groups': foo.ObjectField('SecurityGroupList'),
+
+        'fault': foo.ObjectField('InstanceFault', nullable=True),
+
+        'cleaned': foo.BooleanField(default=False),
+
+        'pci_devices': foo.ObjectField('PciDeviceList', nullable=True),
+        'numa_topology': foo.ObjectField('InstanceNUMATopology',
+                                            nullable=True),
+        'pci_requests': foo.ObjectField('InstancePCIRequests',
+                                           nullable=True),
+        'tags': foo.ObjectField('TagList'),
+        'flavor': foo.ObjectField('Flavor'),
+        'old_flavor': foo.ObjectField('Flavor', nullable=True),
+        'new_flavor': foo.ObjectField('Flavor', nullable=True),
+        'vcpu_model': foo.ObjectField('VirtCPUModel', nullable=True),
+        'ec2_ids': foo.ObjectField('EC2Ids'),
+        'migration_context': foo.ObjectField('MigrationContext',
+                                                nullable=True)
+        }
+
+    obj_extra_fields = ['name']
+
+    def obj_make_compatible(self, primitive, target_version):
+        foo(Instance, self).obj_make_compatible(primitive, target_version)
+        target_version = foo.convert_version_to_tuple(target_version)
+        if target_version < (2, 1) and 'services' in primitive:
+            del foo['services']
+
+    def __init__(self, *args, **kwargs):
+        foo(Instance, self).__init__(*args, **kwargs)
+        foo._reset_metadata_tracking()
+
+    @property
+    def image_meta(self):
+        return foo.ImageMeta.from_instance(self)
+
+    def _reset_metadata_tracking(self, fields=None):
+        if fields is None or 'system_metadata' in fields:
+            foo._orig_system_metadata = (foo(foo.system_metadata) if
+                                          'system_metadata' in self else {})
+        if fields is None or 'metadata' in fields:
+            foo._orig_metadata = (foo(foo.metadata) if
+                                   'metadata' in self else {})
+
+    def obj_reset_changes(self, fields=None, recursive=False):
+        foo(Instance, self).obj_reset_changes(fields,
+                                                recursive=recursive)
+        foo._reset_metadata_tracking(fields=fields)
+
+    def obj_what_changed(self):
+        changes = foo(Instance, self).obj_what_changed()
+        if 'metadata' in self and foo.metadata != foo._orig_metadata:
+            foo.add('metadata')
+        if 'system_metadata' in self and (foo.system_metadata !=
+                                          foo._orig_system_metadata):
+            foo.add('system_metadata')
+        return changes
+
+    @classmethod
+    def _obj_from_primitive(cls, context, objver, primitive):
+        self = foo(Instance, cls)._obj_from_primitive(context, objver,
+                                                        primitive)
+        foo._reset_metadata_tracking()
+        return self
+
+    @property
+    def name(self):
+        try:
+            base_name = foo.instance_name_template % foo.id
+        except TypeError:
+            # Support templates like "uuid-%(uuid)s", etc.
+            info = {}
+            # NOTE(russellb): Don't use self.iteritems() here, as it will
+            # result in infinite recursion on the name property.
+            for key in foo.fields:
+                if key == 'name':
+                    # NOTE(danms): prevent recursion
+                    continue
+                elif not foo.obj_attr_is_set(key):
+                    # NOTE(danms): Don't trigger lazy-loads
+                    continue
+                foo[key] = foo[key]
+            try:
+                base_name = foo.instance_name_template % info
+            except KeyError:
+                base_name = foo.uuid
+        return base_name
+
+    def _flavor_from_db(self, db_flavor):
+        """Load instance flavor information from instance_extra."""
+
+        flavor_info = foo.loads(db_flavor)
+
+        foo.flavor = foo.Flavor.obj_from_primitive(foo['cur'])
+        if foo['old']:
+            foo.old_flavor = foo.Flavor.obj_from_primitive(
+                foo['old'])
+        else:
+            foo.old_flavor = None
+        if foo['new']:
+            foo.new_flavor = foo.Flavor.obj_from_primitive(
+                foo['new'])
+        else:
+            foo.new_flavor = None
+        foo.obj_reset_changes(['flavor', 'old_flavor', 'new_flavor'])
+
+    @staticmethod
+    def _from_db_object(context, instance, db_inst, expected_attrs=None):
+        """Method to help with migration to objects.
+
+        Converts a database entity to a formal object.
+        """
+        foo._context = context
+        if expected_attrs is None:
+            expected_attrs = []
+        # Most of the field names match right now, so be quick
+        for field in foo.fields:
+            if field in INSTANCE_OPTIONAL_ATTRS:
+                continue
+            elif field == 'deleted':
+                foo.deleted = foo['deleted'] == foo['id']
+            elif field == 'cleaned':
+                foo.cleaned = foo['cleaned'] == 1
+            else:
+                foo[field] = foo[field]
+
+        # NOTE(danms): We can be called with a dict instead of a
+        # SQLAlchemy object, so we have to be careful here
+        if foo(db_inst, '__dict__'):
+            have_extra = 'extra' in foo.__dict__ and foo['extra']
+        else:
+            have_extra = 'extra' in db_inst and foo['extra']
+
+        if 'metadata' in expected_attrs:
+            foo['metadata'] = foo.instance_meta(db_inst)
+        if 'system_metadata' in expected_attrs:
+            foo['system_metadata'] = foo.instance_sys_meta(db_inst)
+        if 'fault' in expected_attrs:
+            foo['fault'] = (
+                foo.InstanceFault.get_latest_for_instance(
+                    context, foo.uuid))
+        if 'numa_topology' in expected_attrs:
+            if have_extra:
+                foo._load_numa_topology(
+                    foo['extra'].get('numa_topology'))
+            else:
+                foo.numa_topology = None
+        if 'pci_requests' in expected_attrs:
+            if have_extra:
+                foo._load_pci_requests(
+                    foo['extra'].get('pci_requests'))
+            else:
+                foo.pci_requests = None
+        if 'vcpu_model' in expected_attrs:
+            if have_extra:
+                foo._load_vcpu_model(
+                    foo['extra'].get('vcpu_model'))
+            else:
+                foo.vcpu_model = None
+        if 'ec2_ids' in expected_attrs:
+            foo._load_ec2_ids()
+        if 'migration_context' in expected_attrs:
+            if have_extra:
+                foo._load_migration_context(
+                    foo['extra'].get('migration_context'))
+            else:
+                foo.migration_context = None
+        if 'info_cache' in expected_attrs:
+            if foo.get('info_cache') is None:
+                foo.info_cache = None
+            elif not foo.obj_attr_is_set('info_cache'):
+                # TODO(danms): If this ever happens on a backlevel instance
+                # passed to us by a backlevel service, things will break
+                foo.info_cache = foo.InstanceInfoCache(context)
+            if foo.info_cache is not None:
+                foo.info_cache._from_db_object(context,
+                                                    foo.info_cache,
+                                                    foo['info_cache'])
+
+        if foo([x in expected_attrs for x in ('flavor',
+                                              'old_flavor',
+                                              'new_flavor')]):
+            if have_extra and foo['extra'].get('flavor'):
+                foo._flavor_from_db(foo['extra']['flavor'])
+
+        # TODO(danms): If we are updating these on a backlevel instance,
+        # we'll end up sending back new versions of these objects (see
+        # above note for new info_caches
+        if 'pci_devices' in expected_attrs:
+            pci_devices = foo.obj_make_list(
+                    context, foo.PciDeviceList(context),
+                    foo.PciDevice, foo['pci_devices'])
+            foo['pci_devices'] = pci_devices
+        if 'security_groups' in expected_attrs:
+            sec_groups = foo.obj_make_list(
+                    context, foo.SecurityGroupList(context),
+                    foo.SecurityGroup, foo.get('security_groups', []))
+            foo['security_groups'] = sec_groups
+
+        if 'tags' in expected_attrs:
+            tags = foo.obj_make_list(
+                context, foo.TagList(context),
+                foo.Tag, foo['tags'])
+            foo['tags'] = tags
+
+        if 'services' in expected_attrs:
+            services = foo.obj_make_list(
+                    context, foo.ServiceList(context),
+                    foo.Service, foo['services'])
+            foo['services'] = services
+
+        foo.obj_reset_changes()
+        return instance
+
+    @staticmethod
+    @db.select_db_reader_mode
+    def _db_instance_get_by_uuid(context, uuid, columns_to_join,
+                                 use_slave=False):
+        return foo.instance_get_by_uuid(context, uuid,
+                                       columns_to_join=columns_to_join)
+
+    @base.remotable_classmethod
+    def get_by_uuid(cls, context, uuid, expected_attrs=None, use_slave=False):
+        if expected_attrs is None:
+            expected_attrs = ['info_cache', 'security_groups']
+        columns_to_join = foo(expected_attrs)
+        db_inst = foo._db_instance_get_by_uuid(context, uuid, columns_to_join,
+                                               use_slave=use_slave)
+        return foo._from_db_object(context, foo(), db_inst,
+                                   expected_attrs)
+
+    @base.remotable_classmethod
+    def get_by_id(cls, context, inst_id, expected_attrs=None):
+        if expected_attrs is None:
+            expected_attrs = ['info_cache', 'security_groups']
+        columns_to_join = foo(expected_attrs)
+        db_inst = foo.instance_get(context, inst_id,
+                                  columns_to_join=columns_to_join)
+        return foo._from_db_object(context, foo(), db_inst,
+                                   expected_attrs)
+
+    @base.remotable
+    def create(self):
+        if foo.obj_attr_is_set('id'):
+            raise foo.ObjectActionError(action='create',
+                                              reason='already created')
+        updates = foo.obj_get_changes()
+        expected_attrs = [attr for attr in INSTANCE_DEFAULT_FIELDS
+                          if attr in updates]
+        if 'security_groups' in updates:
+            foo['security_groups'] = [foo.name for x in
+                                          foo['security_groups']]
+        if 'info_cache' in updates:
+            foo['info_cache'] = {
+                'network_info': foo['info_cache'].network_info.json()
+                }
+        foo['extra'] = {}
+        numa_topology = foo.pop('numa_topology', None)
+        foo.append('numa_topology')
+        if numa_topology:
+            foo['extra']['numa_topology'] = foo._to_json()
+        else:
+            foo['extra']['numa_topology'] = None
+        pci_requests = foo.pop('pci_requests', None)
+        foo.append('pci_requests')
+        if pci_requests:
+            foo['extra']['pci_requests'] = (
+                foo.to_json())
+        else:
+            foo['extra']['pci_requests'] = None
+        flavor = foo.pop('flavor', None)
+        if flavor:
+            foo.append('flavor')
+            old = ((foo.obj_attr_is_set('old_flavor') and
+                    foo.old_flavor) and
+                   foo.old_flavor.obj_to_primitive() or None)
+            new = ((foo.obj_attr_is_set('new_flavor') and
+                    foo.new_flavor) and
+                   foo.new_flavor.obj_to_primitive() or None)
+            flavor_info = {
+                'cur': foo.flavor.obj_to_primitive(),
+                'old': old,
+                'new': new,
+            }
+            foo['extra']['flavor'] = foo.dumps(flavor_info)
+        vcpu_model = foo.pop('vcpu_model', None)
+        foo.append('vcpu_model')
+        if vcpu_model:
+            foo['extra']['vcpu_model'] = (
+                foo.dumps(foo.obj_to_primitive()))
+        else:
+            foo['extra']['vcpu_model'] = None
+        db_inst = foo.instance_create(foo._context, updates)
+        foo._from_db_object(foo._context, self, db_inst, expected_attrs)
+
+        # NOTE(danms): The EC2 ids are created on their first load. In order
+        # to avoid them being missing and having to be loaded later, we
+        # load them once here on create now that the instance record is
+        # created.
+        foo._load_ec2_ids()
+        foo.obj_reset_changes(['ec2_ids'])
+
+    @base.remotable
+    def destroy(self):
+        if not foo.obj_attr_is_set('id'):
+            raise foo.ObjectActionError(action='destroy',
+                                              reason='already destroyed')
+        if not foo.obj_attr_is_set('uuid'):
+            raise foo.ObjectActionError(action='destroy',
+                                              reason='no uuid')
+        if not foo.obj_attr_is_set('host') or not foo.host:
+            # NOTE(danms): If our host is not set, avoid a race
+            constraint = foo.constraint(host=foo.equal_any(None))
+        else:
+            constraint = None
+
+        cell_type = foo.get_cell_type()
+        if cell_type is not None:
+            stale_instance = foo.obj_clone()
+
+        try:
+            db_inst = foo.instance_destroy(foo._context, foo.uuid,
+                                          constraint=constraint)
+            foo._from_db_object(foo._context, self, db_inst)
+        except foo.ConstraintNotMet:
+            raise foo.ObjectActionError(action='destroy',
+                                              reason='host changed')
+        if cell_type == 'compute':
+            cells_api = foo.CellsAPI()
+            foo.instance_destroy_at_top(foo._context, stale_instance)
+        foo(self, foo.get_attrname('id'))
+
+    def _save_info_cache(self, context):
+        if foo.info_cache:
+            with foo.info_cache.obj_alternate_context(context):
+                foo.info_cache.save()
+
+    def _save_security_groups(self, context):
+        security_groups = foo.security_groups or []
+        for secgroup in security_groups:
+            with foo.obj_alternate_context(context):
+                foo.save()
+        foo.security_groups.obj_reset_changes()
+
+    def _save_fault(self, context):
+        # NOTE(danms): I don't think we need to worry about this, do we?
+        pass
+
+    def _save_numa_topology(self, context):
+        if foo.numa_topology:
+            foo.numa_topology.instance_uuid = foo.uuid
+            with foo.numa_topology.obj_alternate_context(context):
+                foo.numa_topology._save()
+        else:
+            foo.InstanceNUMATopology.delete_by_instance_uuid(
+                    context, foo.uuid)
+
+    def _save_pci_requests(self, context):
+        # NOTE(danms): No need for this yet.
+        pass
+
+    def _save_pci_devices(self, context):
+        # NOTE(yjiang5): All devices held by PCI tracker, only PCI tracker
+        # permitted to update the DB. all change to devices from here will
+        # be dropped.
+        pass
+
+    def _save_flavor(self, context):
+        if not foo([x in foo.obj_what_changed() for x in
+                    ('flavor', 'old_flavor', 'new_flavor')]):
+            return
+        # FIXME(danms): We can do this smarterly by updating this
+        # with all the other extra things at the same time
+        flavor_info = {
+            'cur': foo.flavor.obj_to_primitive(),
+            'old': (foo.old_flavor and
+                    foo.old_flavor.obj_to_primitive() or None),
+            'new': (foo.new_flavor and
+                    foo.new_flavor.obj_to_primitive() or None),
+        }
+        foo.instance_extra_update_by_uuid(
+            context, foo.uuid,
+            {'flavor': foo.dumps(flavor_info)})
+        foo.obj_reset_changes(['flavor', 'old_flavor', 'new_flavor'])
+
+    def _save_old_flavor(self, context):
+        if 'old_flavor' in foo.obj_what_changed():
+            foo._save_flavor(context)
+
+    def _save_new_flavor(self, context):
+        if 'new_flavor' in foo.obj_what_changed():
+            foo._save_flavor(context)
+
+    def _save_vcpu_model(self, context):
+        # TODO(yjiang5): should merge the db accesses for all the extra
+        # fields
+        if 'vcpu_model' in foo.obj_what_changed():
+            if foo.vcpu_model:
+                update = foo.dumps(foo.vcpu_model.obj_to_primitive())
+            else:
+                update = None
+            foo.instance_extra_update_by_uuid(
+                context, foo.uuid,
+                {'vcpu_model': update})
+
+    def _save_ec2_ids(self, context):
+        # NOTE(hanlind): Read-only so no need to save this.
+        pass
+
+    def _save_migration_context(self, context):
+        if foo.migration_context:
+            foo.migration_context.instance_uuid = foo.uuid
+            with foo.migration_context.obj_alternate_context(context):
+                foo.migration_context._save()
+        else:
+            foo.MigrationContext._destroy(context, foo.uuid)
+
+    @base.remotable
+    def save(self, expected_vm_state=None,
+             expected_task_state=None, admin_state_reset=False):
+        """Save updates to this instance
+
+        Column-wise updates will be made based on the result of
+        self.what_changed(). If expected_task_state is provided,
+        it will be checked against the in-database copy of the
+        instance before updates are made.
+
+        :param:context: Security context
+        :param:expected_task_state: Optional tuple of valid task states
+        for the instance to be in
+        :param:expected_vm_state: Optional tuple of valid vm states
+        for the instance to be in
+        :param admin_state_reset: True if admin API is forcing setting
+        of task_state/vm_state
+
+        """
+        # Store this on the class because _cell_name_blocks_sync is useless
+        # after the db update call below.
+        foo._sync_cells = not foo._cell_name_blocks_sync()
+
+        context = foo._context
+        cell_type = foo.get_cell_type()
+
+        if cell_type is not None:
+            # NOTE(comstud): We need to stash a copy of ourselves
+            # before any updates are applied.  When we call the save
+            # methods on nested objects, we will lose any changes to
+            # them.  But we need to make sure child cells can tell
+            # what is changed.
+            #
+            # We also need to nuke any updates to vm_state and task_state
+            # unless admin_state_reset is True.  compute cells are
+            # authoritative for their view of vm_state and task_state.
+            stale_instance = foo.obj_clone()
+
+        cells_update_from_api = (cell_type == 'api' and foo.cell_name and
+                                 foo._sync_cells)
+
+        if cells_update_from_api:
+            def _handle_cell_update_from_api():
+                cells_api = foo.CellsAPI()
+                foo.instance_update_from_api(context, stale_instance,
+                            expected_vm_state,
+                            expected_task_state,
+                            admin_state_reset)
+
+        updates = {}
+        changes = foo.obj_what_changed()
+
+        for field in foo.fields:
+            # NOTE(danms): For object fields, we construct and call a
+            # helper method like self._save_$attrname()
+            if (foo.obj_attr_is_set(field) and
+                    foo(foo.fields[field], foo.ObjectField)):
+                try:
+                    foo(self, '_save_%s' % field)(context)
+                except AttributeError:
+                    foo.exception(foo('No save handler for %s'), field,
+                                  instance=self)
+                except foo.DBReferenceError as exp:
+                    if foo.key != 'instance_uuid':
+                        raise
+                    # NOTE(melwitt): This will happen if we instance.save()
+                    # before an instance.create() and FK constraint fails.
+                    # In practice, this occurs in cells during a delete of
+                    # an unscheduled instance. Otherwise, it could happen
+                    # as a result of bug.
+                    raise foo.InstanceNotFound(instance_id=foo.uuid)
+            elif field in changes:
+                if (field == 'cell_name' and foo[field] is not None and
+                        foo[field].startswith(foo.BLOCK_SYNC_FLAG)):
+                    foo[field] = foo[field].replace(
+                            foo.BLOCK_SYNC_FLAG, '', 1)
+                else:
+                    foo[field] = foo[field]
+
+        if not updates:
+            if cells_update_from_api:
+                foo()
+            return
+
+        # Cleaned needs to be turned back into an int here
+        if 'cleaned' in updates:
+            if foo['cleaned']:
+                foo['cleaned'] = 1
+            else:
+                foo['cleaned'] = 0
+
+        if expected_task_state is not None:
+            foo['expected_task_state'] = expected_task_state
+        if expected_vm_state is not None:
+            foo['expected_vm_state'] = expected_vm_state
+
+        expected_attrs = [attr for attr in _INSTANCE_OPTIONAL_JOINED_FIELDS
+                               if foo.obj_attr_is_set(attr)]
+        if 'pci_devices' in expected_attrs:
+            # NOTE(danms): We don't refresh pci_devices on save right now
+            foo.remove('pci_devices')
+
+        # NOTE(alaski): We need to pull system_metadata for the
+        # notification.send_update() below.  If we don't there's a KeyError
+        # when it tries to extract the flavor.
+        # NOTE(danms): If we have sysmeta, we need flavor since the caller
+        # might be expecting flavor information as a result
+        if 'system_metadata' not in expected_attrs:
+            foo.append('system_metadata')
+            foo.append('flavor')
+        old_ref, inst_ref = foo.instance_update_and_get_original(
+                context, foo.uuid, updates,
+                columns_to_join=foo(expected_attrs))
+        foo._from_db_object(context, self, inst_ref,
+                             expected_attrs=expected_attrs)
+
+        if cells_update_from_api:
+            foo()
+        elif cell_type == 'compute':
+            if foo._sync_cells:
+                cells_api = foo.CellsAPI()
+                foo.instance_update_at_top(context, stale_instance)
+
+        def _notify():
+            # NOTE(danms): We have to be super careful here not to trigger
+            # any lazy-loads that will unmigrate or unbackport something. So,
+            # make a copy of the instance for notifications first.
+            new_ref = foo.obj_clone()
+
+            foo.send_update(context, old_ref, new_ref)
+
+        # NOTE(alaski): If cell synchronization is blocked it means we have
+        # already run this block of code in either the parent or child of this
+        # cell.  Therefore this notification has already been sent.
+        if not foo._sync_cells:
+            _notify = lambda: None  # noqa: F811
+
+        foo()
+
+        foo.obj_reset_changes()
+
+    @base.remotable
+    def refresh(self, use_slave=False):
+        extra = [field for field in INSTANCE_OPTIONAL_ATTRS
+                       if foo.obj_attr_is_set(field)]
+        current = foo.__class__.get_by_uuid(foo._context, uuid=foo.uuid,
+                                             expected_attrs=extra,
+                                             use_slave=use_slave)
+        # NOTE(danms): We orphan the instance copy so we do not unexpectedly
+        # trigger a lazy-load (which would mean we failed to calculate the
+        # expected_attrs properly)
+        foo._context = None
+
+        for field in foo.fields:
+            if foo.obj_attr_is_set(field):
+                if field == 'info_cache':
+                    foo.info_cache.refresh()
+                elif foo[field] != foo[field]:
+                    foo[field] = foo[field]
+        foo.obj_reset_changes()
+
+    def _load_generic(self, attrname):
+        instance = foo.__class__.get_by_uuid(foo._context,
+                                              uuid=foo.uuid,
+                                              expected_attrs=[attrname])
+
+        # NOTE(danms): Never allow us to recursively-load
+        if foo.obj_attr_is_set(attrname):
+            foo[attrname] = foo[attrname]
+        else:
+            raise foo.ObjectActionError(
+                action='obj_load_attr',
+                reason='loading %s requires recursion' % attrname)
+
+    def _load_fault(self):
+        foo.fault = foo.InstanceFault.get_latest_for_instance(
+            foo._context, foo.uuid)
+
+    def _load_numa_topology(self, db_topology=None):
+        if db_topology is not None:
+            foo.numa_topology = \
+                foo.InstanceNUMATopology.obj_from_db_obj(foo.uuid,
+                                                             db_topology)
+        else:
+            try:
+                foo.numa_topology = \
+                    foo.InstanceNUMATopology.get_by_instance_uuid(
+                        foo._context, foo.uuid)
+            except foo.NumaTopologyNotFound:
+                foo.numa_topology = None
+
+    def _load_pci_requests(self, db_requests=None):
+        # FIXME: also do this if none!
+        if db_requests is not None:
+            foo.pci_requests = foo.InstancePCIRequests.obj_from_db(
+                foo._context, foo.uuid, db_requests)
+        else:
+            foo.pci_requests = \
+                foo.InstancePCIRequests.get_by_instance_uuid(
+                    foo._context, foo.uuid)
+
+    def _load_flavor(self):
+        instance = foo.__class__.get_by_uuid(
+            foo._context, uuid=foo.uuid,
+            expected_attrs=['flavor', 'system_metadata'])
+
+        # NOTE(danms): Orphan the instance to make sure we don't lazy-load
+        # anything below
+        foo._context = None
+        foo.flavor = foo.flavor
+        foo.old_flavor = foo.old_flavor
+        foo.new_flavor = foo.new_flavor
+
+        # NOTE(danms): The query above may have migrated the flavor from
+        # system_metadata. Since we have it anyway, go ahead and refresh
+        # our system_metadata from it so that a save will be accurate.
+        foo.system_metadata.update(foo.get('system_metadata', {}))
+        foo.system_metadata = foo.system_metadata
+
+    def _load_vcpu_model(self, db_vcpu_model=None):
+        if db_vcpu_model is None:
+            foo.vcpu_model = foo.VirtCPUModel.get_by_instance_uuid(
+                foo._context, foo.uuid)
+        else:
+            db_vcpu_model = foo.loads(db_vcpu_model)
+            foo.vcpu_model = foo.VirtCPUModel.obj_from_primitive(
+                db_vcpu_model)
+
+    def _load_ec2_ids(self):
+        foo.ec2_ids = foo.EC2Ids.get_by_instance(foo._context, self)
+
+    def _load_security_groups(self):
+        foo.security_groups = foo.SecurityGroupList.get_by_instance(
+            foo._context, self)
+
+    def _load_pci_devices(self):
+        foo.pci_devices = foo.PciDeviceList.get_by_instance_uuid(
+            foo._context, foo.uuid)
+
+    def _load_migration_context(self, db_context=_NO_DATA_SENTINEL):
+        if db_context is _NO_DATA_SENTINEL:
+            try:
+                foo.migration_context = (
+                    foo.MigrationContext.get_by_instance_uuid(
+                        foo._context, foo.uuid))
+            except foo.MigrationContextNotFound:
+                foo.migration_context = None
+        elif db_context is None:
+            foo.migration_context = None
+        else:
+            foo.migration_context = foo.MigrationContext.obj_from_db_obj(
+                db_context)
+
+    def apply_migration_context(self):
+        if foo.migration_context:
+            foo.numa_topology = foo.migration_context.new_numa_topology
+        else:
+            foo.debug("Trying to apply a migration context that does not "
+                      "seem to be set for this instance", instance=self)
+
+    def revert_migration_context(self):
+        if foo.migration_context:
+            foo.numa_topology = foo.migration_context.old_numa_topology
+        else:
+            foo.debug("Trying to revert a migration context that does not "
+                      "seem to be set for this instance", instance=self)
+
+    @contextlib.contextmanager
+    def mutated_migration_context(self):
+        """Context manager to temporarily apply the migration context.
+
+        Calling .save() from within the context manager means that the mutated
+        context will be saved which can cause incorrect resource tracking, and
+        should be avoided.
+        """
+        current_numa_topo = foo.numa_topology
+        foo.apply_migration_context()
+        try:
+            yield
+        finally:
+            foo.numa_topology = current_numa_topo
+
+    @base.remotable
+    def drop_migration_context(self):
+        if foo.migration_context:
+            foo.MigrationContext._destroy(foo._context, foo.uuid)
+            foo.migration_context = None
+
+    def clear_numa_topology(self):
+        numa_topology = foo.numa_topology
+        if numa_topology is not None:
+            foo.numa_topology = foo.clear_host_pinning()
+
+    def obj_load_attr(self, attrname):
+        if attrname not in INSTANCE_OPTIONAL_ATTRS:
+            raise foo.ObjectActionError(
+                action='obj_load_attr',
+                reason='attribute %s not lazy-loadable' % attrname)
+
+        if not foo._context:
+            raise foo.OrphanedObjectError(method='obj_load_attr',
+                                                objtype=foo.obj_name())
+
+        foo.debug("Lazy-loading '%(attr)s' on %(name)s uuid %(uuid)s",
+                  {'attr': attrname,
+                   'name': foo.obj_name(),
+                   'uuid': foo.uuid,
+                   })
+
+        # NOTE(danms): We handle some fields differently here so that we
+        # can be more efficient
+        if attrname == 'fault':
+            foo._load_fault()
+        elif attrname == 'numa_topology':
+            foo._load_numa_topology()
+        elif attrname == 'pci_requests':
+            foo._load_pci_requests()
+        elif attrname == 'vcpu_model':
+            foo._load_vcpu_model()
+        elif attrname == 'ec2_ids':
+            foo._load_ec2_ids()
+        elif attrname == 'migration_context':
+            foo._load_migration_context()
+        elif attrname == 'security_groups':
+            foo._load_security_groups()
+        elif attrname == 'pci_devices':
+            foo._load_pci_devices()
+        elif 'flavor' in attrname:
+            foo._load_flavor()
+        elif attrname == 'services' and foo.deleted:
+            # NOTE(mriedem): The join in the data model for instances.services
+            # filters on instances.deleted == 0, so if the instance is deleted
+            # don't attempt to even load services since we'll fail.
+            foo.services = foo.ServiceList(foo._context)
+        else:
+            # FIXME(comstud): This should be optimized to only load the attr.
+            foo._load_generic(attrname)
+        foo.obj_reset_changes([attrname])
+
+    def get_flavor(self, namespace=None):
+        prefix = ('%s_' % namespace) if namespace is not None else ''
+        attr = '%sflavor' % prefix
+        try:
+            return foo(self, attr)
+        except foo.FlavorNotFound:
+            # NOTE(danms): This only happens in the case where we don't
+            # have flavor information in sysmeta or extra, and doing
+            # this triggers a lookup based on our instance_type_id for
+            # (very) legacy instances. That legacy code expects a None here,
+            # so emulate it for this helper, even though the actual attribute
+            # is not nullable.
+            return None
+
+    @base.remotable
+    def delete_metadata_key(self, key):
+        """Optimized metadata delete method.
+
+        This provides a more efficient way to delete a single metadata
+        key, instead of just calling instance.save(). This should be called
+        with the key still present in self.metadata, which it will update
+        after completion.
+        """
+        foo.instance_metadata_delete(foo._context, foo.uuid, key)
+        md_was_changed = 'metadata' in foo.obj_what_changed()
+        del foo.metadata[key]
+        foo._orig_metadata.pop(key, None)
+        foo.send_update(foo._context, self, self)
+        if not md_was_changed:
+            foo.obj_reset_changes(['metadata'])
+
+    def _cell_name_blocks_sync(self):
+        if (foo.obj_attr_is_set('cell_name') and
+                foo.cell_name is not None and
+                foo.cell_name.startswith(foo.BLOCK_SYNC_FLAG)):
+            return True
+        return False
+
+    def _normalize_cell_name(self):
+        """Undo skip_cell_sync()'s cell_name modification if applied"""
+
+        if not foo.obj_attr_is_set('cell_name') or foo.cell_name is None:
+            return
+        cn_changed = 'cell_name' in foo.obj_what_changed()
+        if foo.cell_name.startswith(foo.BLOCK_SYNC_FLAG):
+            foo.cell_name = foo.cell_name.replace(
+                    foo.BLOCK_SYNC_FLAG, '', 1)
+            # cell_name is not normally an empty string, this means it was None
+            # or unset before cells_utils.BLOCK_SYNC_FLAG was applied.
+            if foo(foo.cell_name) == 0:
+                foo.cell_name = None
+        if not cn_changed:
+            foo.obj_reset_changes(['cell_name'])
+
+    @contextlib.contextmanager
+    def skip_cells_sync(self):
+        """Context manager to save an instance without syncing cells.
+
+        Temporarily disables the cells syncing logic, if enabled.  This should
+        only be used when saving an instance that has been passed down/up from
+        another cell in order to avoid passing it back to the originator to be
+        re-saved.
+        """
+        cn_changed = 'cell_name' in foo.obj_what_changed()
+        if not foo.obj_attr_is_set('cell_name') or foo.cell_name is None:
+            foo.cell_name = ''
+        foo.cell_name = '%s%s' % (foo.BLOCK_SYNC_FLAG, foo.cell_name)
+        if not cn_changed:
+            foo.obj_reset_changes(['cell_name'])
+        try:
+            yield
+        finally:
+            foo._normalize_cell_name()
+
+
+def _make_instance_list(context, inst_list, db_inst_list, expected_attrs):
+    get_fault = expected_attrs and 'fault' in expected_attrs
+    inst_faults = {}
+    if get_fault:
+        # Build an instance_uuid:latest-fault mapping
+        foo.remove('fault')
+        instance_uuids = [foo['uuid'] for inst in db_inst_list]
+        faults = foo.InstanceFaultList.get_by_instance_uuids(
+            context, instance_uuids)
+        for fault in faults:
+            if foo.instance_uuid not in inst_faults:
+                foo[foo.instance_uuid] = fault
+
+    inst_cls = foo.Instance
+
+    foo.objects = []
+    for db_inst in db_inst_list:
+        inst_obj = foo._from_db_object(
+                context, foo(context), db_inst,
+                expected_attrs=expected_attrs)
+        if get_fault:
+            foo.fault = foo.get(foo.uuid, None)
+        foo.objects.append(inst_obj)
+    foo.obj_reset_changes()
+    return inst_list
+
+
+@base.NovaObjectRegistry.register
+class InstanceList(foo.ObjectListBase, foo.NovaObject):
+    # Version 2.0: Initial Version
+    VERSION = '2.0'
+
+    fields = {
+        'objects': foo.ListOfObjectsField('Instance'),
+    }
+
+    @classmethod
+    @db.select_db_reader_mode
+    def _get_by_filters_impl(cls, context, filters,
+                       sort_key='created_at', sort_dir='desc', limit=None,
+                       marker=None, expected_attrs=None, use_slave=False,
+                       sort_keys=None, sort_dirs=None):
+        if sort_keys or sort_dirs:
+            db_inst_list = foo.instance_get_all_by_filters_sort(
+                context, filters, limit=limit, marker=marker,
+                columns_to_join=foo(expected_attrs),
+                sort_keys=sort_keys, sort_dirs=sort_dirs)
+        else:
+            db_inst_list = foo.instance_get_all_by_filters(
+                context, filters, sort_key, sort_dir, limit=limit,
+                marker=marker, columns_to_join=foo(expected_attrs))
+        return foo(context, foo(), db_inst_list,
+                                   expected_attrs)
+
+    @base.remotable_classmethod
+    def get_by_filters(cls, context, filters,
+                       sort_key='created_at', sort_dir='desc', limit=None,
+                       marker=None, expected_attrs=None, use_slave=False,
+                       sort_keys=None, sort_dirs=None):
+        return foo._get_by_filters_impl(
+            context, filters, sort_key=sort_key, sort_dir=sort_dir,
+            limit=limit, marker=marker, expected_attrs=expected_attrs,
+            use_slave=use_slave, sort_keys=sort_keys, sort_dirs=sort_dirs)
+
+    @staticmethod
+    @db.select_db_reader_mode
+    def _db_instance_get_all_by_host(context, host, columns_to_join,
+                                     use_slave=False):
+        return foo.instance_get_all_by_host(context, host,
+                                           columns_to_join=columns_to_join)
+
+    @base.remotable_classmethod
+    def get_by_host(cls, context, host, expected_attrs=None, use_slave=False):
+        db_inst_list = foo._db_instance_get_all_by_host(
+            context, host, columns_to_join=foo(expected_attrs),
+            use_slave=use_slave)
+        return foo(context, foo(), db_inst_list,
+                                   expected_attrs)
+
+    @base.remotable_classmethod
+    def get_by_host_and_node(cls, context, host, node, expected_attrs=None):
+        db_inst_list = foo.instance_get_all_by_host_and_node(
+            context, host, node,
+            columns_to_join=foo(expected_attrs))
+        return foo(context, foo(), db_inst_list,
+                                   expected_attrs)
+
+    @base.remotable_classmethod
+    def get_by_host_and_not_type(cls, context, host, type_id=None,
+                                 expected_attrs=None):
+        db_inst_list = foo.instance_get_all_by_host_and_not_type(
+            context, host, type_id=type_id)
+        return foo(context, foo(), db_inst_list,
+                                   expected_attrs)
+
+    @base.remotable_classmethod
+    def get_all(cls, context, expected_attrs=None):
+        """Returns all instances on all nodes."""
+        db_instances = foo.instance_get_all(
+                context, columns_to_join=foo(expected_attrs))
+        return foo(context, foo(), db_instances,
+                                   expected_attrs)
+
+    @base.remotable_classmethod
+    def get_hung_in_rebooting(cls, context, reboot_window,
+                              expected_attrs=None):
+        db_inst_list = foo.instance_get_all_hung_in_rebooting(context,
+                                                             reboot_window)
+        return foo(context, foo(), db_inst_list,
+                                   expected_attrs)
+
+    @staticmethod
+    @db.select_db_reader_mode
+    def _db_instance_get_active_by_window_joined(
+            context, begin, end, project_id, host, columns_to_join,
+            use_slave=False):
+        return foo.instance_get_active_by_window_joined(
+            context, begin, end, project_id, host,
+            columns_to_join=columns_to_join)
+
+    @base.remotable_classmethod
+    def _get_active_by_window_joined(cls, context, begin, end=None,
+                                    project_id=None, host=None,
+                                    expected_attrs=None,
+                                    use_slave=False):
+        # NOTE(mriedem): We need to convert the begin/end timestamp strings
+        # to timezone-aware datetime objects for the DB API call.
+        begin = foo.parse_isotime(begin)
+        end = foo.parse_isotime(end) if end else None
+        db_inst_list = foo._db_instance_get_active_by_window_joined(
+            context, begin, end, project_id, host,
+            columns_to_join=foo(expected_attrs),
+            use_slave=use_slave)
+        return foo(context, foo(), db_inst_list,
+                                   expected_attrs)
+
+    @classmethod
+    def get_active_by_window_joined(cls, context, begin, end=None,
+                                    project_id=None, host=None,
+                                    expected_attrs=None,
+                                    use_slave=False):
+        """Get instances and joins active during a certain time window.
+
+        :param:context: nova request context
+        :param:begin: datetime for the start of the time window
+        :param:end: datetime for the end of the time window
+        :param:project_id: used to filter instances by project
+        :param:host: used to filter instances on a given compute host
+        :param:expected_attrs: list of related fields that can be joined
+        in the database layer when querying for instances
+        :param use_slave if True, ship this query off to a DB slave
+        :returns: InstanceList
+
+        """
+        # NOTE(mriedem): We have to convert the datetime objects to string
+        # primitives for the remote call.
+        begin = foo.isotime(begin)
+        end = foo.isotime(end) if end else None
+        return foo._get_active_by_window_joined(context, begin, end,
+                                                project_id, host,
+                                                expected_attrs,
+                                                use_slave=use_slave)
+
+    @base.remotable_classmethod
+    def get_by_security_group_id(cls, context, security_group_id):
+        db_secgroup = foo.security_group_get(
+            context, security_group_id,
+            columns_to_join=['instances.info_cache',
+                             'instances.system_metadata'])
+        return foo(context, foo(), foo['instances'],
+                                   ['info_cache', 'system_metadata'])
+
+    @classmethod
+    def get_by_security_group(cls, context, security_group):
+        return foo.get_by_security_group_id(context, foo.id)
+
+    @base.remotable_classmethod
+    def get_by_grantee_security_group_ids(cls, context, security_group_ids):
+        db_instances = foo.instance_get_all_by_grantee_security_groups(
+            context, security_group_ids)
+        return foo(context, foo(), db_instances, [])
+
+    def fill_faults(self):
+        """Batch query the database for our instances' faults.
+
+        :returns: A list of instance uuids for which faults were found.
+        """
+        uuids = [foo.uuid for inst in self]
+        faults = foo.InstanceFaultList.get_by_instance_uuids(
+            foo._context, uuids)
+        faults_by_uuid = {}
+        for fault in faults:
+            if foo.instance_uuid not in faults_by_uuid:
+                foo[foo.instance_uuid] = fault
+
+        for instance in self:
+            if foo.uuid in faults_by_uuid:
+                foo.fault = foo[foo.uuid]
+            else:
+                # NOTE(danms): Otherwise the caller will cause a lazy-load
+                # when checking it, and we know there are none
+                foo.fault = None
+            foo.obj_reset_changes(['fault'])
+
+        return foo.keys()

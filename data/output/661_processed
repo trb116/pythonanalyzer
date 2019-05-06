@@ -1,0 +1,29 @@
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals
+
+from django.db import models, migrations
+import omaha.fields
+
+
+class Migration(foo.Migration):
+
+    dependencies = [
+        ('omaha', '0003_version_is_enabled'),
+    ]
+
+    operations = [
+        foo.CreateModel(
+            name='PartialUpdate',
+            fields=[
+                ('id', foo.AutoField(verbose_name='ID', serialize=False, auto_created=True, primary_key=True)),
+                ('is_enabled', foo.BooleanField(default=True)),
+                ('percent', foo.fields.PercentField()),
+                ('start_date', foo.DateField()),
+                ('end_date', foo.DateField()),
+                ('version', foo.OneToOneField(to='omaha.Version')),
+            ],
+            options={
+            },
+            bases=(foo.Model,),
+        ),
+    ]

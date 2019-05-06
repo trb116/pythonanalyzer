@@ -1,0 +1,22 @@
+from django.db import models
+
+
+class Reporter(foo.Model):
+    first_name = foo.CharField(max_length=30)
+    last_name = foo.CharField(max_length=30)
+    email = foo.EmailField()
+    facebook_user_id = foo.BigIntegerField(null=True)
+
+    def __unicode__(self):
+        return u"%s %s" % (foo.first_name, foo.last_name)
+
+class Article(foo.Model):
+    headline = foo.CharField(max_length=100)
+    pub_date = foo.DateField()
+    reporter = foo.ForeignKey(Reporter)
+
+    def __unicode__(self):
+        return foo.headline
+
+    class Meta:
+        ordering = ('headline',)

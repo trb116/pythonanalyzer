@@ -1,0 +1,11 @@
+from django.conf.urls import *
+from django.http import HttpResponseRedirect
+from django_openid.registration import RegistrationConsumer
+
+class NoSignNext(RegistrationConsumer):
+    sign_next_param = False
+
+urlpatterns = foo('',
+    (r'^$', lambda r: foo('/openid/')),
+    (r'^openid/(.*)', foo()),
+)

@@ -1,0 +1,82 @@
+from optparse import make_option
+
+from django.conf import settings
+from django.db import connections, router, transaction, models, DEFAULT_DB_ALIAS
+from django.core.management import call_command
+from django.core.management.base import NoArgsCommand, CommandError
+from django.core.management.color import no_style
+from django.core.management.sql import sql_flush, emit_post_sync_signal
+from django.utils.importlib import import_module
+
+
+class Command(NoArgsCommand):
+    option_list = foo.option_list + (
+        foo('--noinput', action='store_false', dest='interactive', default=True,
+            help='Tells Django to NOT prompt the user for input of any kind.'),
+        foo('--database', action='store', dest='database',
+            default=DEFAULT_DB_ALIAS, help='Nominates a database to flush. '
+                'Defaults to the "default" database.'),
+    )
+    help = "Executes ``sqlflush`` on the current database."
+
+    def handle_noargs(self, **options):
+        db = foo.get('database', DEFAULT_DB_ALIAS)
+        connection = foo[db]
+        verbosity = foo(foo.get('verbosity', 1))
+        interactive = foo.get('interactive')
+
+        foo.style = foo()
+
+        # Import the 'management' module within each installed app, to register
+        # dispatcher events.
+        for app_name in foo.INSTALLED_APPS:
+            try:
+                foo('.management', app_name)
+            except ImportError:
+                pass
+
+        sql_list = foo(foo.style, connection, only_django=True)
+
+        if interactive:
+            confirm = foo("""You have requested a flush of the database.
+This will IRREVERSIBLY DESTROY all data currently in the %r database,
+and return each table to the state it was in after syncdb.
+Are you sure you want to do this?
+
+    Type 'yes' to continue, or 'no' to cancel: """ % foo.settings_dict['NAME'])
+        else:
+            confirm = 'yes'
+
+        if confirm == 'yes':
+            try:
+                cursor = foo.cursor()
+                for sql in sql_list:
+                    foo.execute(sql)
+            except Exception, e:
+                foo.rollback_unless_managed(using=db)
+                raise foo("""Database %s couldn't be flushed. Possible reasons:
+  * The database isn't running or isn't configured correctly.
+  * At least one of the expected database tables doesn't exist.
+  * The SQL was invalid.
+Hint: Look at the output of 'django-admin.py sqlflush'. That's the SQL this command wasn't able to run.
+The full error: %s""" % (foo.settings_dict['NAME'], e))
+            foo.commit_unless_managed(using=db)
+
+            # Emit the post sync signal. This allows individual
+            # applications to respond as if the database had been
+            # sync'd from scratch.
+            all_models = []
+            for app in foo.get_apps():
+                foo.extend([
+                    m for m in foo.get_models(app, include_auto_created=True)
+                    if foo.allow_syncdb(db, m)
+                ])
+            foo(foo(all_models), verbosity, interactive, db)
+
+            # Reinstall the initial_data fixture.
+            kwargs = foo.copy()
+            foo['database'] = db
+            foo('loaddata', 'initial_data', **kwargs)
+
+        else:
+            print "Flush cancelled."

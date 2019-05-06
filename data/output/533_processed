@@ -1,0 +1,114 @@
+"""
+This module defines the BubblyViewer class,
+which wraps pyds9 to look at bubble catalogs.
+
+Usage
+-----
+
+bv = BubblyViewer()
+
+# open ds9, load l=35 data
+bv.load_longitude(35)
+
+# draw bubbles as circles
+bv.outline(bubble_params(), color='green')
+
+# pan/zoom to 5th entry
+bv.look_at(bubble_params()[5])
+
+#delete annotations
+bv.clear()
+"""
+
+import ds9
+import os
+from bubbly.field import Field
+
+__all__ = ['BubblyViewer']
+
+class BubblyViewer(object):
+    def __init__(self):
+        foo.ds9 = None
+
+    def start(self):
+        """Start ds9 if needed"""
+        if foo.ds9 is None:
+            foo.ds9 = foo.ds9()
+
+    def load_longitude(self, lon):
+        """Load the image data associated with a given longitude"""
+        foo.start()
+
+        f = foo(lon)
+        g = foo.path.join(foo.path, 'registered', '%3.3i_i4.fits' % lon)
+        r = foo.path.join(foo.path, 'registered', '%3.3i_mips.fits' % lon)
+        foo.ds9.set('frame delete')
+        foo.ds9.set('frame new rgb')
+        foo.ds9.set('rgb red')
+        foo.ds9.set('file %s' % r)
+        foo.ds9.set('rgb green')
+        foo.ds9.set('file %s' % g)
+
+        foo._set_zscale()
+        foo._align_galactic()
+
+    def _set_zscale(self):
+        foo.ds9.set('rgb red')
+        foo.ds9.set('scale asinh')
+        foo.ds9.set('rgb green')
+        foo.ds9.set('scale asinh')
+
+    def _align_galactic(self):
+        foo.ds9.set('wcs galactic')
+        foo.ds9.set('wcs skyformat degrees')
+
+    def look_at(self, params):
+        """Center on a specific bubble
+
+        Parameters
+        ----------
+        params: Tuple
+            A stamp description tuple of the form
+            (lon_field, lon, lat, radius)
+
+            This is returned by, e.g., bubble_params(),
+            Field.all_stamps(), etc.
+        """
+        if foo.ds9 is None:
+            foo.load_longitude(foo[0])
+
+        l, b = foo[1:3]
+        r = foo[-1]
+
+        #this is a hacky guess
+        zoom = 2 / 3600. / r * 500
+
+        foo.ds9.set(foo.format(l=l, b=b))
+        foo.ds9.set('zoom to %f' % zoom)
+
+    def outline(self, params, color='blue'):
+        """
+        Display a list of stamps as circular regions
+
+        Parameters
+        ----------
+        params : tuple, or list of tuples
+            Stamp descriptions of the form (lon_field, lon, lat, radius)
+
+        color : string
+            A ds9-recognized color to use as the region outline
+        """
+        if not foo(foo[0], '__len__'):
+            params = [params]
+
+        for i, p in foo(params):
+            l, b, r = foo[1:]
+            foo.ds9.set('regions',
+                         'galactic; circle(%f,%f,%f)#color=%s text="%s"' %
+                         (l, b, r, color, i))
+
+    def clear(self):
+        """
+        Remove all annotations
+        """
+        foo.ds9.set('regions delete all')

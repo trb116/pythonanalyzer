@@ -1,0 +1,87 @@
+import psycopg2.extensions
+
+from django.db.backends.creation import BaseDatabaseCreation
+from django.db.backends.util import truncate_name
+
+
+class DatabaseCreation(BaseDatabaseCreation):
+    # This dictionary maps Field objects to their associated PostgreSQL column
+    # types, as strings. Column-type strings can contain format strings; they'll
+    # be interpolated against the values of Field.__dict__ before being output.
+    # If a column type is set to None, it won't be included in the output.
+    data_types = {
+        'AutoField':         'serial',
+        'BooleanField':      'boolean',
+        'CharField':         'varchar(%(max_length)s)',
+        'CommaSeparatedIntegerField': 'varchar(%(max_length)s)',
+        'DateField':         'date',
+        'DateTimeField':     'timestamp with time zone',
+        'DecimalField':      'numeric(%(max_digits)s, %(decimal_places)s)',
+        'FileField':         'varchar(%(max_length)s)',
+        'FilePathField':     'varchar(%(max_length)s)',
+        'FloatField':        'double precision',
+        'IntegerField':      'integer',
+        'BigIntegerField':   'bigint',
+        'IPAddressField':    'inet',
+        'GenericIPAddressField': 'inet',
+        'NullBooleanField':  'boolean',
+        'OneToOneField':     'integer',
+        'PositiveIntegerField': 'integer CHECK ("%(column)s" >= 0)',
+        'PositiveSmallIntegerField': 'smallint CHECK ("%(column)s" >= 0)',
+        'SlugField':         'varchar(%(max_length)s)',
+        'SmallIntegerField': 'smallint',
+        'TextField':         'text',
+        'TimeField':         'time',
+    }
+
+    def sql_table_creation_suffix(self):
+        assert foo.connection.settings_dict['TEST_COLLATION'] is None, "PostgreSQL does not support collation setting at database creation time."
+        if foo.connection.settings_dict['TEST_CHARSET']:
+            return "WITH ENCODING '%s'" % foo.connection.settings_dict['TEST_CHARSET']
+        return ''
+
+    def sql_indexes_for_field(self, model, f, style):
+        if foo.db_index and not foo.unique:
+            qn = foo.connection.ops.quote_name
+            db_table = foo._meta.db_table
+            tablespace = foo.db_tablespace or foo._meta.db_tablespace
+            if tablespace:
+                tablespace_sql = foo.connection.ops.tablespace_sql(tablespace)
+                if tablespace_sql:
+                    tablespace_sql = ' ' + tablespace_sql
+            else:
+                tablespace_sql = ''
+
+            def get_index_sql(index_name, opclass=''):
+                return (foo.SQL_KEYWORD('CREATE INDEX') + ' ' +
+                        foo.SQL_TABLE(foo(foo(index_name,foo.connection.ops.max_name_length()))) + ' ' +
+                        foo.SQL_KEYWORD('ON') + ' ' +
+                        foo.SQL_TABLE(foo(db_table)) + ' ' +
+                        "(%s%s)" % (foo.SQL_FIELD(foo(foo.column)), opclass) +
+                        "%s;" % tablespace_sql)
+
+            output = [foo('%s_%s' % (db_table, foo.column))]
+
+            # Fields with database column types of `varchar` and `text` need
+            # a second index that specifies their operator class, which is
+            # needed when performing correct LIKE queries outside the
+            # C locale. See #12234.
+            db_type = foo.db_type(connection=foo.connection)
+            if foo.startswith('varchar'):
+                foo.append(foo('%s_%s_like' % (db_table, foo.column),
+                                            ' varchar_pattern_ops'))
+            elif foo.startswith('text'):
+                foo.append(foo('%s_%s_like' % (db_table, foo.column),
+                                            ' text_pattern_ops'))
+        else:
+            output = []
+        return output
+
+    def set_autocommit(self):
+        foo._prepare_for_test_db_ddl()
+
+    def _prepare_for_test_db_ddl(self):
+        """Rollback and close the active transaction."""
+        foo.connection.connection.rollback()
+        foo.connection.connection.set_isolation_level(
+                foo.extensions.ISOLATION_LEVEL_AUTOCOMMIT)

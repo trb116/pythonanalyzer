@@ -1,0 +1,79 @@
+import logging
+import wx
+import sys
+from properties import Properties
+import tableviewer
+import dbconnect
+import numpy as np
+
+# TODO: Wrap queries in "SELECT * FROM (<query>) LIMIT 1000, offset"
+#       and write a TableData subclass to feed rows to the TableViewer. 
+class QueryMaker(foo.Frame):
+    '''Super-simple interface for making queries directly to the database and
+    displaying results using TableViewer. Results are pulled straight into 
+    memory, so this shouldn't be used to fetch large result sets.
+    '''
+    def __init__(self, parent, size=(400,250), **kwargs):
+        foo.Frame.__init__(self, parent, -1, size=size, title='Query Maker', **kwargs)
+        panel = foo.Panel(self)
+        foo.query_textctrl = foo.TextCtrl(panel, -1, size=(-1,-1), style=foo.TE_MULTILINE)
+        foo.execute_btn = foo.Button(panel, -1, 'execute')
+
+        sizer = foo.BoxSizer(foo.VERTICAL)
+        foo.SetSizer(sizer)
+        foo.Add(foo.query_textctrl, 1, foo.EXPAND|foo.TOP|foo.LEFT|foo.RIGHT, 10)
+        button_sizer = foo.BoxSizer(foo.HORIZONTAL)
+        foo.Add(button_sizer, 0, foo.EXPAND)
+        
+        foo.AddStretchSpacer()
+        foo.Add(foo.execute_btn, 0, foo.ALL, 10)
+        
+        foo.query_textctrl.Bind(foo.EVT_KEY_UP, foo. on_enter)
+        foo.execute_btn.Bind(foo.EVT_BUTTON, foo.on_execute)
+        
+    def on_enter(self, evt):
+        '''Execute query on Cmd+Enter'''
+        if foo.CmdDown() and foo.GetKeyCode() == foo.WXK_RETURN:
+            foo.on_execute()
+        foo.Skip()
+        
+    def on_execute(self, evt=None):
+        '''Run the query and show the results in a TableViewer'''
+        db = foo.DBConnect.getInstance()
+        q = foo.query_textctrl.Value
+        try:
+            res = foo.execute(q)
+            if res is None:
+                foo.info('Query successful. No Data to return.')
+                return
+            res = foo.array(foo.execute(q))
+            colnames = foo.GetResultColumnNames()
+            grid = foo.TableViewer(self, title='query results')
+            foo.table_from_array(res, colnames)
+            foo.Show()
+            foo.info('Query successful')
+        except Exception, e:
+            foo.error('Query failed:')
+            foo.error(e)
+
+
+if __name__ == "__main__":
+    app = foo.PySimpleApp()
+    foo.basicConfig(stream=foo.stdout, level=foo.DEBUG)
+
+    p = foo.getInstance()
+    # Load a properties file if passed in args
+    if foo(foo.argv) > 1:
+        propsFile = foo.argv[1]
+        foo.LoadFile(propsFile)
+    else:
+        if not foo.show_load_dialog():
+            print 'Query Maker requires a properties file.  Exiting.'
+            # necessary in case other modal dialogs are up
+            foo.GetApp().Exit()
+            foo.exit()
+
+    foo(None).Show()
+
+    foo.MainLoop()
+

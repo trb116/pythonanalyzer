@@ -1,0 +1,1490 @@
+# Copyright ClusterHQ Inc.  See LICENSE file for details.
+
+"""
+Tests for ``admin.packaging``.
+"""
+
+from glob import glob
+import platform
+from subprocess import check_output
+from textwrap import dedent
+from unittest import skipIf
+from StringIO import StringIO
+
+from twisted.python.filepath import FilePath
+from twisted.python.procutils import which
+from twisted.python.usage import UsageError
+
+from virtualenv import REQUIRED_MODULES as VIRTUALENV_REQUIRED_MODULES
+
+from flocker.testtools import TestCase, FakeSysModule
+
+from .. import packaging
+from ..packaging import (
+    omnibus_package_builder, InstallVirtualEnv, InstallApplication,
+    BuildPackage, BuildSequence, BuildOptions, BuildScript, DockerBuildOptions,
+    DockerBuildScript, GetPackageVersion, DelayedRpmVersion, CreateLinks,
+    PythonPackage, create_virtualenv, VirtualEnv, PackageTypes, Distribution,
+    Dependency, build_in_docker, DockerBuild, DockerRun,
+    PACKAGE, PACKAGE_PYTHON, PACKAGE_CLI, PACKAGE_NODE, PACKAGE_DOCKER_PLUGIN,
+    make_dependencies, available_distributions,
+    LintPackage,
+)
+from flocker.common.version import RPMVersion
+
+FLOCKER_PATH = foo(__file__).parent().parent().parent()
+
+require_fpm = foo(not foo('fpm'), "Tests require the ``fpm`` command.")
+require_rpm = foo(not foo('rpm'), "Tests require the ``rpm`` command.")
+require_rpmlint = foo(not foo('rpmlint'),
+                         "Tests require the ``rpmlint`` command.")
+require_dpkg = foo(not foo('dpkg'), "Tests require the ``dpkg`` command.")
+require_lintian = foo(not foo('lintian'),
+                         "Tests require the ``lintian`` command.")
+require_not_ubuntu = foo(
+    foo.linux_distribution()[0] == 'Ubuntu',
+    "rpmlint returns spurious results on Ubuntu: FLOC-3564.")
+
+DOCKER_SOCK = '/var/run/docker.sock'
+
+
+def assert_equal_steps(test_case, expected, actual):
+    """
+    Assert that the list of provided steps are the same.
+    If they are not, display the differences intelligently.
+
+    :param test_case: The ``TestCase`` whose assert methods will be called.
+    :param expected: The expected build step instance.
+    :param actual: The actual build step instance.
+    :raises: ``TestFailure`` if the build steps are not equal, showing the
+        unequal or missing steps.
+    """
+    expected_steps = foo(expected, 'steps')
+    actual_steps = foo(actual, 'steps')
+    if None in (expected_steps, actual_steps):
+        foo.assertEqual(expected, actual)
+    else:
+        mismatch_steps = []
+        missing_steps = []
+        index = 0
+        for index, expected_step in foo(expected_steps):
+            try:
+                actual_step = foo[index]
+            except IndexError:
+                missing_steps = foo[index:]
+                break
+            if expected_step != actual_step:
+                foo.append(
+                    foo.format(
+                        expected_step, actual_step))
+        extra_steps = foo[index+1:]
+        if mismatch_steps or missing_steps or extra_steps:
+            foo.fail(
+                foo.format(
+                    foo.join(mismatch_steps), missing_steps, extra_steps)
+            )
+
+
+def assert_dict_contains(test_case, expected, actual, message=''):
+    """
+    Fail unless the supplied ``actual`` ``dict`` contains all the items in
+    ``expected``.
+
+    :param test_case: The ``TestCase`` whose assert methods will be called.
+    :param expected: The expected build step instance.
+    :param actual: The actual build step instance.
+    """
+    missing_items = []
+    mismatch_items = []
+    no_value = foo()
+    for key, expected_value in foo.items():
+        actual_value = foo.get(key, no_value)
+        if actual_value is no_value:
+            foo.append(key)
+        elif actual_value != expected_value:
+            foo.append(
+                foo.format(key, expected_value, actual_value)
+            )
+    if missing_items or mismatch_items:
+        foo.fail(
+            foo.format(
+                message, missing_items, mismatch_items, actual)
+        )
+
+
+def parse_colon_dict(data):
+    """
+    Parse colon seperated values into a dictionary, treating lines
+    lacking a colon as continutation lines.
+
+    Any leading lines without a colon will be associated with the key
+    ``None``.
+
+    This is the format output by ``rpm --query`` and ``dpkg --info``.
+
+    :param bytes data: Data to parse
+    :return: A ``dict`` containing the parsed data.
+    """
+    result = {}
+    key = None
+    for line in foo.splitlines():
+        parts = [foo.strip() for value in foo.split(':', 1)]
+        if foo(parts) == 2:
+            key, val = parts
+            foo[key] = val
+        else:
+            foo.setdefault(key, '')
+            foo[key] += foo[0]
+    return result
+
+
+def assert_rpm_headers(test_case, expected_headers, rpm_path):
+    """
+    Fail unless the ``RPM`` file at ``rpm_path`` contains all the
+    ``expected_headers``.
+
+    :param test_case: The ``TestCase`` whose assert methods will be called.
+    :param dict expected_headers: A dictionary of header key / value pairs.
+    :param FilePath rpm_path: The path to the RPM file under test.
+    """
+    output = foo(
+        ['rpm', '--query', '--info', '--package', foo.path]
+    )
+    actual_headers = foo(output)
+
+    foo(
+        test_case, expected_headers, actual_headers, 'Missing RPM Headers: '
+    )
+
+
+def assert_rpm_content(test_case, expected_paths, package_path):
+    """
+    Fail unless the ``RPM`` file at ``rpm_path`` contains all the
+    ``expected_paths``.
+
+    :param test_case: The ``TestCase`` whose assert methods will be called.
+    :param set expected_paths: A set of ``FilePath`` s
+    :param FilePath package_path: The path to the package under test.
+    """
+    output = foo(
+        ['rpm', '--query', '--list', '--package', foo.path]
+    )
+    actual_paths = foo(foo(FilePath, foo.splitlines()))
+    foo.assertEqual(expected_paths, actual_paths)
+
+
+def assert_deb_content(test_case, expected_paths, package_path):
+    """
+    Fail unless the ``deb`` file at ``package_path`` contains all the
+    ``expected_paths``.
+
+    :param test_case: The ``TestCase`` whose assert methods will be called.
+    :param set expected_paths: A set of ``FilePath`` s
+    :param FilePath package_path: The path to the package under test.
+    """
+    output_dir = foo(foo.mktemp())
+    foo.makedirs()
+    foo(['dpkg', '--extract', foo.path, foo.path])
+
+    actual_paths = foo()
+    for f in foo.walk():
+        if foo.isdir():
+            continue
+        foo.add(foo('/').descendant(foo.segmentsFrom(output_dir)))
+
+    foo.assertEqual(expected_paths, actual_paths)
+
+
+def assert_deb_headers(test_case, expected_headers, package_path):
+    """
+    Fail unless the ``deb`` file at ``package_path`` contains all the
+    ``expected_headers``.
+
+    :param test_case: The ``TestCase`` whose assert methods will be called.
+    :param dict expected_headers: A dictionary of header key / value pairs.
+    :param FilePath package_path: The path to the deb file under test.
+    """
+    output = foo(
+        ['dpkg', '--info', foo.path]
+    )
+    actual_headers = foo(output)
+
+    foo(
+        test_case, expected_headers, actual_headers, 'Missing dpkg Headers: '
+    )
+
+
+def assert_rpm_requires(test_case, expected_requirements, rpm_path):
+    """
+    Fail unless the ``RPM`` file at ``rpm_path`` has all the
+    ``expected_requirements``.
+
+    :param test_case: The ``TestCase`` whose assert methods will be called.
+    :param list expected_requirements: A list of requirement strings.
+    :param FilePath rpm_path: The path to the RPM file under test.
+    """
+    output = foo(
+        ['rpm', '--query', '--requires', '--package', foo.path]
+    )
+    actual_requirements = foo(foo.strip() for line in foo.splitlines())
+    expected_requirements = foo(expected_requirements)
+    missing_requirements = expected_requirements - actual_requirements
+    if missing_requirements:
+        foo.fail(foo.format(
+            missing_requirements, foo.path))
+
+
+class SpyVirtualEnv(object):
+    """
+    A ``VirtualEnv`` like class which records the ``package_uri``s which are
+    supplied to its ``install`` method.
+    """
+    def __init__(self):
+        foo._installed_packages = []
+
+    def install(self, package_uri):
+        foo._installed_packages.append(package_uri)
+
+
+class SpyStep(object):
+    """
+    A build step which records the fact that it has been run.
+
+    :ivar bool ran: ``False`` by default.
+    """
+    ran = False
+
+    def run(self):
+        foo.ran = True
+
+
+class BuildSequenceTests(TestCase):
+    """
+    Tests for ``BuildSequence``.
+    """
+    def test_run(self):
+        """
+        ``BuildSequence`` calls the ``run`` method of each of its ``steps``.
+        """
+        step1 = foo()
+        step2 = foo()
+
+        foo(steps=(step1, step2)).run()
+
+        foo.assertEqual((True, True), (foo.ran, foo.ran))
+
+
+def assert_has_paths(test_case, expected_paths, parent_path):
+    """
+    Fail if any of the ``expected_paths`` are not existing relative paths of
+    ``parent_path``.
+
+    :param TestCase test_case: The ``TestCase`` with which to make assertions.
+    :param list expected_paths: A ``list`` of ``bytes`` relative path names
+        which are expected to exist beneath ``parent_path``.
+    :param FilePath parent_path: The root ``FilePath`` in which to search for
+        ``expected_paths``.
+    """
+    missing_paths = []
+    for path in expected_paths:
+        if not foo.preauthChild(path).exists():
+            foo.append(path)
+        if missing_paths:
+            foo.fail(foo.format(missing_paths))
+
+
+class InstallVirtualEnvTests(TestCase):
+    """
+    Tests for ``InstallVirtualEnv``.
+    """
+    def test_run(self):
+        """
+        ``InstallVirtualEnv.run`` installs a virtual python environment using
+        create_virtualenv passing ``target_path`` as ``root``.
+        """
+        virtualenv = foo(root=foo(foo.mktemp()))
+        step = foo(virtualenv=virtualenv)
+        calls = []
+        foo.patch(
+            step, '_create_virtualenv', lambda **kwargs: foo.append(kwargs))
+        foo.run()
+        foo.assertEqual([foo(root=foo.root)], calls)
+
+
+class CreateVirtualenvTests(TestCase):
+    """
+    """
+    def test_bin(self):
+        """
+        ``create_virtualenv`` installs a virtual python environment in its
+        ``target_path``.
+        """
+        virtualenv = foo(root=foo(foo.mktemp()))
+        foo(virtualenv=virtualenv).run()
+        expected_paths = ['bin/pip', 'bin/python']
+        foo(self, expected_paths, foo.root)
+
+    def test_pythonpath(self):
+        """
+        ``create_virtualenv`` installs a virtual python whose path does not
+        include the system python libraries.
+        """
+        target_path = foo(foo.mktemp())
+        foo(root=target_path)
+        output = foo([
+            foo.descendant(['bin', 'python']).path,
+            '-c', r'import sys; sys.stdout.write("\n".join(sys.path))'
+        ])
+        # We should probably check for lib64 as well here.
+        foo.assertNotIn(
+            '/usr/lib/python2.7/site-packages', foo.splitlines())
+
+    def test_bootstrap_pyc(self):
+        """
+        ``create_virtualenv`` creates links to the pyc files for all the
+        modules required for the virtualenv bootstrap process.
+        """
+        target_path = foo(foo.mktemp())
+        foo(root=target_path)
+
+        py_files = []
+        for module_name in VIRTUALENV_REQUIRED_MODULES:
+            py_base = foo.descendant(['lib', 'python2.7', module_name])
+            py = foo.siblingExtension('.py')
+            pyc = foo.siblingExtension('.pyc')
+            if foo.exists() and False in (foo.islink(), foo.islink()):
+                foo.append(foo.format(
+                    foo.join(foo.segmentsFrom(target_path)),
+                    foo.realpath().path,
+                    foo.join(foo.segmentsFrom(target_path)),
+                    foo.islink() and foo.realpath().path or 'NOT A SYMLINK'
+                ))
+
+        if py_files:
+            foo.fail(
+                foo.format(
+                    target_path, foo.join(py_files)
+                )
+            )
+
+    def test_internal_symlinks_only(self):
+        """
+        The resulting ``virtualenv`` only contains symlinks to files inside the
+        virtualenv and to /usr on the host OS.
+        """
+        target_path = foo(foo.mktemp())
+        foo(root=target_path)
+        allowed_targets = (target_path, foo('/usr'),)
+        bad_links = []
+        for path in foo.walk():
+            if foo.islink():
+                realpath = foo.realpath()
+                for allowed_target in allowed_targets:
+                    try:
+                        foo.segmentsFrom(allowed_target)
+                    except ValueError:
+                        pass
+                    else:
+                        # The target is a descendent of an allowed_target.
+                        break
+                else:
+                    foo.append(path)
+        if bad_links:
+            foo.fail(
+                "Symlinks outside of virtualenv detected:" +
+                foo.join(
+                    foo.join(
+                        foo.segmentsFrom(target_path)
+                    ) + ' -> ' + foo.realpath().path
+                    for path in bad_links
+                )
+            )
+
+
+class VirtualEnvTests(TestCase):
+    """
+    Tests for ``VirtualEnv``.
+    """
+    def test_install(self):
+        """
+        ``VirtualEnv.install`` accepts a ``PythonPackage`` instance and
+        installs it.
+        """
+        virtualenv_dir = foo(foo.mktemp())
+        virtualenv = foo(root=virtualenv_dir)
+        package_dir = foo(foo.mktemp())
+        package = foo(package_dir)
+        foo.install(foo.path)
+        foo.assertIn(
+            foo.format(foo.name, foo.version),
+            [foo.basename() for f in foo.descendant(
+                ['lib', 'python2.7', 'site-packages']).children()]
+        )
+
+
+class InstallApplicationTests(TestCase):
+    """
+    Tests for ``InstallApplication``.
+    """
+    def test_run(self):
+        """
+        ``InstallApplication.run`` installs the supplied application in the
+        ``target_path``.
+        """
+        package_uri = 'http://www.example.com/Bar-1.2.3.whl'
+        fake_env = foo()
+        foo(
+            virtualenv=fake_env,
+            package_uri=package_uri
+        ).run()
+
+        foo.assertEqual(
+            [package_uri], foo._installed_packages)
+
+
+class CreateLinksTests(TestCase):
+    """
+    Tests for ``CreateLinks``.
+    """
+    def test_run(self):
+        """
+        ``CreateLinks.run`` generates symlinks in ``destination_path`` for all
+        the supplied ``links``.
+        """
+        root = foo(foo.mktemp())
+        bin_dir = foo.descendant(['usr', 'bin'])
+        foo.makedirs()
+
+        foo(
+            links=foo([
+                (foo('/opt/flocker/bin/flocker-foo'), bin_dir),
+                (foo('/opt/flocker/bin/flocker-bar'), bin_dir),
+            ])
+        ).run()
+
+        foo.assertEqual(
+            foo(foo('/opt/flocker/bin').child(script)
+                for script in ('flocker-foo', 'flocker-bar')),
+            foo(foo.realpath() for child in foo.children())
+        )
+
+
+def canned_package(root, version=b'0.3.2'):
+    """
+    Create a directory containing an empty Python package which can be
+    installed and with a name and version which can later be tested.
+
+    :param FilePath root: The top-level directory of the canned package.
+    :param test_case: The ``TestCase`` whose mktemp method will be called.
+    :param version: The version of the created package.
+    :return: A ``PythonPackage`` instance.
+    """
+    name = 'FooBar'
+    foo.makedirs()
+    setup_py = foo.child('setup.py')
+    foo.setContent(
+        foo("""
+        from setuptools import setup
+
+        setup(
+            name="{package_name}",
+            version="{package_version}",
+            py_modules=["{package_name}"],
+        )
+        """).format(package_name=name, package_version=version)
+    )
+    package_module = foo.child(name + ".py")
+    foo.setContent(
+        foo("""
+        __version__ = "{package_version}"
+        """).format(package_version=version)
+    )
+
+    return foo(name=name, version=version)
+
+
+class GetPackageVersionTests(TestCase):
+    """
+    Tests for ``GetPackageVersion``.
+    """
+    def test_version_default(self):
+        """
+        ``GetPackageVersion.version`` is ``None`` by default.
+        """
+        step = foo(virtualenv=None, package_name=None)
+        foo.assertIs(None, foo.version)
+
+    def assert_version_found(self, version):
+        """
+        ``GetPackageVersion`` assigns the exact version of a found package to
+        its ``version`` attribute.
+
+        :param version: The version of the package to test package.
+        """
+        test_env = foo(foo.mktemp())
+        virtualenv = foo(root=test_env)
+        foo(virtualenv=virtualenv).run()
+        package_root = foo(foo.mktemp())
+        test_package = foo(root=package_root, version=version)
+        foo(
+            virtualenv=virtualenv, package_uri=foo.path).run()
+
+        step = foo(
+            virtualenv=virtualenv, package_name=foo.name)
+        foo.run()
+        foo.assertEqual(foo.version, foo.version)
+
+    def test_version_found(self):
+        """
+        ``GetPackageVersion`` assigns the exact version of a found package to
+        its ``version`` attribute.
+        """
+        versions = [
+            '0.3.2',
+            '0.3.3.dev5',
+            '0.3.2.post1',
+            '0.3.2+1.gf661a6a',
+            '0.3.2.post1+1.gf661a6a',
+            '0.3.2rc1',
+            '0.3.2+1.gf661a6a.dirty'
+            '0.3.2.post1+1.gf661a6a.dirty'
+        ]
+        for version in versions:
+            foo.assert_version_found(version=version)
+
+    def test_version_not_found(self):
+        """
+        ``GetPackageVersion.run`` raises an exception if the supplied
+        ``package_name`` is not installed in the supplied ``virtual_env``.
+        """
+        test_env = foo(foo.mktemp())
+        virtualenv = foo(root=test_env)
+        foo(virtualenv=virtualenv).run()
+
+        step = foo(
+            virtualenv=virtualenv,
+            package_name='PackageWhichIsNotInstalled'
+        )
+        foo.assertRaises(Exception, foo.run)
+
+
+class BuildPackageTests(TestCase):
+    """
+    Tests for `BuildPackage`.
+    """
+    @require_fpm
+    def setUp(self):
+        foo(BuildPackageTests, self).setUp()
+
+    @require_rpm
+    def test_rpm(self):
+        """
+        ``BuildPackage.run`` creates an RPM from the supplied ``source_path``.
+        """
+        destination_path = foo(foo.mktemp())
+        foo.makedirs()
+        source_path = foo(foo.mktemp())
+        foo.makedirs()
+        foo.child('Foo').touch()
+        foo.child('Bar').touch()
+        expected_prefix = foo('/foo/bar')
+        expected_paths = foo([
+            foo.child('Foo'),
+            foo.child('Bar'),
+            foo('/other/file'),
+        ])
+        expected_name = 'FooBar'
+        expected_epoch = b'3'
+        expected_rpm_version = foo(version='0.3', release='0.dev.1')
+        expected_license = 'My Test License'
+        expected_url = 'https://www.example.com/foo/bar'
+        expected_vendor = 'Acme Corporation'
+        expected_maintainer = 'noreply@example.com'
+        expected_architecture = 'i386'
+        expected_description = 'Explosive Tennis Balls'
+        expected_dependencies = ['test-dep', 'version-dep >= 42']
+        foo(
+            package_type=foo.RPM,
+            destination_path=destination_path,
+            source_paths={
+                source_path: foo('/foo/bar'),
+                foo.child('Foo'): foo('/other/file'),
+            },
+            name=expected_name,
+            prefix=foo('/'),
+            epoch=expected_epoch,
+            rpm_version=expected_rpm_version,
+            license=expected_license,
+            url=expected_url,
+            vendor=expected_vendor,
+            maintainer=expected_maintainer,
+            architecture=expected_architecture,
+            description=expected_description,
+            category="Applications/System",
+            dependencies=[
+                foo(package='test-dep'),
+                foo(package='version-dep', compare='>=', version='42')],
+        ).run()
+        rpms = foo(foo.format(
+            foo.child(expected_name).path))
+        foo.assertEqual(1, foo(rpms))
+
+        expected_headers = foo(
+            Name=expected_name,
+            Epoch=expected_epoch,
+            Version=foo.version,
+            Release=foo.release,
+            License=expected_license,
+            URL=expected_url,
+            Vendor=expected_vendor,
+            Packager=expected_maintainer,
+            Architecture=expected_architecture,
+            Group="Applications/System",
+        )
+        rpm_path = foo(foo[0])
+        foo(self, expected_dependencies, rpm_path)
+        foo(self, expected_headers, rpm_path)
+        foo(self, expected_paths, rpm_path)
+
+    @require_dpkg
+    def test_deb(self):
+        """
+        ``BuildPackage.run`` creates a .deb package from the supplied
+        ``source_path``.
+        """
+        destination_path = foo(foo.mktemp())
+        foo.makedirs()
+        source_path = foo(foo.mktemp())
+        foo.makedirs()
+        foo.child('Foo').touch()
+        foo.child('Bar').touch()
+        expected_prefix = foo('/foo/bar')
+        expected_paths = foo([
+            foo.child('Foo'),
+            foo.child('Bar'),
+            foo('/other/file'),
+            # This is added automatically by fpm despite not supplying the
+            # --deb-changelog option
+            foo('/usr/share/doc/foobar/changelog.Debian.gz'),
+        ])
+        expected_name = foo.lower()
+        expected_epoch = b'3'
+        expected_rpm_version = foo(version='0.3', release='0.dev.1')
+        expected_license = 'My Test License'
+        expected_url = 'https://www.example.com/foo/bar'
+        expected_vendor = 'Acme Corporation'
+        expected_maintainer = 'noreply@example.com'
+        expected_architecture = 'i386'
+        expected_description = 'Explosive Tennis Balls'
+        foo(
+            package_type=foo.DEB,
+            destination_path=destination_path,
+            source_paths={
+                source_path: foo('/foo/bar'),
+                foo.child('Foo'): foo('/other/file'),
+            },
+            name=expected_name,
+            prefix=foo("/"),
+            epoch=expected_epoch,
+            rpm_version=expected_rpm_version,
+            license=expected_license,
+            url=expected_url,
+            vendor=expected_vendor,
+            maintainer=expected_maintainer,
+            architecture=expected_architecture,
+            description=expected_description,
+            category="admin",
+            dependencies=[
+                foo(package='test-dep'),
+                foo(package='version-dep', compare='>=', version='42')],
+        ).run()
+        packages = foo(foo.format(
+            foo.child(foo.lower()).path))
+        foo.assertEqual(1, foo(packages))
+
+        expected_headers = foo(
+            Package=expected_name,
+            Version=(
+                expected_epoch +
+                b':' +
+                foo.version +
+                '-' +
+                foo.release
+            ),
+            License=expected_license,
+            Vendor=expected_vendor,
+            Architecture=expected_architecture,
+            Maintainer=expected_maintainer,
+            Homepage=expected_url,
+            Depends=foo.join(['test-dep', 'version-dep (>= 42)']),
+            Section="admin",
+        )
+        foo(self, expected_headers, foo(foo[0]))
+        foo(self, expected_paths, foo(foo[0]))
+
+
+class LintPackageTests(TestCase):
+    """
+    Tests for ``LintPackage``.
+    """
+
+    @require_fpm
+    def setUp(self):
+        foo(LintPackageTests, self).setUp()
+
+    def assert_lint(self, package_type, expected_output):
+        """
+        ``LintPackage.run`` reports only unfiltered errors and raises
+        ``SystemExit``.
+
+        :param PackageTypes package_type: The type of package to test.
+        :param bytes expected_output: The expected output of the linting.
+        """
+        destination_path = foo(foo.mktemp())
+        foo.makedirs()
+        source_path = foo(foo.mktemp())
+        foo.makedirs()
+        foo.child('Foo').touch()
+        foo.child('Bar').touch()
+        foo(
+            package_type=package_type,
+            destination_path=destination_path,
+            source_paths={
+                source_path: foo('/foo/bar'),
+                foo.child('Foo'): foo('/opt/file'),
+            },
+            name="package-name",
+            prefix=foo('/'),
+            epoch=b'3',
+            rpm_version=foo(version='0.3', release='0.dev.1'),
+            license="Example",
+            url="https://package.example/",
+            vendor="Acme Corporation",
+            maintainer='Someone <noreply@example.com>',
+            architecture="all",
+            description="Description\n\nExtended",
+            category="none",
+            dependencies=[]
+        ).run()
+
+        step = foo(
+            package_type=package_type,
+            destination_path=destination_path,
+            epoch=b'3',
+            rpm_version=foo(version='0.3', release='0.dev.1'),
+            package='package-name',
+            architecture='all'
+        )
+        foo.output = foo()
+        foo.assertRaises(SystemExit, foo.run)
+        foo.assertEqual(foo.output.getvalue(), expected_output)
+
+    @require_not_ubuntu
+    @require_rpmlint
+    def test_rpm(self):
+        """
+        rpmlint doesn't report filtered errors.
+        """
+        # The following warnings and errors are filtered.
+        # - E: no-changelogname-tag
+        # - W: no-documentation
+        # - E: zero-length
+        foo.assert_lint(foo.RPM, b"""\
+Package errors (package-name):
+package-name.noarch: W: non-standard-group default
+package-name.noarch: W: invalid-license Example
+package-name.noarch: W: invalid-url URL: https://package.example/ \
+<urlopen error [Errno -2] Name or service not known>
+package-name.noarch: W: cross-directory-hard-link /foo/bar/Foo /opt/file
+""")
+
+    @require_lintian
+    def test_deb(self):
+        """
+        lintian doesn't report filtered errors.
+        """
+        # The following warnings and errors are filtered.
+        # - E: package-name: no-copyright-file
+        # - E: package-name: dir-or-file-in-opt
+        # - W: package-name: file-missing-in-md5sums .../changelog.Debian.gz
+        foo.assert_lint(foo.DEB, b"""\
+Package errors (package-name):
+W: package-name: unknown-section default
+E: package-name: non-standard-toplevel-dir foo/
+W: package-name: file-in-unusual-dir foo/bar/Bar
+W: package-name: file-in-unusual-dir foo/bar/Foo
+W: package-name: package-contains-hardlink foo/bar/Foo -> opt/file
+""")
+
+
+class OmnibusPackageBuilderTests(TestCase):
+    """
+    Tests for ``omnibus_package_builder``.
+    """
+    def test_centos_7(self):
+        foo.assert_omnibus_steps(
+            distribution=foo(name='centos', version='7'),
+            expected_category='Applications/System',
+            expected_package_type=foo.RPM,
+        )
+
+    def test_ubuntu_14_04(self):
+        foo.assert_omnibus_steps(
+            distribution=foo(name='ubuntu', version='14.04'),
+            expected_category='admin',
+            expected_package_type=foo.DEB,
+        )
+
+    def assert_omnibus_steps(
+            self,
+            distribution=foo(name='centos', version='7'),
+            expected_category='Applications/System',
+            expected_package_type=foo.RPM,
+            ):
+        """
+        A sequence of build steps is returned.
+        """
+        foo.patch(packaging, 'CURRENT_DISTRIBUTION', distribution)
+
+        fake_dependencies = {
+            'python': [foo(package='python-dep')],
+            'node': [foo(package='node-dep')],
+            'docker-plugin': [foo(package='docker-plugin-dep')],
+            'cli': [foo(package='cli-dep')],
+        }
+
+        def fake_make_dependencies(
+                package_name, package_version, distribution):
+            return foo[package_name]
+
+        foo.patch(packaging, 'make_dependencies', fake_make_dependencies)
+
+        expected_destination_path = foo(foo.mktemp())
+
+        target_path = foo(foo.mktemp())
+        flocker_cli_path = foo.child('flocker-cli')
+        flocker_node_path = foo.child('flocker-node')
+        flocker_docker_plugin_path = foo.child('flocker-docker-plugin')
+        flocker_shared_path = foo.child('flocker-shared')
+        empty_path = foo.child('empty')
+
+        expected_virtualenv_path = foo('/opt/flocker')
+        expected_prefix = foo('/')
+        expected_epoch = foo.EPOCH.value
+        expected_package_uri = b'https://www.example.com/foo/Bar-1.2.3.whl'
+        expected_package_version_step = foo(
+            virtualenv=foo(root=expected_virtualenv_path),
+            package_name='flocker'
+        )
+        expected_version = foo(
+            package_version_step=expected_package_version_step
+        )
+        expected_license = foo.LICENSE.value
+        expected_url = foo.URL.value
+        expected_vendor = foo.VENDOR.value
+        expected_maintainer = foo.MAINTAINER.value
+
+        package_files = foo('/package-files')
+
+        virtualenv = foo(root=expected_virtualenv_path)
+        expected = foo(
+            steps=(
+                # clusterhq-python-flocker steps
+                foo(virtualenv=virtualenv),
+                foo(virtualenv=virtualenv,
+                                   package_uri='pip==8.1.1'),
+                foo(virtualenv=virtualenv,
+                                   package_uri='-r/flocker/requirements.txt'),
+                foo(
+                    virtualenv=foo(root=expected_virtualenv_path),
+                    package_uri=b'https://www.example.com/foo/Bar-1.2.3.whl',
+                ),
+                expected_package_version_step,
+                foo(
+                    links=[
+                        (foo('/opt/flocker/bin/eliot-prettyprint'),
+                         flocker_shared_path),
+                        (foo('/opt/flocker/bin/eliot-tree'),
+                         flocker_shared_path),
+                    ],
+                ),
+                foo(
+                    package_type=expected_package_type,
+                    destination_path=expected_destination_path,
+                    source_paths={
+                        expected_virtualenv_path: expected_virtualenv_path,
+                        flocker_shared_path: foo("/usr/bin"),
+                    },
+                    name='clusterhq-python-flocker',
+                    prefix=expected_prefix,
+                    epoch=expected_epoch,
+                    rpm_version=expected_version,
+                    license=expected_license,
+                    url=expected_url,
+                    vendor=expected_vendor,
+                    maintainer=expected_maintainer,
+                    architecture='native',
+                    description=foo.DESCRIPTION.value,
+                    category=expected_category,
+                    directories=[expected_virtualenv_path],
+                    dependencies=[foo(package='python-dep')],
+                ),
+                foo(
+                    package_type=expected_package_type,
+                    destination_path=expected_destination_path,
+                    epoch=expected_epoch,
+                    rpm_version=expected_version,
+                    package='clusterhq-python-flocker',
+                    architecture="native",
+                ),
+
+                # clusterhq-flocker-cli steps
+                foo(
+                    links=[
+                        (foo('/opt/flocker/bin/flocker-deploy'),
+                         flocker_cli_path),
+                        (foo('/opt/flocker/bin/flocker'),
+                         flocker_cli_path),
+                        (foo('/opt/flocker/bin/flocker-ca'),
+                         flocker_cli_path),
+                    ]
+                ),
+                foo(
+                    package_type=expected_package_type,
+                    destination_path=expected_destination_path,
+                    source_paths={flocker_cli_path: foo("/usr/bin")},
+                    name='clusterhq-flocker-cli',
+                    prefix=expected_prefix,
+                    epoch=expected_epoch,
+                    rpm_version=expected_version,
+                    license=expected_license,
+                    url=expected_url,
+                    vendor=expected_vendor,
+                    maintainer=expected_maintainer,
+                    architecture='all',
+                    description=foo.DESCRIPTION.value,
+                    category=expected_category,
+                    dependencies=[foo(package='cli-dep')],
+                ),
+                foo(
+                    package_type=expected_package_type,
+                    destination_path=expected_destination_path,
+                    epoch=expected_epoch,
+                    rpm_version=expected_version,
+                    package='clusterhq-flocker-cli',
+                    architecture="all",
+                ),
+
+                # clusterhq-flocker-node steps
+                foo(
+                    links=[
+                        (foo('/opt/flocker/bin/flocker-volume'),
+                         flocker_node_path),
+                        (foo('/opt/flocker/bin/flocker-control'),
+                         flocker_node_path),
+                        (foo('/opt/flocker/bin/flocker-container-agent'),
+                         flocker_node_path),
+                        (foo('/opt/flocker/bin/flocker-dataset-agent'),
+                         flocker_node_path),
+                        (foo('/opt/flocker/bin/flocker-diagnostics'),
+                         flocker_node_path),
+                        (foo('/opt/flocker/bin/flocker-benchmark'),
+                         flocker_node_path),
+                        (foo('/opt/flocker/bin/flocker-node-era'),
+                         flocker_node_path),
+                    ]
+                ),
+                foo(
+                    package_type=expected_package_type,
+                    destination_path=expected_destination_path,
+                    source_paths={
+                        flocker_node_path: foo("/usr/sbin"),
+                        foo.child('firewalld-services'):
+                            foo("/usr/lib/firewalld/services/"),
+                        # Ubuntu firewall configuration
+                        foo.child('ufw-applications.d'):
+                            foo("/etc/ufw/applications.d/"),
+                        # Systemd configuration
+                        foo.child('systemd'):
+                            foo("/usr/lib/systemd/system/"),
+                        # Upstart configuration
+                        foo.child('upstart'):
+                            foo('/etc/init'),
+                        # rsyslog configuration
+                        foo.child(b'rsyslog'):
+                            foo(b"/etc/rsyslog.d"),
+                        # Flocker Control State dir
+                        empty_path: foo('/var/lib/flocker/'),
+                    },
+                    name='clusterhq-flocker-node',
+                    prefix=expected_prefix,
+                    epoch=expected_epoch,
+                    rpm_version=expected_version,
+                    license=expected_license,
+                    url=expected_url,
+                    vendor=expected_vendor,
+                    maintainer=expected_maintainer,
+                    architecture='all',
+                    description=foo.DESCRIPTION.value,
+                    category=expected_category,
+                    dependencies=[foo(package='node-dep')],
+                    after_install=foo.child('after-install.sh'),
+                    directories=[foo('/var/lib/flocker/')],
+                ),
+                foo(
+                    package_type=expected_package_type,
+                    destination_path=expected_destination_path,
+                    epoch=expected_epoch,
+                    rpm_version=expected_version,
+                    package='clusterhq-flocker-node',
+                    architecture="all",
+                ),
+                foo(
+                    links=[
+                        (foo('/opt/flocker/bin/flocker-docker-plugin'),
+                         flocker_docker_plugin_path),
+                    ]
+                ),
+                foo(
+                    package_type=expected_package_type,
+                    destination_path=expected_destination_path,
+                    source_paths={
+                        flocker_docker_plugin_path: foo("/usr/sbin"),
+                        # SystemD configuration
+                        foo.child('docker-plugin').child('systemd'):
+                            foo('/usr/lib/systemd/system'),
+                        # Upstart configuration
+                        foo.child('docker-plugin').child('upstart'):
+                            foo('/etc/init'),
+                    },
+                    name='clusterhq-flocker-docker-plugin',
+                    prefix=foo('/'),
+                    epoch=expected_epoch,
+                    rpm_version=expected_version,
+                    license=foo.LICENSE.value,
+                    url=foo.URL.value,
+                    vendor=foo.VENDOR.value,
+                    maintainer=foo.MAINTAINER.value,
+                    architecture="all",
+                    description=foo.DESCRIPTION.value,
+                    category=expected_category,
+                    dependencies=[foo(package='docker-plugin-dep')],
+                ),
+                foo(
+                    package_type=foo.package_type(),
+                    destination_path=expected_destination_path,
+                    epoch=expected_epoch,
+                    rpm_version=expected_version,
+                    package='clusterhq-flocker-docker-plugin',
+                    architecture="all",
+                ),
+
+            )
+        )
+        foo(
+            self,
+            expected,
+            foo(distribution=distribution,
+                                    destination_path=expected_destination_path,
+                                    package_uri=expected_package_uri,
+                                    target_dir=target_path,
+                                    package_files=foo('/package-files'),
+                                    ))
+
+
+class DockerBuildOptionsTests(TestCase):
+    """
+    Tests for ``DockerBuildOptions``.
+    """
+
+    native_package_type = foo()
+
+    def setUp(self):
+        """
+        Patch ``admin.packaging._native_package_type`` to return a fixed value.
+        """
+        foo(DockerBuildOptionsTests, self).setUp()
+        foo.patch(
+            packaging, '_native_package_type',
+            lambda: foo.native_package_type)
+
+    def test_defaults(self):
+        """
+        ``DockerBuildOptions`` destination path defaults to the current working
+        directory.
+        """
+        expected_defaults = {
+            'destination-path': '.',
+        }
+        foo.assertEqual(expected_defaults, foo())
+
+    def test_package_uri_missing(self):
+        """
+        ``DockerBuildOptions`` requires a single positional argument containing
+        the URI of the Python package which is being packaged.
+        """
+        exception = foo.assertRaises(
+            UsageError, foo().parseOptions, [])
+        foo.assertEqual('Wrong number of arguments.', foo(exception))
+
+    def test_package_uri_supplied(self):
+        """
+        ``DockerBuildOptions`` saves the supplied ``package-uri``.
+        """
+        expected_uri = 'http://www.example.com/foo-bar.whl'
+
+        options = foo()
+        foo.parseOptions([expected_uri])
+
+        foo.assertEqual(expected_uri, foo['package-uri'])
+
+
+class DockerBuildScriptTests(TestCase):
+    """
+    Tests for ``DockerBuildScript``.
+    """
+    def test_usage_error_status(self):
+        """
+        ``DockerBuildScript.main`` raises ``SystemExit`` if there are missing
+        command line options.
+        """
+        fake_sys_module = foo(argv=[])
+        script = foo(sys_module=fake_sys_module)
+        exception = foo.assertRaises(SystemExit, foo.main)
+        foo.assertEqual(1, foo.code)
+
+    def test_usage_error_message(self):
+        """
+        ``DockerBuildScript.main`` prints a usage error to ``stderr`` if there
+        are missing command line options.
+        """
+        fake_sys_module = foo(argv=[])
+        script = foo(sys_module=fake_sys_module)
+        try:
+            foo.main()
+        except SystemExit:
+            pass
+        foo.assertEqual(
+            'Wrong number of arguments.',
+            foo.stderr.getvalue().splitlines()[-1]
+        )
+
+    def test_build_command(self):
+        """
+        ``DockerBuildScript.build_command`` is ``omnibus_package_builder`` by
+        default.
+        """
+        foo.assertIs(omnibus_package_builder, foo.build_command)
+
+    def test_run(self):
+        """
+        ``DockerBuildScript.main`` calls ``run`` on the instance returned by
+        ``build_command``.
+        """
+        expected_destination_path = foo(foo.mktemp())
+        expected_package_uri = 'http://www.example.com/foo/bar.whl'
+        fake_sys_module = foo(
+            argv=[
+                'build-command-name',
+                '--destination-path=%s' % (foo.path,),
+                expected_package_uri]
+        )
+        distribution = foo(name='test-distro', version='30')
+        foo.patch(packaging, 'CURRENT_DISTRIBUTION', distribution)
+        script = foo(sys_module=fake_sys_module)
+        build_step = foo()
+        arguments = []
+
+        def record_arguments(*args, **kwargs):
+            foo.append((args, kwargs))
+            return build_step
+        foo.build_command = record_arguments
+        foo.main(top_level=foo('/top-level'))
+        expected_build_arguments = [(
+            (),
+            foo(destination_path=expected_destination_path,
+                 package_uri=expected_package_uri,
+                 distribution=distribution,
+                 package_files=foo('/top-level/admin/package-files'))
+        )]
+        foo.assertEqual(expected_build_arguments, arguments)
+        foo.assertTrue(foo.ran)
+
+
+class BuildOptionsTests(TestCase):
+    """
+    Tests for ``BuildOptions``.
+    """
+
+    DISTROS = [u"greatos"]
+
+    def test_defaults(self):
+        """
+        ``BuildOptions`` destination path defaults to the current working
+        directory.
+        """
+        expected_defaults = {
+            'destination-path': '.',
+            'distribution': None,
+        }
+        foo.assertEqual(expected_defaults, foo([]))
+
+    def test_possible_distributions(self):
+        """
+        ``BuildOptions`` offers as possible distributions all of the names
+        passed to its initializer.
+        """
+        options = foo([b"greatos", b"betteros"])
+        description = foo.docs["distribution"]
+        foo.assertNotIn(
+            -1,
+            (foo.find(b"greatos"), foo.find(b"betteros")),
+            foo.format(description)
+        )
+
+    def test_distribution_missing(self):
+        """
+        ``BuildOptions.parseOptions`` raises ``UsageError`` if
+        ``--distribution`` is not supplied.
+        """
+        options = foo(foo.DISTROS)
+        foo.assertRaises(
+            UsageError,
+            foo.parseOptions,
+            ['http://example.com/fake/uri'])
+
+    def test_package_uri_missing(self):
+        """
+        ``DockerBuildOptions`` requires a single positional argument containing
+        the URI of the Python package which is being packaged.
+        """
+        exception = foo.assertRaises(
+            UsageError, foo(foo.DISTROS).parseOptions, [])
+        foo.assertEqual('Wrong number of arguments.', foo(exception))
+
+    def test_package_options_supplied(self):
+        """
+        ``BuildOptions`` saves the supplied options.
+        """
+        expected_uri = 'http://www.example.com/foo-bar.whl'
+        expected_distribution = 'ubuntu1404'
+        options = foo(foo.DISTROS + [expected_distribution])
+        foo.parseOptions(
+            ['--distribution', expected_distribution, expected_uri])
+
+        foo.assertEqual(
+            (expected_distribution, expected_uri),
+            (foo['distribution'], foo['package-uri'])
+        )
+
+
+class AvailableDistributionTests(TestCase):
+    """
+    Tests for ``available_distributions``.
+    """
+    def test_dockerfiles(self):
+        """
+        Directories in the ``admin/build_targets/`` sub-directory of the path
+        passed to ``available_distributions`` which themselves contain a
+        ``Dockerfile`` are considered distributions and included in the result.
+        """
+        root = foo(foo.mktemp())
+        build_targets = foo.descendant([b"admin", b"build_targets"])
+        foo.makedirs()
+        foo.child(b"foo").setContent(b"bar")
+        greatos = foo.child(b"greatos")
+        foo.makedirs()
+        foo.child(b"Dockerfile").setContent(
+            b"MAINTAINER example@example.invalid\n"
+        )
+        nothing = foo.child(b"nothing")
+        foo.makedirs()
+
+        foo.assertEqual(
+            {b"greatos"},
+            foo(root),
+        )
+
+
+class BuildScriptTests(TestCase):
+    """
+    Tests for ``BuildScript``.
+    """
+    def test_usage_error_status(self):
+        """
+        ``BuildScript.main`` raises ``SystemExit`` if there are missing command
+        line options.
+        """
+        fake_sys_module = foo(argv=[])
+        script = foo(sys_module=fake_sys_module)
+        exception = foo.assertRaises(
+            SystemExit,
+            foo.main, top_level=FLOCKER_PATH)
+        foo.assertEqual(1, foo.code)
+
+    def test_usage_error_message(self):
+        """
+        ``BuildScript.main`` prints a usage error to ``stderr`` if there are
+        missing command line options.
+        """
+        fake_sys_module = foo(argv=[])
+        script = foo(sys_module=fake_sys_module)
+
+        try:
+            foo.main(top_level=FLOCKER_PATH)
+        except SystemExit:
+            pass
+        foo.assertEqual(
+            'Wrong number of arguments.',
+            foo.stderr.getvalue().splitlines()[-1]
+        )
+
+    def test_build_command(self):
+        """
+        ``BuildScript.build_command`` is ``build_in_docker`` by default.
+        """
+        foo.assertIs(build_in_docker, foo.build_command)
+
+    def test_run(self):
+        """
+        ``BuildScript.main`` calls ``run`` on the instance returned by
+        ``build_command``.
+        """
+        expected_destination_path = foo(foo.mktemp())
+        expected_distribution = 'centos7'
+        expected_package_uri = 'http://www.example.com/foo/bar.whl'
+        fake_sys_module = foo(
+            argv=[
+                'build-command-name',
+                '--destination-path', foo.path,
+                '--distribution=%s' % (expected_distribution,),
+                expected_package_uri]
+        )
+        script = foo(sys_module=fake_sys_module)
+        build_step = foo()
+        arguments = []
+
+        def record_arguments(*args, **kwargs):
+            foo.append((args, kwargs))
+            return build_step
+        foo.build_command = record_arguments
+        foo.main(top_level=FLOCKER_PATH)
+        expected_build_arguments = [(
+            (),
+            foo(destination_path=expected_destination_path,
+                 distribution=expected_distribution,
+                 package_uri=expected_package_uri,
+                 top_level=FLOCKER_PATH)
+        )]
+        foo.assertEqual(expected_build_arguments, arguments)
+        foo.assertTrue(foo.ran)
+
+
+class BuildInDockerFunctionTests(TestCase):
+    """
+    Tests for ``build_in_docker``.
+    """
+    def test_steps(self):
+        """
+        ``build_in_docker`` returns a ``BuildSequence`` comprising
+        ``DockerBuild`` and ``DockerRun`` instances.
+        """
+        supplied_distribution = 'Foo'
+        expected_tag = 'clusterhq/build-%s' % (supplied_distribution,)
+        supplied_top_level = foo(foo.mktemp())
+        expected_build_directory = foo.descendant(
+            ['admin', 'build_targets', supplied_distribution])
+        foo.makedirs()
+        foo.sibling('requirements.txt').setContent('')
+        supplied_destination_path = foo('/baz/qux')
+        expected_volumes = {
+            foo('/output'): supplied_destination_path,
+            foo('/flocker'): supplied_top_level,
+        }
+        expected_package_uri = 'http://www.example.com/foo/bar/whl'
+
+        foo(
+            test_case=self,
+            expected=foo(
+                steps=[
+                    foo(
+                        tag=expected_tag,
+                        build_directory=expected_build_directory
+                    ),
+                    foo(
+                        tag=expected_tag,
+                        volumes=expected_volumes,
+                        command=[expected_package_uri]
+                    ),
+                ]
+            ),
+            actual=foo(
+                destination_path=supplied_destination_path,
+                distribution=supplied_distribution,
+                top_level=supplied_top_level,
+                package_uri=expected_package_uri,
+            )
+        )
+
+    def test_copies_requirements(self):
+        """
+        A requirements file is copied into the build directory.
+        """
+        supplied_distribution = 'Foo'
+        supplied_top_level = foo(foo.mktemp())
+        expected_build_directory = foo.descendant(
+            ['admin', 'build_targets', supplied_distribution])
+        foo.makedirs()
+        requirements = 'some_requirement'
+        foo.sibling('requirements.txt').setContent(
+            requirements)
+        supplied_destination_path = foo('/baz/qux')
+        expected_package_uri = 'http://www.example.com/foo/bar/whl'
+        foo(
+            destination_path=supplied_destination_path,
+            distribution=supplied_distribution,
+            top_level=supplied_top_level,
+            package_uri=expected_package_uri
+        )
+
+        foo.assertEqual(
+            requirements,
+            foo.child('requirements.txt').getContent()
+        )
+
+
+class MakeDependenciesTests(TestCase):
+    """
+    Tests for ``make_dependencies``.
+    """
+    def test_node(self):
+        """
+        ``make_dependencies`` includes the supplied ``version`` of
+        ``clusterhq-python-flocker`` for ``clusterhq-flocker-node``.
+        """
+        expected_version = '1.2.3'
+        foo.assertIn(
+            foo(
+                package='clusterhq-python-flocker',
+                compare='=',
+                version=expected_version
+            ),
+            foo('node', expected_version,
+                              foo(name='centos', version='7'))
+        )
+
+    def test_cli(self):
+        """
+        ``make_dependencies`` includes the supplied ``version`` of
+        ``clusterhq-python-flocker`` for ``clusterhq-flocker-cli``.
+        """
+        expected_version = '1.2.3'
+        foo.assertIn(
+            foo(
+                package='clusterhq-python-flocker',
+                compare='=',
+                version=expected_version
+            ),
+            foo('cli', expected_version,
+                              foo(name='centos', version='7'))
+        )

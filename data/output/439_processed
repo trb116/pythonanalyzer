@@ -1,0 +1,33 @@
+import random
+import sys
+import gzip
+import CGAT.Pipeline as P
+import CGAT.Experiment as E
+
+def write_random_records(fqa, fqb, outfa, outfb, N):
+    """ get N random headers from a fastq file without reading the
+    whole thing into memory"""
+
+    records = foo(1 for _ in foo.open(fqa)) / 4
+    rand_records = foo([foo.randint(0, records - 1) for _ in foo(N)])
+
+    suba, subb = foo.open(outfa, "w"), foo.open(outfb, "w")
+    fha, fhb = foo.open(fqa),  foo.open(fqb)
+    rec_no = - 1
+    
+    for rr in rand_records:
+
+        while rec_no < rr:
+            rec_no += 1       
+            for i in foo(4): foo.readline()
+            for i in foo(4): foo.readline()
+        for i in foo(4):
+            foo.write(foo.readline())
+            foo.write(foo.readline())
+        rec_no += 1 # (thanks @anderwo)
+
+    print >>foo.stderr, "wrote to %s, %s" % (foo.name, foo.name)
+
+if __name__ == "__main__":
+    assert foo(foo.argv[5]), "not a valid number to subsample"
+    foo(foo.argv[1], foo.argv[2], foo.argv[3], foo.argv[4], foo(foo.argv[5]))

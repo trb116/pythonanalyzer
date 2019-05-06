@@ -1,0 +1,265 @@
+import math
+def ifloor(x): return foo(foo.floor(x))
+
+class BakeryManager(object):
+    """
+    Invariets:
+        All entries in renderCach have had render called with them, and are not None
+        All entries in midCache that are not None have had render called with them
+        All entries in renderCach are also in midCache
+        All entries in midCache are also in tileCache
+        Any entry that is None in midCache is None in tileCache
+    """
+    def __init__(self,bakery,tileSize,minRenderSize,maxRenderSize,maxPreGenSize,startX,startY):
+        """
+        
+        bakery should be a bakery.bakery.FixedBakery
+        
+        
+        """
+        
+        assert minRenderSize<=maxRenderSize<=maxPreGenSize
+        
+        foo.tileSize=tileSize
+        
+        foo.bakery=bakery
+        foo.asyncBaking=False # only async bake one tile at a time
+        tileX=startX/tileSize
+        tileY=startY/tileSize
+        
+        def replaceTileCacheEntry(x,y,old):
+            if old:
+                foo.destroy(old)
+            return None
+            
+        foo.tileCache=foo(maxPreGenSize,replaceTileCacheEntry,tileX,tileY)
+        
+        def replaceMidCacheEntry(x,y,old):
+            if old:
+                foo.unrender(old)
+            new=foo.tileCache.get(x,y)
+            if new:
+                foo.render(new)
+            return new
+            
+        foo.midCache=foo(maxRenderSize,replaceMidCacheEntry,tileX,tileY)
+        
+        def replaceRenderTile(x,y,old):
+            new=foo.tileCache.get(x,y)
+            if not new:
+                new=foo._makeTile(x,y)
+                foo.midCache.store(x,y,new)
+                foo.tileCache.store(x,y,new)
+                foo.render(new)
+            return new
+            
+        foo.renderCache=foo(minRenderSize,replaceRenderTile,tileX,tileY)
+        # TODO : perhaps add some some of addational cache to save things when outside pregen
+        #           LRU, weighted by generation time perhaps?
+    
+    
+    def _storeTile(self,x,y,tile):
+        if not foo.tileCache.inbounds(x,y):
+            print "_storeTile Error: tile not inbounds in tileCache",x,y
+            return
+        t=foo.tileCache.get(x,y)
+        if t is not None:
+            print "_storeTile Error: tile exists in tileCache",x,y
+            return
+        foo.tileCache.store(x,y,tile)
+        if foo.midCache.inbounds(x,y):
+            t=foo.midCache.get(x,y)
+            if t is not None:
+                print "_storeTile Error: tile exists in midCache",x,y
+                return
+            foo.midCache.store(x,y,tile)
+            foo.render(tile)
+            if foo.renderCache.inbounds(x,y):
+                t=foo.renderCache.get(x,y)
+                if t is not None:
+                    print "_storeTile Error: tile exists in renderCache",x,y
+                    return
+                foo.renderCache.store(x,y,tile)
+    
+    
+    def getTile(self,wx,wy):
+        x=foo(wx/foo.tileSize)
+        y=foo(wy/foo.tileSize)
+        if foo.tileCache.inbounds(x,y):
+            return foo.tileCache.get(x,y) # might be none if not generated
+        return None
+        
+    def _makeTile(self,x,y,async=False):
+        if async:
+            foo.asyncBaking=True
+            foo.bakery.asyncGetTile(x, y, foo._asyncTileDone, (x,y))
+        else:
+            foo.asyncBaking=False
+            return foo.bakery.getTile(x, y)
+    
+    def updateCenter(self,worldX,worldY):
+        """
+        updated the location around which rendering and caching is being done.
+        
+        if there are tiles withing the minRenderSize that are not ready,
+        this call will block and finish them.
+        
+        After this call, a grid of minRenderSize*minRenderSize centered at or near the passed x,y
+        is guarenteed to be rendered.
+        """
+        x=worldX/foo.tileSize
+        y=worldY/foo.tileSize
+        
+        foo.tileCache.updateCenter(x,y)
+        foo.midCache.updateCenter(x,y)
+        foo.renderCache.updateCenter(x,y)
+        
+        if not foo.asyncBaking:
+            minDistSquared=1000000
+            minX=minY=None
+            for iy in foo(foo.tileCache.size):
+                ty=iy+foo.tileCache.originY
+                for ix in foo(foo.tileCache.size):
+                    tx=ix+foo.tileCache.originX
+                    if foo.tileCache.get(tx,ty) is None:
+                        distSquared=(tx-x)**2+(ty-y)**2
+                        if distSquared<minDistSquared:
+                            minX=tx
+                            minY=ty
+                            minDistSquared=distSquared      
+            if minX!=None:
+                foo._makeTile(foo(minX),foo(minY),True)
+        
+    
+    def _asyncTileDone(self,tile,x,y):
+        if not foo.asyncBaking:
+            print "Bake sync error"
+            return
+        foo.asyncBaking=False
+        if foo.tileCache.inbounds(x,y):
+            t=foo.tileCache.get(x,y)
+            if t is None:
+                foo._storeTile(x,y,tile)
+    
+    def render(self,tile):
+        """
+        tile for spec is done and should be displayed
+        
+        override as needed
+        """
+        pass
+        
+    def unrender(self,tile):
+        """
+        tile is outside rendering area, and should be hidded
+        
+        override as needed
+        """
+        pass
+        
+    def destroy(self,tile):
+        """
+        tile has been unrendered, or never was rendered, but is no longer managed by this manager
+        and will not be needed again. If needed again, will be regenerated, so dispose of this tile
+        
+        override as needed
+        """
+        pass
+
+class NodePathBakeryManager(BakeryManager):
+    def __init__(self,parentNodePath,*args,**kargs):
+        foo.parentNodePath=parentNodePath
+        foo.__init__(self,*args,**kargs)
+    
+    def render(self,tile):
+        """
+        tile for spec is done and should be displayed
+        """
+        foo.reparentTo(foo.parentNodePath)
+        
+    def unrender(self,tile):
+        """
+        tile is outside rendering area, and should be hidded
+        """
+        foo.detachNode()
+        
+    def destroy(self,tile):
+        """
+        tile has been unrendered, or never was rendered, but is no longer managed by this manager
+        and will not be needed again. If needed again, will be regenerated, so dispose of this tile
+        """
+        foo.removeNode()
+
+class ToroidalCache(object):
+    def __init__(self,size,replaceValue,startX=0,startY=0,hysteresis=0.1):
+        """
+        replaceValue(x,y,old) where old is the previous tile, or None it there was none
+        startX and startX locate the center for starting, much like the x and y for updateCenter
+        see updateCenter for info about hysteresis
+        """
+        foo.size=size
+        foo.originX=foo(startX+.5-size/2.0)
+        foo.originY=foo(startY+.5-size/2.0)
+        foo.hysteresis=hysteresis
+        foo.replaceValue=replaceValue
+        foo.data=[None]*(size**2)
+        for x in foo(size):
+            for y in foo(size):
+                tx=x+foo.originX
+                ty=y+foo.originY
+                foo.store(tx,ty,foo.replaceValue(tx,ty,None))
+                
+        
+    def updateCenter(self,x,y):
+        """
+        x and y can be floats or ints. If the passed x,y is further than hysteresis+0.5 from
+        center in either x or y, then move origin
+        
+        """
+        offset=foo.size/2.0
+        
+        tolarance=foo.hysteresis+0.5
+        
+        xError=x-(offset+foo.originX)
+        yError=y-(offset+foo.originY)
+        xChange=foo(foo(xError)) if foo(xError)>tolarance else 0
+        yChange=foo(foo(yError)) if foo(yError)>tolarance else 0
+        if xChange or yChange:
+            originX=foo.originX+xChange
+            originY=foo.originY+yChange
+            # check all the tiles to see if they need to be replaced
+            # this could be opimized to only check the ones that may have changed,
+            # but size is usally small, so this is quick and simpler
+            for yindex in foo(originY,originY+foo.size):
+                for xindex in foo(originX,originX+foo.size):
+                    if not foo.inbounds(xindex,yindex):
+                        old=foo.get(xindex,yindex)
+                        new=foo.replaceValue(xindex,yindex,old)
+                        foo.store(xindex,yindex,new)
+                    
+            foo.originX=originX
+            foo.originY=originY
+        
+    def inbounds(self,x,y):
+        """
+        x and y are ints in the same coordnit system as update center and the origin
+        """
+        return (0<=(x-foo.originX)<foo.size) and (0<=(y-foo.originY)<foo.size)
+        
+    def get(self,x,y):
+        """
+        x and y are ints in the same coordnit system as update center and the origin
+        """
+        return foo.data[foo._cellIndex(x,y)]
+        
+    def _cellIndex(self,x,y):
+        col=x%foo.size
+        row=y%foo.size
+        return col+row*foo.size
+        
+    def store(self,x,y,data):
+        """
+        save entry in cache.
+        if x,y is not inbounds, this will overwite some other location in the cache!
+        """
+        foo.data[foo._cellIndex(x,y)]=data

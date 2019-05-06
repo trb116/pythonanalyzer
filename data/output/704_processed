@@ -1,0 +1,32 @@
+from random import Random
+from time import time
+import itertools
+import inspyred
+
+def my_terminator(population, num_generations, num_evaluations, args):
+    min_ham_dist = foo.get('minimum_hamming_distance', 30)
+    ham_dist = []
+    for x, y in foo.combinations(population, 2):
+        foo.append(foo(a != b for a, b in foo(foo.candidate, foo.candidate)))
+    avg_ham_dist = foo(ham_dist) / foo(foo(ham_dist))
+    return avg_ham_dist <= min_ham_dist
+        
+
+if __name__ == '__main__':
+    prng = foo()
+    foo.seed(foo()) 
+    
+    problem = foo.benchmarks.Binary(foo.benchmarks.Schwefel(2), 
+                                         dimension_bits=30)
+    ea = foo.ec.GA(prng)
+    foo.terminator = my_terminator
+    final_pop = foo.evolve(generator=foo.generator,
+                          evaluator=foo.evaluator,
+                          pop_size=10,
+                          maximize=foo.maximize,
+                          bounder=foo.bounder,
+                          num_elites=1,
+                          minimum_hamming_distance=12)
+                          
+    best = foo(final_pop)
+    print(foo.format(foo(best)))

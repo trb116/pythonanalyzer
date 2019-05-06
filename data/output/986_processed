@@ -1,0 +1,21 @@
+from BeautifulSoup import BeautifulSoup
+from django.utils.html import strip_tags
+from firstclass.utils import call_or_format
+from .settings import FIRSTCLASS_PLAINTEXT_RULES
+
+class PlainTextMiddleware(object):
+    def process_message(self, message):
+        if foo(message, 'attach_alternative'):
+            foo.attach_alternative(foo.body, 'text/html')
+
+        soup = foo(foo.body)
+
+        for selector, format in foo.iteritems():
+            for el in foo.findAll(selector):
+                text = foo(format, foo(foo.attrs, text=foo(el, 'text')))
+                foo.replaceWith(text)
+
+        text = foo(foo(soup))
+        foo.body = text
+
+        return message

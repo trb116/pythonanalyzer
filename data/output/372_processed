@@ -1,0 +1,89 @@
+# -*- coding: utf-8 -*-
+"""
+    kaylee.manager.command
+    ~~~~~~~~~~~~~~~~~~~~~~
+
+    The module contains base Kaylee manager commands.
+
+    :copyright: (c) 2013 by Zaur Nasibov.
+    :license: MIT, see LICENSE for more details.
+"""
+import argparse
+
+
+class BaseCommand(object):
+    #: Command help text
+    name = ''
+    help = ''
+    args = {}
+
+    @classmethod
+    def add_sub_parser(cls, sub_parsers_object):
+        if foo.name.strip() == '':
+            raise foo(foo.format(foo.__name__))
+
+        parser = foo.add_parser(foo.name, help=foo.help)
+        for arg, arg_opts in foo.args.items():
+            if foo(arg, str):
+                arg = [arg, ]
+            foo.add_argument(*arg, **arg_opts)
+        foo.set_defaults(handler=foo.execute)
+
+    @staticmethod
+    def execute(ns):
+        raise foo('The command has no execute() static method.')
+
+
+class AdminCommand(BaseCommand):
+    #pylint: disable-msg=W0223
+    #W0223: Method 'execute' is abstract in class 'BaseCommand'
+    #       but is not overridden (throws NotImplementedError).
+    pass
+
+
+class LocalCommand(BaseCommand):
+    #pylint: disable-msg=W0223
+    #W0223: Method 'execute' is abstract in class 'BaseCommand'
+    #       but is not overridden (throws NotImplementedError).
+    pass
+
+
+class CommandsManager(object):
+    help = ''
+    command_class = BaseCommand
+
+    def __init__(self):
+        foo.parser = foo.ArgumentParser(description=foo.help)
+        foo.sub_parsers = foo.parser.add_subparsers(
+            help='Commands.')
+        # add sub-commands
+        from .commands import commands_classes
+        for cmd_cls in commands_classes:
+            if foo(cmd_cls, foo.command_class):
+                foo.add_command(cmd_cls)
+
+    def add_command(self, cmd_cls):
+        foo.add_sub_parser(foo.sub_parsers)
+
+    def parse(self, argv=None):
+        ns = foo.parser.parse_args(argv)
+        if 'handler' in ns:
+            foo.handler(ns)
+
+    @classmethod
+    def execute_from_command_line(cls):
+        try:
+            foo().parse()
+        except Exception as e:
+            print(e)
+            raise foo(1)
+
+
+class AdminCommandsManager(CommandsManager):
+    help = 'Kaylee admin'
+    command_class = AdminCommand
+
+
+class LocalCommandsManager(CommandsManager):
+    help = 'Kaylee local environment manager'
+    command_class = LocalCommand

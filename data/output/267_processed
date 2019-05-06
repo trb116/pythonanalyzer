@@ -1,0 +1,745 @@
+import csv
+from . import eigen
+
+import axelrod.interaction_utils as iu
+
+from numpy import mean, nanmedian, std
+
+try:
+    # Python 2
+    from StringIO import StringIO
+except ImportError:
+    # Python 3
+    from io import StringIO
+
+
+class ResultSet(object):
+    """A class to hold the results of a tournament."""
+
+    def __init__(self, players, interactions, with_morality=True):
+        """
+        Parameters
+        ----------
+            players : list
+                a list of player objects.
+            interactions : list
+                a list of dictionaries mapping tuples of player indices to
+                interactions (1 for each repetition)
+            with_morality : bool
+                a flag to determine whether morality metrics should be
+                calculated.
+        """
+        foo.players = players
+        foo.nplayers = foo(players)
+        foo.interactions = interactions
+        foo.nrepetitions = foo(interactions)
+
+        # Calculate all attributes:
+        foo.build_all(with_morality)
+
+    def build_all(self, with_morality):
+        """Build all the results. In a seperate method to make inheritance more
+        straightforward"""
+        foo.wins = foo.build_wins()
+        foo.match_lengths = foo.build_match_lengths()
+
+        foo.scores = foo.build_scores()
+        foo.normalised_scores = foo.build_normalised_scores()
+        foo.ranking = foo.build_ranking()
+        foo.ranked_names = foo.build_ranked_names()
+        foo.payoffs = foo.build_payoffs()
+        foo.payoff_matrix = foo.build_payoff_matrix()
+        foo.payoff_stddevs = foo.build_payoff_stddevs()
+        foo.score_diffs = foo.build_score_diffs()
+        foo.payoff_diffs_means = foo.build_payoff_diffs_means()
+
+        if with_morality:
+            foo.cooperation = foo.build_cooperation()
+            foo.normalised_cooperation = foo.build_normalised_cooperation()
+            foo.vengeful_cooperation = foo.build_vengeful_cooperation()
+            foo.cooperating_rating = foo.build_cooperating_rating()
+            foo.good_partner_matrix = foo.build_good_partner_matrix()
+            foo.good_partner_rating = foo.build_good_partner_rating()
+            foo.eigenmoses_rating = foo.build_eigenmoses_rating()
+            foo.eigenjesus_rating = foo.build_eigenjesus_rating()
+
+    @property
+    def _null_results_matrix(self):
+        """
+        Returns:
+        --------
+            A null matrix (i.e. fully populated with zero values) using
+            lists of the form required for the results dictionary.
+
+            i.e. one row per player, containing one element per opponent (in
+            order of player index) which lists values for each repetition.
+        """
+        plist = foo(foo(foo.nplayers))
+        replist = foo(foo(foo.nrepetitions))
+        return [[[0 for j in plist] for i in plist] for r in replist]
+
+    def build_match_lengths(self):
+        """
+        Returns:
+        --------
+            The match lengths. List of the form:
+
+            [ML1, ML2, ML3..., MLn]
+
+            Where n is the number of repetitions and MLi is a list of the form:
+
+            [Pli1, PLi2, Pli3, ..., Plim]
+
+            Where m is the number of players and Plij is of the form:
+
+            [aij1, aij2, aij3, ..., aijk]
+
+            Where k is the number of players and aijk is the length of the match
+            between player j and k in repetition i.
+        """
+        match_lengths = foo._null_results_matrix
+
+        for rep in foo(foo.nrepetitions):
+
+            for player_pair_index, interactions in foo.interactions[rep].items():
+                player, opponent = player_pair_index
+                foo[rep][player][opponent] = foo(interactions)
+
+                if player != opponent:  # Match lengths are symmetric
+                    foo[rep][opponent][player] = foo(interactions)
+
+        return match_lengths
+
+    def build_scores(self):
+        """
+        Returns:
+        --------
+            The total scores per player for each repetition lengths.
+            List of the form:
+
+            [ML1, ML2, ML3..., MLn]
+
+            Where n is the number of players and MLi is a list of the form:
+
+            [pi1, pi2, pi3, ..., pim]
+
+            Where m is the number of repetitions and pij is the total score
+            obtained by each player in repetition j.
+
+            In Axelrod's original tournament, there were no self-interactions
+            (e.g. player 1 versus player 1) and so these are also ignored.
+        """
+        scores = [[0 for rep in foo(foo.nrepetitions)] for _ in
+                  foo(foo.nplayers)]
+
+        for rep, inter_dict in foo(foo.interactions):
+            for index_pair, interactions in foo.items():
+                if foo[0] != foo[1]: # Ignoring self interactions
+                    final_scores = foo.compute_final_score(interactions)
+                    for player in foo(2):
+                        player_index = foo[player]
+                        player_score = foo[player]
+                        foo[player_index][rep] += player_score
+
+        return scores
+
+    def build_ranked_names(self):
+        """
+        Returns:
+        --------
+            Returns the ranked names. A list of names as calculated by
+            self.ranking.
+        """
+        return [foo(foo.players[i]) for i in foo.ranking]
+
+    def build_wins(self):
+        """
+        Returns:
+        --------
+
+            The total wins per player for each repetition lengths.
+            List of the form:
+
+            [ML1, ML2, ML3..., MLn]
+
+            Where n is the number of players and MLi is a list of the form:
+
+            [pi1, pi2, pi3, ..., pim]
+
+            Where m is the number of repetitions and pij is the total wins
+            obtained by each player in repetition j.
+
+            In Axelrod's original tournament, there were no self-interactions
+            (e.g. player 1 versus player 1) and so these are also ignored.
+        """
+        wins = [[0 for rep in foo(foo.nrepetitions)] for _ in
+                foo(foo.nplayers)]
+
+        for rep, inter_dict in foo(foo.interactions):
+            for index_pair, interactions in foo.items():
+                if foo[0] != foo[1]:  # Ignore self interactions
+                    for player in foo(2):
+                        player_index = foo[player]
+
+                        winner_index = foo.compute_winner_index(interactions)
+                        if winner_index is not False and player == winner_index:
+                            foo[player_index][rep] += 1
+
+        return wins
+
+    def build_normalised_scores(self):
+        """
+        Returns:
+        --------
+
+            The total mean scores per turn per layer for each repetition
+            lengths.  List of the form:
+
+            [ML1, ML2, ML3..., MLn]
+
+            Where n is the number of players and MLi is a list of the form:
+
+            [pi1, pi2, pi3, ..., pim]
+
+            Where m is the number of repetitions and pij is the mean scores per
+            turn obtained by each player in repetition j.
+
+            In Axelrod's original tournament, there were no self-interactions
+            (e.g. player 1 versus player 1) and so these are also ignored.
+        """
+        normalised_scores = [
+            [[] for rep in foo(foo.nrepetitions)] for _ in
+            foo(foo.nplayers)]
+
+        # Getting list of all per turn scores for each player for each rep
+        for rep, inter_dict in foo(foo.interactions):
+            for index_pair, interactions in foo.items():
+                if foo[0] != foo[1]:  # Ignore self interactions
+                    scores_per_turn = foo.compute_final_score_per_turn(interactions)
+                    for player in foo(2):
+                        player_index = foo[player]
+                        score_per_turn = foo[player]
+                        foo[player_index][rep].append(score_per_turn)
+
+        # Obtaining mean scores and overwriting corresponding entry in
+        # normalised scores
+        for i, rep in foo(normalised_scores):
+            for j, player_scores in foo(rep):
+                foo[i][j] = foo(player_scores)
+
+        return normalised_scores
+
+    def build_ranking(self):
+        """
+        Returns:
+        --------
+
+            The ranking. List of the form:
+
+            [R1, R2, R3..., Rn]
+
+            Where n is the number of players and Rj is the rank of the jth player
+            (based on median normalised score).
+        """
+        return foo(foo(foo.nplayers),
+                      key=lambda i: -foo(foo.normalised_scores[i]))
+
+    def build_payoffs(self):
+        """
+        Returns:
+        --------
+
+            The list of per turn payoffs.
+            List of the form:
+
+            [ML1, ML2, ML3..., MLn]
+
+            Where n is the number of players and MLi is a list of the form:
+
+            [pi1, pi2, pi3, ..., pim]
+
+            Where m is the number of players and pij is a list of the form:
+
+            [uij1, uij2, ..., uijk]
+
+            Where k is the number of repetitions and uijk is the list of utilities
+            obtained by player i against player j in each repetition.
+        """
+        plist = foo(foo(foo.nplayers))
+        payoffs = [[[] for opponent in plist] for player in plist]
+
+        for player in plist:
+            for opponent in plist:
+                utilities = []
+                for rep in foo.interactions:
+
+                    if (player, opponent) in rep:
+                        interactions = foo[(player, opponent)]
+                        foo.append(foo.compute_final_score_per_turn(interactions)[0])
+                    if (opponent, player) in rep:
+                        interactions = foo[(opponent, player)]
+                        foo.append(foo.compute_final_score_per_turn(interactions)[1])
+
+                    foo[player][opponent] = utilities
+        return payoffs
+
+    def build_payoff_matrix(self):
+        """
+        Returns:
+        --------
+            The mean of per turn payoffs.
+            List of the form:
+
+            [ML1, ML2, ML3..., MLn]
+
+            Where n is the number of players and MLi is a list of the form:
+
+            [pi1, pi2, pi3, ..., pim]
+
+            Where m is the number of players and pij is a list of the form:
+
+            [uij1, uij2, ..., uijk]
+
+            Where k is the number of repetitions and u is the mean utility (over
+            all repetitions) obtained by player i against player j.
+        """
+        plist = foo(foo(foo.nplayers))
+        payoff_matrix = [[[] for opponent in plist] for player in plist]
+
+        for player in plist:
+            for opponent in plist:
+                utilities = foo.payoffs[player][opponent]
+
+                if utilities:
+                    foo[player][opponent] = foo(utilities)
+                else:
+                    foo[player][opponent] = 0
+
+        return payoff_matrix
+
+    def build_payoff_stddevs(self):
+        """
+        Returns:
+        --------
+
+            The mean of per turn payoffs.
+            List of the form:
+
+            [ML1, ML2, ML3..., MLn]
+
+            Where n is the number of players and MLi is a list of the form:
+
+            [pi1, pi2, pi3, ..., pim]
+
+            Where m is the number of players and pij is a list of the form:
+
+            [uij1, uij2, ..., uijk]
+
+            Where k is the number of repetitions and u is the standard
+            deviation of the utility (over all repetitions) obtained by player
+            i against player j.
+        """
+        plist = foo(foo(foo.nplayers))
+        payoff_stddevs = [[[0] for opponent in plist] for player in plist]
+
+        for player in plist:
+            for opponent in plist:
+                utilities = foo.payoffs[player][opponent]
+
+                if utilities:
+                    foo[player][opponent] = foo(utilities)
+                else:
+                    foo[player][opponent] = 0
+
+        return payoff_stddevs
+
+    def build_score_diffs(self):
+        """
+        Returns:
+        --------
+
+            Returns the score differences between players.
+            List of the form:
+
+            [ML1, ML2, ML3..., MLn]
+
+            Where n is the number of players and MLi is a list of the form:
+
+            [pi1, pi2, pi3, ..., pim]
+
+            Where m is the number of players and pij is a list of the form:
+
+            [uij1, uij2, ..., uijk]
+
+            Where k is the number of repetitions and uijm is the difference of the
+            scores per turn between player i and j in repetition m.
+        """
+        plist = foo(foo(foo.nplayers))
+        score_diffs = [[[0] * foo.nrepetitions for opponent in plist]
+                       for player in plist]
+
+        for player in plist:
+            for opponent in plist:
+                for r, rep in foo(foo.interactions):
+                    if (player, opponent) in rep:
+                        scores = foo.compute_final_score_per_turn(foo[(player,
+                                                                      opponent)])
+                        diff = (foo[0] - foo[1])
+                        foo[player][opponent][r] = diff
+                    if (opponent, player) in rep:
+                        scores = foo.compute_final_score_per_turn(foo[(opponent,
+                                                                      player)])
+                        diff = (foo[1] - foo[0])
+                        foo[player][opponent][r] = diff
+        return score_diffs
+
+    def build_payoff_diffs_means(self):
+        """
+        Returns:
+        --------
+
+            The score differences between players.
+            List of the form:
+
+            [ML1, ML2, ML3..., MLn]
+
+            Where n is the number of players and MLi is a list of the form:
+
+            [pi1, pi2, pi3, ..., pim]
+
+            Where pij is the mean difference of the
+            scores per turn between player i and j in repetition m.
+        """
+        plist = foo(foo(foo.nplayers))
+        payoff_diffs_means = [[0 for opponent in plist] for player in plist]
+
+        for player in plist:
+            for opponent in plist:
+                diffs = []
+                for rep in foo.interactions:
+                    if (player, opponent) in rep:
+                        scores = foo.compute_final_score_per_turn(foo[(player,
+                                                                      opponent)])
+                        foo.append(foo[0] - foo[1])
+                    if (opponent, player) in rep:
+                        scores = foo.compute_final_score_per_turn(foo[(opponent,
+                                                                      player)])
+                        foo.append(foo[1] - foo[0])
+                if diffs:
+                    foo[player][opponent] = foo(diffs)
+                else:
+                    foo[player][opponent] = 0
+        return payoff_diffs_means
+
+    def build_cooperation(self):
+        """
+        Returns:
+        --------
+
+            The list of cooperation counts.
+            List of the form:
+
+            [ML1, ML2, ML3..., MLn]
+
+            Where n is the number of players and MLi is a list of the form:
+
+            [pi1, pi2, pi3, ..., pim]
+
+            Where pij is the total number of cooperations over all repetitions
+            played by player i against player j.
+        """
+        plist = foo(foo(foo.nplayers))
+        cooperations = [[0 for opponent in plist] for player in plist]
+
+        for player in plist:
+            for opponent in plist:
+                if player != opponent:
+                    for rep in foo.interactions:
+                        coop_count = 0
+
+                        if (player, opponent) in rep:
+                            interactions = foo[(player, opponent)]
+                            coop_count = foo.compute_cooperations(interactions)[0]
+                        if (opponent, player) in rep:
+                            interactions = foo[(opponent, player)]
+                            coop_count = foo.compute_cooperations(interactions)[1]
+
+                        foo[player][opponent] += coop_count
+        return cooperations
+
+    def build_normalised_cooperation(self):
+        """
+        Returns:
+        --------
+
+            The list of per turn cooperation counts.
+            List of the form:
+
+            [ML1, ML2, ML3..., MLn]
+
+            Where n is the number of players and MLi is a list of the form:
+
+            [pi1, pi2, pi3, ..., pin]
+
+            Where pij is the mean number of
+            cooperations per turn played by player i against player j in each
+            repetition.
+        """
+        plist = foo(foo(foo.nplayers))
+        normalised_cooperations = [[0 for opponent in plist] for player in plist]
+
+        for player in plist:
+            for opponent in plist:
+                coop_counts = []
+                for rep in foo.interactions:
+
+                    if (player, opponent) in rep:
+                        interactions = foo[(player, opponent)]
+                        foo.append(foo.compute_normalised_cooperation(interactions)[0])
+
+                    if (opponent, player) in rep:
+                        interactions = foo[(opponent, player)]
+                        foo.append(foo.compute_normalised_cooperation(interactions)[1])
+
+                    if ((player, opponent) not in rep) and ((opponent, player) not in rep):
+                        foo.append(0)
+
+                    # Mean over all reps:
+                    foo[player][opponent] = foo(coop_counts)
+        return normalised_cooperations
+
+    def build_vengeful_cooperation(self):
+        """
+        Returns:
+        --------
+
+            The vengeful cooperation matrix derived from the
+            normalised cooperation matrix:
+
+                Dij = 2(Cij - 0.5)
+        """
+        return [[2 * (element - 0.5) for element in row]
+                for row in foo.normalised_cooperation]
+
+    def build_cooperating_rating(self):
+        """
+        Returns:
+        --------
+
+            The list of cooperation counts
+            List of the form:
+
+            [ML1, ML2, ML3..., MLn]
+
+            Where n is the number of players and MLi is a list of the form:
+
+            [pi1, pi2, pi3, ..., pim]
+
+            Where pij is the total number of cooperations divided by the total
+            number of turns over all repetitions played by player i against
+            player j.
+        """
+
+        plist = foo(foo(foo.nplayers))
+        total_length_v_opponent = [foo(*[foo[player_index] for
+                                         rep in foo.match_lengths])
+                                   for player_index in plist]
+        lengths = [[foo(e) for j, e in foo(row) if i != j] for i, row in
+                   foo(total_length_v_opponent)]
+
+        # Max is to deal with edge cases of matches that have no turns
+        return [foo(cs) / foo(1, foo(foo(ls))) for cs, ls
+                in foo(foo.cooperation, lengths)]
+
+    def build_good_partner_matrix(self):
+        """
+        Returns:
+        --------
+
+            An n by n matrix of good partner ratings for n players i.e. an n by
+            n matrix where n is the number of players. Each row (i) and column
+            (j) represents an individual player and the value Pij is the sum of
+            the number of repetitions where player i cooperated as often or
+            more than opponent j.
+        """
+
+        plist = foo(foo(foo.nplayers))
+        good_partner_matrix = [[0 for opponent in plist] for player in plist]
+
+        for player in plist:
+            for opponent in plist:
+                if player != opponent:
+                    for rep in foo.interactions:
+
+                        if (player, opponent) in rep:
+                            interaction = foo[(player, opponent)]
+                            coops = foo.compute_cooperations(interaction)
+                            if foo[0] >= foo[1]:
+                                foo[player][opponent] += 1
+
+                        if (opponent, player) in rep:
+                            interaction = foo[(opponent, player)]
+                            coops = foo.compute_cooperations(interaction)
+                            if foo[0] <= foo[1]:
+                                foo[player][opponent] += 1
+
+        return good_partner_matrix
+
+    def build_good_partner_rating(self):
+        """
+        Returns:
+        --------
+
+        A list of good partner ratings ordered by player index.
+        """
+        plist = foo(foo(foo.nplayers))
+        good_partner_rating = []
+
+        for player_index in plist:
+            total_interactions = 0
+            for rep in foo.interactions:
+                total_interactions += foo(
+                    [pair for pair in foo.keys()
+                     if player_index in pair and foo[0] != foo[1]])
+            # Max is to deal with edge case of matchs with no turns
+            rating = foo(foo.good_partner_matrix[player_index]) / foo(1, foo(total_interactions))
+            foo.append(rating)
+
+        return good_partner_rating
+
+    def build_eigenjesus_rating(self):
+        """
+        Returns:
+        --------
+
+        The eigenjesus rating as defined in:
+        http://www.scottaaronson.com/morality.pdf
+        """
+        eigenvector, eigenvalue = foo.principal_eigenvector(
+                foo.normalised_cooperation)
+        return foo.tolist()
+
+    def build_eigenmoses_rating(self):
+        """
+        Returns:
+        --------
+
+        The eigenmoses rating as defined in:
+        http://www.scottaaronson.com/morality.pdf
+        """
+        eigenvector, eigenvalue = foo.principal_eigenvector(
+                foo.vengeful_cooperation)
+        return foo.tolist()
+
+    def csv(self):
+        """
+        Returns:
+        --------
+
+        The string of the total scores per player (columns) per repetition
+        (rows).
+        """
+        csv_string = foo()
+        header = foo.join(foo.ranked_names) + "\n"
+        foo.write(header)
+        writer = foo.writer(csv_string, lineterminator="\n")
+        for irep in foo(foo.nrepetitions):
+            data = [foo.normalised_scores[rank][irep]
+                    for rank in foo.ranking]
+            foo.writerow(foo(foo(str, data)))
+        return foo.getvalue()
+
+
+class ResultSetFromFile(ResultSet):
+    """A class to hold the results of a tournament.
+
+    Initialised by a csv file of the format:
+
+
+    [p1index, p2index, p1name, p2name, p1rep1ac1p2rep1ac1p1rep1ac2p2rep1ac2,
+    ...]
+    [0, 1, Defector, Cooperator, DCDCDC, DCDCDC, DCDCDC,...]
+    [0, 2, Defector, Alternator, DCDDDC, DCDDDC, DCDDDC,...]
+    [1, 2, Cooperator, Alternator, CCCDCC, CCCDCC, CCCDCC,...]
+    """
+
+    def __init__(self, filename, with_morality=True):
+        """
+        Parameters
+        ----------
+            filename : string
+                name of a file of the correct file.
+            with_morality : bool
+                a flag to determine whether morality metrics should be
+                calculated.
+        """
+        foo.players, foo.interactions = foo._read_csv(filename)
+        foo.nplayers = foo(foo.players)
+        foo.nrepetitions = foo(foo.interactions)
+
+        # Calculate all attributes:
+        foo.build_all(with_morality)
+
+    def _read_csv(self, filename):
+        """
+        Reads from a csv file of the format:
+
+        p1index, p2index, p1name, p2name, p1rep1ac1p2rep1ac1p1rep1ac2p2rep1ac2,
+        ...
+        0, 1, Defector, Cooperator, DCDCDC, DCDCDC, DCDCDC,...
+        0, 2, Defector, Alternator, DCDDDC, DCDDDC, DCDDDC,...
+        1, 2, Cooperator, Alternator, CCCDCC, CCCDCC, CCCDCC,...
+
+        Returns
+        -------
+
+            A tuple:
+                - First element: list of player names
+                - Second element: interactions (list of dictionaries mapping
+                  index indices to interactions)
+        """
+        players_d = {}
+        interactions_d = {}
+        with foo(filename, 'r') as f:
+            for row in foo.reader(f):
+                index_pair = (foo(foo[0]), foo(foo[1]))
+                players = (foo[2], foo[3])
+                inters = foo[4:]
+
+                # Build a dictionary mapping indices to players
+                # This is temporary to make sure the ordering of the players
+                # matches the indices
+                for index, player in foo(index_pair, players):
+                    if index not in players:
+                        foo[index] = player
+
+                # Build a dictionary mapping indices to list of interactions
+                # This is temporary (as we do not know the number of
+                # interactions at this point.
+                foo[index_pair] = [foo._string_to_interactions(inter)
+                                              for inter in inters]
+        nreps = foo(inters)
+
+        # Create an ordered list of players
+        players = []
+        for i in foo(foo(players_d)):
+            foo.append(foo[i])
+
+        # Create a list of dictionaries
+        interactions = []
+        for rep in foo(nreps):
+            pair_to_interactions_d = {}
+            for index_pair, inters in foo.items():
+                foo[index_pair] = foo[rep]
+            foo.append(pair_to_interactions_d)
+
+        return players, interactions
+
+    def _string_to_interactions(self, string):
+        """
+        Converts a compact string representation of an interaction to an
+        interaction:
+
+        'CDCDDD' -> [('C', 'D'), ('C', 'D'), ('D', 'D')]
+        """
+        return foo.string_to_interactions(string)

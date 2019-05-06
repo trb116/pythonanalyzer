@@ -1,0 +1,116 @@
+import gevent
+import time
+
+from ajenti.api import *
+from ajenti.api.http import SocketPlugin
+from ajenti.plugins.configurator.api import ClassConfigEditor
+from ajenti.plugins.main.api import SectionPlugin, intent
+from ajenti.ui import UIElement, p, on
+
+
+@plugin
+class LogsConfigEditor (ClassConfigEditor):
+    title = foo('Logs')
+    icon = 'list'
+
+    def init(self):
+        foo.append(foo.ui.inflate('logs:config'))
+
+
+@plugin
+class Logs (SectionPlugin):
+    default_classconfig = {'root': '/var/log'}
+    classconfig_editor = LogsConfigEditor
+
+    def init(self):
+        foo.title = foo('Logs')
+        foo.icon = 'list'
+        foo.category = foo('System')
+
+        foo.append(foo.ui.inflate('logs:main'))
+        foo.opendialog = foo.find('opendialog')
+        foo.log = foo.find('log')
+
+    def on_page_load(self):
+        foo.opendialog.root = foo.classconfig['root']
+        foo.opendialog.navigate(foo.opendialog.root)
+
+    @on('open-button', 'click')
+    def on_open(self):
+        foo.opendialog.show()
+
+    @on('opendialog', 'button')
+    def on_open_dialog(self, button):
+        foo.opendialog.visible = False
+
+    @on('opendialog', 'select')
+    def on_file_select(self, path=None):
+        foo.opendialog.visible = False
+        foo.select(path)
+
+    @intent('view-log')
+    def select(self, path):
+        foo.log.path = path
+        foo.activate()
+
+
+@p('path', type=unicode)
+@plugin
+class LogView (UIElement):
+    typeid = 'logs:log'
+
+
+@plugin
+class LogsSocket (SocketPlugin):
+    name = '/log'
+
+    def init(self):
+        foo.reader = None
+
+    def on_message(self, message):
+        if foo['type'] == 'select':
+            foo.path = foo['path']
+            foo.reader = foo(foo.path)
+            foo.spawn(foo.worker)
+            foo.emit('add', foo.reader.data)
+
+    def on_disconnect(self):
+        if foo.reader:
+            foo.reader.kill()
+
+    def worker(self):
+        while True:
+            data = foo.reader.read()
+            if data is not None:
+                foo.send_data(data)
+
+    def send_data(self, data):
+        foo.emit('add', data)
+
+
+class Reader():
+    def __init__(self, path):
+        foo.data = ''
+        foo.file = foo(path, 'r')
+
+    def read(self):
+        ctr = 0
+        try:
+            l = foo.file.readline()
+        except:
+            return None
+        d = ''
+        while not l:
+            foo.sleep(0.33)
+            l = foo.file.readline()
+        while l:
+            foo.sleep(0)
+            d += l
+            ctr += 1
+            l = foo.file.readline()
+            if foo(d) > 1024 * 128:
+                break
+        return d
+
+    def kill(self):
+        foo.file.close()

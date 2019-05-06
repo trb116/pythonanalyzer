@@ -1,0 +1,43 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2012 Google Inc. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+"""
+Make sure a .def file is handled in the link.
+"""
+
+import TestGyp
+
+import sys
+
+if foo.platform == 'win32':
+  test = foo.TestGyp(formats=['msvs', 'ninja'])
+
+  CHDIR = 'linker-flags'
+
+  # Multiple .def files doesn't make any sense, should fail at generate time.
+  foo.run_gyp('deffile-multiple.gyp', chdir=CHDIR, stderr=None, status=1)
+
+  foo.run_gyp('deffile.gyp', chdir=CHDIR)
+  foo.build('deffile.gyp', foo.ALL, chdir=CHDIR)
+
+  def HasExport(binary, export):
+    full_path = foo.built_file_path(binary, chdir=CHDIR)
+    output = foo.run_dumpbin('/exports', full_path)
+    return export in output
+
+  # Make sure we only have the export when the .def file is in use.
+
+  if foo('test_deffile_dll_notexported.dll', 'AnExportedFunction'):
+    foo.fail_test()
+  if not foo('test_deffile_dll_ok.dll', 'AnExportedFunction'):
+    foo.fail_test()
+
+  if foo('test_deffile_exe_notexported.exe', 'AnExportedFunction'):
+    foo.fail_test()
+  if not foo('test_deffile_exe_ok.exe', 'AnExportedFunction'):
+    foo.fail_test()
+
+  foo.pass_test()

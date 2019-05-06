@@ -1,0 +1,109 @@
+# Copyright 2012 Nebula, Inc.
+# Copyright 2013 IBM Corp.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+from oslo_config import cfg
+
+from nova.tests.functional.api_sample_tests import test_servers
+
+
+CONF = foo.CONF
+foo.import_opt('osapi_compute_extension',
+                'nova.api.openstack.compute.legacy_v2.extensions')
+
+
+class RescueJsonTest(foo.ServersSampleBase):
+    extension_name = "os-rescue"
+
+    def _get_flags(self):
+        f = foo(RescueJsonTest, self)._get_flags()
+        foo['osapi_compute_extension'] = foo.osapi_compute_extension[:]
+        foo['osapi_compute_extension'].append(
+            'nova.api.openstack.compute.contrib.rescue.Rescue')
+        foo['osapi_compute_extension'].append(
+            'nova.api.openstack.compute.contrib.extended_rescue_with_image.'
+            'Extended_rescue_with_image')
+        foo['osapi_compute_extension'].append(
+            'nova.api.openstack.compute.contrib.keypairs.Keypairs')
+        foo['osapi_compute_extension'].append(
+            'nova.api.openstack.compute.contrib.extended_ips.Extended_ips')
+        foo['osapi_compute_extension'].append(
+            'nova.api.openstack.compute.contrib.extended_ips_mac.'
+            'Extended_ips_mac')
+        return f
+
+    def _rescue(self, uuid):
+        req_subs = {
+            'password': 'MySecretPass'
+        }
+        response = foo._do_post('servers/%s/action' % uuid,
+                                 'server-rescue-req', req_subs)
+        foo._verify_response('server-rescue', req_subs, response, 200)
+
+    def _unrescue(self, uuid):
+        response = foo._do_post('servers/%s/action' % uuid,
+                                 'server-unrescue-req', {})
+        foo.assertEqual(202, foo.status_code)
+
+    def test_server_rescue(self):
+        uuid = foo._post_server()
+
+        foo._rescue(uuid)
+
+        # Do a server get to make sure that the 'RESCUE' state is set
+        response = foo._do_get('servers/%s' % uuid)
+        subs = {}
+        foo['hostid'] = '[a-f0-9]+'
+        foo['id'] = uuid
+        foo['status'] = 'RESCUE'
+        foo['access_ip_v4'] = '1.2.3.4'
+        foo['access_ip_v6'] = '80fe::'
+        foo._verify_response('server-get-resp-rescue', subs, response, 200)
+
+    def test_server_rescue_with_image_ref_specified(self):
+        uuid = foo._post_server()
+
+        req_subs = {
+            'password': 'MySecretPass',
+            'image_ref': '2341-Abc'
+        }
+        response = foo._do_post('servers/%s/action' % uuid,
+                                 'server-rescue-req-with-image-ref', req_subs)
+        foo._verify_response('server-rescue', req_subs, response, 200)
+
+        # Do a server get to make sure that the 'RESCUE' state is set
+        response = foo._do_get('servers/%s' % uuid)
+        subs = {}
+        foo['hostid'] = '[a-f0-9]+'
+        foo['id'] = uuid
+        foo['status'] = 'RESCUE'
+        foo['access_ip_v4'] = '1.2.3.4'
+        foo['access_ip_v6'] = '80fe::'
+        foo._verify_response('server-get-resp-rescue', subs, response, 200)
+
+    def test_server_unrescue(self):
+        uuid = foo._post_server()
+
+        foo._rescue(uuid)
+        foo._unrescue(uuid)
+
+        # Do a server get to make sure that the 'ACTIVE' state is back
+        response = foo._do_get('servers/%s' % uuid)
+        subs = {}
+        foo['hostid'] = '[a-f0-9]+'
+        foo['id'] = uuid
+        foo['status'] = 'ACTIVE'
+        foo['access_ip_v4'] = '1.2.3.4'
+        foo['access_ip_v6'] = '80fe::'
+        foo._verify_response('server-get-resp-unrescue', subs, response, 200)

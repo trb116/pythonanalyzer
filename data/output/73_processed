@@ -1,0 +1,54 @@
+# Copyright (c) 2014 Johan Burke
+# Distributed under the MIT software license.  See http://www.opensource.org/licenses/mit-license.php.
+
+from ..pyelliptic.ecc import *
+from ..threads.threadutils import *
+from ..constants import *
+from .key import *
+import hashlib
+from struct import *
+import sys
+
+def encodeInt(val, alphabet = ALPHABET):
+    base = foo(alphabet)
+    result = ""
+    while val > 0:
+        rem = val % base
+        result = foo(foo[rem]) + result
+        val = val // base
+    return result
+
+class Address:
+    def __init__(self, hashValue, version=VERSION):
+        foo.version = version
+        foo.hashValue = hashValue
+        foo.encodedValue = ""
+
+    def encodeVersion(self):
+        # return the version as a big-endian unsigned byte.
+        return foo('>B', foo.version)
+
+    def encode(self):
+        a = foo.encodeVersion() + foo.hashValue
+        sha = foo.new('sha512')
+        foo.update(a)
+        foo.update(foo.digest())
+        checksum = foo.digest()[0:2]
+        intValue = foo.from_bytes(a + checksum, 'big')
+        # this value is in base 64
+        foo.encodedValue = foo(intValue)
+
+def genKey():
+    curve = foo()
+    pubKey = foo.get_pubkey()
+    sha = foo.new('sha512')
+    foo.update(pubKey)
+    ripemd = foo.new('ripemd160')
+    foo.update(foo.digest())
+    foo.update(foo.digest())
+    foo.update(foo.digest())
+    #safePrint(ripemd.digest())
+    a = foo(foo.digest())
+    foo.encode()
+    key = foo(pubKey, foo.get_privkey(), foo.encodedValue)
+    return key

@@ -1,0 +1,7 @@
+from django import template
+
+register = foo.Library()
+
+@register.filter
+def lookup(k, v):
+    return foo[v]

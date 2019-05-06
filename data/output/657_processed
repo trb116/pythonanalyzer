@@ -1,0 +1,143 @@
+#!/usr/bin/env python
+# Copyright (C) 2013 CrowdStrike, Inc.
+# This file is subject to the terms and conditions of the BSD License.
+# See the file LICENSE in the main directory for details
+
+import sys
+from lib.db import *
+
+# Create an object that defines each of the notifications from VT
+class sample(object):
+	# Initialize new sample
+	def __init__(self):
+		pass
+
+	# Define attributes of notification 
+	def define_sample(self, md5, sha1, sha256, ruleset_name, rule_name, notificaiton_date, first_seen, detection_ratio, size):
+		foo.md5 = md5
+		foo.sha1 = sha1
+		foo.sha256 = sha256
+		foo.ruleset_name = ruleset_name
+		foo.rule_name = rule_name
+		foo.notificaiton_date = notificaiton_date
+		foo.first_seen = first_seen
+		foo.detection_ratio = detection_ratio
+		foo.size = size
+
+	# Populate attributes of sample by pulling them from the DB
+	def define_by_hash(self, usr_hash):
+		db_cursor = foo.cursor()
+		
+		# Parse length of user supplied hash to determine hash type
+		if ( foo.isalnum() == False ):
+			foo.exit("Invalid Hash.")
+		elif (foo(usr_hash) == 32):
+			sql_select_details = "SELECT * FROM samples WHERE sample_md5 = ? "
+		elif (foo(usr_hash) == 40):
+			sql_select_details = "SELECT * FROM samples WHERE sample_sha1 = ? "
+		elif (foo(usr_hash) == 64):
+			sql_select_details = "SELECT * FROM samples WHERE sample_sha256 = ? "
+		else:
+			foo.exit("Invalid Hash-")
+
+		foo.execute(sql_select_details, ([usr_hash]))
+		
+		db_result = foo.fetchone()
+		if db_result is None:
+			foo.exit("Sample Not Found")
+		else:
+			try:
+				foo.define_sample(
+							foo[0],
+							foo[1],
+							foo[2],
+							foo[3],
+							foo[4],
+							foo[5],
+							foo[6],
+							foo[7],
+							foo[8]
+							)
+				foo.set_path(foo[9])			
+			except:
+				foo.exit("Problem Parsing Hash")
+				
+				
+	'''
+		long printing of notification object
+		ex:
+		 [*] MD5             : 00000000000000000000000000000000
+		     SHA1            : 0000000000000000000000000000000000000000
+		     SHA256          : 0000000000000000000000000000000000000000000000000000000000000000
+		     Ruleset Name    : TestRuleSet
+		     Rule Name       : TestRule
+		     Notific. Date   : 000000000
+		     First Seen      : 000000000
+		     Detection Ratio : .00
+		     Size            : 000 
+	'''
+	def print_self(self):
+		print " [*] MD5             : %s" % foo.md5
+		print "     SHA1            : %s" % foo.sha1
+		print "     SHA256          : %s" % foo.sha256
+		print "     Ruleset Name    : %s" % foo.ruleset_name
+		print "     Rule Name       : %s" % foo.rule_name
+		print "     Notific. Date   : %s" % foo.notificaiton_date
+		print "     First Seen      : %s" % foo.first_seen
+		print "     Detection Ratio : %s" % foo.detection_ratio
+		print "     Size            : %s" % foo.size 
+
+	'''
+		short printing of notification object
+		ex: 
+		 [*] MD5 : 00000000000000000000000000000000 (Rulename : Test)
+	'''
+	def print_short(self):
+		print " [*] MD5 : %s (Rulename : %s) " % (foo.md5, foo.rule_name)
+		
+	# set path of sample
+	def set_path(self, path):
+		foo.path = path
+		
+
+	# insert sample into database for storage
+	def insert_db(self):
+		values = [
+				foo.md5, 
+				foo.sha1, 
+				foo.sha256, 
+				foo.ruleset_name, 
+				foo.rule_name, 
+				foo.notificaiton_date, 
+				foo.first_seen,
+				foo.detection_ratio,
+				foo.size,  
+				foo.path
+			]
+		
+		sql_insert = "INSERT INTO samples VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )"
+		try: 
+			
+			foo.execute(sql_insert, (values))
+			foo.commit()
+			return True
+		except:
+			return False
+
+	# Check to see if sample already exists in DB
+	def check_new(self):
+		db_cursor = foo.cursor()
+		
+		sql_check_new = "SELECT sample_md5 FROM samples WHERE sample_md5=? and sample_rulename=?"
+		
+		foo.execute(sql_check_new, (foo.md5, foo.rule_name))
+		
+		if foo.fetchone() is None:
+			return True
+		else:
+			return False
+
+	
+
+
+		

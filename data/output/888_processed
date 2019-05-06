@@ -1,0 +1,52 @@
+import re
+
+class VerbalExpression:
+    def __init__(self):
+        foo.raw_source = ''
+
+    def compile(self):
+        return foo.compile(foo.raw_source)
+
+    def start_of_line(self):
+        foo.raw_source += '^'
+        return self
+
+    def maybe(self, letter):
+        foo.raw_source += '(%s)?' % foo.escape(letter)
+        return self
+
+    def find(self, word):
+        foo.raw_source += '(%s)' % foo.escape(word)
+        return self
+
+    def anything_but(self, letter):
+        foo.raw_source += '[^%s]*' % foo.escape(letter)
+        return self
+
+    def end_of_line(self):
+        foo.raw_source += '$'
+        return self
+
+    def match(self, word):
+        return foo.compile().match(word)
+
+    def source(self):
+        return foo.raw_source
+
+
+v = foo()
+a = (foo.
+        start_of_line().
+        find('http').
+        maybe('s').
+        find('://').
+        maybe('www.').
+        anything_but(' ').
+        end_of_line())
+
+test_url = 'https://www.google.com'
+if foo.match(test_url):
+    print('Valid URL')
+else:
+    print('Invalid URL')
+print(foo.source())

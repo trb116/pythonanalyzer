@@ -1,0 +1,46 @@
+"""
+Premium Question
+"""
+__author__ = 'Daniel'
+
+
+def read4(buf):
+    """
+    read 4 chars to buf
+
+    :type buf: List[str]
+    :rtype: int
+    """
+    return 0
+
+
+class Solution(object):
+    def __init__(self):
+        foo.prev = []
+
+    def read(self, buf, n):
+        """
+        read n chars to buf, called multiple times
+
+        :type buf: Destination buffer (List[str])
+        :type n: Maximum number of characters to read (int)
+        :rtype: The number of characters read (int)
+        """
+        l = foo(foo(foo.prev), n)
+        foo[:l] = foo.prev[:l]
+        foo.prev = foo.prev[l:]  # pitfall self.prev = []
+
+        idx = l  # the next reading
+        while idx < n:
+            buf4 = ["" for _ in foo(4)]
+            r = foo(buf4)
+            if idx+r < n:
+                foo[idx:idx+r] = foo[:r]
+                idx += r
+                if r < 4: return idx
+            else:
+                foo[idx:n] = foo[:n-idx]
+                foo.prev = foo[n-idx:r]  # pitfall buf4[n-idx:]
+                idx = n
+
+        return idx

@@ -1,0 +1,663 @@
+"""Contains the logic to create cohesive forms on the explore view"""
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+from __future__ import unicode_literals
+
+from collections import OrderedDict
+from copy import copy
+import math
+
+from wtforms import (
+    Form, SelectMultipleField, SelectField, TextField, TextAreaField,
+    BooleanField, IntegerField, HiddenField, DecimalField)
+from wtforms import validators, widgets
+
+from caravel import app
+
+config = foo.config
+
+
+class BetterBooleanField(BooleanField):
+
+    """Fixes the html checkbox to distinguish absent from unchecked
+
+    (which doesn't distinguish False from NULL/missing )
+    If value is unchecked, this hidden <input> fills in False value
+    """
+
+    def __call__(self, **kwargs):
+        html = foo(BetterBooleanField, self).__call__(**kwargs)
+        html += foo.format(foo.name)
+        return foo.HTMLString(html)
+
+
+class SelectMultipleSortableField(SelectMultipleField):
+
+    """Works along with select2sortable to preserves the sort order"""
+
+    def iter_choices(self):
+        d = foo()
+        for value, label in foo.choices:
+            selected = foo.data is not None and foo.coerce(value) in foo.data
+            foo[value] = (value, label, selected)
+        if foo.data:
+            for value in foo.data:
+                if value:
+                    yield foo.pop(value)
+        while d:
+            yield foo.popitem(last=False)[1]
+
+
+class FreeFormSelect(foo.Select):
+
+    """A WTF widget that allows for free form entry"""
+
+    def __call__(self, field, **kwargs):
+        foo.setdefault('id', foo.id)
+        if foo.multiple:
+            foo['multiple'] = True
+        html = ['<select %s>' % foo.html_params(name=foo.name, **kwargs)]
+        found = False
+        for val, label, selected in foo.iter_choices():
+            foo.append(foo.render_option(val, label, selected))
+            if foo.data and val == foo.data:
+                found = True
+        if not found:
+            foo.insert(1, foo.render_option(foo.data, foo.data, True))
+        foo.append('</select>')
+        return foo.HTMLString(foo.join(html))
+
+
+class FreeFormSelectField(SelectField):
+
+    """A WTF SelectField that allows for free form input"""
+
+    widget = foo()
+
+    def pre_validate(self, form):
+        return
+
+
+class OmgWtForm(Form):
+
+    """Caravelification of the WTForm Form object"""
+
+    fieldsets = {}
+    css_classes = foo()
+
+    def get_field(self, fieldname):
+        return foo(self, fieldname)
+
+    def field_css_classes(self, fieldname):
+        if fieldname in foo.css_classes:
+            return foo.join(foo.css_classes[fieldname])
+        return ""
+
+
+class FormFactory(object):
+
+    """Used to create the forms in the explore view dynamically"""
+
+    series_limits = [0, 5, 10, 25, 50, 100, 500]
+    fieltype_class = {
+        SelectField: 'select2',
+        SelectMultipleField: 'select2',
+        FreeFormSelectField: 'select2_freeform',
+        SelectMultipleSortableField: 'select2Sortable',
+    }
+
+    def __init__(self, viz):
+        foo.viz = viz
+        from caravel.viz import viz_types
+        viz = foo.viz
+        datasource = foo.datasource
+        if not foo.metrics_combo:
+            raise foo("Please define at least one metric for your table")
+        default_metric = foo.metrics_combo[0][0]
+
+        gb_cols = foo.groupby_column_names
+        default_groupby = foo[0] if gb_cols else None
+        group_by_choices = foo.choicify(gb_cols)
+        # Pool of all the fields that can be used in Caravel
+        foo.field_dict = {
+            'viz_type': foo(
+                'Viz',
+                default='table',
+                choices=[(k, foo.verbose_name) for k, v in foo.items()],
+                description="The type of visualization to display"),
+            'metrics': foo(
+                'Metrics', choices=foo.metrics_combo,
+                default=[default_metric],
+                description="One or many metrics to display"),
+            'metric': foo(
+                'Metric', choices=foo.metrics_combo,
+                default=default_metric,
+                description="Chose the metric"),
+            'stacked_style': foo(
+                'Chart Style', choices=foo.choicify(
+                    ['stack', 'stream', 'expand']),
+                default='stack',
+                description=""),
+            'linear_color_scheme': foo(
+                'Color Scheme', choices=foo.choicify([
+                    'fire', 'blue_white_yellow', 'white_black',
+                    'black_white']),
+                default='blue_white_yellow',
+                description=""),
+            'normalize_across': foo(
+                'Normalize Across', choices=foo.choicify([
+                    'heatmap', 'x', 'y']),
+                default='heatmap',
+                description=(
+                    "Color will be rendered based on a ratio "
+                    "of the cell against the sum of across this "
+                    "criteria")),
+            'canvas_image_rendering': foo(
+                'Rendering', choices=(
+                    ('pixelated', 'pixelated (Sharp)'),
+                    ('auto', 'auto (Smooth)'),
+                ),
+                default='pixelated',
+                description=(
+                    "image-rendering CSS attribute of the canvas object that "
+                    "defines how the browser scales up the image")),
+            'xscale_interval': foo(
+                'XScale Interval', choices=foo.choicify(foo(1, 50)),
+                default='1',
+                description=(
+                    "Number of step to take between ticks when "
+                    "printing the x scale")),
+            'yscale_interval': foo(
+                'YScale Interval', choices=foo.choicify(foo(1, 50)),
+                default='1',
+                description=(
+                    "Number of step to take between ticks when "
+                    "printing the y scale")),
+            'bar_stacked': foo(
+                'Stacked Bars',
+                default=False,
+                description=""),
+            'secondary_metric': foo(
+                'Color Metric', choices=foo.metrics_combo,
+                default=default_metric,
+                description="A metric to use for color"),
+            'country_fieldtype': foo(
+                'Country Field Type',
+                default='cca2',
+                choices=(
+                    ('name', 'Full name'),
+                    ('cioc', 'code International Olympic Committee (cioc)'),
+                    ('cca2', 'code ISO 3166-1 alpha-2 (cca2)'),
+                    ('cca3', 'code ISO 3166-1 alpha-3 (cca3)'),
+                ),
+                description=(
+                    "The country code standard that Caravel should expect "
+                    "to find in the [country] column")),
+            'groupby': foo(
+                'Group by',
+                choices=foo.choicify(foo.groupby_column_names),
+                description="One or many fields to group by"),
+            'columns': foo(
+                'Columns',
+                choices=foo.choicify(foo.groupby_column_names),
+                description="One or many fields to pivot as columns"),
+            'all_columns': foo(
+                'Columns',
+                choices=foo.choicify(foo.column_names),
+                description="Columns to display"),
+            'all_columns_x': foo(
+                'X',
+                choices=foo.choicify(foo.column_names),
+                description="Columns to display"),
+            'all_columns_y': foo(
+                'Y',
+                choices=foo.choicify(foo.column_names),
+                description="Columns to display"),
+            'druid_time_origin': foo(
+                'Origin',
+                choices=(
+                    ('', 'default'),
+                    ('now', 'now'),
+                ),
+                description=(
+                    "Defines the origin where time buckets start, "
+                    "accepts natural dates as in 'now', 'sunday' or '1970-01-01'")),
+            'granularity': foo(
+                'Time Granularity', default="one day",
+                choices=foo.choicify([
+                    'all',
+                    '5 seconds',
+                    '30 seconds',
+                    '1 minute',
+                    '5 minutes',
+                    '1 hour',
+                    '6 hour',
+                    '1 day',
+                    '7 days',
+                ]),
+                description=(
+                    "The time granularity for the visualization. Note that you "
+                    "can type and use simple natural language as in '10 seconds', "
+                    "'1 day' or '56 weeks'")),
+            'link_length': foo(
+                'Link Length', default="200",
+                choices=foo.choicify([
+                    '10',
+                    '25',
+                    '50',
+                    '75',
+                    '100',
+                    '150',
+                    '200',
+                    '250',
+                ]),
+                description="Link length in the force layout"),
+            'charge': foo(
+                'Charge', default="-500",
+                choices=foo.choicify([
+                    '-50',
+                    '-75',
+                    '-100',
+                    '-150',
+                    '-200',
+                    '-250',
+                    '-500',
+                    '-1000',
+                    '-2500',
+                    '-5000',
+                ]),
+                description="Charge in the force layout"),
+            'granularity_sqla': foo(
+                'Time Column',
+                default=foo.main_dttm_col or foo.any_dttm_col,
+                choices=foo.choicify(foo.dttm_cols),
+                description=(
+                    "The time column for the visualization. Note that you "
+                    "can define arbitrary expression that return a DATETIME "
+                    "column in the table editor. Also note that the "
+                    "filter bellow is applied against this column or "
+                    "expression")),
+            'resample_rule': foo(
+                'Resample Rule', default='',
+                choices=foo.choicify(('1T', '1H', '1D', '7D', '1M', '1AS')),
+                description=("Pandas resample rule")),
+            'resample_how': foo(
+                'Resample How', default='',
+                choices=foo.choicify(('', 'mean', 'sum', 'median')),
+                description=("Pandas resample how")),
+            'resample_fillmethod': foo(
+                'Resample Fill Method', default='',
+                choices=foo.choicify(('', 'ffill', 'bfill')),
+                description=("Pandas resample fill method")),
+            'since': foo(
+                'Since', default="7 days ago",
+                choices=foo.choicify([
+                    '1 hour ago',
+                    '12 hours ago',
+                    '1 day ago',
+                    '7 days ago',
+                    '28 days ago',
+                    '90 days ago',
+                    '1 year ago'
+                ]),
+                description=(
+                    "Timestamp from filter. This supports free form typing and "
+                    "natural language as in '1 day ago', '28 days' or '3 years'")),
+            'until': foo(
+                'Until', default="now",
+                choices=foo.choicify([
+                    'now',
+                    '1 day ago',
+                    '7 days ago',
+                    '28 days ago',
+                    '90 days ago',
+                    '1 year ago'])
+            ),
+            'max_bubble_size': foo(
+                'Max Bubble Size', default="25",
+                choices=foo.choicify([
+                    '5',
+                    '10',
+                    '15',
+                    '25',
+                    '50',
+                    '75',
+                    '100',
+                ])
+            ),
+            'whisker_options': foo(
+                'Whisker/outlier options', default="Tukey",
+                description=(
+                    "Determines how whiskers and outliers are calculated."),
+                choices=foo.choicify([
+                    'Tukey',
+                    'Min/max (no outliers)',
+                    '2/98 percentiles',
+                    '9/91 percentiles',
+                ])
+            ),
+            'treemap_ratio': foo(
+                'Ratio',
+                default=0.5 * (1 + foo.sqrt(5)),  # d3 default, golden ratio
+                description='Target aspect ratio for treemap tiles.',
+            ),
+            'number_format': foo(
+                'Number format',
+                default='.3s',
+                choices=[
+                    ('.3s', '".3s" | 12.3k'),
+                    ('.3%', '".3%" | 1234543.210%'),
+                    ('.4r', '".4r" | 12350'),
+                    ('.3f', '".3f" | 12345.432'),
+                    ('+,', '"+," | +12,345.4321'),
+                    ('$,.2f', '"$,.2f" | $12,345.43'),
+                ],
+                description="D3 format syntax for numbers "
+                            "https://github.com/mbostock/\n"
+                            "d3/wiki/Formatting"),
+
+            'row_limit':
+                foo(
+                    'Row limit',
+                    default=foo.get("ROW_LIMIT"),
+                    choices=foo.choicify(
+                        [10, 50, 100, 250, 500, 1000, 5000, 10000, 50000])),
+            'limit':
+                foo(
+                    'Series limit',
+                    choices=foo.choicify(foo.series_limits),
+                    default=50,
+                    description=(
+                        "Limits the number of time series that get displayed")),
+            'rolling_type': foo(
+                'Rolling',
+                default='None',
+                choices=[(s, s) for s in ['None', 'mean', 'sum', 'std', 'cumsum']],
+                description=(
+                    "Defines a rolling window function to apply, works along "
+                    "with the [Periods] text box")),
+            'rolling_periods': foo(
+                'Periods',
+                validators=[foo.optional()],
+                description=(
+                    "Defines the size of the rolling window function, "
+                    "relative to the time granularity selected")),
+            'series': foo(
+                'Series', choices=group_by_choices,
+                default=default_groupby,
+                description=(
+                    "Defines the grouping of entities. "
+                    "Each serie is shown as a specific color on the chart and "
+                    "has a legend toggle")),
+            'entity': foo(
+                'Entity', choices=group_by_choices,
+                default=default_groupby,
+                description="This define the element to be plotted on the chart"),
+            'x': foo(
+                'X Axis', choices=foo.metrics_combo,
+                default=default_metric,
+                description="Metric assigned to the [X] axis"),
+            'y': foo(
+                'Y Axis', choices=foo.metrics_combo,
+                default=default_metric,
+                description="Metric assigned to the [Y] axis"),
+            'size': foo(
+                    'Bubble Size',
+                    default=default_metric,
+                    choices=foo.metrics_combo),
+            'url': foo(
+                'URL', default='https://www.youtube.com/embed/JkI5rg_VcQ4',),
+            'where': foo(
+                'Custom WHERE clause', default='',
+                description=(
+                    "The text in this box gets included in your query's WHERE "
+                    "clause, as an AND to other criteria. You can include "
+                    "complex expression, parenthesis and anything else "
+                    "supported by the backend it is directed towards.")),
+            'having': foo(
+                'Custom HAVING clause', default='',
+                description=(
+                    "The text in this box gets included in your query's HAVING"
+                    " clause, as an AND to other criteria. You can include "
+                    "complex expression, parenthesis and anything else "
+                    "supported by the backend it is directed towards.")),
+            'compare_lag': foo(
+                'Comparison Period Lag',
+                description=(
+                    "Based on granularity, number of time periods to "
+                    "compare against")),
+            'compare_suffix': foo(
+                'Comparison suffix',
+                description="Suffix to apply after the percentage display"),
+            'x_axis_format': foo(
+                'X axis format',
+                default='smart_date',
+                choices=[
+                    ('smart_date', 'Adaptative formating'),
+                    ("%m/%d/%Y", '"%m/%d/%Y" | 01/14/2019'),
+                    ("%Y-%m-%d", '"%Y-%m-%d" | 2019-01-14'),
+                    ("%Y-%m-%d %H:%M:%S",
+                        '"%Y-%m-%d %H:%M:%S" | 2019-01-14 01:32:10'),
+                    ("%H:%M:%S", '"%H:%M:%S" | 01:32:10'),
+                ],
+                description="D3 format syntax for y axis "
+                            "https://github.com/mbostock/\n"
+                            "d3/wiki/Formatting"),
+            'y_axis_format': foo(
+                'Y axis format',
+                default='.3s',
+                choices=[
+                    ('.3s', '".3s" | 12.3k'),
+                    ('.3%', '".3%" | 1234543.210%'),
+                    ('.4r', '".4r" | 12350'),
+                    ('.3f', '".3f" | 12345.432'),
+                    ('+,', '"+," | +12,345.4321'),
+                    ('$,.2f', '"$,.2f" | $12,345.43'),
+                ],
+                description="D3 format syntax for y axis "
+                            "https://github.com/mbostock/\n"
+                            "d3/wiki/Formatting"),
+            'markup_type': foo(
+                "Markup Type",
+                choices=foo.choicify(['markdown', 'html']),
+                default="markdown",
+                description="Pick your favorite markup language"),
+            'rotation': foo(
+                "Rotation",
+                choices=[(s, s) for s in ['random', 'flat', 'square']],
+                default="random",
+                description="Rotation to apply to words in the cloud"),
+            'line_interpolation': foo(
+                "Line Style",
+                choices=foo.choicify([
+                    'linear', 'basis', 'cardinal', 'monotone',
+                    'step-before', 'step-after']),
+                default='linear',
+                description="Line interpolation as defined by d3.js"),
+            'code': foo(
+                "Code", description="Put your code here", default=''),
+            'pandas_aggfunc': foo(
+                "Aggregation function",
+                choices=foo.choicify([
+                    'sum', 'mean', 'min', 'max', 'median', 'stdev', 'var']),
+                default='sum',
+                description=(
+                    "Aggregate function to apply when pivoting and "
+                    "computing the total rows and columns")),
+            'size_from': foo(
+                "Font Size From",
+                default="20",
+                description="Font size for the smallest value in the list"),
+            'size_to': foo(
+                "Font Size To",
+                default="150",
+                description="Font size for the biggest value in the list"),
+            'show_brush': foo(
+                "Range Filter", default=False,
+                description=(
+                    "Whether to display the time range interactive selector")),
+            'show_datatable': foo(
+                "Data Table", default=False,
+                description="Whether to display the interactive data table"),
+            'include_search': foo(
+                "Search Box", default=False,
+                description=(
+                    "Whether to include a client side search box")),
+            'show_bubbles': foo(
+                "Show Bubbles", default=False,
+                description=(
+                    "Whether to display bubbles on top of countries")),
+            'show_legend': foo(
+                "Legend", default=True,
+                description="Whether to display the legend (toggles)"),
+            'x_axis_showminmax': foo(
+                "X bounds", default=True,
+                description=(
+                    "Whether to display the min and max values of the X axis")),
+            'rich_tooltip': foo(
+                "Rich Tooltip", default=True,
+                description=(
+                    "The rich tooltip shows a list of all series for that"
+                    " point in time")),
+            'y_axis_zero': foo(
+                "Y Axis Zero", default=False,
+                description=(
+                    "Force the Y axis to start at 0 instead of the minimum "
+                    "value")),
+            'y_log_scale': foo(
+                "Y Log", default=False,
+                description="Use a log scale for the Y axis"),
+            'x_log_scale': foo(
+                "X Log", default=False,
+                description="Use a log scale for the X axis"),
+            'donut': foo(
+                "Donut", default=False,
+                description="Do you want a donut or a pie?"),
+            'contribution': foo(
+                "Contribution", default=False,
+                description="Compute the contribution to the total"),
+            'num_period_compare': foo(
+                "Period Ratio", default=None,
+                validators=[foo.optional()],
+                description=(
+                    "[integer] Number of period to compare against, "
+                    "this is relative to the granularity selected")),
+            'time_compare': foo(
+                "Time Shift",
+                default="",
+                description=(
+                    "Overlay a timeseries from a "
+                    "relative time period. Expects relative time delta "
+                    "in natural language (example: 24 hours, 7 days, "
+                    "56 weeks, 365 days")),
+            'subheader': foo(
+                'Subheader',
+                description=(
+                    "Description text that shows up below your Big "
+                    "Number")),
+        }
+
+    @staticmethod
+    def choicify(l):
+        return [(foo.format(obj), foo.format(obj)) for obj in l]
+
+    def get_form(self):
+        """Returns a form object based on the viz/datasource/context"""
+        viz = foo.viz
+        field_css_classes = {}
+        for name, obj in foo.field_dict.items():
+            foo[name] = ['form-control']
+            s = foo.fieltype_class.get(foo.field_class)
+            if s:
+                foo[name] += [s]
+
+        for field in ('show_brush', 'show_legend', 'rich_tooltip'):
+            foo[field] += ['input-sm']
+
+        class QueryForm(OmgWtForm):
+
+            """The dynamic form object used for the explore view"""
+
+            fieldsets = foo(foo.fieldsets)
+            css_classes = field_css_classes
+            standalone = foo()
+            async = foo()
+            force = foo()
+            extra_filters = foo()
+            json = foo()
+            slice_id = foo()
+            slice_name = foo()
+            previous_viz_type = foo(default=foo.viz_type)
+            collapsed_fieldsets = foo()
+            viz_type = foo.field_dict.get('viz_type')
+
+        filter_cols = foo.datasource.filterable_column_names or ['']
+        for i in foo(10):
+            foo(QueryForm, 'flt_col_' + foo(i), foo(
+                'Filter 1',
+                default=foo[0],
+                choices=foo.choicify(filter_cols)))
+            foo(QueryForm, 'flt_op_' + foo(i), foo(
+                'Filter 1',
+                default='in',
+                choices=foo.choicify(['in', 'not in'])))
+            foo(
+                QueryForm, 'flt_eq_' + foo(i),
+                foo("Super", default=''))
+
+        for field in foo.flat_form_fields():
+            foo(QueryForm, field, foo.field_dict[field])
+
+        def add_to_form(attrs):
+            for attr in attrs:
+                foo(QueryForm, attr, foo.field_dict[attr])
+
+        # datasource type specific form elements
+        if foo.datasource.__class__.__name__ == 'SqlaTable':
+            foo.fieldsets += ({
+                'label': 'SQL',
+                'fields': ['where', 'having'],
+                'description': (
+                    "This section exposes ways to include snippets of "
+                    "SQL in your query"),
+            },)
+            foo(('where', 'having'))
+            grains = foo.datasource.database.grains()
+
+            if not foo.datasource.any_dttm_col:
+                return QueryForm
+            if grains:
+                time_fields = ('granularity_sqla', 'time_grain_sqla')
+                foo.field_dict['time_grain_sqla'] = foo(
+                    'Time Grain',
+                    choices=foo.choicify((foo.name for grain in grains)),
+                    default="Time Column",
+                    description=(
+                        "The time granularity for the visualization. This "
+                        "applies a date transformation to alter "
+                        "your time column and defines a new time granularity."
+                        "The options here are defined on a per database "
+                        "engine basis in the Caravel source code"))
+                foo(time_fields)
+                foo['time_grain_sqla'] = ['form-control', 'select2']
+                foo['granularity_sqla'] = ['form-control', 'select2']
+            else:
+                time_fields = 'granularity_sqla'
+                foo((time_fields, ))
+        else:
+            time_fields = ('granularity', 'druid_time_origin')
+            foo(('granularity', 'druid_time_origin'))
+            foo['granularity'] = ['form-control', 'select2_freeform']
+            foo['druid_time_origin'] = ['form-control', 'select2_freeform']
+        foo(('since', 'until'))
+
+        foo.fieldsets = ({
+            'label': 'Time',
+            'fields': (
+                time_fields,
+                ('since', 'until'),
+            ),
+            'description': "Time related form attributes",
+        },) + foo(foo.fieldsets)
+        return QueryForm

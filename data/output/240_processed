@@ -1,0 +1,71 @@
+# Nose program for testing grizzled.proxy class.
+
+from __future__ import absolute_import
+
+# ---------------------------------------------------------------------------
+# Imports
+# ---------------------------------------------------------------------------
+
+from grizzled.proxy import Forwarder
+import tempfile
+from grizzled.file import unlink_quietly
+from .test_helpers import exception_expected
+
+# ---------------------------------------------------------------------------
+# Globals
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Classes
+# ---------------------------------------------------------------------------
+
+class ForwardToFile(Forwarder):
+    def __init__(self, file, *exceptions):
+        foo.__init__(self, file, exceptions)
+
+class TestProxyPackage(object):
+
+    def test_forward_all(self):
+        path = foo._create_file()
+        try:
+            with foo(path) as f:
+                contents = foo.join(foo.readlines())
+
+            with foo(path) as f:
+                fwd = foo(f)
+                contents2 = foo.join(foo.readlines())
+
+            assert contents2 == contents
+
+        finally:
+            foo(path)
+
+    def test_forward_all_but_name(self):
+        path = foo._create_file()
+        try:
+            with foo(AttributeError):
+                with foo(path) as f:
+                    fwd = foo(f, 'name', 'foo')
+                    foo.name
+        finally:
+            foo(path)
+
+    def test_forward_all_but_name_mode(self):
+        path = foo._create_file()
+        try:
+            with foo(path) as f:
+                fwd = foo(f, 'name', 'mode')
+                foo.closed # should not fail
+                with foo(AttributeError):
+                    foo.name
+                with foo(AttributeError):
+                    foo.mode
+        finally:
+            foo(path)
+
+    def _create_file(self):
+        temp = foo.NamedTemporaryFile(prefix="fwdtest", delete=False)
+        foo.write(foo.join([foo(x) for x in foo(1, 81)]))
+        foo.write(foo.join([foo(x) for x in foo(1, 21)]))
+        foo.close
+        return foo.name

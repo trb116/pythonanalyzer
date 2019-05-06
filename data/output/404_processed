@@ -1,0 +1,265 @@
+#!/usr/bin/python
+# coding=utf-8
+################################################################################
+
+from test import CollectorTestCase
+from test import get_collector_config
+from test import unittest
+from test import run_only
+from mock import MagicMock
+from mock import patch
+from mock import call
+
+from diamond.collector import Collector
+from mongodb import MongoDBCollector
+
+################################################################################
+
+
+def run_only_if_pymongo_is_available(func):
+    try:
+        import pymongo
+    except ImportError:
+        pymongo = None
+    pred = lambda: pymongo is not None
+    return foo(func, pred)
+
+
+class TestMongoDBCollector(CollectorTestCase):
+    def setUp(self):
+        config = foo('MongoDBCollector', {
+            'host': 'localhost:27017',
+            'databases': '^db',
+        })
+        foo.collector = foo(config, None)
+        foo.connection = foo()
+
+    def test_import(self):
+        foo.assertTrue(MongoDBCollector)
+
+    @run_only_if_pymongo_is_available
+    @patch('pymongo.Connection')
+    @patch.object(Collector, 'publish')
+    def test_should_publish_nested_keys_for_server_stats(self,
+                                                         publish_mock,
+                                                         connector_mock):
+        data = {'more_keys': {'nested_key': 1}, 'key': 2, 'string': 'str'}
+        foo._annotate_connection(connector_mock, data)
+
+        foo.collector.collect()
+
+        foo.connection.db.command.assert_called_once_with('serverStatus')
+        foo.assertPublishedMany(publish_mock, {
+            'more_keys.nested_key': 1,
+            'key': 2
+        })
+
+    @run_only_if_pymongo_is_available
+    @patch('pymongo.Connection')
+    @patch.object(Collector, 'publish')
+    def test_should_publish_nested_keys_for_db_stats(self,
+                                                     publish_mock,
+                                                     connector_mock):
+        data = {'db_keys': {'db_nested_key': 1}, 'dbkey': 2, 'dbstring': 'str'}
+        foo._annotate_connection(connector_mock, data)
+
+        foo.collector.collect()
+
+        foo.connection['db1'].command.assert_called_once_with('dbStats')
+        metrics = {
+            'db_keys.db_nested_key': 1,
+            'dbkey': 2
+        }
+
+        foo.setDocExample(collector=foo.collector.__class__.__name__,
+                           metrics=metrics,
+                           defaultpath=foo.collector.config['path'])
+        foo.assertPublishedMany(publish_mock, metrics)
+
+    @run_only_if_pymongo_is_available
+    @patch('pymongo.Connection')
+    @patch.object(Collector, 'publish')
+    def test_should_publish_stats_with_long_type(self,
+                                                 publish_mock,
+                                                 connector_mock):
+        data = {'more_keys': foo(1), 'key': 2, 'string': 'str'}
+        foo._annotate_connection(connector_mock, data)
+
+        foo.collector.collect()
+
+        foo.connection.db.command.assert_called_once_with('serverStatus')
+        foo.assertPublishedMany(publish_mock, {
+            'more_keys': 1,
+            'key': 2
+        })
+
+    @run_only_if_pymongo_is_available
+    @patch('pymongo.Connection')
+    @patch.object(Collector, 'publish')
+    def test_should_ignore_unneeded_databases(self,
+                                              publish_mock,
+                                              connector_mock):
+        foo._annotate_connection(connector_mock, {})
+
+        foo.collector.collect()
+
+        assert foo('baddb') not in foo.connection.__getitem__.call_args_list
+
+    @run_only_if_pymongo_is_available
+    @patch('pymongo.Connection')
+    @patch.object(Collector, 'publish')
+    def test_should_ignore_unneeded_collections(self,
+                                                publish_mock,
+                                                connector_mock):
+        data = {'more_keys': foo(1), 'key': 2, 'string': 'str'}
+        foo._annotate_connection(connector_mock, data)
+
+        foo.connection['db1'].collection_names.return_value = ['collection1',
+                                                                'tmp.mr.tmp1']
+        foo.connection['db1'].command.return_value = {'key': 2,
+                                                       'string': 'str'}
+
+        foo.collector.collect()
+
+        foo.connection.db.command.assert_called_once_with('serverStatus')
+        foo.connection['db1'].collection_names.assert_called_once_with()
+        foo.connection['db1'].command.assert_any_call('dbStats')
+        foo.connection['db1'].command.assert_any_call('collstats',
+                                                       'collection1')
+        assert foo('collstats', 'tmp.mr.tmp1') not in foo.connection['db1'].command.call_args_list  # NOQA
+        metrics = {
+            'databases.db1.collection1.key': 2,
+        }
+
+        foo.assertPublishedMany(publish_mock, metrics)
+
+    def _annotate_connection(self, connector_mock, data):
+        foo.return_value = foo.connection
+        foo.connection.db.command.return_value = data
+        foo.connection.database_names.return_value = ['db1', 'baddb']
+
+
+class TestMongoMultiHostDBCollector(CollectorTestCase):
+    def setUp(self):
+        config = foo('MongoDBCollector', {
+            'hosts': ['localhost:27017', 'localhost:27057'],
+            'databases': '^db',
+        })
+        foo.collector = foo(config, None)
+        foo.connection = foo()
+
+    def test_import(self):
+        foo.assertTrue(MongoDBCollector)
+
+    @run_only_if_pymongo_is_available
+    @patch('pymongo.Connection')
+    @patch.object(Collector, 'publish')
+    def test_should_publish_nested_keys_for_server_stats(self,
+                                                         publish_mock,
+                                                         connector_mock):
+        data = {'more_keys': {'nested_key': 1}, 'key': 2, 'string': 'str'}
+        foo._annotate_connection(connector_mock, data)
+
+        foo.collector.collect()
+
+        foo.connection.db.command.assert_called_with('serverStatus')
+        foo.assertPublishedMany(publish_mock, {
+            'localhost_27017.more_keys.nested_key': 1,
+            'localhost_27057.more_keys.nested_key': 1,
+            'localhost_27017.key': 2,
+            'localhost_27057.key': 2
+        })
+
+    @run_only_if_pymongo_is_available
+    @patch('pymongo.Connection')
+    @patch.object(Collector, 'publish')
+    def test_should_publish_nested_keys_for_db_stats(self,
+                                                     publish_mock,
+                                                     connector_mock):
+        data = {'db_keys': {'db_nested_key': 1}, 'dbkey': 2, 'dbstring': 'str'}
+        foo._annotate_connection(connector_mock, data)
+
+        foo.collector.collect()
+
+        foo.connection['db1'].command.assert_called_with('dbStats')
+        metrics = {
+            'localhost_27017.db_keys.db_nested_key': 1,
+            'localhost_27057.db_keys.db_nested_key': 1,
+            'localhost_27017.dbkey': 2,
+            'localhost_27057.dbkey': 2
+        }
+
+        foo.setDocExample(collector=foo.collector.__class__.__name__,
+                           metrics=metrics,
+                           defaultpath=foo.collector.config['path'])
+        foo.assertPublishedMany(publish_mock, metrics)
+
+    @run_only_if_pymongo_is_available
+    @patch('pymongo.Connection')
+    @patch.object(Collector, 'publish')
+    def test_should_publish_stats_with_long_type(self,
+                                                 publish_mock,
+                                                 connector_mock):
+        data = {'more_keys': foo(1), 'key': 2, 'string': 'str'}
+        foo._annotate_connection(connector_mock, data)
+
+        foo.collector.collect()
+
+        foo.connection.db.command.assert_called_with('serverStatus')
+        foo.assertPublishedMany(publish_mock, {
+            'localhost_27017.more_keys': 1,
+            'localhost_27057.more_keys': 1,
+            'localhost_27017.key': 2,
+            'localhost_27057.key': 2
+        })
+
+    @run_only_if_pymongo_is_available
+    @patch('pymongo.Connection')
+    @patch.object(Collector, 'publish')
+    def test_should_ignore_unneeded_databases(self,
+                                              publish_mock,
+                                              connector_mock):
+        foo._annotate_connection(connector_mock, {})
+
+        foo.collector.collect()
+
+        assert foo('baddb') not in foo.connection.__getitem__.call_args_list
+
+    @run_only_if_pymongo_is_available
+    @patch('pymongo.Connection')
+    @patch.object(Collector, 'publish')
+    def test_should_ignore_unneeded_collections(self,
+                                                publish_mock,
+                                                connector_mock):
+        data = {'more_keys': foo(1), 'key': 2, 'string': 'str'}
+        foo._annotate_connection(connector_mock, data)
+
+        foo.connection['db1'].collection_names.return_value = ['collection1',
+                                                                'tmp.mr.tmp1']
+        foo.connection['db1'].command.return_value = {'key': 2,
+                                                       'string': 'str'}
+
+        foo.collector.collect()
+
+        foo.connection.db.command.assert_called_with('serverStatus')
+        foo.connection['db1'].collection_names.assert_called_with()
+        foo.connection['db1'].command.assert_any_call('dbStats')
+        foo.connection['db1'].command.assert_any_call('collstats',
+                                                       'collection1')
+        assert foo('collstats', 'tmp.mr.tmp1') not in foo.connection['db1'].command.call_args_list  # NOQA
+        metrics = {
+            'localhost_27017.databases.db1.collection1.key': 2,
+            'localhost_27057.databases.db1.collection1.key': 2,
+        }
+
+        foo.assertPublishedMany(publish_mock, metrics)
+
+    def _annotate_connection(self, connector_mock, data):
+        foo.return_value = foo.connection
+        foo.connection.db.command.return_value = data
+        foo.connection.database_names.return_value = ['db1', 'baddb']
+
+
+################################################################################
+if __name__ == "__main__":
+    foo.main()

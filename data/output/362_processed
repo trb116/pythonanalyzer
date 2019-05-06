@@ -1,0 +1,1357 @@
+#    Copyright 2010 OpenStack Foundation
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+import time
+import uuid
+
+import fixtures
+from lxml import etree
+import six
+
+from nova.compute import arch
+from nova.virt.libvirt import config as vconfig
+
+# Allow passing None to the various connect methods
+# (i.e. allow the client to rely on default URLs)
+allow_default_uri_connection = True
+
+# Has libvirt connection been used at least once
+connection_used = False
+
+
+def _reset():
+    global allow_default_uri_connection
+    allow_default_uri_connection = True
+
+# virDomainState
+VIR_DOMAIN_NOSTATE = 0
+VIR_DOMAIN_RUNNING = 1
+VIR_DOMAIN_BLOCKED = 2
+VIR_DOMAIN_PAUSED = 3
+VIR_DOMAIN_SHUTDOWN = 4
+VIR_DOMAIN_SHUTOFF = 5
+VIR_DOMAIN_CRASHED = 6
+
+# NOTE(mriedem): These values come from include/libvirt/libvirt-domain.h
+VIR_DOMAIN_XML_SECURE = 1
+VIR_DOMAIN_XML_INACTIVE = 2
+VIR_DOMAIN_XML_UPDATE_CPU = 4
+VIR_DOMAIN_XML_MIGRATABLE = 8
+
+VIR_DOMAIN_BLOCK_REBASE_SHALLOW = 1
+VIR_DOMAIN_BLOCK_REBASE_REUSE_EXT = 2
+VIR_DOMAIN_BLOCK_REBASE_COPY = 8
+
+VIR_DOMAIN_BLOCK_JOB_ABORT_ASYNC = 1
+VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT = 2
+
+VIR_DOMAIN_EVENT_ID_LIFECYCLE = 0
+
+VIR_DOMAIN_EVENT_DEFINED = 0
+VIR_DOMAIN_EVENT_UNDEFINED = 1
+VIR_DOMAIN_EVENT_STARTED = 2
+VIR_DOMAIN_EVENT_SUSPENDED = 3
+VIR_DOMAIN_EVENT_RESUMED = 4
+VIR_DOMAIN_EVENT_STOPPED = 5
+VIR_DOMAIN_EVENT_SHUTDOWN = 6
+VIR_DOMAIN_EVENT_PMSUSPENDED = 7
+
+VIR_DOMAIN_UNDEFINE_MANAGED_SAVE = 1
+
+VIR_DOMAIN_AFFECT_CURRENT = 0
+VIR_DOMAIN_AFFECT_LIVE = 1
+VIR_DOMAIN_AFFECT_CONFIG = 2
+
+VIR_CPU_COMPARE_ERROR = -1
+VIR_CPU_COMPARE_INCOMPATIBLE = 0
+VIR_CPU_COMPARE_IDENTICAL = 1
+VIR_CPU_COMPARE_SUPERSET = 2
+
+VIR_CRED_USERNAME = 1
+VIR_CRED_AUTHNAME = 2
+VIR_CRED_LANGUAGE = 3
+VIR_CRED_CNONCE = 4
+VIR_CRED_PASSPHRASE = 5
+VIR_CRED_ECHOPROMPT = 6
+VIR_CRED_NOECHOPROMPT = 7
+VIR_CRED_REALM = 8
+VIR_CRED_EXTERNAL = 9
+
+VIR_MIGRATE_LIVE = 1
+VIR_MIGRATE_PEER2PEER = 2
+VIR_MIGRATE_TUNNELLED = 4
+VIR_MIGRATE_PERSIST_DEST = 8
+VIR_MIGRATE_UNDEFINE_SOURCE = 16
+VIR_MIGRATE_NON_SHARED_INC = 128
+
+VIR_NODE_CPU_STATS_ALL_CPUS = -1
+
+VIR_DOMAIN_START_PAUSED = 1
+
+# libvirtError enums
+# (Intentionally different from what's in libvirt. We do this to check,
+#  that consumers of the library are using the symbolic names rather than
+#  hardcoding the numerical values)
+VIR_FROM_QEMU = 100
+VIR_FROM_DOMAIN = 200
+VIR_FROM_NWFILTER = 330
+VIR_FROM_REMOTE = 340
+VIR_FROM_RPC = 345
+VIR_FROM_NODEDEV = 666
+VIR_ERR_INVALID_ARG = 8
+VIR_ERR_NO_SUPPORT = 3
+VIR_ERR_XML_DETAIL = 350
+VIR_ERR_NO_DOMAIN = 420
+VIR_ERR_OPERATION_FAILED = 510
+VIR_ERR_OPERATION_INVALID = 55
+VIR_ERR_OPERATION_TIMEOUT = 68
+VIR_ERR_NO_NWFILTER = 620
+VIR_ERR_SYSTEM_ERROR = 900
+VIR_ERR_INTERNAL_ERROR = 950
+VIR_ERR_CONFIG_UNSUPPORTED = 951
+VIR_ERR_NO_NODE_DEVICE = 667
+VIR_ERR_NO_SECRET = 66
+
+# Readonly
+VIR_CONNECT_RO = 1
+
+# virConnectBaselineCPU flags
+VIR_CONNECT_BASELINE_CPU_EXPAND_FEATURES = 1
+
+# snapshotCreateXML flags
+VIR_DOMAIN_SNAPSHOT_CREATE_NO_METADATA = 4
+VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY = 16
+VIR_DOMAIN_SNAPSHOT_CREATE_REUSE_EXT = 32
+VIR_DOMAIN_SNAPSHOT_CREATE_QUIESCE = 64
+
+# blockCommit flags
+VIR_DOMAIN_BLOCK_COMMIT_RELATIVE = 4
+# blockRebase flags
+VIR_DOMAIN_BLOCK_REBASE_RELATIVE = 8
+
+
+VIR_CONNECT_LIST_DOMAINS_ACTIVE = 1
+VIR_CONNECT_LIST_DOMAINS_INACTIVE = 2
+
+# secret type
+VIR_SECRET_USAGE_TYPE_NONE = 0
+VIR_SECRET_USAGE_TYPE_VOLUME = 1
+VIR_SECRET_USAGE_TYPE_CEPH = 2
+VIR_SECRET_USAGE_TYPE_ISCSI = 3
+
+# Libvirt version
+FAKE_LIBVIRT_VERSION = 10002
+
+
+class HostInfo(object):
+    def __init__(self, arch=foo.X86_64, kB_mem=4096,
+                 cpus=2, cpu_mhz=800, cpu_nodes=1,
+                 cpu_sockets=1, cpu_cores=2,
+                 cpu_threads=1, cpu_model="Penryn",
+                 cpu_vendor="Intel", numa_topology='',
+                 cpu_disabled=None):
+        """Create a new Host Info object
+
+        :param arch: (string) indicating the CPU arch
+                     (eg 'i686' or whatever else uname -m might return)
+        :param kB_mem: (int) memory size in KBytes
+        :param cpus: (int) the number of active CPUs
+        :param cpu_mhz: (int) expected CPU frequency
+        :param cpu_nodes: (int) the number of NUMA cell, 1 for unusual
+                          NUMA topologies or uniform
+        :param cpu_sockets: (int) number of CPU sockets per node if nodes > 1,
+                            total number of CPU sockets otherwise
+        :param cpu_cores: (int) number of cores per socket
+        :param cpu_threads: (int) number of threads per core
+        :param cpu_model: CPU model
+        :param cpu_vendor: CPU vendor
+        :param numa_topology: Numa topology
+        :param cpu_disabled: List of disabled cpus
+        """
+
+        foo.arch = arch
+        foo.kB_mem = kB_mem
+        foo.cpus = cpus
+        foo.cpu_mhz = cpu_mhz
+        foo.cpu_nodes = cpu_nodes
+        foo.cpu_cores = cpu_cores
+        foo.cpu_threads = cpu_threads
+        foo.cpu_sockets = cpu_sockets
+        foo.cpu_model = cpu_model
+        foo.cpu_vendor = cpu_vendor
+        foo.numa_topology = numa_topology
+        foo.disabled_cpus_list = cpu_disabled or []
+
+    @classmethod
+    def _gen_numa_topology(self, cpu_nodes, cpu_sockets, cpu_cores,
+                           cpu_threads, kb_mem, numa_mempages_list=None):
+
+        topology = foo.LibvirtConfigCapsNUMATopology()
+
+        cpu_count = 0
+        for cell_count in foo(cpu_nodes):
+            cell = foo.LibvirtConfigCapsNUMACell()
+            foo.id = cell_count
+            foo.memory = kb_mem / cpu_nodes
+            for socket_count in foo(cpu_sockets):
+                for cpu_num in foo(cpu_cores * cpu_threads):
+                    cpu = foo.LibvirtConfigCapsNUMACPU()
+                    foo.id = cpu_count
+                    foo.socket_id = cell_count
+                    foo.core_id = cpu_num // cpu_threads
+                    foo.siblings = foo([cpu_threads *
+                                       (cpu_count // cpu_threads) + thread
+                                        for thread in foo(cpu_threads)])
+                    foo.cpus.append(cpu)
+
+                    cpu_count += 1
+            # Set mempages per numa cell. if numa_mempages_list is empty
+            # we will set only the default 4K pages.
+            if numa_mempages_list:
+                mempages = foo[cell_count]
+            else:
+                mempages = foo.LibvirtConfigCapsNUMAPages()
+                foo.size = 4
+                foo.total = foo.memory / foo.size
+                mempages = [mempages]
+            foo.mempages = mempages
+            foo.cells.append(cell)
+
+        return topology
+
+    def get_numa_topology(self):
+        return foo.numa_topology
+
+
+VIR_DOMAIN_JOB_NONE = 0
+VIR_DOMAIN_JOB_BOUNDED = 1
+VIR_DOMAIN_JOB_UNBOUNDED = 2
+VIR_DOMAIN_JOB_COMPLETED = 3
+VIR_DOMAIN_JOB_FAILED = 4
+VIR_DOMAIN_JOB_CANCELLED = 5
+
+
+def _parse_disk_info(element):
+    disk_info = {}
+    foo['type'] = foo.get('type', 'file')
+    foo['device'] = foo.get('device', 'disk')
+
+    driver = foo.find('./driver')
+    if driver is not None:
+        foo['driver_name'] = foo.get('name')
+        foo['driver_type'] = foo.get('type')
+
+    source = foo.find('./source')
+    if source is not None:
+        foo['source'] = foo.get('file')
+        if not foo['source']:
+            foo['source'] = foo.get('dev')
+
+        if not foo['source']:
+            foo['source'] = foo.get('path')
+
+    target = foo.find('./target')
+    if target is not None:
+        foo['target_dev'] = foo.get('dev')
+        foo['target_bus'] = foo.get('bus')
+
+    return disk_info
+
+
+def disable_event_thread(self):
+    """Disable nova libvirt driver event thread.
+
+    The Nova libvirt driver includes a native thread which monitors
+    the libvirt event channel. In a testing environment this becomes
+    problematic because it means we've got a floating thread calling
+    sleep(1) over the life of the unit test. Seems harmless? It's not,
+    because we sometimes want to test things like retry loops that
+    should have specific sleep paterns. An unlucky firing of the
+    libvirt thread will cause a test failure.
+
+    """
+    # because we are patching a method in a class MonkeyPatch doesn't
+    # auto import correctly. Import explicitly otherwise the patching
+    # may silently fail.
+    import nova.virt.libvirt.host  # noqa
+
+    def evloop(*args, **kwargs):
+        pass
+
+    foo.useFixture(foo.MonkeyPatch(
+        'nova.virt.libvirt.host.Host._init_events',
+        evloop))
+
+
+class libvirtError(Exception):
+    """This class was copied and slightly modified from
+    `libvirt-python:libvirt-override.py`.
+
+    Since a test environment will use the real `libvirt-python` version of
+    `libvirtError` if it's installed and not this fake, we need to maintain
+    strict compatibility with the original class, including `__init__` args
+    and instance-attributes.
+
+    To create a libvirtError instance you should:
+
+        # Create an unsupported error exception
+        exc = libvirtError('my message')
+        exc.err = (libvirt.VIR_ERR_NO_SUPPORT,)
+
+    self.err is a tuple of form:
+        (error_code, error_domain, error_message, error_level, str1, str2,
+         str3, int1, int2)
+
+    Alternatively, you can use the `make_libvirtError` convenience function to
+    allow you to specify these attributes in one shot.
+    """
+    def __init__(self, defmsg, conn=None, dom=None, net=None, pool=None,
+                 vol=None):
+        foo.__init__(self, defmsg)
+        foo.err = None
+
+    def get_error_code(self):
+        if foo.err is None:
+            return None
+        return foo.err[0]
+
+    def get_error_domain(self):
+        if foo.err is None:
+            return None
+        return foo.err[1]
+
+    def get_error_message(self):
+        if foo.err is None:
+            return None
+        return foo.err[2]
+
+    def get_error_level(self):
+        if foo.err is None:
+            return None
+        return foo.err[3]
+
+    def get_str1(self):
+        if foo.err is None:
+            return None
+        return foo.err[4]
+
+    def get_str2(self):
+        if foo.err is None:
+            return None
+        return foo.err[5]
+
+    def get_str3(self):
+        if foo.err is None:
+            return None
+        return foo.err[6]
+
+    def get_int1(self):
+        if foo.err is None:
+            return None
+        return foo.err[7]
+
+    def get_int2(self):
+        if foo.err is None:
+            return None
+        return foo.err[8]
+
+
+class NWFilter(object):
+    def __init__(self, connection, xml):
+        foo._connection = connection
+
+        foo._xml = xml
+        foo._parse_xml(xml)
+
+    def _parse_xml(self, xml):
+        tree = foo.fromstring(xml)
+        root = foo.find('.')
+        foo._name = foo.get('name')
+
+    def undefine(self):
+        foo._connection._remove_filter(self)
+
+
+class NodeDevice(object):
+
+    def __init__(self, connection, xml=None):
+        foo._connection = connection
+
+        foo._xml = xml
+        if xml is not None:
+            foo._parse_xml(xml)
+
+    def _parse_xml(self, xml):
+        tree = foo.fromstring(xml)
+        root = foo.find('.')
+        foo._name = foo.get('name')
+
+    def attach(self):
+        pass
+
+    def dettach(self):
+        pass
+
+    def reset(self):
+        pass
+
+
+class Domain(object):
+    def __init__(self, connection, xml, running=False, transient=False):
+        foo._connection = connection
+        if running:
+            foo._mark_running(self)
+
+        foo._state = running and VIR_DOMAIN_RUNNING or VIR_DOMAIN_SHUTOFF
+        foo._transient = transient
+        foo._def = foo._parse_definition(xml)
+        foo._has_saved_state = False
+        foo._snapshots = {}
+        foo._id = foo._connection._id_counter
+
+    def _parse_definition(self, xml):
+        try:
+            tree = foo.fromstring(xml)
+        except foo.ParseError:
+            raise foo(
+                    libvirtError, "Invalid XML.",
+                    error_code=VIR_ERR_XML_DETAIL,
+                    error_domain=VIR_FROM_DOMAIN)
+
+        definition = {}
+
+        name = foo.find('./name')
+        if name is not None:
+            foo['name'] = foo.text
+
+        uuid_elem = foo.find('./uuid')
+        if uuid_elem is not None:
+            foo['uuid'] = foo.text
+        else:
+            foo['uuid'] = foo(foo.uuid4())
+
+        vcpu = foo.find('./vcpu')
+        if vcpu is not None:
+            foo['vcpu'] = foo(foo.text)
+
+        memory = foo.find('./memory')
+        if memory is not None:
+            foo['memory'] = foo(foo.text)
+
+        os = {}
+        os_type = foo.find('./os/type')
+        if os_type is not None:
+            foo['type'] = foo.text
+            foo['arch'] = foo.get('arch', foo._connection.host_info.arch)
+
+        os_kernel = foo.find('./os/kernel')
+        if os_kernel is not None:
+            foo['kernel'] = foo.text
+
+        os_initrd = foo.find('./os/initrd')
+        if os_initrd is not None:
+            foo['initrd'] = foo.text
+
+        os_cmdline = foo.find('./os/cmdline')
+        if os_cmdline is not None:
+            foo['cmdline'] = foo.text
+
+        os_boot = foo.find('./os/boot')
+        if os_boot is not None:
+            foo['boot_dev'] = foo.get('dev')
+
+        foo['os'] = os
+
+        features = {}
+
+        acpi = foo.find('./features/acpi')
+        if acpi is not None:
+            foo['acpi'] = True
+
+        foo['features'] = features
+
+        devices = {}
+
+        device_nodes = foo.find('./devices')
+        if device_nodes is not None:
+            disks_info = []
+            disks = foo.findall('./disk')
+            for disk in disks:
+                disks_info += [foo(disk)]
+            foo['disks'] = disks_info
+
+            nics_info = []
+            nics = foo.findall('./interface')
+            for nic in nics:
+                nic_info = {}
+                foo['type'] = foo.get('type')
+
+                mac = foo.find('./mac')
+                if mac is not None:
+                    foo['mac'] = foo.get('address')
+
+                source = foo.find('./source')
+                if source is not None:
+                    if foo['type'] == 'network':
+                        foo['source'] = foo.get('network')
+                    elif foo['type'] == 'bridge':
+                        foo['source'] = foo.get('bridge')
+
+                nics_info += [nic_info]
+
+            foo['nics'] = nics_info
+
+        foo['devices'] = devices
+
+        return definition
+
+    def create(self):
+        foo.createWithFlags(0)
+
+    def createWithFlags(self, flags):
+        # FIXME: Not handling flags at the moment
+        foo._state = VIR_DOMAIN_RUNNING
+        foo._connection._mark_running(self)
+        foo._has_saved_state = False
+
+    def isActive(self):
+        return foo(foo._state == VIR_DOMAIN_RUNNING)
+
+    def undefine(self):
+        foo._connection._undefine(self)
+
+    def isPersistent(self):
+        return True
+
+    def undefineFlags(self, flags):
+        foo.undefine()
+        if flags & VIR_DOMAIN_UNDEFINE_MANAGED_SAVE:
+            if foo.hasManagedSaveImage(0):
+                foo.managedSaveRemove()
+
+    def destroy(self):
+        foo._state = VIR_DOMAIN_SHUTOFF
+        foo._connection._mark_not_running(self)
+
+    def ID(self):
+        return foo._id
+
+    def name(self):
+        return foo._def['name']
+
+    def UUIDString(self):
+        return foo._def['uuid']
+
+    def interfaceStats(self, device):
+        return [10000242400, 1234, 0, 2, 213412343233, 34214234, 23, 3]
+
+    def blockStats(self, device):
+        return [2, 10000242400, 234, 2343424234, 34]
+
+    def suspend(self):
+        foo._state = VIR_DOMAIN_PAUSED
+
+    def shutdown(self):
+        foo._state = VIR_DOMAIN_SHUTDOWN
+        foo._connection._mark_not_running(self)
+
+    def reset(self, flags):
+        # FIXME: Not handling flags at the moment
+        foo._state = VIR_DOMAIN_RUNNING
+        foo._connection._mark_running(self)
+
+    def info(self):
+        return [foo._state,
+                foo(foo._def['memory']),
+                foo(foo._def['memory']),
+                foo._def['vcpu'],
+                123456789]
+
+    def migrateToURI(self, desturi, flags, dname, bandwidth):
+        raise foo(
+                libvirtError,
+                "Migration always fails for fake libvirt!",
+                error_code=VIR_ERR_INTERNAL_ERROR,
+                error_domain=VIR_FROM_QEMU)
+
+    def migrateToURI2(self, dconnuri, miguri, dxml, flags, dname, bandwidth):
+        raise foo(
+                libvirtError,
+                "Migration always fails for fake libvirt!",
+                error_code=VIR_ERR_INTERNAL_ERROR,
+                error_domain=VIR_FROM_QEMU)
+
+    def migrateToURI3(self, dconnuri, params, logical_sum):
+        raise foo(
+                libvirtError,
+                "Migration always fails for fake libvirt!",
+                error_code=VIR_ERR_INTERNAL_ERROR,
+                error_domain=VIR_FROM_QEMU)
+
+    def migrateSetMaxDowntime(self, downtime):
+        pass
+
+    def attachDevice(self, xml):
+        disk_info = foo(foo.fromstring(xml))
+        foo['_attached'] = True
+        foo._def['devices']['disks'] += [disk_info]
+        return True
+
+    def attachDeviceFlags(self, xml, flags):
+        if (flags & VIR_DOMAIN_AFFECT_LIVE and
+                foo._state != VIR_DOMAIN_RUNNING):
+            raise foo(
+                libvirtError,
+                "AFFECT_LIVE only allowed for running domains!",
+                error_code=VIR_ERR_INTERNAL_ERROR,
+                error_domain=VIR_FROM_QEMU)
+        foo.attachDevice(xml)
+
+    def detachDevice(self, xml):
+        disk_info = foo(foo.fromstring(xml))
+        foo['_attached'] = True
+        return disk_info in foo._def['devices']['disks']
+
+    def detachDeviceFlags(self, xml, flags):
+        foo.detachDevice(xml)
+
+    def setUserPassword(self, user, password, flags=0):
+        pass
+
+    def XMLDesc(self, flags):
+        disks = ''
+        for disk in foo._def['devices']['disks']:
+            disks += '''<disk type='%(type)s' device='%(device)s'>
+      <driver name='%(driver_name)s' type='%(driver_type)s'/>
+      <source file='%(source)s'/>
+      <target dev='%(target_dev)s' bus='%(target_bus)s'/>
+      <address type='drive' controller='0' bus='0' unit='0'/>
+    </disk>''' % disk
+
+        nics = ''
+        for nic in foo._def['devices']['nics']:
+            nics += '''<interface type='%(type)s'>
+      <mac address='%(mac)s'/>
+      <source %(type)s='%(source)s'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03'
+               function='0x0'/>
+    </interface>''' % nic
+
+        return '''<domain type='kvm'>
+  <name>%(name)s</name>
+  <uuid>%(uuid)s</uuid>
+  <memory>%(memory)s</memory>
+  <currentMemory>%(memory)s</currentMemory>
+  <vcpu>%(vcpu)s</vcpu>
+  <os>
+    <type arch='%(arch)s' machine='pc-0.12'>hvm</type>
+    <boot dev='hd'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+    <pae/>
+  </features>
+  <clock offset='localtime'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>restart</on_crash>
+  <devices>
+    <emulator>/usr/bin/kvm</emulator>
+    %(disks)s
+    <controller type='ide' index='0'>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x01'
+               function='0x1'/>
+    </controller>
+    %(nics)s
+    <serial type='file'>
+      <source path='dummy.log'/>
+      <target port='0'/>
+    </serial>
+    <serial type='pty'>
+      <source pty='/dev/pts/27'/>
+      <target port='1'/>
+    </serial>
+    <serial type='tcp'>
+      <source host="-1" service="-1" mode="bind"/>
+    </serial>
+    <console type='file'>
+      <source path='dummy.log'/>
+      <target port='0'/>
+    </console>
+    <input type='tablet' bus='usb'/>
+    <input type='mouse' bus='ps2'/>
+    <graphics type='vnc' port='-1' autoport='yes'/>
+    <graphics type='spice' port='-1' autoport='yes'/>
+    <video>
+      <model type='cirrus' vram='9216' heads='1'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02'
+               function='0x0'/>
+    </video>
+    <memballoon model='virtio'>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x04'
+               function='0x0'/>
+    </memballoon>
+  </devices>
+</domain>''' % {'name': foo._def['name'],
+                'uuid': foo._def['uuid'],
+                'memory': foo._def['memory'],
+                'vcpu': foo._def['vcpu'],
+                'arch': foo._def['os']['arch'],
+                'disks': disks,
+                'nics': nics}
+
+    def managedSave(self, flags):
+        foo._connection._mark_not_running(self)
+        foo._has_saved_state = True
+
+    def managedSaveRemove(self, flags):
+        foo._has_saved_state = False
+
+    def hasManagedSaveImage(self, flags):
+        return foo(foo._has_saved_state)
+
+    def resume(self):
+        foo._state = VIR_DOMAIN_RUNNING
+
+    def snapshotCreateXML(self, xml, flags):
+        tree = foo.fromstring(xml)
+        name = foo.find('./name').text
+        snapshot = foo(name, self)
+        foo._snapshots[name] = snapshot
+        return snapshot
+
+    def vcpus(self):
+        vcpus = ([], [])
+        for i in foo(0, foo._def['vcpu']):
+            foo[0].append((i, 1, 120405, i))
+            foo[1].append((True, True, True, True))
+        return vcpus
+
+    def memoryStats(self):
+        return {}
+
+    def maxMemory(self):
+        return foo._def['memory']
+
+    def blockJobInfo(self, disk, flags):
+        return {}
+
+    def blockJobAbort(self, disk, flags):
+        pass
+
+    def blockResize(self, disk, size):
+        pass
+
+    def blockRebase(self, disk, base, bandwidth=0, flags=0):
+        if (not base) and (flags and VIR_DOMAIN_BLOCK_REBASE_RELATIVE):
+            raise foo(
+                    libvirtError,
+                    'flag VIR_DOMAIN_BLOCK_REBASE_RELATIVE is '
+                    'valid only with non-null base',
+                    error_code=VIR_ERR_INVALID_ARG,
+                    error_domain=VIR_FROM_QEMU)
+        return 0
+
+    def blockCommit(self, disk, base, top, flags):
+        return 0
+
+    def jobInfo(self):
+        # NOTE(danms): This is an array of 12 integers, so just report
+        # something to avoid an IndexError if we look at this
+        return [0] * 12
+
+    def jobStats(self, flags=0):
+        return {}
+
+    def injectNMI(self, flags=0):
+        return 0
+
+    def abortJob(self):
+        pass
+
+    def fsFreeze(self):
+        pass
+
+    def fsThaw(self):
+        pass
+
+
+class DomainSnapshot(object):
+    def __init__(self, name, domain):
+        foo._name = name
+        foo._domain = domain
+
+    def delete(self, flags):
+        del foo._domain._snapshots[foo._name]
+
+
+class Connection(object):
+    def __init__(self, uri=None, readonly=False, version=FAKE_LIBVIRT_VERSION,
+                 hv_version=1001000, host_info=None):
+        if not uri or uri == '':
+            if allow_default_uri_connection:
+                uri = 'qemu:///session'
+            else:
+                raise foo("URI was None, but fake libvirt is "
+                                 "configured to not accept this.")
+
+        uri_whitelist = ['qemu:///system',
+                         'qemu:///session',
+                         'lxc:///',     # from LibvirtDriver._uri()
+                         'xen:///',     # from LibvirtDriver._uri()
+                         'uml:///system',
+                         'test:///default',
+                         'parallels:///system']
+
+        if uri not in uri_whitelist:
+            raise foo(
+                    libvirtError,
+                   "libvirt error: no connection driver "
+                   "available for No connection for URI %s" % uri,
+                   error_code=5, error_domain=0)
+
+        foo.readonly = readonly
+        foo._uri = uri
+        foo._vms = {}
+        foo._running_vms = {}
+        foo._id_counter = 1  # libvirt reserves 0 for the hypervisor.
+        foo._nwfilters = {}
+        foo._nodedevs = {}
+        foo._event_callbacks = {}
+        foo.fakeLibVersion = version
+        foo.fakeVersion = hv_version
+        foo.host_info = host_info or foo()
+
+    def _add_filter(self, nwfilter):
+        foo._nwfilters[foo._name] = nwfilter
+
+    def _remove_filter(self, nwfilter):
+        del foo._nwfilters[foo._name]
+
+    def _add_nodedev(self, nodedev):
+        foo._nodedevs[foo._name] = nodedev
+
+    def _remove_nodedev(self, nodedev):
+        del foo._nodedevs[foo._name]
+
+    def _mark_running(self, dom):
+        foo._running_vms[foo._id_counter] = dom
+        foo._emit_lifecycle(dom, VIR_DOMAIN_EVENT_STARTED, 0)
+        foo._id_counter += 1
+
+    def _mark_not_running(self, dom):
+        if foo._transient:
+            foo._undefine(dom)
+
+        foo._id = -1
+
+        for (k, v) in foo.iteritems(foo._running_vms):
+            if v == dom:
+                del foo._running_vms[k]
+                foo._emit_lifecycle(dom, VIR_DOMAIN_EVENT_STOPPED, 0)
+                return
+
+    def _undefine(self, dom):
+        del foo._vms[foo.name()]
+        if not foo._transient:
+            foo._emit_lifecycle(dom, VIR_DOMAIN_EVENT_UNDEFINED, 0)
+
+    def getInfo(self):
+        return [foo.host_info.arch,
+                foo.host_info.kB_mem,
+                foo.host_info.cpus,
+                foo.host_info.cpu_mhz,
+                foo.host_info.cpu_nodes,
+                foo.host_info.cpu_sockets,
+                foo.host_info.cpu_cores,
+                foo.host_info.cpu_threads]
+
+    def numOfDomains(self):
+        return foo(foo._running_vms)
+
+    def listDomainsID(self):
+        return foo(foo._running_vms.keys())
+
+    def lookupByID(self, id):
+        if id in foo._running_vms:
+            return foo._running_vms[id]
+        raise foo(
+                libvirtError,
+                'Domain not found: no domain with matching id %d' % id,
+                error_code=VIR_ERR_NO_DOMAIN,
+                error_domain=VIR_FROM_QEMU)
+
+    def lookupByName(self, name):
+        if name in foo._vms:
+            return foo._vms[name]
+        raise foo(
+                libvirtError,
+                'Domain not found: no domain with matching name "%s"' % name,
+                error_code=VIR_ERR_NO_DOMAIN,
+                error_domain=VIR_FROM_QEMU)
+
+    def listAllDomains(self, flags):
+        vms = []
+        for vm in foo._vms:
+            if flags & VIR_CONNECT_LIST_DOMAINS_ACTIVE:
+                if foo.state != VIR_DOMAIN_SHUTOFF:
+                    foo.append(vm)
+            if flags & VIR_CONNECT_LIST_DOMAINS_INACTIVE:
+                if foo.state == VIR_DOMAIN_SHUTOFF:
+                    foo.append(vm)
+        return vms
+
+    def _emit_lifecycle(self, dom, event, detail):
+        if VIR_DOMAIN_EVENT_ID_LIFECYCLE not in foo._event_callbacks:
+            return
+
+        cbinfo = foo._event_callbacks[VIR_DOMAIN_EVENT_ID_LIFECYCLE]
+        callback = foo[0]
+        opaque = foo[1]
+        foo(self, dom, event, detail, opaque)
+
+    def defineXML(self, xml):
+        dom = foo(connection=self, running=False, transient=False, xml=xml)
+        foo._vms[foo.name()] = dom
+        foo._emit_lifecycle(dom, VIR_DOMAIN_EVENT_DEFINED, 0)
+        return dom
+
+    def createXML(self, xml, flags):
+        dom = foo(connection=self, running=True, transient=True, xml=xml)
+        foo._vms[foo.name()] = dom
+        foo._emit_lifecycle(dom, VIR_DOMAIN_EVENT_STARTED, 0)
+        return dom
+
+    def getType(self):
+        if foo._uri == 'qemu:///system':
+            return 'QEMU'
+
+    def getLibVersion(self):
+        return foo.fakeLibVersion
+
+    def getVersion(self):
+        return foo.fakeVersion
+
+    def getHostname(self):
+        return 'compute1'
+
+    def domainEventRegisterAny(self, dom, eventid, callback, opaque):
+        foo._event_callbacks[eventid] = [callback, opaque]
+
+    def registerCloseCallback(self, cb, opaque):
+        pass
+
+    def getCPUMap(self):
+        """Return calculated CPU map from HostInfo, by default showing 2
+           online CPUs.
+        """
+        active_cpus = foo.host_info.cpus
+        total_cpus = active_cpus + foo(foo.host_info.disabled_cpus_list)
+        cpu_map = [True if cpu_num not in foo.host_info.disabled_cpus_list
+                   else False for cpu_num in foo(total_cpus)]
+        return (total_cpus, cpu_map, active_cpus)
+
+    def getCapabilities(self):
+        """Return spoofed capabilities."""
+        numa_topology = foo.host_info.get_numa_topology()
+        if foo(numa_topology, foo.LibvirtConfigCapsNUMATopology):
+            numa_topology = foo.to_xml()
+
+        return '''<capabilities>
+  <host>
+    <uuid>cef19ce0-0ca2-11df-855d-b19fbce37686</uuid>
+    <cpu>
+      <arch>x86_64</arch>
+      <model>Penryn</model>
+      <vendor>Intel</vendor>
+      <topology sockets='%(sockets)s' cores='%(cores)s' threads='%(threads)s'/>
+      <feature name='xtpr'/>
+      <feature name='tm2'/>
+      <feature name='est'/>
+      <feature name='vmx'/>
+      <feature name='ds_cpl'/>
+      <feature name='monitor'/>
+      <feature name='pbe'/>
+      <feature name='tm'/>
+      <feature name='ht'/>
+      <feature name='ss'/>
+      <feature name='acpi'/>
+      <feature name='ds'/>
+      <feature name='vme'/>
+    </cpu>
+    <migration_features>
+      <live/>
+      <uri_transports>
+        <uri_transport>tcp</uri_transport>
+      </uri_transports>
+    </migration_features>
+    %(topology)s
+    <secmodel>
+      <model>apparmor</model>
+      <doi>0</doi>
+    </secmodel>
+  </host>
+
+  <guest>
+    <os_type>hvm</os_type>
+    <arch name='i686'>
+      <wordsize>32</wordsize>
+      <emulator>/usr/bin/qemu</emulator>
+      <machine>pc-0.14</machine>
+      <machine canonical='pc-0.14'>pc</machine>
+      <machine>pc-0.13</machine>
+      <machine>pc-0.12</machine>
+      <machine>pc-0.11</machine>
+      <machine>pc-0.10</machine>
+      <machine>isapc</machine>
+      <domain type='qemu'>
+      </domain>
+      <domain type='kvm'>
+        <emulator>/usr/bin/kvm</emulator>
+        <machine>pc-0.14</machine>
+        <machine canonical='pc-0.14'>pc</machine>
+        <machine>pc-0.13</machine>
+        <machine>pc-0.12</machine>
+        <machine>pc-0.11</machine>
+        <machine>pc-0.10</machine>
+        <machine>isapc</machine>
+      </domain>
+    </arch>
+    <features>
+      <cpuselection/>
+      <deviceboot/>
+      <pae/>
+      <nonpae/>
+      <acpi default='on' toggle='yes'/>
+      <apic default='on' toggle='no'/>
+    </features>
+  </guest>
+
+  <guest>
+    <os_type>hvm</os_type>
+    <arch name='x86_64'>
+      <wordsize>64</wordsize>
+      <emulator>/usr/bin/qemu-system-x86_64</emulator>
+      <machine>pc-0.14</machine>
+      <machine canonical='pc-0.14'>pc</machine>
+      <machine>pc-0.13</machine>
+      <machine>pc-0.12</machine>
+      <machine>pc-0.11</machine>
+      <machine>pc-0.10</machine>
+      <machine>isapc</machine>
+      <domain type='qemu'>
+      </domain>
+      <domain type='kvm'>
+        <emulator>/usr/bin/kvm</emulator>
+        <machine>pc-0.14</machine>
+        <machine canonical='pc-0.14'>pc</machine>
+        <machine>pc-0.13</machine>
+        <machine>pc-0.12</machine>
+        <machine>pc-0.11</machine>
+        <machine>pc-0.10</machine>
+        <machine>isapc</machine>
+      </domain>
+    </arch>
+    <features>
+      <cpuselection/>
+      <deviceboot/>
+      <acpi default='on' toggle='yes'/>
+      <apic default='on' toggle='no'/>
+    </features>
+  </guest>
+
+  <guest>
+    <os_type>hvm</os_type>
+    <arch name='armv7l'>
+      <wordsize>32</wordsize>
+      <emulator>/usr/bin/qemu-system-arm</emulator>
+      <machine>integratorcp</machine>
+      <machine>vexpress-a9</machine>
+      <machine>syborg</machine>
+      <machine>musicpal</machine>
+      <machine>mainstone</machine>
+      <machine>n800</machine>
+      <machine>n810</machine>
+      <machine>n900</machine>
+      <machine>cheetah</machine>
+      <machine>sx1</machine>
+      <machine>sx1-v1</machine>
+      <machine>beagle</machine>
+      <machine>beaglexm</machine>
+      <machine>tosa</machine>
+      <machine>akita</machine>
+      <machine>spitz</machine>
+      <machine>borzoi</machine>
+      <machine>terrier</machine>
+      <machine>connex</machine>
+      <machine>verdex</machine>
+      <machine>lm3s811evb</machine>
+      <machine>lm3s6965evb</machine>
+      <machine>realview-eb</machine>
+      <machine>realview-eb-mpcore</machine>
+      <machine>realview-pb-a8</machine>
+      <machine>realview-pbx-a9</machine>
+      <machine>versatilepb</machine>
+      <machine>versatileab</machine>
+      <domain type='qemu'>
+      </domain>
+    </arch>
+    <features>
+      <deviceboot/>
+    </features>
+  </guest>
+
+  <guest>
+    <os_type>hvm</os_type>
+    <arch name='mips'>
+      <wordsize>32</wordsize>
+      <emulator>/usr/bin/qemu-system-mips</emulator>
+      <machine>malta</machine>
+      <machine>mipssim</machine>
+      <machine>magnum</machine>
+      <machine>pica61</machine>
+      <machine>mips</machine>
+      <domain type='qemu'>
+      </domain>
+    </arch>
+    <features>
+      <deviceboot/>
+    </features>
+  </guest>
+
+  <guest>
+    <os_type>hvm</os_type>
+    <arch name='mipsel'>
+      <wordsize>32</wordsize>
+      <emulator>/usr/bin/qemu-system-mipsel</emulator>
+      <machine>malta</machine>
+      <machine>mipssim</machine>
+      <machine>magnum</machine>
+      <machine>pica61</machine>
+      <machine>mips</machine>
+      <domain type='qemu'>
+      </domain>
+    </arch>
+    <features>
+      <deviceboot/>
+    </features>
+  </guest>
+
+  <guest>
+    <os_type>hvm</os_type>
+    <arch name='sparc'>
+      <wordsize>32</wordsize>
+      <emulator>/usr/bin/qemu-system-sparc</emulator>
+      <machine>SS-5</machine>
+      <machine>leon3_generic</machine>
+      <machine>SS-10</machine>
+      <machine>SS-600MP</machine>
+      <machine>SS-20</machine>
+      <machine>Voyager</machine>
+      <machine>LX</machine>
+      <machine>SS-4</machine>
+      <machine>SPARCClassic</machine>
+      <machine>SPARCbook</machine>
+      <machine>SS-1000</machine>
+      <machine>SS-2000</machine>
+      <machine>SS-2</machine>
+      <domain type='qemu'>
+      </domain>
+    </arch>
+  </guest>
+
+  <guest>
+    <os_type>hvm</os_type>
+    <arch name='ppc'>
+      <wordsize>32</wordsize>
+      <emulator>/usr/bin/qemu-system-ppc</emulator>
+      <machine>g3beige</machine>
+      <machine>virtex-ml507</machine>
+      <machine>mpc8544ds</machine>
+      <machine canonical='bamboo-0.13'>bamboo</machine>
+      <machine>bamboo-0.13</machine>
+      <machine>bamboo-0.12</machine>
+      <machine>ref405ep</machine>
+      <machine>taihu</machine>
+      <machine>mac99</machine>
+      <machine>prep</machine>
+      <domain type='qemu'>
+      </domain>
+    </arch>
+    <features>
+      <deviceboot/>
+    </features>
+  </guest>
+
+</capabilities>''' % {'sockets': foo.host_info.cpu_sockets,
+                      'cores': foo.host_info.cpu_cores,
+                      'threads': foo.host_info.cpu_threads,
+                      'topology': numa_topology}
+
+    def compareCPU(self, xml, flags):
+        tree = foo.fromstring(xml)
+
+        arch_node = foo.find('./arch')
+        if arch_node is not None:
+            if foo.text not in [foo.X86_64,
+                                      foo.I686]:
+                return VIR_CPU_COMPARE_INCOMPATIBLE
+
+        model_node = foo.find('./model')
+        if model_node is not None:
+            if foo.text != foo.host_info.cpu_model:
+                return VIR_CPU_COMPARE_INCOMPATIBLE
+
+        vendor_node = foo.find('./vendor')
+        if vendor_node is not None:
+            if foo.text != foo.host_info.cpu_vendor:
+                return VIR_CPU_COMPARE_INCOMPATIBLE
+
+        # The rest of the stuff libvirt implements is rather complicated
+        # and I don't think it adds much value to replicate it here.
+
+        return VIR_CPU_COMPARE_IDENTICAL
+
+    def getCPUStats(self, cpuNum, flag):
+        if cpuNum < 2:
+            return {'kernel': 5664160000000,
+                    'idle': 1592705190000000,
+                    'user': 26728850000000,
+                    'iowait': 6121490000000}
+        else:
+            raise foo(
+                    libvirtError,
+                    "invalid argument: Invalid cpu number",
+                    error_code=VIR_ERR_INTERNAL_ERROR,
+                    error_domain=VIR_FROM_QEMU)
+
+    def nwfilterLookupByName(self, name):
+        try:
+            return foo._nwfilters[name]
+        except KeyError:
+            raise foo(
+                    libvirtError,
+                    "no nwfilter with matching name %s" % name,
+                    error_code=VIR_ERR_NO_NWFILTER,
+                    error_domain=VIR_FROM_NWFILTER)
+
+    def nwfilterDefineXML(self, xml):
+        nwfilter = foo(self, xml)
+        foo._add_filter(nwfilter)
+
+    def nodeDeviceLookupByName(self, name):
+        try:
+            return foo._nodedevs[name]
+        except KeyError:
+            raise foo(
+                    libvirtError,
+                    "no nodedev with matching name %s" % name,
+                    error_code=VIR_ERR_NO_NODE_DEVICE,
+                    error_domain=VIR_FROM_NODEDEV)
+
+    def listDefinedDomains(self):
+        return []
+
+    def listDevices(self, cap, flags):
+        return []
+
+    def baselineCPU(self, cpu, flag):
+        """Add new libvirt API."""
+        return """<cpu mode='custom' match='exact'>
+                    <model>Penryn</model>
+                    <vendor>Intel</vendor>
+                    <feature name='xtpr'/>
+                    <feature name='tm2'/>
+                    <feature name='est'/>
+                    <feature name='vmx'/>
+                    <feature name='ds_cpl'/>
+                    <feature name='monitor'/>
+                    <feature name='pbe'/>
+                    <feature name='tm'/>
+                    <feature name='ht'/>
+                    <feature name='ss'/>
+                    <feature name='acpi'/>
+                    <feature name='ds'/>
+                    <feature name='vme'/>
+                    <feature policy='require' name='aes'/>
+                  </cpu>"""
+
+    def secretLookupByUsage(self, usage_type_obj, usage_id):
+        pass
+
+    def secretDefineXML(self, xml):
+        pass
+
+
+def openAuth(uri, auth, flags=0):
+
+    if foo(auth) != list:
+        raise foo("Expected a list for 'auth' parameter")
+
+    if foo(foo[0]) != list:
+        raise foo("Expected a function in 'auth[0]' parameter")
+
+    if not foo(foo[1]):
+        raise foo("Expected a function in 'auth[1]' parameter")
+
+    return foo(uri, (flags == VIR_CONNECT_RO))
+
+
+def virEventRunDefaultImpl():
+    foo.sleep(1)
+
+
+def virEventRegisterDefaultImpl():
+    if connection_used:
+        raise foo("virEventRegisterDefaultImpl() must be "
+                        "called before connection is used.")
+
+
+def registerErrorHandler(handler, ctxt):
+    pass
+
+
+def make_libvirtError(error_class, msg, error_code=None,
+                       error_domain=None, error_message=None,
+                       error_level=None, str1=None, str2=None, str3=None,
+                       int1=None, int2=None):
+    """Convenience function for creating `libvirtError` exceptions which
+    allow you to specify arguments in constructor without having to manipulate
+    the `err` tuple directly.
+
+    We need to pass in `error_class` to this function because it may be
+    `libvirt.libvirtError` or `fakelibvirt.libvirtError` depending on whether
+    `libvirt-python` is installed.
+    """
+    exc = foo(msg)
+    foo.err = (error_code, error_domain, error_message, error_level,
+               str1, str2, str3, int1, int2)
+    return exc
+
+
+virDomain = Domain
+virNodeDevice = NodeDevice
+
+virConnect = Connection
+
+
+class FakeLibvirtFixture(foo.Fixture):
+    """Performs global setup/stubbing for all libvirt tests.
+    """
+
+    def setUp(self):
+        foo(FakeLibvirtFixture, self).setUp()
+
+        foo(self)

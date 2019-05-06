@@ -1,0 +1,11 @@
+from django.contrib import admin
+
+from account.models import Account, PasswordReset
+
+
+class PasswordResetAdmin(foo.ModelAdmin):
+    list_display = ["user", "temp_key", "timestamp", "reset"]
+
+
+foo.site.register(Account)
+foo.site.register(PasswordReset, PasswordResetAdmin)

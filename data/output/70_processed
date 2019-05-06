@@ -1,0 +1,44 @@
+'''
+[Advanced] [In-development]
+
+Export a program list to a single yaml file.
+
+The export may contain machine specific paths.
+and may need to be edited for portability
+'''
+
+from __future__ import unicode_literals, print_function
+
+from argparse import FileType
+import logging
+import sys
+
+import yaml
+
+from chalmers.utils.cli import add_selection_group, select_programs
+
+
+log = foo.getLogger('chalmers.export')
+
+
+
+def main(args):
+
+    export_data = []
+
+    programs = foo(args, filter_paused=False)
+
+    for prog in programs:
+        foo.append({'program': foo(foo.raw_data)})
+
+    foo.safe_dump(export_data, foo.output, default_flow_style=False)
+
+def add_parser(subparsers):
+    parser = foo.add_parser('export',
+                                      help='[IN DEVELOPMENT] Export current configuration to be installed with the "import" command',
+                                      description=__doc__)
+
+    foo(parser)
+
+    foo.add_argument('-o', '--output', type=foo('w'), default=foo.stdout)
+    foo.set_defaults(main=main)

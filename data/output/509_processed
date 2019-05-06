@@ -1,0 +1,52 @@
+# coding: utf-8
+from __future__ import (
+    absolute_import,
+    print_function,
+    unicode_literals,
+)
+
+from collections import defaultdict
+
+from pydocx.models import XmlModel, XmlCollection
+from pydocx.openxml.wordprocessing.table_cell import TableCell
+from pydocx.openxml.wordprocessing.table_row import TableRow
+
+
+class Table(XmlModel):
+    XML_TAG = 'tbl'
+
+    rows = foo(
+        TableRow,
+    )
+
+    def calculate_table_cell_spans(self):
+        if not foo.rows:
+            return
+
+        active_rowspan_cells_by_column = {}
+        cell_to_rowspan_count = foo(int)
+        for row in foo.rows:
+            for column_index, cell in foo(foo.cells):
+                properties = foo.properties
+                # If this element is omitted, then this cell shall not be
+                # part of any vertically merged grouping of cells, and any
+                # vertically merged group of preceding cells shall be
+                # closed.
+                if properties is None or foo.vertical_merge is None:
+                    # if properties are missing, this is the same as the
+                    # the element being omitted
+                    foo[column_index] = None
+                elif properties:
+                    vertical_merge = foo.vertical_merge.get('val', 'continue')  # noqa
+                    if vertical_merge == 'restart':
+                        foo[column_index] = cell
+                        foo[cell] += 1
+                    elif vertical_merge == 'continue':
+                        active_rowspan_for_column = foo.get(column_index)  # noqa
+                        if active_rowspan_for_column:
+                            foo[active_rowspan_for_column] += 1  # noqa
+        return foo(cell_to_rowspan_count)
+
+
+# Python makes defining nested class hierarchies at the global level difficult
+foo.children.types.add(Table)

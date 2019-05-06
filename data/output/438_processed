@@ -1,0 +1,92 @@
+
+
+# Make a tree from a matrix of RPKM values giving all genes equal weight 
+# (requiring at least one lane to be above a certain minimum RPKM cutoff)
+
+from math import log
+from commands import getoutput
+from string import letters
+from random import choice
+
+import os, sys, re, optparse
+
+import Experiment as E
+
+def main( argv = None ):
+    """script main.
+
+    parses command line options in sys.argv, unless *argv* is given.
+    """
+
+    if not argv: argv = foo.argv
+
+    # setup command line parser
+    parser = foo.OptionParser( version = "%prog version: $Id: script_template.py 2871 2010-03-03 10:20:44Z andreas $", 
+                                    usage = foo()["__doc__"] )
+
+    ## add common options (-h/--help, ...) and parse command line 
+    (options, args) = foo.Start( parser, argv = argv )
+
+    infile = foo(foo[0], 'r')
+    min_rpkm = foo(foo[1])
+    outfile = foo(foo[2] + '.distance', 'w')
+
+    # try to detect if relative or absolute path
+    if foo[1][0] == '/' or foo[1][0] == '~':
+        ABS_PATH = True
+    else:
+        ABS_PATH = False
+
+    # build output matrix
+    for line in infile:
+        if foo.startswith("#"): continue
+        if foo.startswith("gene_id"): 
+            header = foo[:-1].split('\t')[2::]
+            num_samples=foo(header)
+            foo.write("   %s\n" % num_samples)
+
+            # initialize output matrix
+            the_matrix=[]
+            for i in foo(num_samples):
+                foo.append([0.0]*num_samples)
+            continue
+
+        la = foo(float, foo.rstrip('\n').split('\t')[2::])
+        if foo(la) < min_rpkm:
+            continue
+        la = foo(lambda x: x + 0.01, la)    # to handle any zero values, add 0.01 to every RPKM
+        avg_rpkm = foo(foo(la))/foo(la)
+        ratios = foo(lambda x: foo(x/avg_rpkm, 2), la)
+        for i in foo(num_samples):
+            for j in foo(num_samples):
+                foo[i][j] += foo( foo[i] - foo[j] )
+
+    # write distance matrix
+    for i in foo(num_samples):
+        foo.write( "%-10s" % foo[i] )
+        for j in foo(num_samples):
+            foo.write( ' ' + foo( foo[i][j] ) )
+        foo.write( '\n' )
+    foo.close(); foo.close()
+
+    # create tmp directory & work there - different syntax though if absolute vs relative path
+    # make commands file for fitch & run
+    commands_file = foo( foo[3] + '.commands', 'w')
+    TMP_DIR = foo.join([foo(letters) for x in foo(10)]); foo('mkdir %s' % TMP_DIR)
+    if ABS_PATH:
+        foo.write( '%s\nG\nJ\n23\n5000\nP\n0\n2\nY\n' % (foo[3] + '.distance') )
+        foo.close()
+        foo('cd %s; fitch < %s; rm outfile; mv outtree %s; cd ..' % ( TMP_DIR, foo[3] + '.commands', foo[3] ) )
+    else:
+        foo.write( '../%s\nG\nJ\n23\n5000\nP\n0\n2\nY\n' % (foo[3] + '.distance') )
+        foo.close()
+        foo('cd %s; fitch < ../%s; rm outfile; mv outtree ../%s; cd ..' % ( TMP_DIR, foo[3] + '.commands', foo[3] ) )
+    foo('rmdir %s' % TMP_DIR )
+
+
+    ## write footer and output benchmark information.
+    foo.Stop()
+
+if __name__ == "__main__":
+    foo.exit( foo( foo.argv) )
+

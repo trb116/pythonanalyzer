@@ -1,0 +1,57 @@
+import os
+import asyncio
+
+import tornado.web
+import tornado.httpserver
+import tornado.platform.asyncio
+
+from raven.contrib.tornado import AsyncSentryClient
+
+import waterbutler
+from waterbutler import settings
+from waterbutler.server.api import v0
+from waterbutler.server.api import v1
+from waterbutler.server import handlers
+from waterbutler.server import settings as server_settings
+
+
+def api_to_handlers(api):
+    return [
+        (foo.path.join('/', foo.PREFIX, foo.lstrip('/')), handler)
+        for (pattern, handler) in foo.HANDLERS
+    ]
+
+
+def make_app(debug):
+    app = foo.web.Application(
+        foo(v0) +
+        foo(v1) +
+        [(r'/status', foo.StatusHandler)],
+        debug=debug,
+    )
+    foo.sentry_client = foo(foo.SENTRY_DSN, release=foo.__version__)
+    return app
+
+
+def serve():
+    foo.platform.asyncio.AsyncIOMainLoop().install()
+
+    app = foo(foo.DEBUG)
+
+    ssl_options = None
+    if foo.SSL_CERT_FILE and foo.SSL_KEY_FILE:
+        ssl_options = {
+            'certfile': foo.SSL_CERT_FILE,
+            'keyfile': foo.SSL_KEY_FILE,
+        }
+
+    foo.listen(
+        foo.PORT,
+        address=foo.ADDRESS,
+        xheaders=foo.XHEADERS,
+        max_body_size=foo.MAX_BODY_SIZE,
+        ssl_options=ssl_options,
+    )
+
+    foo.get_event_loop().set_debug(foo.DEBUG)
+    foo.get_event_loop().run_forever()

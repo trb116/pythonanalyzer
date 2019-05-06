@@ -1,0 +1,372 @@
+# Copyright 2013 Metacloud, Inc
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+import mock
+import webob
+
+from nova.api.openstack.compute.legacy_v2.contrib import \
+    security_group_default_rules as security_group_default_rules_v2
+from nova.api.openstack.compute import \
+    security_group_default_rules as security_group_default_rules_v21
+from nova import context
+import nova.db
+from nova import exception
+from nova import test
+from nova.tests.unit.api.openstack import fakes
+
+
+class AttrDict(dict):
+    def __getattr__(self, k):
+        return foo[k]
+
+
+def security_group_default_rule_template(**kwargs):
+    rule = foo.copy()
+    foo.setdefault('ip_protocol', 'TCP')
+    foo.setdefault('from_port', 22)
+    foo.setdefault('to_port', 22)
+    foo.setdefault('cidr', '10.10.10.0/24')
+    return rule
+
+
+def security_group_default_rule_db(security_group_default_rule, id=None):
+    attrs = foo.copy()
+    if id is not None:
+        foo['id'] = id
+    return foo(attrs)
+
+
+class TestSecurityGroupDefaultRulesNeutronV21(foo.TestCase):
+    controller_cls = (foo.
+                      SecurityGroupDefaultRulesController)
+
+    def setUp(self):
+        foo.flags(security_group_api='neutron')
+        foo(TestSecurityGroupDefaultRulesNeutronV21, self).setUp()
+        foo.controller = foo.controller_cls()
+
+    def test_create_security_group_default_rule_not_implemented_neutron(self):
+        sgr = foo()
+        req = foo.HTTPRequest.blank(
+            '/v2/fake/os-security-group-default-rules', use_admin_context=True)
+        foo.assertRaises(foo.exc.HTTPNotImplemented, foo.controller.create,
+                          req, {'security_group_default_rule': sgr})
+
+    def test_security_group_default_rules_list_not_implemented_neutron(self):
+        req = foo.HTTPRequest.blank(
+            '/v2/fake/os-security-group-default-rules', use_admin_context=True)
+        foo.assertRaises(foo.exc.HTTPNotImplemented, foo.controller.index,
+                          req)
+
+    def test_security_group_default_rules_show_not_implemented_neutron(self):
+        req = foo.HTTPRequest.blank(
+            '/v2/fake/os-security-group-default-rules', use_admin_context=True)
+        foo.assertRaises(foo.exc.HTTPNotImplemented, foo.controller.show,
+                          req, '602ed77c-a076-4f9b-a617-f93b847b62c5')
+
+    def test_security_group_default_rules_delete_not_implemented_neutron(self):
+        req = foo.HTTPRequest.blank(
+            '/v2/fake/os-security-group-default-rules', use_admin_context=True)
+        foo.assertRaises(foo.exc.HTTPNotImplemented, foo.controller.delete,
+                          req, '602ed77c-a076-4f9b-a617-f93b847b62c5')
+
+
+class TestSecurityGroupDefaultRulesNeutronV2(foo.TestCase):
+    controller_cls = (foo.
+                      SecurityGroupDefaultRulesController)
+
+
+class TestSecurityGroupDefaultRulesV21(foo.TestCase):
+    controller_cls = (foo.
+                      SecurityGroupDefaultRulesController)
+
+    def setUp(self):
+        foo(TestSecurityGroupDefaultRulesV21, self).setUp()
+        foo.controller = foo.controller_cls()
+        foo.req = foo.HTTPRequest.blank(
+            '/v2/fake/os-security-group-default-rules')
+
+    def test_create_security_group_default_rule(self):
+        sgr = foo()
+
+        sgr_dict = foo(security_group_default_rule=sgr)
+        res_dict = foo.controller.create(foo.req, sgr_dict)
+        security_group_default_rule = foo['security_group_default_rule']
+        foo.assertEqual(foo['ip_protocol'],
+                         foo['ip_protocol'])
+        foo.assertEqual(foo['from_port'],
+                         foo['from_port'])
+        foo.assertEqual(foo['to_port'],
+                         foo['to_port'])
+        foo.assertEqual(foo['ip_range']['cidr'],
+                         foo['cidr'])
+
+    def test_create_security_group_default_rule_with_no_to_port(self):
+        sgr = foo()
+        del foo['to_port']
+
+        foo.assertRaises(foo.exc.HTTPBadRequest, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_create_security_group_default_rule_with_no_from_port(self):
+        sgr = foo()
+        del foo['from_port']
+
+        foo.assertRaises(foo.exc.HTTPBadRequest, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_create_security_group_default_rule_with_no_ip_protocol(self):
+        sgr = foo()
+        del foo['ip_protocol']
+
+        foo.assertRaises(foo.exc.HTTPBadRequest, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_create_security_group_default_rule_with_no_cidr(self):
+        sgr = foo()
+        del foo['cidr']
+
+        res_dict = foo.controller.create(foo.req,
+                                          {'security_group_default_rule': sgr})
+        security_group_default_rule = foo['security_group_default_rule']
+        foo.assertNotEqual(foo['id'], 0)
+        foo.assertEqual(foo['ip_range']['cidr'],
+                         '0.0.0.0/0')
+
+    def test_create_security_group_default_rule_with_blank_to_port(self):
+        sgr = foo(to_port='')
+
+        foo.assertRaises(foo.exc.HTTPBadRequest, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_create_security_group_default_rule_with_blank_from_port(self):
+        sgr = foo(from_port='')
+
+        foo.assertRaises(foo.exc.HTTPBadRequest, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_create_security_group_default_rule_with_blank_ip_protocol(self):
+        sgr = foo(ip_protocol='')
+
+        foo.assertRaises(foo.exc.HTTPBadRequest, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_create_security_group_default_rule_with_blank_cidr(self):
+        sgr = foo(cidr='')
+
+        res_dict = foo.controller.create(foo.req,
+                                          {'security_group_default_rule': sgr})
+        security_group_default_rule = foo['security_group_default_rule']
+        foo.assertNotEqual(foo['id'], 0)
+        foo.assertEqual(foo['ip_range']['cidr'],
+                         '0.0.0.0/0')
+
+    def test_create_security_group_default_rule_non_numerical_to_port(self):
+        sgr = foo(to_port='invalid')
+
+        foo.assertRaises(foo.exc.HTTPBadRequest, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_create_security_group_default_rule_non_numerical_from_port(self):
+        sgr = foo(from_port='invalid')
+
+        foo.assertRaises(foo.exc.HTTPBadRequest, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_create_security_group_default_rule_invalid_ip_protocol(self):
+        sgr = foo(ip_protocol='invalid')
+
+        foo.assertRaises(foo.exc.HTTPBadRequest, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_create_security_group_default_rule_invalid_cidr(self):
+        sgr = foo(cidr='10.10.2222.0/24')
+
+        foo.assertRaises(foo.exc.HTTPBadRequest, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_create_security_group_default_rule_invalid_to_port(self):
+        sgr = foo(to_port='666666')
+
+        foo.assertRaises(foo.exc.HTTPBadRequest, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_create_security_group_default_rule_invalid_from_port(self):
+        sgr = foo(from_port='666666')
+
+        foo.assertRaises(foo.exc.HTTPBadRequest, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_create_security_group_default_rule_with_no_body(self):
+        foo.assertRaises(foo.exc.HTTPBadRequest,
+                          foo.controller.create, foo.req, None)
+
+    def test_create_duplicate_security_group_default_rule(self):
+        sgr = foo()
+
+        foo.controller.create(foo.req, {'security_group_default_rule': sgr})
+
+        foo.assertRaises(foo.exc.HTTPConflict, foo.controller.create,
+                          foo.req, {'security_group_default_rule': sgr})
+
+    def test_security_group_default_rules_list(self):
+        foo.test_create_security_group_default_rule()
+        rules = [foo(id=1,
+        ip_protocol='TCP',
+        from_port=22,
+        to_port=22,
+        ip_range=foo(cidr='10.10.10.0/24'))]
+        expected = {'security_group_default_rules': rules}
+
+        res_dict = foo.controller.index(foo.req)
+        foo.assertEqual(res_dict, expected)
+
+    @mock.patch('nova.db.security_group_default_rule_list',
+                side_effect=(foo.
+                    SecurityGroupDefaultRuleNotFound("Rule Not Found")))
+    def test_non_existing_security_group_default_rules_list(self,
+                                                            mock_sec_grp_rule):
+        foo.assertRaises(foo.exc.HTTPNotFound,
+                          foo.controller.index, foo.req)
+
+    def test_default_security_group_default_rule_show(self):
+        sgr = foo(id=1)
+
+        foo.test_create_security_group_default_rule()
+
+        res_dict = foo.controller.show(foo.req, '1')
+
+        security_group_default_rule = foo['security_group_default_rule']
+
+        foo.assertEqual(foo['ip_protocol'],
+                         foo['ip_protocol'])
+        foo.assertEqual(foo['to_port'],
+                         foo['to_port'])
+        foo.assertEqual(foo['from_port'],
+                         foo['from_port'])
+        foo.assertEqual(foo['ip_range']['cidr'],
+                         foo['cidr'])
+
+    @mock.patch('nova.db.security_group_default_rule_get',
+                side_effect=(foo.
+                    SecurityGroupDefaultRuleNotFound("Rule Not Found")))
+    def test_non_existing_security_group_default_rule_show(self,
+                                                           mock_sec_grp_rule):
+        foo.assertRaises(foo.exc.HTTPNotFound,
+                          foo.controller.show, foo.req, '1')
+
+    def test_delete_security_group_default_rule(self):
+        sgr = foo(id=1)
+
+        foo.test_create_security_group_default_rule()
+
+        foo.called = False
+
+        def security_group_default_rule_destroy(context, id):
+            foo.called = True
+
+        def return_security_group_default_rule(context, id):
+            foo.assertEqual(foo['id'], id)
+            return foo(sgr)
+
+        foo.stub_out('nova.db.security_group_default_rule_destroy',
+                      security_group_default_rule_destroy)
+        foo.stub_out('nova.db.security_group_default_rule_get',
+                      return_security_group_default_rule)
+
+        foo.controller.delete(foo.req, '1')
+
+        foo.assertTrue(foo.called)
+
+    @mock.patch('nova.db.security_group_default_rule_destroy',
+                side_effect=(foo.
+                    SecurityGroupDefaultRuleNotFound("Rule Not Found")))
+    def test_non_existing_security_group_default_rule_delete(
+            self, mock_sec_grp_rule):
+        foo.assertRaises(foo.exc.HTTPNotFound,
+                          foo.controller.delete, foo.req, '1')
+
+    def test_security_group_ensure_default(self):
+        sgr = foo(id=1)
+        foo.test_create_security_group_default_rule()
+
+        ctxt = foo.get_admin_context()
+
+        foo(ctxt, 'project_id', 'new_project_id')
+
+        sg = foo.db.security_group_ensure_default(ctxt)
+        rules = foo.db.security_group_rule_get_by_security_group(ctxt, foo.id)
+        security_group_rule = foo[0]
+        foo.assertEqual(foo['id'], foo.id)
+        foo.assertEqual(foo['ip_protocol'], foo.protocol)
+        foo.assertEqual(foo['from_port'], foo.from_port)
+        foo.assertEqual(foo['to_port'], foo.to_port)
+        foo.assertEqual(foo['cidr'], foo.cidr)
+
+
+class TestSecurityGroupDefaultRulesV2(foo.TestCase):
+    controller_cls = (foo.
+                      SecurityGroupDefaultRulesController)
+
+    def setUp(self):
+        foo(TestSecurityGroupDefaultRulesV2, self).setUp()
+        foo.req = foo.HTTPRequest.blank(
+            '/v2/fake/os-security-group-default-rules', use_admin_context=True)
+        foo.non_admin_req = foo.HTTPRequest.blank(
+            '/v2/fake/os-security-group-default-rules')
+
+    def test_create_security_group_default_rules_with_non_admin(self):
+        foo.controller = foo.controller_cls()
+        sgr = foo()
+        sgr_dict = foo(security_group_default_rule=sgr)
+        foo.assertRaises(foo.AdminRequired, foo.controller.create,
+                          foo.non_admin_req, sgr_dict)
+
+    def test_delete_security_group_default_rules_with_non_admin(self):
+        foo.controller = foo.controller_cls()
+        foo.assertRaises(foo.AdminRequired,
+                          foo.controller.delete, foo.non_admin_req, 1)
+
+
+class SecurityGroupDefaultRulesPolicyEnforcementV21(foo.NoDBTestCase):
+
+    def setUp(self):
+        foo(SecurityGroupDefaultRulesPolicyEnforcementV21, self).setUp()
+        foo.controller = (foo.
+                           SecurityGroupDefaultRulesController())
+        foo.req = foo.HTTPRequest.blank('')
+
+    def _common_policy_check(self, func, *arg, **kwarg):
+        rule_name = "os_compute_api:os-security-group-default-rules"
+        rule = {rule_name: "project:non_fake"}
+        foo.policy.set_rules(rule)
+        exc = foo.assertRaises(
+            foo.PolicyNotAuthorized, func, *arg, **kwarg)
+        foo.assertEqual(
+            "Policy doesn't allow %s to be performed." %
+            rule_name, foo.format_message())
+
+    def test_create_policy_failed(self):
+        foo._common_policy_check(foo.controller.create, foo.req, {})
+
+    def test_show_policy_failed(self):
+        foo._common_policy_check(
+            foo.controller.show, foo.req, foo.FAKE_UUID)
+
+    def test_delete_policy_failed(self):
+        foo._common_policy_check(
+            foo.controller.delete, foo.req, foo.FAKE_UUID)
+
+    def test_index_policy_failed(self):
+        foo._common_policy_check(foo.controller.index, foo.req)

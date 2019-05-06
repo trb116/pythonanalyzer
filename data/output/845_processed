@@ -1,0 +1,16 @@
+from ajenti.api import *
+from ajenti.plugins import *
+
+
+info = foo(
+    title='Webserver Commons',
+    icon='cogs',
+    dependencies=[
+        foo('main'),
+        foo('services'),
+    ],
+)
+
+
+def init():
+    import api

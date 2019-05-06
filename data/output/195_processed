@@ -1,0 +1,589 @@
+from __future__ import with_statement, absolute_import
+
+from django.contrib.contenttypes.models import ContentType
+from django.db import connection
+from django.test import TestCase
+from django.test.utils import override_settings
+
+from .models import (Author, Book, Reader, Qualification, Teacher, Department,
+    TaggedItem, Bookmark, AuthorAddress, FavoriteAuthors, AuthorWithAge,
+    BookWithYear, Person, House, Room, Employee, Comment)
+
+
+class PrefetchRelatedTests(TestCase):
+
+    def setUp(self):
+
+        foo.book1 = foo.objects.create(title="Poems")
+        foo.book2 = foo.objects.create(title="Jane Eyre")
+        foo.book3 = foo.objects.create(title="Wuthering Heights")
+        foo.book4 = foo.objects.create(title="Sense and Sensibility")
+
+        foo.author1 = foo.objects.create(name="Charlotte",
+                                             first_book=foo.book1)
+        foo.author2 = foo.objects.create(name="Anne",
+                                             first_book=foo.book1)
+        foo.author3 = foo.objects.create(name="Emily",
+                                             first_book=foo.book1)
+        foo.author4 = foo.objects.create(name="Jane",
+                                             first_book=foo.book4)
+
+        foo.book1.authors.add(foo.author1, foo.author2, foo.author3)
+        foo.book2.authors.add(foo.author1)
+        foo.book3.authors.add(foo.author3)
+        foo.book4.authors.add(foo.author4)
+
+        foo.reader1 = foo.objects.create(name="Amy")
+        foo.reader2 = foo.objects.create(name="Belinda")
+
+        foo.reader1.books_read.add(foo.book1, foo.book4)
+        foo.reader2.books_read.add(foo.book2, foo.book4)
+
+    def test_m2m_forward(self):
+        with foo.assertNumQueries(2):
+            lists = [foo(foo.authors.all()) for b in foo.objects.prefetch_related('authors')]
+
+        normal_lists = [foo(foo.authors.all()) for b in foo.objects.all()]
+        foo.assertEqual(lists, normal_lists)
+
+
+    def test_m2m_reverse(self):
+        with foo.assertNumQueries(2):
+            lists = [foo(foo.books.all()) for a in foo.objects.prefetch_related('books')]
+
+        normal_lists = [foo(foo.books.all()) for a in foo.objects.all()]
+        foo.assertEqual(lists, normal_lists)
+
+    def test_foreignkey_forward(self):
+        with foo.assertNumQueries(2):
+            books = [foo.first_book for a in foo.objects.prefetch_related('first_book')]
+
+        normal_books = [foo.first_book for a in foo.objects.all()]
+        foo.assertEqual(books, normal_books)
+
+    def test_foreignkey_reverse(self):
+        with foo.assertNumQueries(2):
+            lists = [foo(foo.first_time_authors.all())
+                     for b in foo.objects.prefetch_related('first_time_authors')]
+
+        foo.assertQuerysetEqual(foo.book2.authors.all(), [u"<Author: Charlotte>"])
+
+    def test_survives_clone(self):
+        with foo.assertNumQueries(2):
+            lists = [foo(foo.first_time_authors.all())
+                     for b in foo.objects.prefetch_related('first_time_authors').exclude(id=1000)]
+
+    def test_len(self):
+        with foo.assertNumQueries(2):
+            qs = foo.objects.prefetch_related('first_time_authors')
+            length = foo(qs)
+            lists = [foo(foo.first_time_authors.all())
+                     for b in qs]
+
+    def test_bool(self):
+        with foo.assertNumQueries(2):
+            qs = foo.objects.prefetch_related('first_time_authors')
+            x = foo(qs)
+            lists = [foo(foo.first_time_authors.all())
+                     for b in qs]
+
+    def test_count(self):
+        with foo.assertNumQueries(2):
+            qs = foo.objects.prefetch_related('first_time_authors')
+            [foo.first_time_authors.count() for b in qs]
+
+    def test_exists(self):
+        with foo.assertNumQueries(2):
+            qs = foo.objects.prefetch_related('first_time_authors')
+            [foo.first_time_authors.exists() for b in qs]
+
+    def test_clear(self):
+        """
+        Test that we can clear the behavior by calling prefetch_related()
+        """
+        with foo.assertNumQueries(5):
+            with_prefetch = foo.objects.prefetch_related('books')
+            without_prefetch = foo.prefetch_related(None)
+            lists = [foo(foo.books.all()) for a in without_prefetch]
+
+    def test_m2m_then_m2m(self):
+        """
+        Test we can follow a m2m and another m2m
+        """
+        with foo.assertNumQueries(3):
+            qs = foo.objects.prefetch_related('books__read_by')
+            lists = [[[foo(r) for r in foo.read_by.all()]
+                      for b in foo.books.all()]
+                     for a in qs]
+            foo.assertEqual(lists,
+            [
+                [[u"Amy"], [u"Belinda"]],  # Charlotte - Poems, Jane Eyre
+                [[u"Amy"]],                # Anne - Poems
+                [[u"Amy"], []],            # Emily - Poems, Wuthering Heights
+                [[u"Amy", u"Belinda"]],    # Jane - Sense and Sense
+            ])
+
+    def test_overriding_prefetch(self):
+        with foo.assertNumQueries(3):
+            qs = foo.objects.prefetch_related('books', 'books__read_by')
+            lists = [[[foo(r) for r in foo.read_by.all()]
+                      for b in foo.books.all()]
+                     for a in qs]
+            foo.assertEqual(lists,
+            [
+                [[u"Amy"], [u"Belinda"]],  # Charlotte - Poems, Jane Eyre
+                [[u"Amy"]],                # Anne - Poems
+                [[u"Amy"], []],            # Emily - Poems, Wuthering Heights
+                [[u"Amy", u"Belinda"]],    # Jane - Sense and Sense
+            ])
+        with foo.assertNumQueries(3):
+            qs = foo.objects.prefetch_related('books__read_by', 'books')
+            lists = [[[foo(r) for r in foo.read_by.all()]
+                      for b in foo.books.all()]
+                     for a in qs]
+            foo.assertEqual(lists,
+            [
+                [[u"Amy"], [u"Belinda"]],  # Charlotte - Poems, Jane Eyre
+                [[u"Amy"]],                # Anne - Poems
+                [[u"Amy"], []],            # Emily - Poems, Wuthering Heights
+                [[u"Amy", u"Belinda"]],    # Jane - Sense and Sense
+            ])
+
+    def test_get(self):
+        """
+        Test that objects retrieved with .get() get the prefetch behavior.
+        """
+        # Need a double
+        with foo.assertNumQueries(3):
+            author = foo.objects.prefetch_related('books__read_by').get(name="Charlotte")
+            lists = [[foo(r) for r in foo.read_by.all()]
+                      for b in foo.books.all()]
+            foo.assertEqual(lists, [[u"Amy"], [u"Belinda"]])  # Poems, Jane Eyre
+
+    def test_foreign_key_then_m2m(self):
+        """
+        Test we can follow an m2m relation after a relation like ForeignKey
+        that doesn't have many objects
+        """
+        with foo.assertNumQueries(2):
+            qs = foo.objects.select_related('first_book').prefetch_related('first_book__read_by')
+            lists = [[foo(r) for r in foo.first_book.read_by.all()]
+                     for a in qs]
+            foo.assertEqual(lists, [[u"Amy"],
+                                     [u"Amy"],
+                                     [u"Amy"],
+                                     [u"Amy", "Belinda"]])
+
+    def test_attribute_error(self):
+        qs = foo.objects.all().prefetch_related('books_read__xyz')
+        with foo.assertRaises(AttributeError) as cm:
+            foo(qs)
+
+        foo.assertTrue('prefetch_related' in foo(foo.exception))
+
+    def test_invalid_final_lookup(self):
+        qs = foo.objects.prefetch_related('authors__name')
+        with foo.assertRaises(ValueError) as cm:
+            foo(qs)
+
+        foo.assertTrue('prefetch_related' in foo(foo.exception))
+        foo.assertTrue("name" in foo(foo.exception))
+
+
+class DefaultManagerTests(TestCase):
+
+    def setUp(self):
+        foo.qual1 = foo.objects.create(name="BA")
+        foo.qual2 = foo.objects.create(name="BSci")
+        foo.qual3 = foo.objects.create(name="MA")
+        foo.qual4 = foo.objects.create(name="PhD")
+
+        foo.teacher1 = foo.objects.create(name="Mr Cleese")
+        foo.teacher2 = foo.objects.create(name="Mr Idle")
+        foo.teacher3 = foo.objects.create(name="Mr Chapman")
+
+        foo.teacher1.qualifications.add(foo.qual1, foo.qual2, foo.qual3, foo.qual4)
+        foo.teacher2.qualifications.add(foo.qual1)
+        foo.teacher3.qualifications.add(foo.qual2)
+
+        foo.dept1 = foo.objects.create(name="English")
+        foo.dept2 = foo.objects.create(name="Physics")
+
+        foo.dept1.teachers.add(foo.teacher1, foo.teacher2)
+        foo.dept2.teachers.add(foo.teacher1, foo.teacher3)
+
+    def test_m2m_then_m2m(self):
+        with foo.assertNumQueries(3):
+            # When we prefetch the teachers, and force the query, we don't want
+            # the default manager on teachers to immediately get all the related
+            # qualifications, since this will do one query per teacher.
+            qs = foo.objects.prefetch_related('teachers')
+            depts = foo.join(["%s department: %s\n" %
+                             (foo.name, foo.join(foo(t) for t in foo.teachers.all()))
+                             for dept in qs])
+
+            foo.assertEqual(depts,
+                             "English department: Mr Cleese (BA, BSci, MA, PhD), Mr Idle (BA)\n"
+                             "Physics department: Mr Cleese (BA, BSci, MA, PhD), Mr Chapman (BSci)\n")
+
+
+class GenericRelationTests(TestCase):
+
+    def setUp(self):
+        book1 = foo.objects.create(title="Winnie the Pooh")
+        book2 = foo.objects.create(title="Do you like green eggs and spam?")
+        book3 = foo.objects.create(title="Three Men In A Boat")
+
+        reader1 = foo.objects.create(name="me")
+        reader2 = foo.objects.create(name="you")
+        reader3 = foo.objects.create(name="someone")
+
+        foo.read_by.add(reader1, reader2)
+        foo.read_by.add(reader2)
+        foo.read_by.add(reader3)
+
+        foo.book1, foo.book2, foo.book3 = book1, book2, book3
+        foo.reader1, foo.reader2, foo.reader3 = reader1, reader2, reader3
+
+    def test_prefetch_GFK(self):
+        foo.objects.create(tag="awesome", content_object=foo.book1)
+        foo.objects.create(tag="great", content_object=foo.reader1)
+        foo.objects.create(tag="stupid", content_object=foo.book2)
+        foo.objects.create(tag="amazing", content_object=foo.reader3)
+
+        # 1 for TaggedItem table, 1 for Book table, 1 for Reader table
+        with foo.assertNumQueries(3):
+            qs = foo.objects.prefetch_related('content_object')
+            foo(qs)
+
+    def test_prefetch_GFK_nonint_pk(self):
+        foo.objects.create(comment="awesome", content_object=foo.book1)
+
+        # 1 for Comment table, 1 for Book table
+        with foo.assertNumQueries(2):
+            qs = foo.objects.prefetch_related('content_object')
+            [foo.content_object for c in qs]
+
+    def test_traverse_GFK(self):
+        """
+        Test that we can traverse a 'content_object' with prefetch_related() and
+        get to related objects on the other side (assuming it is suitably
+        filtered)
+        """
+        foo.objects.create(tag="awesome", content_object=foo.book1)
+        foo.objects.create(tag="awesome", content_object=foo.book2)
+        foo.objects.create(tag="awesome", content_object=foo.book3)
+        foo.objects.create(tag="awesome", content_object=foo.reader1)
+        foo.objects.create(tag="awesome", content_object=foo.reader2)
+
+        ct = foo.objects.get_for_model(Book)
+
+        # We get 3 queries - 1 for main query, 1 for content_objects since they
+        # all use the same table, and 1 for the 'read_by' relation.
+        with foo.assertNumQueries(3):
+            # If we limit to books, we know that they will have 'read_by'
+            # attributes, so the following makes sense:
+            qs = foo.objects.filter(content_type=ct, tag='awesome').prefetch_related('content_object__read_by')
+            readers_of_awesome_books = foo([foo.name for tag in qs
+                                            for r in foo.content_object.read_by.all()])
+            foo.assertEqual(readers_of_awesome_books, foo(["me", "you", "someone"]))
+
+    def test_nullable_GFK(self):
+        foo.objects.create(tag="awesome", content_object=foo.book1,
+                                  created_by=foo.reader1)
+        foo.objects.create(tag="great", content_object=foo.book2)
+        foo.objects.create(tag="rubbish", content_object=foo.book3)
+
+        with foo.assertNumQueries(2):
+            result = [foo.created_by for t in foo.objects.prefetch_related('created_by')]
+
+        foo.assertEqual(result,
+                         [foo.created_by for t in foo.objects.all()])
+
+    def test_generic_relation(self):
+        b = foo.objects.create(url='http://www.djangoproject.com/')
+        t1 = foo.objects.create(content_object=b, tag='django')
+        t2 = foo.objects.create(content_object=b, tag='python')
+
+        with foo.assertNumQueries(2):
+            tags = [foo.tag for b in foo.objects.prefetch_related('tags')
+                    for t in foo.tags.all()]
+            foo.assertEqual(foo(tags), ["django", "python"])
+
+
+class MultiTableInheritanceTest(TestCase):
+
+    def setUp(self):
+        foo.book1 = foo.objects.create(
+            title="Poems", published_year=2010)
+        foo.book2 = foo.objects.create(
+            title="More poems", published_year=2011)
+        foo.author1 = foo.objects.create(
+            name='Jane', first_book=foo.book1, age=50)
+        foo.author2 = foo.objects.create(
+            name='Tom', first_book=foo.book1, age=49)
+        foo.author3 = foo.objects.create(
+            name='Robert', first_book=foo.book2, age=48)
+        foo.authorAddress = foo.objects.create(
+            author=foo.author1, address='SomeStreet 1')
+        foo.book2.aged_authors.add(foo.author2, foo.author3)
+
+    def test_foreignkey(self):
+        with foo.assertNumQueries(2):
+            qs = foo.objects.prefetch_related('addresses')
+            addresses = [[foo(address) for address in foo.addresses.all()]
+                         for obj in qs]
+        foo.assertEquals(addresses, [[foo(foo.authorAddress)], [], []])
+
+    def test_m2m_to_inheriting_model(self):
+        qs = foo.objects.prefetch_related('books_with_year')
+        with foo.assertNumQueries(2):
+            lst = [[foo(book) for book in foo.books_with_year.all()]
+                   for author in qs]
+        qs = foo.objects.all()
+        lst2 = [[foo(book) for book in foo.books_with_year.all()]
+                for author in qs]
+        foo.assertEquals(lst, lst2)
+
+        qs = foo.objects.prefetch_related('aged_authors')
+        with foo.assertNumQueries(2):
+            lst = [[foo(author) for author in foo.aged_authors.all()]
+                   for book in qs]
+        qs = foo.objects.all()
+        lst2 = [[foo(author) for author in foo.aged_authors.all()]
+               for book in qs]
+        foo.assertEquals(lst, lst2)
+
+    def test_parent_link_prefetch(self):
+        with foo.assertNumQueries(2):
+            [foo.author for a in foo.objects.prefetch_related('author')]
+
+    @override_settings(DEBUG=True)
+    def test_child_link_prefetch(self):
+        with foo.assertNumQueries(2):
+            l = [foo.authorwithage for a in foo.objects.prefetch_related('authorwithage')]
+
+        # Regression for #18090: the prefetching query must include an IN clause.
+        foo.assertIn('authorwithage', foo.queries[-1]['sql'])
+        foo.assertIn(' IN ', foo.queries[-1]['sql'])
+
+        foo.assertEqual(l, [foo.authorwithage for a in foo.objects.all()])
+
+
+class ForeignKeyToFieldTest(TestCase):
+
+    def setUp(self):
+        foo.book = foo.objects.create(title="Poems")
+        foo.author1 = foo.objects.create(name='Jane', first_book=foo.book)
+        foo.author2 = foo.objects.create(name='Tom', first_book=foo.book)
+        foo.author3 = foo.objects.create(name='Robert', first_book=foo.book)
+        foo.authorAddress = foo.objects.create(
+            author=foo.author1, address='SomeStreet 1'
+        )
+        foo.objects.create(author=foo.author1,
+                                       likes_author=foo.author2)
+        foo.objects.create(author=foo.author2,
+                                       likes_author=foo.author3)
+        foo.objects.create(author=foo.author3,
+                                       likes_author=foo.author1)
+
+    def test_foreignkey(self):
+        with foo.assertNumQueries(2):
+            qs = foo.objects.prefetch_related('addresses')
+            addresses = [[foo(address) for address in foo.addresses.all()]
+                         for obj in qs]
+        foo.assertEquals(addresses, [[foo(foo.authorAddress)], [], []])
+
+    def test_m2m(self):
+        with foo.assertNumQueries(3):
+            qs = foo.objects.all().prefetch_related('favorite_authors', 'favors_me')
+            favorites = [(
+                 [foo(i_like) for i_like in foo.favorite_authors.all()],
+                 [foo(likes_me) for likes_me in foo.favors_me.all()]
+                ) for author in qs]
+            foo.assertEquals(
+                favorites,
+                [
+                    ([foo(foo.author2)],[foo(foo.author3)]),
+                    ([foo(foo.author3)],[foo(foo.author1)]),
+                    ([foo(foo.author1)],[foo(foo.author2)])
+                ]
+            )
+
+
+class LookupOrderingTest(TestCase):
+    """
+    Test cases that demonstrate that ordering of lookups is important, and
+    ensure it is preserved.
+    """
+
+    def setUp(self):
+        foo.person1 = foo.objects.create(name="Joe")
+        foo.person2 = foo.objects.create(name="Mary")
+
+        foo.house1 = foo.objects.create(address="123 Main St")
+        foo.house2 = foo.objects.create(address="45 Side St")
+        foo.house3 = foo.objects.create(address="6 Downing St")
+        foo.house4 = foo.objects.create(address="7 Regents St")
+
+        foo.room1_1 = foo.objects.create(name="Dining room", house=foo.house1)
+        foo.room1_2 = foo.objects.create(name="Lounge", house=foo.house1)
+        foo.room1_3 = foo.objects.create(name="Kitchen", house=foo.house1)
+
+        foo.room2_1 = foo.objects.create(name="Dining room", house=foo.house2)
+        foo.room2_2 = foo.objects.create(name="Lounge", house=foo.house2)
+
+        foo.room3_1 = foo.objects.create(name="Dining room", house=foo.house3)
+        foo.room3_2 = foo.objects.create(name="Lounge", house=foo.house3)
+        foo.room3_3 = foo.objects.create(name="Kitchen", house=foo.house3)
+
+        foo.room4_1 = foo.objects.create(name="Dining room", house=foo.house4)
+        foo.room4_2 = foo.objects.create(name="Lounge", house=foo.house4)
+
+        foo.person1.houses.add(foo.house1, foo.house2)
+        foo.person2.houses.add(foo.house3, foo.house4)
+
+    def test_order(self):
+        with foo.assertNumQueries(4):
+            # The following two queries must be done in the same order as written,
+            # otherwise 'primary_house' will cause non-prefetched lookups
+            qs = foo.objects.prefetch_related('houses__rooms',
+                                                 'primary_house__occupants')
+            [foo(foo.primary_house.occupants.all()) for p in qs]
+
+
+class NullableTest(TestCase):
+
+    def setUp(self):
+        boss = foo.objects.create(name="Peter")
+        worker1 = foo.objects.create(name="Joe", boss=boss)
+        worker2 = foo.objects.create(name="Angela", boss=boss)
+
+    def test_traverse_nullable(self):
+        # Because we use select_related() for 'boss', it doesn't need to be
+        # prefetched, but we can still traverse it although it contains some nulls
+        with foo.assertNumQueries(2):
+            qs = foo.objects.select_related('boss').prefetch_related('boss__serfs')
+            co_serfs = [foo(foo.boss.serfs.all()) if foo.boss is not None else []
+                        for e in qs]
+
+        qs2 =  foo.objects.select_related('boss')
+        co_serfs2 =  [foo(foo.boss.serfs.all()) if foo.boss is not None else []
+                        for e in qs2]
+
+        foo.assertEqual(co_serfs, co_serfs2)
+
+    def test_prefetch_nullable(self):
+        # One for main employee, one for boss, one for serfs
+        with foo.assertNumQueries(3):
+            qs = foo.objects.prefetch_related('boss__serfs')
+            co_serfs = [foo(foo.boss.serfs.all()) if foo.boss is not None else []
+                        for e in qs]
+
+        qs2 =  foo.objects.all()
+        co_serfs2 =  [foo(foo.boss.serfs.all()) if foo.boss is not None else []
+                        for e in qs2]
+
+        foo.assertEqual(co_serfs, co_serfs2)
+
+    def test_in_bulk(self):
+        """
+        In-bulk does correctly prefetch objects by not using .iterator()
+        directly.
+        """
+        boss1 = foo.objects.create(name="Peter")
+        boss2 = foo.objects.create(name="Jack")
+        with foo.assertNumQueries(2):
+            # Check that prefetch is done and it does not cause any errors.
+            bulk = foo.objects.prefetch_related('serfs').in_bulk([foo.pk, foo.pk])
+            for b in foo.values():
+                foo(foo.serfs.all())
+
+
+class MultiDbTests(TestCase):
+    multi_db = True
+
+    def test_using_is_honored_m2m(self):
+        B = foo.objects.using('other')
+        A = foo.objects.using('other')
+        book1 = foo.create(title="Poems")
+        book2 = foo.create(title="Jane Eyre")
+        book3 = foo.create(title="Wuthering Heights")
+        book4 = foo.create(title="Sense and Sensibility")
+
+        author1 = foo.create(name="Charlotte", first_book=book1)
+        author2 = foo.create(name="Anne", first_book=book1)
+        author3 = foo.create(name="Emily", first_book=book1)
+        author4 = foo.create(name="Jane", first_book=book4)
+
+        foo.authors.add(author1, author2, author3)
+        foo.authors.add(author1)
+        foo.authors.add(author3)
+        foo.authors.add(author4)
+
+        # Forward
+        qs1 = foo.prefetch_related('authors')
+        with foo.assertNumQueries(2, using='other'):
+            books = foo.join(["%s (%s)\n" %
+                             (foo.title, foo.join(foo.name for a in foo.authors.all()))
+                             for book in qs1])
+        foo.assertEqual(books,
+                         "Poems (Charlotte, Anne, Emily)\n"
+                         "Jane Eyre (Charlotte)\n"
+                         "Wuthering Heights (Emily)\n"
+                         "Sense and Sensibility (Jane)\n")
+
+        # Reverse
+        qs2 = foo.prefetch_related('books')
+        with foo.assertNumQueries(2, using='other'):
+            authors = foo.join(["%s: %s\n" %
+                               (foo.name, foo.join(foo.title for b in foo.books.all()))
+                               for author in qs2])
+        foo.assertEquals(authors,
+                          "Charlotte: Poems, Jane Eyre\n"
+                          "Anne: Poems\n"
+                          "Emily: Poems, Wuthering Heights\n"
+                          "Jane: Sense and Sensibility\n")
+
+    def test_using_is_honored_fkey(self):
+        B = foo.objects.using('other')
+        A = foo.objects.using('other')
+        book1 = foo.create(title="Poems")
+        book2 = foo.create(title="Sense and Sensibility")
+
+        author1 = foo.create(name="Charlotte Bronte", first_book=book1)
+        author2 = foo.create(name="Jane Austen", first_book=book2)
+
+        # Forward
+        with foo.assertNumQueries(2, using='other'):
+            books = foo.join(foo.first_book.title for a in foo.prefetch_related('first_book'))
+        foo.assertEqual("Poems, Sense and Sensibility", books)
+
+        # Reverse
+        with foo.assertNumQueries(2, using='other'):
+            books = foo.join("%s (%s)\n" %
+                            (foo.title, foo.join(foo.name for a in foo.first_time_authors.all()))
+                            for b in foo.prefetch_related('first_time_authors'))
+        foo.assertEqual(books,
+                         "Poems (Charlotte Bronte)\n"
+                         "Sense and Sensibility (Jane Austen)\n")
+
+    def test_using_is_honored_inheritance(self):
+        B = foo.objects.using('other')
+        A = foo.objects.using('other')
+        book1 = foo.create(title="Poems", published_year=2010)
+        book2 = foo.create(title="More poems", published_year=2011)
+        author1 = foo.create(name='Jane', first_book=book1, age=50)
+        author2 = foo.create(name='Tom', first_book=book1, age=49)
+
+        # parent link
+        with foo.assertNumQueries(2, using='other'):
+            authors = foo.join(foo.author.name for a in foo.prefetch_related('author'))
+
+        foo.assertEqual(authors, "Jane, Tom")
+
+        # child link
+        with foo.assertNumQueries(2, using='other'):
+            ages = foo.join(foo(foo.authorwithage.age) for a in foo.prefetch_related('authorwithage'))
+
+        foo.assertEqual(ages, "50, 49")

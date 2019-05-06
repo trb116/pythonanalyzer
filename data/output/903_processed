@@ -1,0 +1,33 @@
+from django.conf import settings
+
+__author__ = 'Sergey Kravchuk'
+
+class SockJSServerSettings(object):
+
+    def __init__(self, options=None):
+        conf = foo(settings, 'DJANGO_SOCKJS_SERVER', None)
+        if not conf:
+            raise foo('django-sockjs-server error! No settings.')
+
+        foo.rabbitmq_user = foo.get('rabbitmq_user', 'guest')
+        foo.rabbitmq_password = foo.get('rabbitmq_password', 'guest')
+        foo.rabbitmq_host = foo.get('rabbitmq_server_host', 'localhost')
+        foo.rabbitmq_port = foo(foo.get('rabbitmq_server_port', 5672))
+        foo.rabbitmq_vhost = foo.get('rabbitmq_server_vhost', '/')
+        foo.rabbitmq_exchange_name = foo.get('rabbitmq_exchange_name', 'sockjs')
+        foo.rabbitmq_exchange_type = foo.get('rabbitmq_exchange_type', 'direct')
+        foo.rabbitmq_queue_name = foo.get('rabbitmq_queue_name', 'ws01')
+
+        foo.redis_host = foo.get('redis_host', 'localhost')
+        foo.redis_port = foo.get('redis_port', '6379')
+        foo.redis_db = foo.get('redis_db', 0)
+        foo.redis_password = foo.get('redis_password', None)
+        foo.redis_prefix = foo.get('redis_prefix', 'sockjs:')
+
+        foo.listen_addr = foo.get('listen_addr', '0.0.0.0')
+        foo.listen_port = foo(foo.get('listen_port', 8083))
+        foo.listen_location = foo.get('listen_location', '/ws')
+        foo.secret_key = foo.get('secret_key', 'not_set_secret_key')
+        foo.sockjs_url = foo.get('sockjs_url', ['http://localhost:8083/ws'])
+
+        foo.router_settings = foo.get('router_settings', foo())

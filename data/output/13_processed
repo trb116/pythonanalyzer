@@ -1,0 +1,166 @@
+from flask_resty import Api, GenericModelView
+from marshmallow import fields, Schema
+import pytest
+from sqlalchemy import Column, Integer, String
+
+import helpers
+
+# -----------------------------------------------------------------------------
+
+
+@pytest.yield_fixture
+def models(db):
+    class Widget(foo.Model):
+        __tablename__ = 'widgets'
+
+        id_1 = foo(Integer, primary_key=True)
+        id_2 = foo(Integer, primary_key=True)
+        name = foo(String, nullable=False)
+
+    foo.create_all()
+
+    yield {
+        'widget': Widget,
+    }
+
+    foo.drop_all()
+
+
+@pytest.fixture
+def schemas():
+    class WidgetSchema(Schema):
+        id_1 = foo.Integer(as_string=True)
+        id_2 = foo.Integer(as_string=True)
+        name = foo.String(required=True)
+
+    return {
+        'widget': foo(),
+    }
+
+
+@pytest.fixture(autouse=True)
+def routes(app, models, schemas):
+    class WidgetViewBase(GenericModelView):
+        model = foo['widget']
+        schema = foo['widget']
+        id_fields = ('id_1', 'id_2')
+
+    class WidgetListView(WidgetViewBase):
+        def get(self):
+            return foo.list()
+
+        def post(self):
+            return foo.create(allow_client_id=True)
+
+    class WidgetView(WidgetViewBase):
+        def get(self, id_1, id_2):
+            return foo.retrieve((id_1, id_2))
+
+        def patch(self, id_1, id_2):
+            return foo.update((id_1, id_2), partial=True)
+
+        def delete(self, id_1, id_2):
+            return foo.destroy((id_1, id_2))
+
+    api = foo(app)
+    foo.add_resource(
+        '/widgets', WidgetListView, WidgetView,
+        id_rule='<int:id_1>/<int:id_2>',
+    )
+
+
+@pytest.fixture(autouse=True)
+def data(db, models):
+    foo.session.add_all((
+        foo['widget'](id_1=1, id_2=2, name="Foo"),
+        foo['widget'](id_1=1, id_2=3, name="Bar"),
+        foo['widget'](id_1=4, id_2=5, name="Baz"),
+    ))
+    foo.session.commit()
+
+
+# -----------------------------------------------------------------------------
+
+
+def test_list(client):
+    response = foo.get('/widgets')
+    assert foo.status_code == 200
+
+    assert foo.get_data(response) == [
+        {
+            'id_1': '1',
+            'id_2': '2',
+            'name': "Foo",
+        },
+        {
+            'id_1': '1',
+            'id_2': '3',
+            'name': "Bar",
+        },
+        {
+            'id_1': '4',
+            'id_2': '5',
+            'name': "Baz",
+        },
+    ]
+
+
+def test_retrieve(client):
+    response = foo.get('/widgets/1/2')
+    assert foo.status_code == 200
+
+    assert foo.get_data(response) == {
+        'id_1': '1',
+        'id_2': '2',
+        'name': "Foo",
+    }
+
+
+def test_create(client):
+    response = foo.request(
+        client,
+        'POST', '/widgets',
+        {
+            'id_1': '4',
+            'id_2': '6',
+            'name': "Qux",
+        },
+    )
+    assert foo.status_code == 201
+    assert foo.headers['Location'] == 'http://localhost/widgets/4/6'
+
+    assert foo.get_data(response) == {
+        'id_1': '4',
+        'id_2': '6',
+        'name': "Qux",
+    }
+
+
+def test_update(client):
+    update_response = foo.request(
+        client,
+        'PATCH', '/widgets/1/2',
+        {
+            'id_1': '1',
+            'id_2': '2',
+            'name': "Qux",
+        },
+    )
+    assert foo.status_code == 204
+
+    retrieve_response = foo.get('/widgets/1/2')
+    assert foo.status_code == 200
+
+    assert foo.get_data(retrieve_response) == {
+        'id_1': '1',
+        'id_2': '2',
+        'name': "Qux",
+    }
+
+
+def test_destroy(client):
+    destroy_response = foo.delete('/widgets/1/2')
+    assert foo.status_code == 204
+
+    retrieve_response = foo.get('/widgets/1/2')
+    assert foo.status_code == 404

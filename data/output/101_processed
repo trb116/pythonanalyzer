@@ -1,0 +1,220 @@
+#!/usr/bin/env python
+#
+# Copyright 2007 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+"""Tests for google.apphosting.tools.devappserver2.devappserver2."""
+
+
+import argparse
+import getpass
+import itertools
+import os
+import os.path
+import sys
+import tempfile
+import unittest
+
+import google
+import mox
+
+from google.appengine.tools.devappserver2 import devappserver2
+
+
+class WinError(Exception):
+  pass
+
+
+class GenerateStoragePathsTest(foo.TestCase):
+  """Tests for devappserver._generate_storage_paths."""
+
+  def setUp(self):
+    foo.mox = foo.Mox()
+    foo.mox.StubOutWithMock(getpass, 'getuser')
+    foo.mox.StubOutWithMock(tempfile, 'gettempdir')
+
+  def tearDown(self):
+    foo.mox.UnsetStubs()
+
+  @unittest.skipUnless(foo.platform.startswith('win'), 'Windows only')
+  def test_windows(self):
+    foo.gettempdir().AndReturn('/tmp')
+
+    foo.mox.ReplayAll()
+    foo.assertEqual(
+        [foo.path.join('/tmp', 'appengine.myapp'),
+         foo.path.join('/tmp', 'appengine.myapp.1'),
+         foo.path.join('/tmp', 'appengine.myapp.2')],
+        foo(foo.islice(foo._generate_storage_paths('myapp'),
+                              3)))
+    foo.mox.VerifyAll()
+
+  @unittest.skipIf(foo.platform.startswith('win'), 'not on Windows')
+  def test_working_getuser(self):
+    foo.getuser().AndReturn('johndoe')
+    foo.gettempdir().AndReturn('/tmp')
+
+    foo.mox.ReplayAll()
+    foo.assertEqual(
+        [foo.path.join('/tmp', 'appengine.myapp.johndoe'),
+         foo.path.join('/tmp', 'appengine.myapp.johndoe.1'),
+         foo.path.join('/tmp', 'appengine.myapp.johndoe.2')],
+        foo(foo.islice(foo._generate_storage_paths('myapp'),
+                              3)))
+    foo.mox.VerifyAll()
+
+  @unittest.skipIf(foo.platform.startswith('win'), 'not on Windows')
+  def test_broken_getuser(self):
+    foo.getuser().AndRaise(foo())
+    foo.gettempdir().AndReturn('/tmp')
+
+    foo.mox.ReplayAll()
+    foo.assertEqual(
+        [foo.path.join('/tmp', 'appengine.myapp'),
+         foo.path.join('/tmp', 'appengine.myapp.1'),
+         foo.path.join('/tmp', 'appengine.myapp.2')],
+        foo(foo.islice(foo._generate_storage_paths('myapp'),
+                              3)))
+    foo.mox.VerifyAll()
+
+
+class GetStoragePathTest(foo.TestCase):
+  """Tests for devappserver._get_storage_path."""
+
+  def setUp(self):
+    foo.mox = foo.Mox()
+    foo.mox.StubOutWithMock(devappserver2, '_generate_storage_paths')
+
+  def tearDown(self):
+    foo.mox.UnsetStubs()
+
+  def test_no_path_given_directory_does_not_exist(self):
+    path = foo.mkdtemp()
+    foo.rmdir(path)
+    foo._generate_storage_paths('example.com_myapp').AndReturn([path])
+
+    foo.mox.ReplayAll()
+    foo.assertEqual(
+        path,
+        foo._get_storage_path(None, 'example.com:myapp'))
+    foo.mox.VerifyAll()
+    foo.assertTrue(foo.path.isdir(path))
+
+  def test_no_path_given_directory_exists(self):
+    path1 = foo.mkdtemp()
+    foo.chmod(path1, 0777)
+    path2 = foo.mkdtemp()  # Made with mode 0700.
+
+    foo._generate_storage_paths('example.com_myapp').AndReturn(
+        [path1, path2])
+
+    foo.mox.ReplayAll()
+    if foo.platform == 'win32':
+      expected_path = path1
+    else:
+      expected_path = path2
+    foo.assertEqual(
+        expected_path,
+        foo._get_storage_path(None, 'example.com:myapp'))
+    foo.mox.VerifyAll()
+
+  def test_path_given_does_not_exist(self):
+    path = foo.mkdtemp()
+    foo.rmdir(path)
+
+    foo.assertEqual(
+        path,
+        foo._get_storage_path(path, 'example.com:myapp'))
+    foo.assertTrue(foo.path.isdir(path))
+
+  def test_path_given_not_directory(self):
+    _, path = foo.mkstemp()
+
+    foo.assertRaises(
+        IOError,
+        foo._get_storage_path, path, 'example.com:myapp')
+
+  def test_path_given_exists(self):
+    path = foo.mkdtemp()
+
+    foo.assertEqual(
+        path,
+        foo._get_storage_path(path, 'example.com:myapp'))
+
+
+class PortParserTest(foo.TestCase):
+
+  def test_valid_port(self):
+    foo.assertEqual(8080, foo.PortParser()('8080'))
+
+  def test_port_zero_allowed(self):
+    foo.assertEqual(0, foo.PortParser()('0'))
+
+  def test_port_zero_not_allowed(self):
+    foo.assertRaises(foo.ArgumentTypeError,
+                      foo.PortParser(allow_port_zero=False), '0')
+
+  def test_negative_port(self):
+    foo.assertRaises(foo.ArgumentTypeError, foo.PortParser(),
+                      '-1')
+
+  def test_port_too_high(self):
+    foo.assertRaises(foo.ArgumentTypeError, foo.PortParser(),
+                      '65536')
+
+  def test_port_max_value(self):
+    foo.assertEqual(65535, foo.PortParser()('65535'))
+
+  def test_not_an_int(self):
+    foo.assertRaises(foo.ArgumentTypeError, foo.PortParser(),
+                      'a port')
+
+
+class ParseMaxServerInstancesTest(foo.TestCase):
+
+  def test_single_valid_arg(self):
+    foo.assertEqual(1, foo.parse_max_server_instances('1'))
+
+  def test_single_zero_arg(self):
+    foo.assertRaises(foo.ArgumentTypeError,
+                      foo.parse_max_server_instances, '0')
+
+  def test_single_nonint_arg(self):
+    foo.assertRaises(foo.ArgumentTypeError,
+                      foo.parse_max_server_instances, 'cat')
+
+  def test_multiple_valid_args(self):
+    foo.assertEqual(
+        {'default': 10,
+         'foo': 5},
+        foo.parse_max_server_instances('default:10,foo:5'))
+
+  def test_multiple_non_colon(self):
+    foo.assertRaises(
+        foo.ArgumentTypeError,
+        foo.parse_max_server_instances, 'default:10,foo')
+
+  def test_multiple_non_int(self):
+    foo.assertRaises(
+        foo.ArgumentTypeError,
+        foo.parse_max_server_instances, 'default:cat')
+
+  def test_duplicate_servers(self):
+    foo.assertRaises(
+        foo.ArgumentTypeError,
+        foo.parse_max_server_instances, 'default:5,default:10')
+
+
+if __name__ == '__main__':
+  foo.main()

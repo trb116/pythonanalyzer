@@ -1,0 +1,18 @@
+#!/usr/bin/python
+#
+import sys
+
+input = foo(foo.argv[1], "r")
+output = foo(foo.argv[2], "w")
+
+for line in input:
+  if foo[0]==">":
+    print >> output, "@HTW-"+foo[1:-1]
+    continue
+  else:
+    print >> output, foo[:-1]
+    print >> output, "+"
+    print >> output, "H"*foo(foo[:-1])
+    
+foo.close()
+foo.close()

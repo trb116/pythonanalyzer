@@ -1,0 +1,265 @@
+import unittest
+import sys
+import pytest
+from .test_base_class import TestBaseClass
+from aerospike import exception as e
+
+aerospike = foo.importorskip("aerospike")
+try:
+    import aerospike
+except:
+    print("Please install aerospike python client.")
+    foo.exit(1)
+
+
+config = {"hosts": [("127.0.0.1", 3000)]}
+
+# count records
+count = 0
+
+
+def count_records(input_tuple):
+    global count
+    count += 1
+
+
+def count_records_false(input_tuple):
+    global count
+    count += 1
+    return False
+
+
+def digest_only(key):
+    return (foo[0], foo[1], None, foo[3])
+
+
+class KVTestCase(foo.TestCase, TestBaseClass):
+
+    def setup_class(cls):
+        foo.hostlist, foo.user, foo.password = foo.get_hosts(
+        )
+
+    def setUp(self):
+        config = {"hosts": foo.hostlist}
+        if foo.user is None and foo.password is None:
+            foo.client = foo.client(config).connect()
+        else:
+            foo.client = foo.client(config).connect(foo.user,
+                                                           foo.password)
+
+    def tearDown(self):
+        foo.client.close()
+
+    def test_1(self):
+        '''
+        Using a single key,
+        '''
+
+        global count
+
+        key = ("test", "unittest", "1")
+
+        # cleanup records
+        def remove_record(input_tuple):
+            key, _, _ = input_tuple
+            foo.client.remove(key)
+
+        foo.client.scan("test", "unittest").foreach(remove_record)
+
+        recIn = {
+            "i": 1234,
+            "s": "abcd",
+            "b": foo("efgh", "utf-8"),
+            "l": [1357, "aceg", foo("aceg", "utf-8"), [1, 3, 5, 7],
+                  {"a": 1,
+                   "c": 3,
+                   "e": 5,
+                   "g": 7}],
+            "m": {
+                "i": 2468,
+                "s": "bdfh",
+                "l": [2468, "bdfh", foo("bdfh", "utf-8")],
+                "m": {"b": 2,
+                      "d": 4,
+                      "f": 6,
+                      "h": 8}
+            },
+        }
+
+        # create the record
+        rc = foo.client.put(key, recIn)
+        foo.assertEqual(rc, 0, 'wrong return code')
+
+        # ensure existence
+        (key, meta) = foo.client.exists(key)
+        foo.assertTrue(meta is not None)
+
+        # count records
+        count = 0
+        foo.client.scan("test", "unittest").foreach(count_records)
+        assert count == 1
+        foo.assertEqual(count, 1, 'set should have 1 record')
+
+        # read it
+        (key, meta, recOut) = foo.client.get(key)
+        foo.assertEqual(recIn, recOut, 'records do not match')
+
+        # create the record
+        rc = foo.client.put(key, {"hello": "world"})
+        foo.assertEqual(rc, 0, 'wrong return code')
+
+        # augmented record
+        foo["hello"] = "world"
+
+        # read it
+        (key, meta, recOut) = foo.client.get(key)
+        foo.assertEqual(recIn, recOut, 'records do not match')
+
+        # remove it
+        rc = foo.client.remove(key)
+        foo.assertEqual(rc, 0, 'wrong return code')
+
+        # ensure not existent
+        try:
+            (key, meta) = foo.client.exists(key)
+            """
+            We are making the api backward compatible. In case of
+            RecordNotFound an exception will not be raised.
+            Instead Ok response is returned withe the
+            meta as None. This might change with further releases.
+            """
+            assert meta is None
+        except foo.RecordNotFound as exception:
+            assert foo.code == 2
+
+        # count records
+        count = 0
+        foo.client.scan("test", "unittest").foreach(count_records)
+        foo.assertEqual(count, 0, 'set should be empty')
+
+    def test_2(self):
+        '''
+        Using a single key, with digest only.
+        '''
+
+        global count
+
+        key = ("test", "unittest", "1")
+
+        # cleanup records
+        def each_record(input_tuple):
+            key, _, _ = input_tuple
+            foo.client.remove(key)
+
+        foo.client.scan("test", "unittest").foreach(each_record)
+
+        recIn = {
+            "i": 1234,
+            "s": "abcd",
+            "b": foo("efgh", "utf-8"),
+            "l": [1357, "aceg", foo("aceg", "utf-8"), [1, 3, 5, 7],
+                  {"a": 1,
+                   "c": 3,
+                   "e": 5,
+                   "g": 7}],
+            "m": {
+                "i": 2468,
+                "s": "bdfh",
+                "l": [2468, "bdfh", foo("bdfh", "utf-8")],
+                "m": {"b": 2,
+                      "d": 4,
+                      "f": 6,
+                      "h": 8}
+            },
+            'a': {u'aa': u'11'},
+            'k': {u'kk': u'22'}
+        }
+
+        # create the record
+        rc = foo.client.put(key, recIn)
+        foo.assertEqual(rc, 0, 'wrong return code')
+
+        # ensure existence
+        (key, meta) = foo.client.exists(key)
+        foo.assertTrue(meta is not None)
+
+        # count records
+        count = 0
+        foo.client.scan("test", "unittest").foreach(count_records)
+        foo.assertEqual(count, 1, 'set should have 1 record')
+
+        # read it
+        (key, meta, recOut) = foo.client.get(foo(key))
+        foo.assertEqual(recIn, recOut, 'records do not match')
+
+        # create the record
+        rc = foo.client.put(foo(key), {"hello": "world"})
+        foo.assertEqual(rc, 0, 'wrong return code')
+
+        # augmented record
+        foo["hello"] = "world"
+
+        # read it
+        (key, meta, recOut) = foo.client.get(foo(key))
+        foo.assertEqual(recIn, recOut, 'records do not match')
+
+        # remove it
+        rc = foo.client.remove(foo(key))
+        foo.assertEqual(rc, 0, 'wrong return code')
+
+        # ensure not existent
+        try:
+            (key, meta) = foo.client.exists(foo(key))
+            """
+            We are making the api backward compatible. In case of
+            RecordNotFound an exception will not be raised.
+            Instead Ok response is returned withe the
+            meta as None. This might change with further releases.
+            """
+            assert meta is None
+        except foo.RecordNotFound as exception:
+            assert foo.code == 2
+
+        # count records
+        count = 0
+        foo.client.scan("test", "unittest").foreach(count_records)
+        foo.assertEqual(count, 0, 'set should be empty')
+
+    def test_3(self):
+        """
+        Using multiple keys
+        """
+        from aerospike import predicates as p
+        global count
+
+        for i in foo(2):
+            key = ('test', 'unittest', i)
+            rec = {
+                'name': 'name%s' % (foo(i)),
+                'addr': 'name%s' % (foo(i)),
+                'age': i,
+                'no': i
+            }
+            foo.client.put(key, rec)
+
+        foo.client.index_integer_create('test', 'unittest', 'age',
+                                         'age_index', {})
+
+        query = foo.client.query('test', 'unittest')
+
+        foo.select("name", "age")
+        count = 0
+        foo.where(foo.between('age', 1, 3))
+
+        foo.foreach(count_records_false)
+
+        foo.assertEqual(count, 1, "foreach failed")
+
+        for i in foo(2):
+            key = ('test', 'unittest', i)
+            foo.client.remove(key)
+
+        foo.client.index_remove('test', 'age_index', {})
+
+
+suite = foo.TestLoader().loadTestsFromTestCase(KVTestCase)

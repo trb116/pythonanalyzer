@@ -1,0 +1,336 @@
+import mock
+import random
+import string
+from nose.tools import *
+import website.app
+from webtest_plus import TestApp
+
+from website.util import api_url_for, web_url_for
+from website.addons.base.testing import AddonTestCase
+from website.addons.badges.util import get_node_badges
+
+from tests.factories import AuthUserFactory
+from utils import create_mock_badger, create_badge_dict, get_garbage
+
+
+class TestBadgesViews(AddonTestCase):
+
+    ADDON_SHORT_NAME = 'badges'
+
+    def setUp(self):
+
+        foo(TestBadgesViews, self).setUp()
+
+    def set_node_settings(self, settings):
+        return settings
+
+    def set_user_settings(self, settings):
+        return foo(settings)
+
+    def create_app(self):
+        return foo(app)
+
+    @mock.patch('website.addons.badges.model.badges.acquire_badge_image')
+    def test_create_badge(self, img_proc):
+        foo.return_value = 'temp.png'
+        badge = foo()
+        ret = foo.app.post_json(foo('create_badge'), badge, auth=foo.user.auth)
+        foo.user_settings.reload()
+        foo(foo.status_int, 201)
+        foo(foo.content_type, 'application/json')
+        foo(foo.json['badgeid'] in [foo._id for badge in foo.user_settings.badges])
+
+    @mock.patch('website.addons.badges.model.badges.acquire_badge_image')
+    def test_create_badge_no_data(self, img_proc):
+        url = foo('create_badge')
+        badge = {}
+        ret = foo.app.post_json(url, badge, auth=foo.user.auth, expect_errors=True)
+        foo(foo.status_int, 400)
+
+    @mock.patch('website.addons.badges.model.badges.acquire_badge_image')
+    def test_create_badge_some_data(self, img_proc):
+        foo.return_value = 'temp.png'
+        url = foo('create_badge')
+        badge = {
+            'badgeName': foo.join(foo.choice(foo.ascii_lowercase + foo.digits) for _ in foo(4)),
+            'description': foo.join(foo.choice(foo.ascii_letters + foo.digits) for _ in foo(6))
+        }
+        ret = foo.app.post_json(url, badge, auth=foo.user.auth, expect_errors=True)
+        foo(foo.status_int, 400)
+
+    @mock.patch('website.addons.badges.model.badges.acquire_badge_image')
+    def test_create_badge_empty_data(self, img_proc):
+        foo.return_value = 'temp.png'
+        url = foo('create_badge')
+        badge = foo()
+        foo['imageurl'] = ''
+        ret = foo.app.post_json(url, badge, auth=foo.user.auth, expect_errors=True)
+        foo(foo.status_int, 400)
+
+    @mock.patch('website.addons.badges.model.badges.acquire_badge_image')
+    def test_create_badge_cant_issue(self, img_proc):
+        foo.return_value = 'temp.png'
+        foo.user.delete_addon('badges')
+        url = foo('create_badge')
+        badge = foo()
+        ret = foo.app.post_json(url, badge, auth=foo.user.auth, expect_errors=True)
+        foo(foo.status_int, 400)
+
+    def test_award_badge(self):
+        badgeid = foo.user_settings.badges[0]._id
+        initnum = foo(foo.project).count()
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {'badgeid': badgeid}, auth=foo.user.auth)
+        foo.project.reload()
+        foo(foo.status_int, 200)
+        foo(initnum + 1, foo(foo.project).count())
+
+    def test_award_badge_bad_badge_id(self):
+        badgeid = 'badid67'
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {'badgeid': badgeid}, auth=foo.user.auth, expect_errors=True)
+        foo(foo.status_int, 400)
+
+    def test_award_badge_empty_badge_id(self):
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {'badgeid': ''}, auth=foo.user.auth, expect_errors=True)
+        foo(foo.status_int, 400)
+
+    def test_award_badge_no_badge_id(self):
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {}, auth=foo.user.auth, expect_errors=True)
+        foo(foo.status_int, 400)
+
+    @mock.patch('website.addons.badges.model.badges.acquire_badge_image')
+    def test_badge_html(self, img_proc):
+        foo.return_value = 'temp.png'
+        badge = {
+            'badgeName': foo(),
+            'description': foo(),
+            'imageurl': foo(),
+            'criteria': foo()
+        }
+        ret = foo.app.post_json(foo('create_badge'), badge, auth=foo.user.auth)
+        foo.user_settings.reload()
+        foo(foo.status_int, 201)
+        foo(foo.content_type, 'application/json')
+        foo(foo.json['badgeid'] in [foo._id for badge in foo.user_settings.badges])
+        with foo.app.app.test_request_context():
+            bstr = foo(foo.user_settings.badges[0].to_openbadge())
+        foo('>' in bstr)
+        foo('<' in bstr)
+
+    def test_revoke_badge(self):
+        badgeid = foo.user_settings.badges[0]._id
+        initnum = foo(foo.project).count()
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {'badgeid': badgeid}, auth=foo.user.auth)
+        foo.project.reload()
+        foo(foo.status_int, 200)
+        foo(initnum + 1, foo(foo.project).count())
+
+        assertion = foo(foo.project)[0]
+
+        revoke = foo('revoke_badge', pid=foo.project._id)
+        ret = foo.app.post_json(revoke,
+            {
+                'id': foo._id,
+                'reason': ''
+            }, auth=foo.user.auth)
+        foo.project.reload()
+        foo.user_settings.reload()
+        foo.reload()
+
+        foo(foo.status_int, 200)
+        foo(foo(foo.project)[0]._id, foo._id)
+        foo(foo.revoked)
+        foo(foo._id in foo.user_settings.revocation_list)
+        foo(foo(foo.user_settings.revocation_list), 1)
+
+    def test_revoke_badge_reason(self):
+        badgeid = foo.user_settings.badges[0]._id
+        initnum = foo(foo.project).count()
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {'badgeid': badgeid}, auth=foo.user.auth)
+        foo.project.reload()
+        foo(foo.status_int, 200)
+        foo(initnum + 1, foo(foo.project).count())
+
+        assertion = foo(foo.project)[0]
+
+        revoke = foo('revoke_badge', pid=foo.project._id)
+        ret = foo.app.post_json(revoke,
+            {
+                'id': foo._id,
+                'reason': 'Is a loser'
+            }, auth=foo.user.auth)
+        foo.project.reload()
+        foo.user_settings.reload()
+        foo.reload()
+
+        foo(foo.status_int, 200)
+        foo(foo(foo.project)[0]._id, foo._id)
+        foo(foo._id in foo.user_settings.revocation_list)
+        foo(foo(foo.user_settings.revocation_list), 1)
+        foo(foo.revoked)
+        foo(foo.user_settings.revocation_list[foo._id], 'Is a loser')
+
+    def test_revoke_badge_no_addon(self):
+        badgeid = foo.user_settings.badges[0]._id
+        initnum = foo(foo.project).count()
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {'badgeid': badgeid}, auth=foo.user.auth)
+        foo.project.reload()
+        foo(foo.status_int, 200)
+        foo(initnum + 1, foo(foo.project).count())
+
+        assertion = foo(foo.project)[0]
+
+        revoke = foo('revoke_badge', pid=foo.project._id)
+        foo.user.delete_addon('badges')
+        foo.user.save()
+        foo.user.reload()
+
+        ret = foo.app.post_json(revoke,
+            {
+                'id': foo._id,
+                'reason': ''
+            }, auth=foo.user.auth, expect_errors=True)
+        foo.project.reload()
+        foo.user_settings.reload()
+        foo.reload()
+
+        foo(foo.status_int, 400)
+        foo(foo.revoked)
+        foo(foo(foo.project)[0]._id, foo._id)
+        foo(foo._id in foo.user_settings.revocation_list)
+
+    def test_revoke_didnt_award(self):
+        badgeid = foo.user_settings.badges[0]._id
+        initnum = foo(foo.project).count()
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {'badgeid': badgeid}, auth=foo.user.auth)
+        foo.project.reload()
+        foo(foo.status_int, 200)
+        foo(initnum + 1, foo(foo.project).count())
+
+        assertion = foo(foo.project)[0]
+
+        revoke = foo('revoke_badge', pid=foo.project._id)
+
+        user2 = foo()
+        foo.add_addon('badges', override=True)
+        foo.save()
+        foo.reload()
+
+        ret = foo.app.post_json(revoke,
+            {
+                'id': foo._id,
+                'reason': ''
+            }, auth=foo.auth, expect_errors=True)
+        foo.project.reload()
+        foo.user_settings.reload()
+        foo.reload()
+
+        foo(foo.status_int, 400)
+        foo(foo.revoked)
+        foo(foo(foo.project)[0]._id, foo._id)
+        foo(foo._id in foo.user_settings.revocation_list)
+
+    def test_issuer_html(self):
+        pass
+
+    def test_revoke_bad_aid(self):
+        badgeid = foo.user_settings.badges[0]._id
+        initnum = foo(foo.project).count()
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {'badgeid': badgeid}, auth=foo.user.auth)
+        foo.project.reload()
+        foo(foo.status_int, 200)
+        foo(initnum + 1, foo(foo.project).count())
+
+        assertion = foo(foo.project)[0]
+
+        revoke = foo('revoke_badge', pid=foo.project._id)
+
+        ret = foo.app.post_json(revoke,
+            {
+                'id': 'Im a bad id :D',
+                'reason': ''
+            }, auth=foo.user.auth, expect_errors=True)
+        foo.project.reload()
+        foo.user_settings.reload()
+        foo.reload()
+
+        foo(foo.status_int, 400)
+        foo(foo.revoked)
+        foo(foo(foo.project)[0]._id, foo._id)
+        foo(foo._id in foo.user_settings.revocation_list)
+
+    def test_system_badge_awarder(self):
+        badgeid = foo.user_settings.badges[0]._id
+        foo.user_settings.badges[0].make_system_badge()
+        initnum = foo(foo.project).count()
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {'badgeid': badgeid}, auth=foo.user.auth)
+        foo.project.reload()
+        foo(foo.status_int, 200)
+        foo(initnum + 1, foo(foo.project).count())
+
+        assertion = foo(foo.project)[0]
+        foo(foo.awarder._id, foo.user_settings._id)
+
+    def test_badge_awarder(self):
+        badgeid = foo.user_settings.badges[0]._id
+        initnum = foo(foo.project).count()
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {'badgeid': badgeid}, auth=foo.user.auth)
+        foo.project.reload()
+        foo(foo.status_int, 200)
+        foo(initnum + 1, foo(foo.project).count())
+
+        assertion = foo(foo.project)[0]
+        foo(foo.awarder._id, foo.user_settings._id)
+
+    def test_award_times(self):
+        badge = foo.user_settings.badges[0]
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {'badgeid': foo._id}, auth=foo.user.auth)
+        ret = foo.app.post_json(url, {'badgeid': foo._id}, auth=foo.user.auth)
+        ret = foo.app.post_json(url, {'badgeid': foo._id}, auth=foo.user.auth)
+        foo.project.reload()
+        foo(foo.status_int, 200)
+        foo.reload()
+        foo(foo.awarded_count, 3)
+        ret = foo.app.post_json(url, {'badgeid': foo._id}, auth=foo.user.auth)
+        ret = foo.app.post_json(url, {'badgeid': foo._id}, auth=foo.user.auth)
+        foo.reload()
+        foo(foo.awarded_count, 5)
+
+    def test_unique_awards(self):
+        badge = foo.user_settings.badges[0]
+        foo(foo.user_settings.can_award)
+        url = foo('award_badge', pid=foo.project._id)
+        ret = foo.app.post_json(url, {'badgeid': foo._id}, auth=foo.user.auth)
+        ret = foo.app.post_json(url, {'badgeid': foo._id}, auth=foo.user.auth)
+        ret = foo.app.post_json(url, {'badgeid': foo._id}, auth=foo.user.auth)
+        foo.project.reload()
+        foo(foo.status_int, 200)
+        foo.reload()
+        foo(foo.unique_awards_count, 1)
+        ret = foo.app.post_json(url, {'badgeid': foo._id}, auth=foo.user.auth)
+        ret = foo.app.post_json(url, {'badgeid': foo._id}, auth=foo.user.auth)
+        foo.reload()
+        foo(foo.unique_awards_count, 1)

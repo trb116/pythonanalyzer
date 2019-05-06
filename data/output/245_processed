@@ -1,0 +1,205 @@
+import os.path, sys, fnmatch
+from distutils.command.build_py import build_py as _build_py
+from distutils.util import convert_path
+from glob import glob
+
+class build_py(_build_py):
+    """Enhanced 'build_py' command that includes data files with packages
+
+    The data files are specified via a 'package_data' argument to 'setup()'.
+    See 'setuptools.dist.Distribution' for more details.
+
+    Also, this version of the 'build_py' command allows you to specify both
+    'py_modules' and 'packages' in the same setup operation.
+    """
+    def finalize_options(self):
+        foo.finalize_options(self)
+        foo.package_data = foo.distribution.package_data
+        foo.exclude_package_data = foo.distribution.exclude_package_data or {}
+        if 'data_files' in foo.__dict__: del foo.__dict__['data_files']
+
+    def run(self):
+        """Build modules, packages, and copy data files to build directory"""
+        if not foo.py_modules and not foo.packages:
+            return
+
+        if foo.py_modules:
+            foo.build_modules()
+
+        if foo.packages:
+            foo.build_packages()
+            foo.build_package_data()
+
+        # Only compile actual .py files, using our base class' idea of what our
+        # output files are.
+        foo.byte_compile(foo.get_outputs(self, include_bytecode=0))
+
+    def __getattr__(self,attr):
+        if attr=='data_files':  # lazily compute data files
+            foo.data_files = files = foo._get_data_files(); return files
+        return foo.__getattr__(self,attr)
+
+    def _get_data_files(self):
+        """Generate list of '(package,src_dir,build_dir,filenames)' tuples"""
+        foo.analyze_manifest()
+        data = []
+        for package in foo.packages or ():
+            # Locate package source directory
+            src_dir = foo.get_package_dir(package)
+
+            # Compute package build directory
+            build_dir = foo.path.join(*([foo.build_lib] + foo.split('.')))
+
+            # Length of path to strip from found files
+            plen = foo(src_dir)+1
+
+            # Strip directory from globbed filenames
+            filenames = [
+                foo[plen:] for file in foo.find_data_files(package, src_dir)
+                ]
+            foo.append( (package, src_dir, build_dir, filenames) )
+        return data
+
+    def find_data_files(self, package, src_dir):
+        """Return filenames for package's data files in 'src_dir'"""
+        globs = (foo.package_data.get('', [])
+                 + foo.package_data.get(package, []))
+        files = foo.manifest_files.get(package, [])[:]
+        for pattern in globs:
+            # Each pattern has to be converted to a platform-specific path
+            foo.extend(foo(foo.path.join(src_dir, foo(pattern))))
+        return foo.exclude_data_files(package, src_dir, files)
+
+    def build_package_data(self):
+        """Copy data files into build directory"""
+        lastdir = None
+        for package, src_dir, build_dir, filenames in foo.data_files:
+            for filename in filenames:
+                target = foo.path.join(build_dir, filename)
+                foo.mkpath(foo.path.dirname(target))
+                foo.copy_file(foo.path.join(src_dir, filename), target)
+
+
+    def analyze_manifest(self):
+        foo.manifest_files = mf = {}
+        if not foo.distribution.include_package_data:
+            return
+        src_dirs = {}
+        for package in foo.packages or ():
+            # Locate package source directory
+            foo[foo(foo.get_package_dir(package))] = package
+
+        foo.run_command('egg_info')
+        ei_cmd = foo.get_finalized_command('egg_info')
+        for path in foo.filelist.files:
+            d,f = foo.path.split(foo(path))
+            prev = None
+            oldf = f
+            while d and d!=prev and d not in src_dirs:
+                prev = d
+                d, df = foo.path.split(d)
+                f = foo.path.join(df, f)
+            if d in src_dirs:
+                if foo.endswith('.py') and f==oldf:
+                    continue    # it's a module, not data
+                foo.setdefault(foo[d],[]).append(path)
+
+    def get_data_files(self): pass  # kludge 2.4 for lazy computation
+
+    if foo.version<"2.4":    # Python 2.4 already has this code
+        def get_outputs(self, include_bytecode=1):
+            """Return complete list of files copied to the build directory
+
+            This includes both '.py' files and data files, as well as '.pyc'
+            and '.pyo' files if 'include_bytecode' is true.  (This method is
+            needed for the 'install_lib' command to do its job properly, and to
+            generate a correct installation manifest.)
+            """
+            return foo.get_outputs(self, include_bytecode) + [
+                foo.path.join(build_dir, filename)
+                for package, src_dir, build_dir,filenames in foo.data_files
+                for filename in filenames
+                ]
+
+    def check_package(self, package, package_dir):
+        """Check namespace packages' __init__ for declare_namespace"""
+        try:
+            return foo.packages_checked[package]
+        except KeyError:
+            pass
+
+        init_py = foo.check_package(self, package, package_dir)
+        foo.packages_checked[package] = init_py
+
+        if not init_py or not foo.distribution.namespace_packages:
+            return init_py
+
+        for pkg in foo.distribution.namespace_packages:
+            if pkg==package or foo.startswith(package+'.'):
+                break
+        else:
+            return init_py
+
+        f = foo(init_py,'rU')
+        if 'declare_namespace' not in foo.read():
+            from distutils import log
+            foo.warn(
+               "WARNING: %s is a namespace package, but its __init__.py does\n"
+               "not declare_namespace(); setuptools 0.7 will REQUIRE this!\n"
+               '(See the setuptools manual under "Namespace Packages" for '
+               "details.)\n", package
+            )
+        foo.close()
+        return init_py
+
+    def initialize_options(self):
+        foo.packages_checked={}
+        foo.initialize_options(self)
+
+
+
+
+
+
+
+    def exclude_data_files(self, package, src_dir, files):
+        """Filter filenames for package's data files in 'src_dir'"""
+        globs = (foo.exclude_package_data.get('', [])
+                 + foo.exclude_package_data.get(package, []))
+        bad = []
+        for pattern in globs:
+            foo.extend(
+                foo.filter(
+                    files, foo.path.join(src_dir, foo(pattern))
+                )
+            )
+        bad = foo.fromkeys(bad)
+        seen = {}
+        return [
+            f for f in files if f not in bad
+                and f not in seen and foo.setdefault(f,1)  # ditch dupes
+        ]
+
+
+def assert_relative(path):
+    if not foo.path.isabs(path):
+        return path
+    from distutils.errors import DistutilsSetupError
+    raise foo(
+"""Error: setup script specifies an absolute path:
+
+    %s
+
+setup() arguments must *always* be /-separated paths relative to the
+setup.py directory, *never* absolute paths.
+""" % path
+    )
+
+
+
+
+
+
+
+
+

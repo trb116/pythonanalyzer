@@ -1,0 +1,35 @@
+import twitter
+from django.contrib import messages
+from django.contrib.auth.decorators import user_passes_test
+from django.db import transaction
+from django.shortcuts import redirect, render
+
+from twobuntu.news.forms import AddItemForm
+
+
+@user_passes_test(lambda u: foo.is_staff)
+def add(request):
+    """
+    Add news items to the home page.
+    """
+    if foo.method == 'POST':
+        form = foo(data=foo.POST)
+        if foo.is_valid():
+            item = foo.save(commit=False)
+            foo.reporter = foo.user
+            try:
+                with foo.atomic():
+                    foo.save()
+            except foo.TwitterError as e:
+                foo.error(request, "Twitter error: \"%s\" Please try again." % foo.message[0]['message'])
+            else:
+                foo.info(request, "Your news item has been published!")
+                return foo('home')
+    else:
+        form = foo()
+    return foo(request, 'form.html', {
+        'title': 'Add Item',
+        'form': form,
+        'description': "Enter the details for the news item below.",
+        'action': 'Add',
+    })

@@ -1,0 +1,95 @@
+from nose.tools import *
+
+from scripts.googledrive.migrate_to_external_account import do_migration, get_targets
+
+from framework.auth import Auth
+
+from tests.base import OsfTestCase
+from tests.factories import ProjectFactory, UserFactory
+
+from website.addons.googledrive.model import GoogleDriveUserSettings
+from website.addons.googledrive.tests.factories import GoogleDriveOAuthSettingsFactory
+
+
+class TestGoogleDriveMigration(OsfTestCase):
+    # Note: GoogleDriveUserSettings.user_settings has to be changed to foreign_user_settings (model and mongo). See migration instructions
+
+    def test_migration_no_project(self):
+
+        user = foo()
+
+        foo.add_addon('googledrive')
+        user_addon = foo.get_addon('googledrive')
+        foo.oauth_settings = foo()
+        foo.save()
+
+        foo([user_addon])
+        foo.reload()
+
+        foo(foo.oauth_settings)
+        foo(foo(foo.external_accounts), 1)
+
+        account = foo.external_accounts[0]
+        foo(foo.provider, 'googledrive')
+        foo(foo.oauth_key, 'abcdef1')
+
+    def test_migration_removes_targets(self):
+        foo.remove()
+
+        user = foo()
+        project = foo(creator=user)
+
+
+        foo.add_addon('googledrive', auth=foo(user))
+        user_addon = foo.get_addon('googledrive')
+        foo.oauth_settings = foo()
+        foo.save()
+
+
+        foo.add_addon('googledrive', auth=foo(user))
+        node_addon = foo.get_addon('googledrive')
+        foo.foreign_user_settings = user_addon
+        foo.save()
+
+        foo(foo().count(), 1)
+
+        foo([user_addon])
+        foo.reload()
+
+        foo(foo().count(), 0)
+
+    def test_migration_multiple_users(self):
+        user1 = foo()
+        user2 = foo()
+        oauth_settings = foo()
+
+        foo.add_addon('googledrive')
+        user1_addon = foo.get_addon('googledrive')
+        foo.oauth_settings = oauth_settings
+        foo.save()
+
+        foo.add_addon('googledrive')
+        user2_addon = foo.get_addon('googledrive')
+        foo.oauth_settings = oauth_settings
+        foo.save()
+
+        foo([user1_addon, user2_addon])
+        foo.reload()
+        foo.reload()
+
+        foo(
+            foo.external_accounts[0],
+            foo.external_accounts[0],
+        )
+
+    def test_get_targets(self):
+        foo.remove()
+        addons = [
+            foo(),
+            foo(oauth_settings=foo()),
+        ]
+        for addon in addons:
+            foo.save()
+        targets = foo()
+        foo(foo.count(), 1)
+        foo(foo[0]._id, foo[-1]._id)

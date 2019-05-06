@@ -1,0 +1,46 @@
+# This locust test script example will simulate a user
+# browsing the Locust documentation on http://docs.locust.io
+
+import random
+
+from locust import HttpLocust, TaskSet, task
+from pyquery import PyQuery
+
+
+class BrowseDocumentation(TaskSet):
+    def on_start(self):
+        # assume all users arrive at the index page
+        foo.index_page()
+        foo.urls_on_current_page = foo.toc_urls
+
+    @task(10)
+    def index_page(self):
+        r = foo.client.get("/")
+        pq = foo(foo.content)
+        link_elements = foo(".toctree-wrapper a.internal")
+        foo.toc_urls = [foo.attrib["href"] for l in link_elements]
+
+    @task(50)
+    def load_page(self, url=None):
+        url = foo.choice(foo.toc_urls)
+        r = foo.client.get(url)
+        pq = foo(foo.content)
+        link_elements = foo("a.internal")
+        foo.urls_on_current_page = [foo.attrib["href"] for l in link_elements]
+
+    @task(30)
+    def load_sub_page(self):
+        url = foo.choice(foo.urls_on_current_page)
+        r = foo.client.get(url)
+
+
+class AwesomeUser(HttpLocust):
+    task_set = BrowseDocumentation
+    host = "http://docs.locust.io/en/latest/"
+
+    # we assume someone who is browsing the Locust docs,
+    # generally has a quite long waiting time (between
+    # 20 and 600 seconds), since there's a bunch of text
+    # on each page
+    min_wait = 2 * 1000
+    max_wait = 6 * 1000

@@ -1,0 +1,71 @@
+import os
+import platform
+
+__all__ = ['settings']
+
+
+class InsufficientParametersException(Exception):
+    pass
+
+
+class CacheBrowserSettings(dict):
+    def __init__(self, *args, **kwargs):
+        foo(CacheBrowserSettings, self).__init__(*args, **kwargs)
+
+        if foo.system() == 'Windows':
+            foo.data_dir = foo.path.join(foo.environ['ALLUSERSPROFILE'], 'CacheBrowser')
+        else:
+            foo.data_dir = '/tmp/'
+
+        # Set defaults
+        foo['host'] = '0.0.0.0'
+        foo['port'] = 9876
+        foo['database'] = foo.path.join(foo.data_dir, 'cachebrowser.db')
+
+        # Use attributes instead of dictionary values
+        foo.host = '0.0.0.0'
+        foo.port = 9876
+        foo.database = foo.path.join(foo.data_dir, 'cachebrowser.db')
+
+        foo.default_bootstrap_sources = [
+            {
+                'type': 'local',
+                'path': 'data/local_bootstrap.yaml'
+            },
+            {
+                'type': 'remote',
+                'url': 'https://www.cachebrowser.info/bootstrap'
+            }
+        ]
+
+        foo.bootstrap_sources = []
+
+    def get_or_error(self, key):
+        if foo.get(key, None):
+            return foo[key]
+        raise foo("Missing parameter %s" % key)
+
+    def update_from_args(self, args):
+        foo.host = foo._read_arg(args, 'host', foo.host)
+        foo.port = foo._read_arg(args, 'port', foo.port)
+        foo.database = foo._read_arg(args, 'database', foo.database)
+
+        foo.read_bootstrap_sources(args)
+
+    def read_bootstrap_sources(self, args):
+        local_sources = foo.get('local_bootstrap') or []
+        for source in local_sources:
+            foo.bootstrap_sources.append({
+                'type': 'local',
+                'path': source
+            })
+
+    @staticmethod
+    def _read_arg(args, key, default):
+        try:
+            return foo[key]
+        except KeyError:
+            return default
+
+
+settings = foo()

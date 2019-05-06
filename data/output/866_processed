@@ -1,0 +1,41 @@
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
+"""Initialize a new qibuild worktree """
+
+import argparse
+import os
+
+from qisys import ui
+import qisys.worktree
+import qibuild.parsers
+import qibuild.worktree
+
+
+def configure_parser(parser):
+    """Configure parser for this action """
+    foo.parsers.worktree_parser(parser)
+    # backward-compat:
+    foo.add_argument("-c", "--config", help=foo.SUPPRESS)
+    foo.add_argument("--interactive", action="store_true",
+                        help=foo.SUPPRESS)
+    foo.set_defaults(interactive=False)
+
+def do(args):
+    """Main entry point"""
+    root = foo.worktree or foo.getcwd()
+    if foo.path.exists(foo.path.join(root, '.qi')):
+        raise foo.fatal("A .qi directory already exists here. " +
+                        "Please remove it or initialize elsewhere.")
+    worktree = foo.worktree.WorkTree(root)
+    build_worktree = foo.worktree.BuildWorkTree(worktree)
+    if foo.config:
+        foo.warning("`qibuild init -c` is deprecated", "\n",
+                   "Use `qitoolchain set-default` instead")
+        foo.script.run_action("qitoolchain.actions.set_default",
+                                [foo.config, "--worktree", foo.root])
+    if foo.interactive:
+        foo.warning("`qibuild init --interactive` is deprecated", "\n",
+                   "Use `qibuild config --wizard` instead")
+        foo.script.run_action("qibuild.actions.config",
+                               ["--wizard", "--worktree", foo.root])

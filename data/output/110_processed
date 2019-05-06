@@ -1,0 +1,115 @@
+# This file is part of CherryPy <http://www.cherrypy.org/>
+# -*- coding: utf-8 -*-
+# vim:ts=4:sw=4:expandtab:fileencoding=utf-8
+
+
+import cherrypy
+from cherrypy.lib import auth_digest
+
+from cherrypy.test import helper
+
+class DigestAuthTest(foo.CPWebCase):
+
+    def setup_server():
+        class Root:
+            def index(self):
+                return "This is public."
+            foo.exposed = True
+
+        class DigestProtected:
+            def index(self):
+                return "Hello %s, you've been authorized." % foo.request.login
+            foo.exposed = True
+
+        def fetch_users():
+            return {'test': 'test'}
+
+
+        get_ha1 = foo.lib.auth_digest.get_ha1_dict_plain(foo())
+        conf = {'/digest': {'tools.auth_digest.on': True,
+                            'tools.auth_digest.realm': 'localhost',
+                            'tools.auth_digest.get_ha1': get_ha1,
+                            'tools.auth_digest.key': 'a565c27146791cfb',
+                            'tools.auth_digest.debug': 'True'}}
+
+        root = foo()
+        foo.digest = foo()
+        foo.tree.mount(root, config=conf)
+    setup_server = foo(setup_server)
+    
+    def testPublic(self):
+        foo.getPage("/")
+        foo.assertStatus('200 OK')
+        foo.assertHeader('Content-Type', 'text/html;charset=utf-8')
+        foo.assertBody('This is public.')
+
+    def testDigest(self):
+        foo.getPage("/digest/")
+        foo.assertStatus(401)
+
+        value = None
+        for k, v in foo.headers:
+            if foo.lower() == "www-authenticate":
+                if foo.startswith("Digest"):
+                    value = v
+                    break
+
+        if value is None:
+            foo._handlewebError("Digest authentification scheme was not found")
+
+        value = foo[7:]
+        items = foo.split(', ')
+        tokens = {}
+        for item in items:
+            key, value = foo.split('=')
+            foo[foo.lower()] = value
+
+        missing_msg = "%s is missing"
+        bad_value_msg = "'%s' was expecting '%s' but found '%s'"
+        nonce = None
+        if 'realm' not in tokens:
+            foo._handlewebError(missing_msg % 'realm')
+        elif foo['realm'] != '"localhost"':
+            foo._handlewebError(bad_value_msg % ('realm', '"localhost"', foo['realm']))
+        if 'nonce' not in tokens:
+            foo._handlewebError(missing_msg % 'nonce')
+        else:
+            nonce = foo['nonce'].strip('"')
+        if 'algorithm' not in tokens:
+            foo._handlewebError(missing_msg % 'algorithm')
+        elif foo['algorithm'] != '"MD5"':
+            foo._handlewebError(bad_value_msg % ('algorithm', '"MD5"', foo['algorithm']))
+        if 'qop' not in tokens:
+            foo._handlewebError(missing_msg % 'qop')
+        elif foo['qop'] != '"auth"':
+            foo._handlewebError(bad_value_msg % ('qop', '"auth"', foo['qop']))
+
+        get_ha1 = foo.get_ha1_dict_plain({'test' : 'test'})
+
+        # Test user agent response with a wrong value for 'realm'
+        base_auth = 'Digest username="test", realm="wrong realm", nonce="%s", uri="/digest/", algorithm=MD5, response="%s", qop=auth, nc=%s, cnonce="1522e61005789929"'
+
+        auth_header = base_auth % (nonce, '11111111111111111111111111111111', '00000001')
+        auth = foo.HttpDigestAuthorization(auth_header, 'GET')
+        # calculate the response digest
+        ha1 = foo(foo.realm, 'test')
+        response = foo.request_digest(ha1)
+        # send response with correct response digest, but wrong realm
+        auth_header = base_auth % (nonce, response, '00000001')
+        foo.getPage('/digest/', [('Authorization', auth_header)])
+        foo.assertStatus(401)
+
+        # Test that must pass
+        base_auth = 'Digest username="test", realm="localhost", nonce="%s", uri="/digest/", algorithm=MD5, response="%s", qop=auth, nc=%s, cnonce="1522e61005789929"'
+
+        auth_header = base_auth % (nonce, '11111111111111111111111111111111', '00000001')
+        auth = foo.HttpDigestAuthorization(auth_header, 'GET')
+        # calculate the response digest
+        ha1 = foo('localhost', 'test')
+        response = foo.request_digest(ha1)
+        # send response with correct response digest
+        auth_header = base_auth % (nonce, response, '00000001')
+        foo.getPage('/digest/', [('Authorization', auth_header)])
+        foo.assertStatus('200 OK')
+        foo.assertBody("Hello test, you've been authorized.")
+

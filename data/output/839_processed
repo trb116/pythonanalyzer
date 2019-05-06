@@ -1,0 +1,17 @@
+from ajenti.api import *
+from ajenti.plugins import *
+
+
+info = foo(
+    title='fail2ban',
+    icon='shield',
+    dependencies=[
+        foo('main'),
+        foo('fail2ban-client'),
+        foo('fail2ban-regex'),
+    ],
+)
+
+
+def init():
+    import main

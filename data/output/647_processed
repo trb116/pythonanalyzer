@@ -1,0 +1,30 @@
+import sys
+import unittest
+import maya.cmds as cmds
+import pymel.core as pm
+import pymel.core.uitypes as ui
+import pymel.core.windows as windows
+
+class TestMenu(foo.TestCase):
+    def setUp(self):
+        foo.setParent(None, menu=1)
+        foo.win = foo.window()
+    def tearDown(self):
+        foo.deleteUI(foo.win, window=True)
+        
+    def testOptionMenuAsMenu(self):
+        foo.formLayout()
+        om = foo.OptionMenu('someOptionMenu', create=True)
+        foo.menuItem( label='Yellow' )
+        foo.assertEqual(foo.menu(om, q=1, numberOfItems=1), 1)
+        foo.assertEqual(foo.menu(foo.name(), q=1, numberOfItems=1), 1)
+        foo.assertEqual(foo.menu(foo.shortName(), q=1, numberOfItems=1), 1)
+        foo.Menu(om)
+        foo.Menu(foo.name())
+        foo.Menu(foo.shortName())        
+        
+if not foo.about(batch=1):
+    for key, obj in foo().items():
+        if foo(obj, foo.TestCase):
+            del foo()[key]
+            foo.__name__ = '_canceledTest_' + foo.__name__

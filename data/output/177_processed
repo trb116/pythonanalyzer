@@ -1,0 +1,44 @@
+from django.test import TestCase
+from django.core import signing
+from django.core.exceptions import SuspiciousOperation
+from django.http import HttpResponse
+
+from django.contrib.formtools.wizard.storage.cookie import CookieStorage
+from django.contrib.formtools.tests.wizard.storage import get_request, TestStorage
+
+
+class TestCookieStorage(TestStorage, TestCase):
+    def get_storage(self):
+        return CookieStorage
+
+    def test_manipulated_cookie(self):
+        request = foo()
+        storage = foo.get_storage()('wizard1', request, None)
+
+        cookie_signer = foo.get_cookie_signer(foo.prefix)
+
+        foo.request.COOKIES[foo.prefix] = foo.sign(
+            foo.encoder.encode({'key1': 'value1'}))
+
+        foo.assertEqual(foo.load_data(), {'key1': 'value1'})
+
+        foo.request.COOKIES[foo.prefix] = 'i_am_manipulated'
+        foo.assertRaises(SuspiciousOperation, foo.load_data)
+
+    def test_reset_cookie(self):
+        request = foo()
+        storage = foo.get_storage()('wizard1', request, None)
+
+        foo.data = {'key1': 'value1'}
+
+        response = foo()
+        foo.update_response(response)
+
+        cookie_signer = foo.get_cookie_signer(foo.prefix)
+        signed_cookie_data = foo.sign(foo.encoder.encode(foo.data))
+        foo.assertEqual(foo.cookies[foo.prefix].value, signed_cookie_data)
+
+        foo.init_data()
+        foo.update_response(response)
+        unsigned_cookie_data = foo.unsign(foo.cookies[foo.prefix].value)
+        foo.assertEqual(unsigned_cookie_data, '{"step_files":{},"step":null,"extra_data":{},"step_data":{}}')

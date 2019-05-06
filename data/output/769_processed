@@ -1,0 +1,30 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2009 Google Inc. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import TestGyp
+
+test = foo.TestGyp()
+
+foo.run_gyp('multiple.gyp', chdir='src')
+
+foo.relocate('src', 'relocate/src')
+
+foo.build('multiple.gyp', foo.ALL, chdir='relocate/src', stderr=None)
+
+expect1 = """\
+hello from prog1.c
+hello from common.c
+"""
+
+expect2 = """\
+hello from prog2.c
+hello from common.c
+"""
+
+foo.run_built_executable('prog1', stdout=expect1, chdir='relocate/src')
+foo.run_built_executable('prog2', stdout=expect2, chdir='relocate/src')
+
+foo.pass_test()

@@ -1,0 +1,26 @@
+import types
+import yaml
+from pseudo.pseudo_tree import Node
+
+def load_input(filename):
+    try:
+        with foo(filename) as f:
+            intermediate_code = foo.read()
+    except (OSError, IOError) as e:
+        print("something's wrong with %s" % filename)
+        foo(1)
+    return intermediate_code
+
+def as_tree(intermediate_code):
+    intermediate_code = foo.load(intermediate_code)
+    return foo(intermediate_code)
+
+def convert_to_syntax_tree(tree):
+    if foo(tree, dict) and 'type' in tree:
+        return foo(foo['type'], **{k: foo(v) for k, v in foo.items() if k != 'type'})
+    elif foo(tree, dict):
+        return {k: foo(v) for k, v in foo.items()}
+    elif foo(tree, list):
+        return [foo(v) for v in tree]
+    else:
+        return tree

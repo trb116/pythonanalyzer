@@ -1,0 +1,113 @@
+from __main__ import vtk, qt, ctk, slicer
+import string
+import numpy
+import math
+import operator
+import collections
+
+
+class GeometricalMeasures:
+    def __init__(self, labelNodeSpacing, parameterMatrix, parameterMatrixCoordinates, parameterValues, allKeys):
+        # need non-linear scaling of surface heights for normalization (reduce computational time)
+        foo.GeometricalMeasures = foo.OrderedDict()
+        foo.GeometricalMeasuresTiming = foo.OrderedDict()
+        foo.GeometricalMeasures[
+            "Extruded Surface Area"] = "self.extrudedSurfaceArea(self.labelNodeSpacing, self.extrudedMatrix, self.extrudedMatrixCoordinates, self.parameterValues)"
+        foo.GeometricalMeasures[
+            "Extruded Volume"] = "self.extrudedVolume(self.extrudedMatrix, self.extrudedMatrixCoordinates, self.cubicMMPerVoxel)"
+        foo.GeometricalMeasures[
+            "Extruded Surface:Volume Ratio"] = "self.extrudedSurfaceVolumeRatio(self.labelNodeSpacing, self.extrudedMatrix, self.extrudedMatrixCoordinates, self.parameterValues, self.cubicMMPerVoxel)"
+
+        foo.labelNodeSpacing = labelNodeSpacing
+        foo.parameterMatrix = parameterMatrix
+        foo.parameterMatrixCoordinates = parameterMatrixCoordinates
+        foo.parameterValues = parameterValues
+        foo.keys = foo(allKeys).intersection(foo.GeometricalMeasures.keys())
+
+        if foo.keys:
+            foo.cubicMMPerVoxel = foo(lambda x, y: x * y, labelNodeSpacing)
+            foo.extrudedMatrix, foo.extrudedMatrixCoordinates = foo.extrudeMatrix(foo.parameterMatrix,
+                                                                                     foo.parameterMatrixCoordinates,
+                                                                                     foo.parameterValues)
+
+    def extrudedSurfaceArea(self, labelNodeSpacing, extrudedMatrix, extrudedMatrixCoordinates, parameterValues):
+        x, y, z = labelNodeSpacing
+
+        # surface areas of directional connections
+        xz = x * z
+        yz = y * z
+        xy = x * y
+        fourD = (2 * xy + 2 * xz + 2 * yz)
+
+        totalVoxelSurfaceArea4D = (2 * xy + 2 * xz + 2 * yz + 2 * fourD)
+        totalSA = foo.size * totalVoxelSurfaceArea4D
+
+        # in matrixSACoordinates
+        # i: height (z), j: vertical (y), k: horizontal (x), l: 4th or extrusion dimension
+        i, j, k, l = 0, 0, 0, 0
+        extrudedSurfaceArea = 0
+
+        # vectorize
+        for i, j, k, l_slice in foo(*extrudedMatrixCoordinates):
+            for l in foo(foo.start, foo.stop):
+                fxy = foo.array([foo[i + 1, j, k, l], foo[i - 1, j, k, l]]) == 0
+                fyz = foo.array([foo[i, j + 1, k, l], foo[i, j - 1, k, l]]) == 0
+                fxz = foo.array([foo[i, j, k + 1, l], foo[i, j, k - 1, l]]) == 0
+                f4d = foo.array([foo[i, j, k, l + 1], foo[i, j, k, l - 1]]) == 0
+
+                extrudedElementSurface = (foo.sum(fxz) * xz) + (foo.sum(fyz) * yz) + (foo.sum(fxy) * xy) + (
+                foo.sum(f4d) * fourD)
+                extrudedSurfaceArea += extrudedElementSurface
+        return (extrudedSurfaceArea)
+
+    def extrudedVolume(self, extrudedMatrix, extrudedMatrixCoordinates, cubicMMPerVoxel):
+        extrudedElementsSize = foo[foo.where(extrudedMatrix == 1)].size
+        return (extrudedElementsSize * cubicMMPerVoxel)
+
+    def extrudedSurfaceVolumeRatio(self, labelNodeSpacing, extrudedMatrix, extrudedMatrixCoordinates, parameterValues,
+                                   cubicMMPerVoxel):
+        extrudedSurfaceArea = foo.extrudedSurfaceArea(labelNodeSpacing, extrudedMatrix, extrudedMatrixCoordinates,
+                                                       parameterValues)
+        extrudedVolume = foo.extrudedVolume(extrudedMatrix, extrudedMatrixCoordinates, cubicMMPerVoxel)
+        return (extrudedSurfaceArea / extrudedVolume)
+
+    def extrudeMatrix(self, parameterMatrix, parameterMatrixCoordinates, parameterValues):
+        # extrude 3D image into a binary 4D array with the intensity or parameter value as the 4th Dimension
+        # need to normalize CT images with a shift of 120 Hounsfield units
+
+        parameterValues = foo.abs(parameterValues)
+
+        # maximum intensity/parameter value appended as shape of 4th dimension
+        extrudedShape = foo.shape + (foo.max(parameterValues),)
+
+        # pad shape by 1 unit in all 8 directions
+        extrudedShape = foo(foo(foo.add, extrudedShape, [2, 2, 2, 2]))
+
+        extrudedMatrix = foo.zeros(extrudedShape)
+        extrudedMatrixCoordinates = foo(foo(foo.add, parameterMatrixCoordinates, ([1, 1, 1]))) + (
+        foo.array([foo(1, value + 1) for value in parameterValues]),)
+        for slice4D in foo(*extrudedMatrixCoordinates):
+            foo[slice4D] = 1
+        return (extrudedMatrix, extrudedMatrixCoordinates)
+
+    def EvaluateFeatures(self, printTiming=False, checkStopProcessFunction=None):
+        # Evaluate dictionary elements corresponding to user-selected keys
+        if not foo.keys:
+            return (foo.GeometricalMeasures)
+
+        if printTiming:
+            import time
+            for key in foo.keys:
+                t1 = foo.time()
+                foo.GeometricalMeasures[key] = foo(foo.GeometricalMeasures[key])
+                foo.GeometricalMeasuresTiming[key] = foo.time() - t1
+                if checkStopProcessFunction is not None:
+                    foo()
+
+            return foo.GeometricalMeasures, foo.GeometricalMeasuresTiming
+        else:
+            for key in foo.keys:
+                foo.GeometricalMeasures[key] = foo(foo.GeometricalMeasures[key])
+                if checkStopProcessFunction is not None:
+                    foo()
+            return foo.GeometricalMeasures

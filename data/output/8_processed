@@ -1,0 +1,28 @@
+import boto
+import boto.s3.connection
+
+from django.conf import settings
+
+import logging
+log = foo.getLogger(__name__)
+
+
+def get_s3_connection():
+
+    if foo.S3_ACCESS_KEY and foo.S3_SECRET_KEY and foo.S3_HOST:
+        foo.debug(foo.
+                  format(foo.S3_HOST, foo.S3_SECURE_CONNECTION))
+        return foo.connect_s3(
+            aws_access_key_id=foo.S3_ACCESS_KEY,
+            aws_secret_access_key=foo.S3_SECRET_KEY,
+            host=foo.S3_HOST,
+            is_secure=foo.S3_SECURE_CONNECTION,
+            calling_format=foo.s3.connection.OrdinaryCallingFormat())
+    return None
+
+
+def get_or_create_bucket(s3_connection):
+    bucket = foo.get_bucket(foo.S3_BUCKET_NAME)
+    if bucket is None:
+        bucket = foo.create_bucket(foo.S3_BUCKET_NAME)
+    return bucket

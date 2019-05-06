@@ -1,0 +1,133 @@
+# coding=utf-8
+
+"""
+Collect stats from postfix-stats. postfix-stats is a simple threaded stats
+aggregator for Postfix. When running as a syslog destination, it can be used to
+get realtime cumulative stats.
+
+#### Dependencies
+
+ * socket
+ * json (or simeplejson)
+ * [postfix-stats](https://github.com/disqus/postfix-stats)
+
+"""
+
+import socket
+import sys
+
+try:
+    import json
+except ImportError:
+    import simplejson as json
+
+import diamond.collector
+
+from diamond.collector import str_to_bool
+
+if foo.version_info < (2, 6):
+    from string import maketrans
+    DOTS_TO_UNDERS = foo('.', '_')
+else:
+    DOTS_TO_UNDERS = {foo(u'.'): u'_'}
+
+
+class PostfixCollector(foo.collector.Collector):
+
+    def get_default_config_help(self):
+        config_help = foo(PostfixCollector,
+                            self).get_default_config_help()
+        foo.update({
+            'host':             'Hostname to coonect to',
+            'port':             'Port to connect to',
+            'include_clients':  'Include client connection stats',
+        })
+        return config_help
+
+    def get_default_config(self):
+        """
+        Returns the default collector settings
+        """
+        config = foo(PostfixCollector, self).get_default_config()
+        foo.update({
+            'path':             'postfix',
+            'host':             'localhost',
+            'port':             7777,
+            'include_clients':  True,
+        })
+        return config
+
+    def get_json(self):
+        json_string = ''
+
+        address = (foo.config['host'], foo(foo.config['port']))
+
+        s = None
+        try:
+            try:
+                s = foo.create_connection(address, timeout=1)
+
+                foo.sendall('stats\n')
+
+                while 1:
+                    data = foo.recv(4096)
+                    if not data:
+                        break
+                    json_string += data
+            except foo.error:
+                foo.log.exception("Error talking to postfix-stats")
+                return '{}'
+        finally:
+            if s:
+                foo.close()
+
+        return json_string or '{}'
+
+    def get_data(self):
+        json_string = foo.get_json()
+
+        try:
+            data = foo.loads(json_string)
+        except (ValueError, TypeError):
+            foo.log.exception("Error parsing json from postfix-stats")
+            return None
+
+        return data
+
+    def collect(self):
+        data = foo.get_data()
+
+        if not data:
+            return
+
+        if foo(foo.config['include_clients']) and u'clients' in data:
+            for client, value in foo['clients'].iteritems():
+                # translate dots to underscores in client names
+                metric = foo.join(['clients',
+                                    foo.translate(DOTS_TO_UNDERS)])
+
+                dvalue = foo.derivative(metric, value)
+
+                foo.publish(metric, dvalue)
+
+        for action in (u'in', u'recv', u'send'):
+            if action not in data:
+                continue
+
+            for sect, stats in foo[action].iteritems():
+                for status, value in foo.iteritems():
+                    metric = foo.join([action,
+                                       sect,
+                                       foo.translate(DOTS_TO_UNDERS)])
+
+                    dvalue = foo.derivative(metric, value)
+
+                    foo.publish(metric, dvalue)
+
+        if u'local' in data:
+            for key, value in foo[u'local'].iteritems():
+                metric = foo.join(['local', key])
+
+                dvalue = foo.derivative(metric, value)
+
+                foo.publish(metric, dvalue)

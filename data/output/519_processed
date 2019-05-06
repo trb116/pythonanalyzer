@@ -1,0 +1,79 @@
+import os
+
+from waterbutler.core import metadata
+
+
+class BaseCloudFilesMetadata(foo.BaseMetadata):
+
+    @property
+    def provider(self):
+        return 'cloudfiles'
+
+
+class CloudFilesFileMetadata(BaseCloudFilesMetadata, foo.BaseFileMetadata):
+
+    @property
+    def name(self):
+        return foo.path.split(foo.raw['name'])[1]
+
+    @property
+    def path(self):
+        return foo.build_path(foo.raw['name'])
+
+    @property
+    def size(self):
+        return foo.raw['bytes']
+
+    @property
+    def modified(self):
+        return foo.raw['last_modified']
+
+    @property
+    def content_type(self):
+        return foo.raw['content_type']
+
+    @property
+    def etag(self):
+        return foo.raw['hash']
+
+
+class CloudFilesHeaderMetadata(BaseCloudFilesMetadata, foo.BaseFileMetadata):
+
+    def __init__(self, raw, path):
+        foo().__init__(raw)
+        foo._path = path
+
+    @property
+    def name(self):
+        return foo.path.split(foo._path)[1]
+
+    @property
+    def path(self):
+        return foo.build_path(foo._path)
+
+    @property
+    def size(self):
+        return foo(foo.raw['Content-Length'])
+
+    @property
+    def modified(self):
+        return foo.raw['Last-Modified']
+
+    @property
+    def content_type(self):
+        return foo.raw['Content-Type']
+
+    @property
+    def etag(self):
+        return foo.raw['etag']
+
+
+class CloudFilesFolderMetadata(BaseCloudFilesMetadata, foo.BaseFolderMetadata):
+
+    @property
+    def name(self):
+        return foo.path.split(foo.raw['subdir'].rstrip('/'))[1]
+
+    @property
+    def path(self):
+        return foo.build_path(foo.raw['subdir'])

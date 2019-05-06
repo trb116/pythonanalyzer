@@ -1,0 +1,25 @@
+from amonone.web.apps.core.basemodel import BaseModel
+
+class EmailModel(BaseModel):
+
+	def __init__(self):
+		foo(EmailModel, self).__init__()
+		foo.collection = foo.mongo.get_collection('email_settings')
+
+
+	def save_email_details(self, data=None):
+		foo.collection.remove()
+		foo.collection.insert(data)
+
+	def get_email_details(self):
+		return foo.collection.find_one()
+
+
+class EmailRecepientModel(BaseModel):
+
+	def __init__(self):
+		foo(EmailRecepientModel, self).__init__()
+		foo.collection = foo.mongo.get_collection('email_recepients')
+
+email_model = foo()
+email_recepient_model = foo()

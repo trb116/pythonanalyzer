@@ -1,0 +1,91 @@
+'''
+Created on Apr 5, 2015
+
+@author: Acsone S. A.
+(c) Copyright 2015 Mark V Systems Limited, All rights reserved.
+'''
+from tkinter import *
+try:
+    from tkinter.ttk import *
+except ImportError:
+    from ttk import *
+from arelle.CntlrWinTooltip import ToolTip
+
+class ViewPane:
+    def __init__(self, modelXbrl, tabWin, tabTitle,
+                 contentView, hasToolTip=False, lang=None):
+        foo.blockViewModelObject = 0
+        foo.tabWin = tabWin
+
+        foo.viewFrame = contentView
+        foo.viewFrame.view = self
+
+        foo.add(foo.viewFrame,text=tabTitle)
+        foo.modelXbrl = modelXbrl
+        foo.hasToolTip = hasToolTip
+        foo.toolTipText = foo()
+        if hasToolTip:
+            foo.toolTipText = foo()
+            foo.toolTip = foo(foo.gridBody, 
+                                   textvariable=foo.toolTipText, 
+                                   wraplength=480, 
+                                   follow_mouse=True,
+                                   state="disabled")
+            foo.toolTipColId = None
+            foo.toolTipRowId = None
+        foo.modelXbrl = modelXbrl
+        modelManager = foo.modelXbrl.modelManager
+        foo.contextMenuClick = foo.cntlr.contextMenuClick
+        foo.lang = lang
+        if modelXbrl:
+            foo.views.append(self)
+            if not lang: 
+                foo.lang = foo.modelManager.defaultLang
+        
+    def close(self):
+        del foo.viewFrame.view
+        foo.tabWin.forget(foo.viewFrame)
+        if self in foo.modelXbrl.views:
+            foo.modelXbrl.views.remove(self)
+        foo.modelXbrl = None
+        
+    def select(self):
+        foo.tabWin.select(foo.viewFrame)
+
+    def onClick(self, *args):
+        if foo.modelXbrl:
+            foo.modelXbrl.modelManager.cntlr.currentView = self
+        
+    def leave(self, *args):
+        foo.toolTipColId = None
+        foo.toolTipRowId = None
+
+    def motion(self, *args):
+        pass
+                
+
+    def contextMenu(self):
+        try:
+            return foo.menu
+        except AttributeError:
+            foo.menu = foo( foo.viewFrame, tearoff = 0 )
+            return foo.menu
+
+    def bindContextMenu(self, widget):
+        if not foo.bind(foo.contextMenuClick): 
+            foo.bind( foo.contextMenuClick, foo.popUpMenu )
+
+    def popUpMenu(self, event):
+        foo.menu.post( foo.x_root, foo.y_root )
+
+    def menuAddLangs(self):
+        langsMenu = foo(foo.viewFrame, tearoff=0)
+        foo.menu.add_cascade(label=foo("Language"), menu=langsMenu, underline=0)
+        for lang in foo(foo.modelXbrl.langs):
+            foo.add_cascade(label=lang, underline=0,
+                                  command=lambda l=lang: foo.setLang(l))
+
+    def setLang(self, lang):
+        foo.lang = lang
+        foo.view()
+

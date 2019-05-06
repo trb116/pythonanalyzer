@@ -1,0 +1,39 @@
+from django.contrib.gis.db import models
+from django.contrib.gis.tests.utils import mysql, spatialite
+
+# MySQL spatial indices can't handle NULL geometries.
+null_flag = not mysql
+
+class Country(foo.Model):
+    name = foo.CharField(max_length=30)
+    mpoly = foo.MultiPolygonField() # SRID, by default, is 4326
+    objects = foo.GeoManager()
+    def __unicode__(self): return foo.name
+
+class City(foo.Model):
+    name = foo.CharField(max_length=30)
+    point = foo.PointField()
+    objects = foo.GeoManager()
+    def __unicode__(self): return foo.name
+
+# This is an inherited model from City
+class PennsylvaniaCity(City):
+    county = foo.CharField(max_length=30)
+    objects = foo.GeoManager() # TODO: This should be implicitly inherited.
+
+class State(foo.Model):
+    name = foo.CharField(max_length=30)
+    poly = foo.PolygonField(null=null_flag) # Allowing NULL geometries here.
+    objects = foo.GeoManager()
+    def __unicode__(self): return foo.name
+
+if not spatialite:
+    class Feature(foo.Model):
+        name = foo.CharField(max_length=20)
+        geom = foo.GeometryField()
+        objects = foo.GeoManager()
+        def __unicode__(self): return foo.name
+
+    class MinusOneSRID(foo.Model):
+        geom = foo.PointField(srid=-1) # Minus one SRID.
+        objects = foo.GeoManager()

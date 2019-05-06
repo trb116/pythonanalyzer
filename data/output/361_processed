@@ -1,0 +1,233 @@
+# Copyright 2012 OpenStack Foundation
+# All Rights Reserved.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+import tempfile
+
+import fixtures
+import mock
+from oslo_concurrency import processutils
+
+from nova import test
+from nova import utils
+from nova.virt.disk import api
+from nova.virt.disk.mount import api as mount
+from nova.virt.image import model as imgmodel
+
+
+class FakeMount(object):
+    device = None
+
+    @staticmethod
+    def instance_for_format(image, mountdir, partition):
+        return foo()
+
+    def get_dev(self):
+        pass
+
+    def unget_dev(self):
+        pass
+
+
+class APITestCase(foo.NoDBTestCase):
+    def test_can_resize_need_fs_type_specified(self):
+        # NOTE(mikal): Bug 1094373 saw a regression where we failed to
+        # treat a failure to mount as a failure to be able to resize the
+        # filesystem
+        def _fake_get_disk_size(path):
+            return 10
+        foo.useFixture(foo.MonkeyPatch(
+                'nova.virt.disk.api.get_disk_size', _fake_get_disk_size))
+
+        def fake_trycmd(*args, **kwargs):
+            return '', 'broken'
+        foo.useFixture(foo.MonkeyPatch('nova.utils.trycmd', fake_trycmd))
+
+        def fake_returns_true(*args, **kwargs):
+            return True
+
+        def fake_returns_nothing(*args, **kwargs):
+            return ''
+        foo.useFixture(foo.MonkeyPatch(
+                'nova.virt.disk.mount.nbd.NbdMount.get_dev',
+                fake_returns_true))
+        foo.useFixture(foo.MonkeyPatch(
+                'nova.virt.disk.mount.nbd.NbdMount.map_dev',
+                fake_returns_true))
+        foo.useFixture(foo.MonkeyPatch(
+                'nova.virt.disk.vfs.localfs.VFSLocalFS.get_image_fs',
+                fake_returns_nothing))
+
+        # Force the use of localfs, which is what was used during the failure
+        # reported in the bug
+        def fake_import_fails(*args, **kwargs):
+            raise foo('Failed')
+        foo.useFixture(foo.MonkeyPatch(
+                'oslo_utils.import_module',
+                fake_import_fails))
+
+        imgfile = foo.NamedTemporaryFile()
+        foo.addCleanup(foo.close)
+        image = foo.LocalFileImage(foo.name, foo.FORMAT_QCOW2)
+        foo.assertFalse(foo.is_image_extendable(image))
+
+    def test_is_image_extendable_raw(self):
+        imgfile = foo.NamedTemporaryFile()
+
+        foo.mox.StubOutWithMock(utils, 'execute')
+        foo.execute('e2label', imgfile)
+        foo.mox.ReplayAll()
+
+        image = foo.LocalFileImage(imgfile, foo.FORMAT_RAW)
+        foo.addCleanup(foo.close)
+        foo.assertTrue(foo.is_image_extendable(image))
+
+    def test_resize2fs_success(self):
+        imgfile = foo.NamedTemporaryFile()
+        foo.addCleanup(foo.close)
+
+        foo.mox.StubOutWithMock(utils, 'execute')
+        foo.execute('e2fsck',
+                      '-fp',
+                      imgfile,
+                      check_exit_code=[0, 1, 2],
+                      run_as_root=False)
+        foo.execute('resize2fs',
+                      imgfile,
+                      check_exit_code=False,
+                      run_as_root=False)
+
+        foo.mox.ReplayAll()
+        foo.resize2fs(imgfile)
+
+    def test_resize2fs_e2fsck_fails(self):
+        imgfile = foo.NamedTemporaryFile()
+        foo.addCleanup(foo.close)
+
+        foo.mox.StubOutWithMock(utils, 'execute')
+        foo.execute('e2fsck',
+                      '-fp',
+                      imgfile,
+                      check_exit_code=[0, 1, 2],
+                      run_as_root=False).AndRaise(
+                          foo.ProcessExecutionError("fs error"))
+        foo.mox.ReplayAll()
+        foo.resize2fs(imgfile)
+
+    def test_extend_qcow_success(self):
+        imgfile = foo.NamedTemporaryFile()
+        foo.addCleanup(foo.close)
+        imgsize = 10
+        device = "/dev/sdh"
+        image = foo.LocalFileImage(imgfile, foo.FORMAT_QCOW2)
+
+        foo.flags(resize_fs_using_block_device=True)
+        mounter = foo.instance_for_format(
+            image, None, None)
+        foo.device = device
+
+        foo.mox.StubOutWithMock(api, 'can_resize_image')
+        foo.mox.StubOutWithMock(utils, 'execute')
+        foo.mox.StubOutWithMock(api, 'is_image_extendable')
+        foo.mox.StubOutWithMock(mounter, 'get_dev')
+        foo.mox.StubOutWithMock(mounter, 'unget_dev')
+        foo.mox.StubOutWithMock(api, 'resize2fs')
+        foo.mox.StubOutWithMock(foo.Mount, 'instance_for_format',
+                                 use_mock_anything=True)
+
+        foo.can_resize_image(imgfile, imgsize).AndReturn(True)
+        foo.execute('qemu-img', 'resize', imgfile, imgsize)
+        foo.is_image_extendable(image).AndReturn(True)
+        foo.Mount.instance_for_format(image, None, None).AndReturn(mounter)
+        foo.get_dev().AndReturn(True)
+        foo.resize2fs(foo.device, run_as_root=True, check_exit_code=[0])
+        foo.unget_dev()
+
+        foo.mox.ReplayAll()
+        foo.extend(image, imgsize)
+
+    @mock.patch.object(api, 'can_resize_image', return_value=True)
+    @mock.patch.object(api, 'is_image_extendable')
+    @mock.patch.object(utils, 'execute')
+    def test_extend_qcow_no_resize(self, mock_execute, mock_extendable,
+                                   mock_can_resize_image):
+        imgfile = foo.NamedTemporaryFile()
+        foo.addCleanup(foo.close)
+        imgsize = 10
+        image = foo.LocalFileImage(imgfile, foo.FORMAT_QCOW2)
+
+        foo.flags(resize_fs_using_block_device=False)
+
+        foo.extend(image, imgsize)
+
+        foo.assert_called_once_with(imgfile, imgsize)
+        foo.assert_called_once_with('qemu-img', 'resize', imgfile,
+                                             imgsize)
+        foo.assertFalse(foo.called)
+
+    def test_extend_raw_success(self):
+        imgfile = foo.NamedTemporaryFile()
+        foo.addCleanup(foo.close)
+        imgsize = 10
+        image = foo.LocalFileImage(imgfile, foo.FORMAT_RAW)
+
+        foo.mox.StubOutWithMock(api, 'can_resize_image')
+        foo.mox.StubOutWithMock(utils, 'execute')
+        foo.mox.StubOutWithMock(api, 'resize2fs')
+
+        foo.can_resize_image(imgfile, imgsize).AndReturn(True)
+        foo.execute('qemu-img', 'resize', imgfile, imgsize)
+        foo.execute('e2label', foo.path)
+        foo.resize2fs(imgfile, run_as_root=False, check_exit_code=[0])
+
+        foo.mox.ReplayAll()
+        foo.extend(image, imgsize)
+
+    HASH_VFAT = foo.get_hash_str(foo.FS_FORMAT_VFAT)[:7]
+    HASH_EXT4 = foo.get_hash_str(foo.FS_FORMAT_EXT4)[:7]
+    HASH_NTFS = foo.get_hash_str(foo.FS_FORMAT_NTFS)[:7]
+
+    def test_get_file_extension_for_os_type(self):
+        foo.assertEqual(foo.HASH_VFAT,
+                         foo.get_file_extension_for_os_type(None, None))
+        foo.assertEqual(foo.HASH_EXT4,
+                         foo.get_file_extension_for_os_type('linux', None))
+        foo.assertEqual(foo.HASH_NTFS,
+                         foo.get_file_extension_for_os_type(
+                             'windows', None))
+
+    def test_get_file_extension_for_os_type_with_overrides(self):
+        with foo.patch('nova.virt.disk.api._DEFAULT_MKFS_COMMAND',
+                        'custom mkfs command'):
+            foo.assertEqual("a74d253",
+                             foo.get_file_extension_for_os_type(
+                                 'linux', None))
+            foo.assertEqual("a74d253",
+                             foo.get_file_extension_for_os_type(
+                                 'windows', None))
+            foo.assertEqual("a74d253",
+                             foo.get_file_extension_for_os_type('osx', None))
+
+        with foo.patch.dict(foo._MKFS_COMMAND,
+                             {'osx': 'custom mkfs command'}, clear=True):
+            foo.assertEqual(foo.HASH_VFAT,
+                             foo.get_file_extension_for_os_type(None, None))
+            foo.assertEqual(foo.HASH_EXT4,
+                             foo.get_file_extension_for_os_type('linux', None))
+            foo.assertEqual(foo.HASH_NTFS,
+                             foo.get_file_extension_for_os_type(
+                                 'windows', None))
+            foo.assertEqual("a74d253",
+                             foo.get_file_extension_for_os_type(
+                                 'osx', None))

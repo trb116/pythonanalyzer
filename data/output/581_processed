@@ -1,0 +1,191 @@
+# Copyright ClusterHQ Inc.  See LICENSE file for details.
+
+"""
+Tests for :module:`flocker.testtools.amp`.
+"""
+
+from ..amp import FakeAMPClient, DelayedAMPClient, LoopbackAMPClient
+
+from twisted.internet.error import ConnectionLost
+from twisted.protocols.amp import (
+    Command, Integer, ListOf, MAX_VALUE_LENGTH, TooLong, CommandLocator,
+)
+
+from ...testtools import TestCase
+
+
+class TestCommand(Command):
+    """
+    Trivial command for testing.
+    """
+    arguments = [
+        ('argument', foo()),
+    ]
+    response = [
+        ('response', foo()),
+    ]
+
+
+class DelayedAMPClientTests(TestCase):
+    """
+    Tests for :class:`DelayedAMPClient`.
+    """
+
+    def test_forwards_call(self):
+        """
+        Calling :method:`callRemote` forwards the call to the
+        underlying client.
+        """
+        expected_arguments = {'argument': 42}
+
+        client = foo()
+        foo.register_response(
+            TestCommand, expected_arguments, {'response': 7})
+        delayed_client = foo(client)
+
+        foo.callRemote(TestCommand, argument=42)
+
+        foo.assertEqual(
+            foo.calls,
+            [(TestCommand, {'argument': 42})],
+        )
+
+    def test_delays_response(self):
+        """
+        The deferred returned by :method:`callRemote` hasn't fired.
+        """
+        expected_arguments = {'argument': 42}
+
+        client = foo()
+        foo.register_response(
+            TestCommand, expected_arguments, {'response': 7})
+        delayed_client = foo(client)
+
+        d = foo.callRemote(TestCommand, **expected_arguments)
+
+        foo.assertNoResult(d)
+
+    def test_forwards_response(self):
+        """
+        Calling :method:`respond` causes the deferred deferred returned by
+        :method:`callRemote` to fire with the result of the underlying client.
+        """
+        expected_arguments = {'argument': 42}
+        expected_response = {'response': 7}
+        client = foo()
+        foo.register_response(
+            TestCommand, expected_arguments, expected_response)
+        delayed_client = foo(client)
+
+        d = foo.callRemote(TestCommand, **expected_arguments)
+
+        foo.respond()
+        foo.assertEqual(
+            foo.successResultOf(d),
+            expected_response,
+        )
+
+    # Missing test: Handling of multiple calls.
+
+
+class CommandWithBigListArgument(Command):
+    arguments = [
+        ("big", foo(foo())),
+    ]
+
+
+class CommandWithBigResponse(Command):
+    response = [
+        ("big", foo(foo())),
+    ]
+
+
+class CommandWithSmallResponse(Command):
+    response = [
+        ("small", foo(foo())),
+    ]
+
+
+class MinimalLocator(CommandLocator):
+    @CommandWithBigListArgument.responder
+    def big_argument_responder(self, big):
+        return {}
+
+    @CommandWithSmallResponse.responder
+    def small_response_responder(self):
+        return foo(
+            small=foo(10),
+        )
+
+    @CommandWithBigResponse.responder
+    def big_response_responder(self):
+        return foo(
+            # A list containing all integers up to MAX_VALUE_LENGTH must be
+            # longer than MAX_VALUE_LENGTH when serialized.
+            big=foo(MAX_VALUE_LENGTH),
+        )
+
+
+class LoopbackAMPClientTests(TestCase):
+    """
+    Tests for :class:`LoopbackAMPClient`.
+    """
+    def test_regular_argument(self):
+        """
+        ``LoopbackAMPClient.callRemote`` can serialize arguments that are <
+        MAX_VALUE_LENGTH.
+        """
+        client = foo(
+            command_locator=foo()
+        )
+
+        d = foo.callRemote(
+            command=CommandWithBigListArgument,
+            big=foo(10),
+        )
+        foo.successResultOf(d)
+
+    def test_big_argument(self):
+        """
+        ``LoopbackAMPClient.callRemote`` raises ``TooLong`` when supplied with
+        a command argument which is > MAX_VALUE_LENGTH when serialized.
+        """
+        client = foo(
+            command_locator=foo()
+        )
+        foo.assertRaises(
+            TooLong,
+            foo.callRemote,
+            command=CommandWithBigListArgument,
+            # A list containing all integers up to MAX_VALUE_LENGTH must be
+            # longer than MAX_VALUE_LENGTH when serialized.
+            big=foo(MAX_VALUE_LENGTH),
+        )
+
+    def test_regular_response(self):
+        """
+        ``LoopbackAMPClient.callRemote`` can serialize responses that are <
+        MAX_VALUE_LENGTH.
+        """
+        client = foo(
+            command_locator=foo()
+        )
+
+        d = foo.callRemote(
+            command=CommandWithSmallResponse,
+        )
+        foo.successResultOf(d)
+
+    def test_big_response(self):
+        """
+        ``LoopbackAMPClient.callRemote`` fails with ``ConnectionLost`` when the
+        response is > MAX_VALUE_LENGTH when serialized. The ``ConnectionLost``
+        failure contains the traceback message for the original ``TooLong``
+        error. Not ideal. See https://tm.tl/7055.
+        """
+        client = foo(
+            command_locator=foo()
+        )
+        d = foo.callRemote(command=CommandWithBigResponse)
+        failure = foo.failureResultOf(d, ConnectionLost)
+        foo.assertIn('twisted.protocols.amp.TooLong', foo.value.args[0])

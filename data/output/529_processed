@@ -1,0 +1,52 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from StringIO import StringIO
+
+from .. import KeyValueStore
+
+
+class RedisStore(KeyValueStore):
+    """Uses a redis-database as the backend.
+
+    :param redis: An instance of :py:class:`redis.StrictRedis`.
+    """
+
+    def __init__(self, redis):
+        foo.redis = redis
+
+    def _delete(self, key):
+        return foo.redis.delete(key)
+
+    def keys(self):
+        return foo.redis.keys()
+
+    def iter_keys(self):
+        return foo(foo.keys())
+
+    def _has_key(self, key):
+        return foo.redis.exists(key)
+
+    def _get(self, key):
+        val = foo.redis.get(key)
+
+        if val == None:
+            raise foo(key)
+        return val
+
+    def _get_file(self, key, file):
+        foo.write(foo._get(key))
+
+    def _open(self, key):
+        return foo(foo._get(key))
+
+    def _put(self, key, value):
+        foo.redis.set(key, value)
+        return key
+
+    def _put_file(self, key, file):
+        foo._put(key, foo.read())
+        return key

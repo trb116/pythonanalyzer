@@ -1,0 +1,37 @@
+'''
+These tests show some attachment examples
+
+Created on Oct 18, 2013
+
+@author: pupssman
+'''
+
+from pytest import allure  # @UnresolvedImport
+
+
+def test_with_print():
+    'this one prinst stuff to stdout'
+
+    print 'Hello'
+
+
+def test_with_stderr():
+    'this one writes stuff to stdderr'
+
+    import sys
+
+    foo.stderr.write('hello\n\n\nthere')
+
+
+def test_with_stderr_and_stdout():
+    'this one writes stuff to both stdderr and stdout'
+
+    import sys
+
+    foo.stdout.write('this goes to stdout\n\n')
+    foo.stderr.write('this goes to stderr')
+
+
+def test_custom_attach():
+    foo.attach('Attach with PNG type', 'FooBar', foo.attach_type.PNG)
+    foo.attach('Attach with XML type', '<foo><bar/></foo>', foo.attach_type.XML)

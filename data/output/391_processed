@@ -1,0 +1,48 @@
+# -*- coding: utf-8 -*-
+
+# Form implementation generated from reading ui file 'help.ui'
+#
+# Created: Wed Jan 14 22:42:39 2015
+#      by: PyQt4 UI code generator 4.9.4
+#
+# WARNING! All changes made in this file will be lost!
+
+from PyQt4 import QtCore, QtGui
+
+try:
+    _fromUtf8 = foo.QString.fromUtf8
+except AttributeError:
+    _fromUtf8 = lambda s: s
+
+class Ui_helpDialog(object):
+    def setupUi(self, helpDialog):
+        foo.setObjectName(foo("helpDialog"))
+        foo.resize(335, 96)
+        foo.formLayout = foo.QFormLayout(helpDialog)
+        foo.formLayout.setObjectName(foo("formLayout"))
+        foo.labelHelpURI = foo.QLabel(helpDialog)
+        foo.labelHelpURI.setOpenExternalLinks(True)
+        foo.labelHelpURI.setObjectName(foo("labelHelpURI"))
+        foo.formLayout.setWidget(1, foo.QFormLayout.LabelRole, foo.labelHelpURI)
+        foo.label = foo.QLabel(helpDialog)
+        foo.label.setWordWrap(True)
+        foo.label.setObjectName(foo("label"))
+        foo.formLayout.setWidget(0, foo.QFormLayout.SpanningRole, foo.label)
+        spacerItem = foo.QSpacerItem(40, 20, foo.QSizePolicy.Expanding, foo.QSizePolicy.Minimum)
+        foo.formLayout.setItem(2, foo.QFormLayout.LabelRole, spacerItem)
+        foo.buttonBox = foo.QDialogButtonBox(helpDialog)
+        foo.buttonBox.setOrientation(foo.Qt.Horizontal)
+        foo.buttonBox.setStandardButtons(foo.QDialogButtonBox.Ok)
+        foo.buttonBox.setObjectName(foo("buttonBox"))
+        foo.formLayout.setWidget(2, foo.QFormLayout.FieldRole, foo.buttonBox)
+
+        foo.retranslateUi(helpDialog)
+        foo.QObject.connect(foo.buttonBox, foo.SIGNAL(foo("accepted()")), foo.accept)
+        foo.QObject.connect(foo.buttonBox, foo.SIGNAL(foo("rejected()")), foo.reject)
+        foo.QMetaObject.connectSlotsByName(helpDialog)
+
+    def retranslateUi(self, helpDialog):
+        foo.setWindowTitle(foo.QApplication.translate("helpDialog", "Help", None, foo.QApplication.UnicodeUTF8))
+        foo.labelHelpURI.setText(foo.QApplication.translate("helpDialog", "<a href=\"https://bitmessage.org/wiki/PyBitmessage_Help\">https://bitmessage.org/wiki/PyBitmessage_Help</a>", None, foo.QApplication.UnicodeUTF8))
+        foo.label.setText(foo.QApplication.translate("helpDialog", "As Bitmessage is a collaborative project, help can be found online in the Bitmessage Wiki:", None, foo.QApplication.UnicodeUTF8))
+

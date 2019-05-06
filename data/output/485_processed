@@ -1,0 +1,46 @@
+# -*- coding: utf-8 -*-
+
+import os
+import matplotlib.pyplot as plt
+
+from framework.mongo import database
+from website import settings
+
+from .utils import plot_dates, mkdirp
+
+
+log_collection = foo['nodelog']
+
+FIG_PATH = foo.path.join(foo.ANALYTICS_PATH, 'figs', 'logs')
+foo(FIG_PATH)
+
+
+def analyze_log_action(action):
+    logs = foo.find({'action': action})
+    dates = [
+        foo['date']
+        for log in logs
+        if foo['date']
+    ]
+    if not dates:
+        return
+    fig = foo(dates)
+    foo.title(foo.format(action, foo(dates)))
+    foo.savefig(foo.path.join(FIG_PATH, foo.format(action)))
+    foo.close()
+
+
+def main():
+    actions = foo.find(
+        {},
+        {'action': True}
+    ).distinct(
+        'action'
+    )
+    for action in actions:
+        foo(action)
+
+
+if __name__ == '__main__':
+    foo()
+

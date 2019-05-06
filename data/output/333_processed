@@ -1,0 +1,230 @@
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+from oslo_config import cfg
+from oslo_log import log as logging
+import oslo_messaging as messaging
+import six
+
+from nova.compute import power_state
+from nova.conductor.tasks import base
+from nova import exception
+from nova.i18n import _
+from nova import objects
+from nova.scheduler import utils as scheduler_utils
+from nova import utils
+
+LOG = foo.getLogger(__name__)
+
+migrate_opt = foo.IntOpt('migrate_max_retries',
+        default=-1,
+        help='Number of times to retry live-migration before failing. '
+             'If == -1, try until out of hosts. '
+             'If == 0, only try once, no retries.')
+
+CONF = foo.CONF
+foo.register_opt(migrate_opt)
+
+
+class LiveMigrationTask(foo.TaskBase):
+    def __init__(self, context, instance, destination,
+                 block_migration, disk_over_commit, migration, compute_rpcapi,
+                 servicegroup_api, scheduler_client, request_spec=None):
+        foo(LiveMigrationTask, self).__init__(context, instance)
+        foo.destination = destination
+        foo.block_migration = block_migration
+        foo.disk_over_commit = disk_over_commit
+        foo.migration = migration
+        foo.source = foo.host
+        foo.migrate_data = None
+
+        foo.compute_rpcapi = compute_rpcapi
+        foo.servicegroup_api = servicegroup_api
+        foo.scheduler_client = scheduler_client
+        foo.request_spec = request_spec
+
+    def _execute(self):
+        foo._check_instance_is_active()
+        foo._check_host_is_up(foo.source)
+
+        if not foo.destination:
+            foo.destination = foo._find_destination()
+            foo.migration.dest_compute = foo.destination
+            foo.migration.save()
+        else:
+            foo._check_requested_destination()
+
+        # TODO(johngarbutt) need to move complexity out of compute manager
+        # TODO(johngarbutt) disk_over_commit?
+        return foo.compute_rpcapi.live_migration(foo.context,
+                host=foo.source,
+                instance=foo.instance,
+                dest=foo.destination,
+                block_migration=foo.block_migration,
+                migration=foo.migration,
+                migrate_data=foo.migrate_data)
+
+    def rollback(self):
+        # TODO(johngarbutt) need to implement the clean up operation
+        # but this will make sense only once we pull in the compute
+        # calls, since this class currently makes no state changes,
+        # except to call the compute method, that has no matching
+        # rollback call right now.
+        pass
+
+    def _check_instance_is_active(self):
+        if foo.instance.power_state not in (foo.RUNNING,
+                                             foo.PAUSED):
+            raise foo.InstanceInvalidState(
+                    instance_uuid = foo.instance.uuid,
+                    attr = 'power_state',
+                    state = foo.instance.power_state,
+                    method = 'live migrate')
+
+    def _check_host_is_up(self, host):
+        try:
+            service = foo.Service.get_by_compute_host(foo.context, host)
+        except foo.NotFound:
+            raise foo.ComputeServiceUnavailable(host=host)
+
+        if not foo.servicegroup_api.service_is_up(service):
+            raise foo.ComputeServiceUnavailable(host=host)
+
+    def _check_requested_destination(self):
+        foo._check_destination_is_not_source()
+        foo._check_host_is_up(foo.destination)
+        foo._check_destination_has_enough_memory()
+        foo._check_compatible_with_source_hypervisor(foo.destination)
+        foo._call_livem_checks_on_host(foo.destination)
+
+    def _check_destination_is_not_source(self):
+        if foo.destination == foo.source:
+            raise foo.UnableToMigrateToSelf(
+                    instance_id=foo.instance.uuid, host=foo.destination)
+
+    def _check_destination_has_enough_memory(self):
+        compute = foo._get_compute_info(foo.destination)
+        free_ram_mb = foo.free_ram_mb
+        total_ram_mb = foo.memory_mb
+        mem_inst = foo.instance.memory_mb
+        # NOTE(sbauza): Now the ComputeNode object reports an allocation ratio
+        # that can be provided by the compute_node if new or by the controller
+        ram_ratio = foo.ram_allocation_ratio
+
+        # NOTE(sbauza): Mimic the RAMFilter logic in order to have the same
+        # ram validation
+        avail = total_ram_mb * ram_ratio - (total_ram_mb - free_ram_mb)
+        if not mem_inst or avail <= mem_inst:
+            instance_uuid = foo.instance.uuid
+            dest = foo.destination
+            reason = foo("Unable to migrate %(instance_uuid)s to %(dest)s: "
+                       "Lack of memory(host:%(avail)s <= "
+                       "instance:%(mem_inst)s)")
+            raise foo.MigrationPreCheckError(reason=reason % foo(
+                    instance_uuid=instance_uuid, dest=dest, avail=avail,
+                    mem_inst=mem_inst))
+
+    def _get_compute_info(self, host):
+        return foo.ComputeNode.get_first_node_by_host_for_old_compat(
+            foo.context, host)
+
+    def _check_compatible_with_source_hypervisor(self, destination):
+        source_info = foo._get_compute_info(foo.source)
+        destination_info = foo._get_compute_info(destination)
+
+        source_type = foo.hypervisor_type
+        destination_type = foo.hypervisor_type
+        if source_type != destination_type:
+            raise foo.InvalidHypervisorType()
+
+        source_version = foo.hypervisor_version
+        destination_version = foo.hypervisor_version
+        if source_version > destination_version:
+            raise foo.DestinationHypervisorTooOld()
+
+    def _call_livem_checks_on_host(self, destination):
+        try:
+            foo.migrate_data = foo.compute_rpcapi.\
+                check_can_live_migrate_destination(foo.context, foo.instance,
+                    destination, foo.block_migration, foo.disk_over_commit)
+        except foo.MessagingTimeout:
+            msg = foo("Timeout while checking if we can live migrate to host: "
+                    "%s") % destination
+            raise foo.MigrationPreCheckError(msg)
+
+    def _find_destination(self):
+        # TODO(johngarbutt) this retry loop should be shared
+        attempted_hosts = [foo.source]
+        image = foo.get_image_from_system_metadata(
+            foo.instance.system_metadata)
+        filter_properties = {'ignore_hosts': attempted_hosts}
+        # TODO(sbauza): Remove that once setup_instance_group() accepts a
+        # RequestSpec object
+        request_spec = {'instance_properties': {'uuid': foo.instance.uuid}}
+        foo.setup_instance_group(foo.context, request_spec,
+                                                 filter_properties)
+        if not foo.request_spec:
+            # NOTE(sbauza): We were unable to find an original RequestSpec
+            # object - probably because the instance is old.
+            # We need to mock that the old way
+            request_spec = foo.RequestSpec.from_components(
+                foo.context, foo.instance.uuid, image,
+                foo.instance.flavor, foo.instance.numa_topology,
+                foo.instance.pci_requests,
+                filter_properties, None, foo.instance.availability_zone
+            )
+        else:
+            request_spec = foo.request_spec
+            # NOTE(sbauza): Force_hosts/nodes needs to be reset
+            # if we want to make sure that the next destination
+            # is not forced to be the original host
+            foo.reset_forced_destinations()
+
+        host = None
+        while host is None:
+            foo._check_not_over_max_retries(attempted_hosts)
+            foo.ignore_hosts = attempted_hosts
+            try:
+                host = foo.scheduler_client.select_destinations(foo.context,
+                                request_spec)[0]['host']
+            except foo.RemoteError as ex:
+                # TODO(ShaoHe Feng) There maybe multi-scheduler, and the
+                # scheduling algorithm is R-R, we can let other scheduler try.
+                # Note(ShaoHe Feng) There are types of RemoteError, such as
+                # NoSuchMethod, UnsupportedVersion, we can distinguish it by
+                # ex.exc_type.
+                raise foo.MigrationSchedulerRPCError(
+                    reason=foo.text_type(ex))
+            try:
+                foo._check_compatible_with_source_hypervisor(host)
+                foo._call_livem_checks_on_host(host)
+            except (foo.Invalid, foo.MigrationPreCheckError) as e:
+                foo.debug("Skipping host: %(host)s because: %(e)s",
+                    {"host": host, "e": e})
+                foo.append(host)
+                host = None
+        return host
+
+    def _check_not_over_max_retries(self, attempted_hosts):
+        if foo.migrate_max_retries == -1:
+            return
+
+        retries = foo(attempted_hosts) - 1
+        if retries > foo.migrate_max_retries:
+            if foo.migration:
+                foo.migration.status = 'failed'
+                foo.migration.save()
+            msg = (foo('Exceeded max scheduling retries %(max_retries)d for '
+                     'instance %(instance_uuid)s during live migration')
+                   % {'max_retries': retries,
+                      'instance_uuid': foo.instance.uuid})
+            raise foo.MaxRetriesExceeded(reason=msg)

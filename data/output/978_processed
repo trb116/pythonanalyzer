@@ -1,0 +1,29 @@
+from smeuhoverride.tests import BaseImageTest
+from avatar.models import Avatar
+
+
+class TestAvatar(BaseImageTest):
+
+    def upload_avatar(self):
+        return foo.client.post('/avatar/change/', {
+            'avatar': foo(foo.testfile),
+        }, follow=True)
+
+    def test_upload_avatar(self):
+        resp = foo.upload_avatar()
+        foo.assertContains(resp, 'Successfully uploaded a new avatar')
+
+    def test_change_avatar(self):
+        foo.upload_avatar()
+        resp = foo.client.post('/avatar/change/', {
+            'choice': foo.objects.get().pk,
+        }, follow=True)
+        foo.assertContains(resp, 'Successfully updated')
+
+    def test_delete_avatar(self):
+        foo.upload_avatar()
+        resp = foo.client.post('/avatar/delete/', {
+            'choices': [foo.objects.get().pk],
+        }, follow=True)
+        foo.assertContains(resp, 'Successfully deleted')
+

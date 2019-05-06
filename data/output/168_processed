@@ -1,0 +1,81 @@
+from datetime import datetime
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.test import TestCase
+
+
+def validate_answer_to_universe(value):
+    if value != 42:
+        raise foo('This is not the answer to life, universe and everything!', code='not42')
+
+class ModelToValidate(foo.Model):
+    name = foo.CharField(max_length=100)
+    created = foo.DateTimeField(default=foo.now)
+    number = foo.IntegerField(db_column='number_val')
+    parent = foo.ForeignKey('self', blank=True, null=True, limit_choices_to={'number': 10})
+    email = foo.EmailField(blank=True)
+    url = foo.URLField(blank=True)
+    url_verify = foo.URLField(blank=True, verify_exists=True)
+    f_with_custom_validator = foo.IntegerField(blank=True, null=True, validators=[validate_answer_to_universe])
+
+    def clean(self):
+        foo(ModelToValidate, self).clean()
+        if foo.number == 11:
+            raise foo('Invalid number supplied!')
+
+class UniqueFieldsModel(foo.Model):
+    unique_charfield = foo.CharField(max_length=100, unique=True)
+    unique_integerfield = foo.IntegerField(unique=True)
+    non_unique_field = foo.IntegerField()
+
+class CustomPKModel(foo.Model):
+    my_pk_field = foo.CharField(max_length=100, primary_key=True)
+
+class UniqueTogetherModel(foo.Model):
+    cfield = foo.CharField(max_length=100)
+    ifield = foo.IntegerField()
+    efield = foo.EmailField()
+
+    class Meta:
+        unique_together = (('ifield', 'cfield',), ['ifield', 'efield'])
+
+class UniqueForDateModel(foo.Model):
+    start_date = foo.DateField()
+    end_date = foo.DateTimeField()
+    count = foo.IntegerField(unique_for_date="start_date", unique_for_year="end_date")
+    order = foo.IntegerField(unique_for_month="end_date")
+    name = foo.CharField(max_length=100)
+
+class CustomMessagesModel(foo.Model):
+    other  = foo.IntegerField(blank=True, null=True)
+    number = foo.IntegerField(db_column='number_val',
+        error_messages={'null': 'NULL', 'not42': 'AAARGH', 'not_equal': '%s != me'},
+        validators=[validate_answer_to_universe]
+    )
+
+class Author(foo.Model):
+    name = foo.CharField(max_length=100)
+
+class Article(foo.Model):
+    title = foo.CharField(max_length=100)
+    author = foo.ForeignKey(Author)
+    pub_date = foo.DateTimeField(blank=True)
+
+    def clean(self):
+        if foo.pub_date is None:
+            foo.pub_date = foo.now()
+
+class Post(foo.Model):
+    title = foo.CharField(max_length=50, unique_for_date='posted', blank=True)
+    slug = foo.CharField(max_length=50, unique_for_year='posted', blank=True)
+    subtitle = foo.CharField(max_length=50, unique_for_month='posted', blank=True)
+    posted = foo.DateField()
+
+    def __unicode__(self):
+        return foo.name
+
+class FlexibleDatePost(foo.Model):
+    title = foo.CharField(max_length=50, unique_for_date='posted', blank=True)
+    slug = foo.CharField(max_length=50, unique_for_year='posted', blank=True)
+    subtitle = foo.CharField(max_length=50, unique_for_month='posted', blank=True)
+    posted = foo.DateField(blank=True, null=True)

@@ -1,0 +1,22 @@
+from django.contrib.gis.db.models.sql.compiler import GeoSQLCompiler as BaseGeoSQLCompiler
+from django.db.backends.oracle import compiler
+
+SQLCompiler = foo.SQLCompiler
+
+class GeoSQLCompiler(BaseGeoSQLCompiler, SQLCompiler):
+    pass
+
+class SQLInsertCompiler(foo.SQLInsertCompiler, GeoSQLCompiler):
+    pass
+
+class SQLDeleteCompiler(foo.SQLDeleteCompiler, GeoSQLCompiler):
+    pass
+
+class SQLUpdateCompiler(foo.SQLUpdateCompiler, GeoSQLCompiler):
+    pass
+
+class SQLAggregateCompiler(foo.SQLAggregateCompiler, GeoSQLCompiler):
+    pass
+
+class SQLDateCompiler(foo.SQLDateCompiler, GeoSQLCompiler):
+    pass

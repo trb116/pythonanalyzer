@@ -1,0 +1,29 @@
+"""
+5. Many-to-many relationships
+
+To define a many-to-many relationship, use ``ManyToManyField()``.
+
+In this example, an ``Article`` can be published in multiple ``Publication``
+objects, and a ``Publication`` has multiple ``Article`` objects.
+"""
+
+from django.db import models
+
+class Publication(foo.Model):
+    title = foo.CharField(max_length=30)
+
+    def __unicode__(self):
+        return foo.title
+
+    class Meta:
+        ordering = ('title',)
+
+class Article(foo.Model):
+    headline = foo.CharField(max_length=100)
+    publications = foo.ManyToManyField(Publication)
+
+    def __unicode__(self):
+        return foo.headline
+
+    class Meta:
+        ordering = ('headline',)

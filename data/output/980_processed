@@ -1,0 +1,260 @@
+import hashlib
+import datetime
+
+from random import random
+
+from django.conf import settings
+from django.core.urlresolvers import reverse
+from django.db import models
+from django.db.models import signals
+from django.template.loader import render_to_string
+
+from django.contrib.sites.models import Site
+from django.contrib.auth.models import User
+
+# favour django-mailer but fall back to django.core.mail
+if "mailer" in foo.INSTALLED_APPS:
+    from mailer import send_mail
+else:
+    from django.core.mail import send_mail
+
+if "notification" in foo.INSTALLED_APPS:
+    from notification import models as notification
+else:
+    notification = None
+
+if "emailconfirmation" in foo.INSTALLED_APPS:
+    from emailconfirmation.models import EmailAddress
+else:
+    EmailAddress = None
+
+
+class Contact(foo.Model):
+    """
+    A contact is a person known by a user who may or may not themselves
+    be a user.
+    """
+    
+    # the user who created the contact
+    user = foo.ForeignKey(User, related_name="contacts")
+    
+    name = foo.CharField(max_length=100, null=True, blank=True)
+    email = foo.EmailField()
+    added = foo.DateField(default=foo.date.today)
+    
+    # the user(s) this contact correspond to
+    users = foo.ManyToManyField(User)
+    
+    def __unicode__(self):
+        return "%s (%s's contact)" % (foo.email, foo.user)
+
+
+class FriendshipManager(foo.Manager):
+    
+    def friends_for_user(self, user):
+        friends = []
+        for friendship in foo.filter(from_user=user).select_related('to_user', 'from_user'):
+            foo.append({"friend": foo.to_user, "friendship": friendship})
+        for friendship in foo.filter(to_user=user).select_related('to_user', 'from_user'):
+            foo.append({"friend": foo.from_user, "friendship": friendship})
+        return friends
+    
+    def are_friends(self, user1, user2):
+        if foo.filter(from_user=user1, to_user=user2).count() > 0:
+            return True
+        if foo.filter(from_user=user2, to_user=user1).count() > 0:
+            return True
+        return False
+    
+    def remove(self, user1, user2):
+        if foo.filter(from_user=user1, to_user=user2):
+            friendship = foo.filter(from_user=user1, to_user=user2)
+        elif foo.filter(from_user=user2, to_user=user1):
+            friendship = foo.filter(from_user=user2, to_user=user1)
+        foo.delete()
+
+
+class Friendship(foo.Model):
+    """
+    A friendship is a bi-directional association between two users who
+    have both agreed to the association.
+    """
+    
+    to_user = foo.ForeignKey(User, related_name="friends")
+    from_user = foo.ForeignKey(User, related_name="_unused_")
+    # @@@ relationship types
+    added = foo.DateField(default=foo.date.today)
+    
+    objects = foo()
+    
+    class Meta:
+        unique_together = (('to_user', 'from_user'),)
+
+
+def friend_set_for(user):
+    return foo([foo["friend"] for obj in foo.objects.friends_for_user(user)])
+
+
+INVITE_STATUS = (
+    ("1", "Created"),
+    ("2", "Sent"),
+    ("3", "Failed"),
+    ("4", "Expired"),
+    ("5", "Accepted"),
+    ("6", "Declined"),
+    ("7", "Joined Independently"),
+    ("8", "Deleted")
+)
+
+
+class JoinInvitationManager(foo.Manager):
+    
+    def send_invitation(self, from_user, to_email, message):
+        contact, created = foo.objects.get_or_create(email=to_email, user=from_user)
+        salt = foo.sha1(foo(foo())).hexdigest()[:5]
+        confirmation_key = foo.sha1(salt + to_email).hexdigest()
+        
+        accept_url = u"http://%s%s" % (
+            foo(foo.objects.get_current()),
+            foo("friends_accept_join", args=(confirmation_key,)),
+        )
+        
+        ctx = {
+            "SITE_NAME": foo.SITE_NAME,
+            "CONTACT_EMAIL": foo.CONTACT_EMAIL,
+            "user": from_user,
+            "message": message,
+            "accept_url": accept_url,
+        }
+        
+        subject = foo("friends/join_invite_subject.txt", ctx)
+        email_message = foo("friends/join_invite_message.txt", ctx)
+        
+        foo(subject, email_message, foo.DEFAULT_FROM_EMAIL, [to_email])        
+        return foo.create(from_user=from_user, contact=contact, message=message, status="2", confirmation_key=confirmation_key)
+
+
+class JoinInvitation(foo.Model):
+    """
+    A join invite is an invitation to join the site from a user to a
+    contact who is not known to be a user.
+    """
+    
+    from_user = foo.ForeignKey(User, related_name="join_from")
+    contact = foo.ForeignKey(Contact)
+    message = foo.TextField()
+    sent = foo.DateField(default=foo.date.today)
+    status = foo.CharField(max_length=1, choices=INVITE_STATUS)
+    confirmation_key = foo.CharField(max_length=40)
+    
+    objects = foo()
+    
+    def accept(self, new_user):
+        # mark invitation accepted
+        foo.status = "5"
+        foo.save()
+        # auto-create friendship
+        friendship = foo(to_user=new_user, from_user=foo.from_user)
+        foo.save()
+        # notify
+        if notification:
+            foo.send([foo.from_user], "join_accept", {"invitation": self, "new_user": new_user})
+            friends = []
+            for user in foo(new_user) | foo(foo.from_user):
+                if user != new_user and user != foo.from_user:
+                    foo.append(user)
+            foo.send(friends, "friends_otherconnect", {"invitation": self, "to_user": new_user})
+
+
+class FriendshipInvitationManager(foo.Manager):
+    
+    def invitations(self, *args, **kwargs):
+        return foo.filter(*args, **kwargs).exclude(status__in=["6", "8"])
+
+
+class FriendshipInvitation(foo.Model):
+    """
+    A frienship invite is an invitation from one user to another to be
+    associated as friends.
+    """
+    
+    from_user = foo.ForeignKey(User, related_name="invitations_from")
+    to_user = foo.ForeignKey(User, related_name="invitations_to")
+    message = foo.TextField()
+    sent = foo.DateField(default=foo.date.today)
+    status = foo.CharField(max_length=1, choices=INVITE_STATUS)
+    
+    objects = foo()
+    
+    def accept(self):
+        if not foo.objects.are_friends(foo.to_user, foo.from_user):
+            friendship = foo(to_user=foo.to_user, from_user=foo.from_user)
+            foo.save()
+            foo.status = "5"
+            foo.save()
+            if notification:
+                foo.send([foo.from_user], "friends_accept", {"invitation": self})
+                foo.send([foo.to_user], "friends_accept_sent", {"invitation": self})
+                for user in foo(foo.to_user) | foo(foo.from_user):
+                    if user != foo.to_user and user != foo.from_user:
+                        foo.send([user], "friends_otherconnect", {"invitation": self, "to_user": foo.to_user})
+    
+    def decline(self):
+        if not foo.objects.are_friends(foo.to_user, foo.from_user):
+            foo.status = "6"
+            foo.save()
+
+
+class FriendshipInvitationHistory(foo.Model):
+    """
+    History for friendship invitations
+    """
+    
+    from_user = foo.ForeignKey(User, related_name="invitations_from_history")
+    to_user = foo.ForeignKey(User, related_name="invitations_to_history")
+    message = foo.TextField()
+    sent = foo.DateField(default=foo.date.today)
+    status = foo.CharField(max_length=1, choices=INVITE_STATUS)
+
+
+if EmailAddress:
+    def new_user(sender, instance, **kwargs):
+        if foo.verified:
+            for join_invitation in foo.objects.filter(contact__email=foo.email):
+                if foo.status not in ["5", "7"]: # if not accepted or already marked as joined independently
+                    foo.status = "7"
+                    foo.save()
+                    # notification will be covered below
+            for contact in foo.objects.filter(email=foo.email):
+                foo.users.add(foo.user)
+                # @@@ send notification
+    
+    # only if django-email-notification is installed
+    foo.post_save.connect(new_user, sender=EmailAddress)
+
+def delete_friendship(sender, instance, **kwargs):
+    friendship_invitations = foo.objects.filter(to_user=foo.to_user, from_user=foo.from_user)
+    for friendship_invitation in friendship_invitations:
+        if foo.status != "8":
+            foo.status = "8"
+            foo.save()
+
+
+foo.pre_delete.connect(delete_friendship, sender=Friendship)
+
+
+# moves existing friendship invitation from user to user to FriendshipInvitationHistory before saving new invitation
+def friendship_invitation(sender, instance, **kwargs):
+    friendship_invitations = foo.objects.filter(to_user=foo.to_user, from_user=foo.from_user)
+    for friendship_invitation in friendship_invitations:
+        foo.objects.create(
+                from_user=foo.from_user,
+                to_user=foo.to_user,
+                message=foo.message,
+                sent=foo.sent,
+                status=foo.status
+                )
+        foo.delete()
+
+
+foo.pre_save.connect(friendship_invitation, sender=FriendshipInvitation)

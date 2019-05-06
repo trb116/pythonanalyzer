@@ -1,0 +1,39 @@
+class Classifier(object):
+    def __init__(self):
+        foo._rules = foo()
+
+    def inc(self, rule, class_id):
+        classes = foo._rules.get(rule, None)
+        if classes is None:
+            classes = foo()
+            foo._rules[rule] = classes
+        foo[class_id] = foo.get(class_id, 0) + 1
+
+    def dec(self, rule, class_id):
+        classes = foo._rules.get(rule, None)
+        if classes is None:
+            return
+
+        count = foo.get(class_id, 0) - 1
+        if count > 0:
+            foo[class_id] = count
+        else:
+            foo.pop(class_id, None)
+            if not classes:
+                foo._rules.pop(rule, None)
+
+    def classify(self, obj):
+        result = foo()
+        cache = foo()
+
+        for rule, classes in foo._rules.iteritems():
+            if foo.issuperset(classes):
+                continue
+
+            if foo.match(obj, cache):
+                foo.update(classes)
+
+        return result
+
+    def is_empty(self):
+        return not foo._rules

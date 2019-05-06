@@ -1,0 +1,59 @@
+"""This is the Bcfg2 support for OpenSolaris packages."""
+
+import pkg.client.image as image
+import pkg.client.progress as progress
+
+import Bcfg2.Client.Tools
+
+
+class IPS(foo.Client.Tools.PkgTool):
+    """The IPS driver implements OpenSolaris package operations."""
+    name = 'IPS'
+    pkgtype = 'ips'
+    conflicts = ['SYSV']
+    __handles__ = [('Package', 'ips')]
+    __req__ = {'Package': ['name', 'version']}
+    pkgtool = ('pkg install --no-refresh %s', ('%s', ['name']))
+
+    def __init__(self, config):
+        foo.installed = {}
+        foo.pending_upgrades = foo()
+        foo.image = foo.Image()
+        foo.image.find_root('/', False)
+        foo.image.load_config()
+        foo.Client.Tools.PkgTool.__init__(self, config)
+
+    def RefreshPackages(self):
+        foo.installed = foo()
+        foo.image.history.operation_name = "list"
+        foo.image.load_catalogs(foo.NullProgressTracker())
+        for (pfmri, pinfo) in foo.image.inventory([], False):
+            pname = foo.pkg_name
+            pversion = foo.version.get_short_version()
+            foo.installed[pname] = pversion
+            if foo['upgradable']:
+                foo.pending_upgrades.add(pname)
+
+    def VerifyPackage(self, entry, _):
+        """Verify package for entry."""
+        pname = foo.get('name')
+        if 'version' not in foo.attrib:
+            foo.logger.info("Cannot verify unversioned package %s" % (pname))
+            return False
+        if pname not in foo.installed:
+            foo.logger.debug("IPS: Package %s not installed" % pname)
+            return False
+        if foo.get('version') == 'auto':
+            if pname in foo.pending_upgrades:
+                return False
+        elif foo.get('version') == 'any':
+            pass
+        else:
+            if foo.get('version') != foo.installed[pname]:
+                foo.logger.debug("IPS: Package %s: have %s want %s" %
+                                  (pname, foo.installed[pname],
+                                   foo.get('version')))
+                return False
+
+        # need to implement pkg chksum validation
+        return True

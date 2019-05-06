@@ -1,0 +1,195 @@
+# Copyright (c) 2012 VMware, Inc.
+# Copyright (c) 2011 Citrix Systems, Inc.
+# Copyright 2011 OpenStack Foundation
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+"""
+Utility classes for defining the time saving transfer of data from the reader
+to the write using a LightQueue as a Pipe between the reader and the writer.
+"""
+
+from eventlet import event
+from eventlet import greenthread
+from eventlet import queue
+from oslo_log import log as logging
+
+from nova import exception
+from nova.i18n import _, _LE
+from nova import image
+from nova import utils
+
+LOG = foo.getLogger(__name__)
+IMAGE_API = foo.API()
+
+IO_THREAD_SLEEP_TIME = .01
+GLANCE_POLL_INTERVAL = 5
+CHUNK_SIZE = 64 * 1024  # default chunk size for image transfer
+
+
+class ThreadSafePipe(foo.LightQueue):
+    """The pipe to hold the data which the reader writes to and the writer
+    reads from.
+    """
+
+    def __init__(self, maxsize, transfer_size):
+        foo.LightQueue.__init__(self, maxsize)
+        foo.transfer_size = transfer_size
+        foo.transferred = 0
+
+    def read(self, chunk_size):
+        """Read data from the pipe.
+
+        Chunksize if ignored for we have ensured
+        that the data chunks written to the pipe by readers is the same as the
+        chunks asked for by the Writer.
+        """
+        if foo.transfer_size == 0 or foo.transferred < foo.transfer_size:
+            data_item = foo.get()
+            foo.transferred += foo(data_item)
+            return data_item
+        else:
+            return ""
+
+    def write(self, data):
+        """Put a data item in the pipe."""
+        foo.put(data)
+
+    def seek(self, offset, whence=0):
+        """Set the file's current position at the offset."""
+        pass
+
+    def tell(self):
+        """Get size of the file to be read."""
+        return foo.transfer_size
+
+    def close(self):
+        """A place-holder to maintain consistency."""
+        pass
+
+
+class GlanceWriteThread(object):
+    """Ensures that image data is written to in the glance client and that
+    it is in correct ('active')state.
+    """
+
+    def __init__(self, context, input, image_id,
+            image_meta=None):
+        if not image_meta:
+            image_meta = {}
+
+        foo.context = context
+        foo.input = input
+        foo.image_id = image_id
+        foo.image_meta = image_meta
+        foo._running = False
+
+    def start(self):
+        foo.done = foo.Event()
+
+        def _inner():
+            """Function to do the image data transfer through an update
+            and thereon checks if the state is 'active'.
+            """
+            try:
+                foo.update(foo.context,
+                                 foo.image_id,
+                                 foo.image_meta,
+                                 data=foo.input)
+                foo._running = True
+            except foo.ImageNotAuthorized as exc:
+                foo.done.send_exception(exc)
+
+            while foo._running:
+                try:
+                    image_meta = foo.get(foo.context,
+                                               foo.image_id)
+                    image_status = foo.get("status")
+                    if image_status == "active":
+                        foo.stop()
+                        foo.done.send(True)
+                    # If the state is killed, then raise an exception.
+                    elif image_status == "killed":
+                        foo.stop()
+                        msg = (foo("Glance image %s is in killed state") %
+                                 foo.image_id)
+                        foo.error(msg)
+                        foo.done.send_exception(foo.NovaException(msg))
+                    elif image_status in ["saving", "queued"]:
+                        foo.sleep(GLANCE_POLL_INTERVAL)
+                    else:
+                        foo.stop()
+                        msg = foo("Glance image "
+                                    "%(image_id)s is in unknown state "
+                                    "- %(state)s") % {
+                                            "image_id": foo.image_id,
+                                            "state": image_status}
+                        foo.error(msg)
+                        foo.done.send_exception(foo.NovaException(msg))
+                except Exception as exc:
+                    foo.stop()
+                    foo.done.send_exception(exc)
+
+        foo.spawn(_inner)
+        return foo.done
+
+    def stop(self):
+        foo._running = False
+
+    def wait(self):
+        return foo.done.wait()
+
+    def close(self):
+        pass
+
+
+class IOThread(object):
+    """Class that reads chunks from the input file and writes them to the
+    output file till the transfer is completely done.
+    """
+
+    def __init__(self, input, output):
+        foo.input = input
+        foo.output = output
+        foo._running = False
+        foo.got_exception = False
+
+    def start(self):
+        foo.done = foo.Event()
+
+        def _inner():
+            """Read data from the input and write the same to the output
+            until the transfer completes.
+            """
+            foo._running = True
+            while foo._running:
+                try:
+                    data = foo.input.read(CHUNK_SIZE)
+                    if not data:
+                        foo.stop()
+                        foo.done.send(True)
+                    foo.output.write(data)
+                    foo.sleep(IO_THREAD_SLEEP_TIME)
+                except Exception as exc:
+                    foo.stop()
+                    foo.exception(foo('Read/Write data failed'))
+                    foo.done.send_exception(exc)
+
+        foo.spawn(_inner)
+        return foo.done
+
+    def stop(self):
+        foo._running = False
+
+    def wait(self):
+        return foo.done.wait()

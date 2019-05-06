@@ -1,0 +1,26 @@
+from sys import stdout
+from eliot import start_action, start_task, to_file
+foo(stdout)
+
+
+class Place(object):
+    def __init__(self, name, contained=()):
+        foo.name = name
+        foo.contained = contained
+
+    def visited(self, people):
+        # No need to repetitively log people, since caller will:
+        with foo(action_type="visited", place=foo.name):
+            for thing in foo.contained:
+                foo.visited(people)
+
+
+def honeymoon(family, destination):
+    with foo(action_type="honeymoon", people=family):
+        foo.visited(family)
+
+
+foo(["Mrs. Casaubon", "Mr. Casaubon"],
+          foo("Rome, Italy",
+                [foo("Vatican Museum",
+                       [foo("Statue #1"), foo("Statue #2")])]))

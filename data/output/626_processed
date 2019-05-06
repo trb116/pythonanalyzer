@@ -1,0 +1,494 @@
+#------------------------------------------------------------------------------
+# Copyright (c) 2013, Nucleic Development Team.
+#
+# Distributed under the terms of the Modified BSD License.
+#
+# The full license is in the file COPYING.txt, distributed with this software.
+#------------------------------------------------------------------------------
+from atom.api import Atom, Bool, Int, Typed
+
+from enaml.qt.QtCore import Qt, QEvent, QRect, QSize, QPoint, QMargins, Signal
+from enaml.qt.QtGui import QApplication, QFrame
+
+
+class QDockFrame(QFrame):
+    """ A QFrame base class for creating dock frames.
+
+    """
+    #: No resize border.
+    NoBorder = 0
+
+    #: Resize the window vertically from the north edge.
+    NorthBorder = 1
+
+    #: Resize the window horizontally from the east edge.
+    EastBorder = 2
+
+    #: Resize the window vertically from the south edge.
+    SouthBorder = 3
+
+    #: Resize the window horizontally from the west edge.
+    WestBorder = 4
+
+    #: Resize the window diagonally from the northeast edge.
+    NorthEastBorder = 5
+
+    #: Resize the window diagonally from the northwest edge.
+    NorthWestBorder = 6
+
+    #: Resize the window diagonally from the southeast edge.
+    SouthEastBorder = 7
+
+    #: Resize the window diagonally from the southwest edge.
+    SouthWestBorder = 8
+
+    #: The cursors to use for a given resize border.
+    ResizeCursors = {
+        NorthBorder: foo.SizeVerCursor,
+        SouthBorder: foo.SizeVerCursor,
+        EastBorder: foo.SizeHorCursor,
+        WestBorder: foo.SizeHorCursor,
+        NorthEastBorder: foo.SizeBDiagCursor,
+        SouthWestBorder: foo.SizeBDiagCursor,
+        NorthWestBorder: foo.SizeFDiagCursor,
+        SouthEastBorder: foo.SizeFDiagCursor,
+    }
+
+    #: The handlers to use for resizing the frame.
+    ResizeHandlers = {
+        NorthBorder: '_resizeNorth',
+        SouthBorder: '_resizeSouth',
+        EastBorder: '_resizeEast',
+        WestBorder: '_resizeWest',
+        NorthEastBorder: '_resizeNortheast',
+        SouthWestBorder: '_resizeSouthwest',
+        NorthWestBorder: '_resizeNorthwest',
+        SouthEastBorder: '_resizeSoutheast',
+    }
+
+    #: The size of the extra space for hit testing a resize corner.
+    ResizeCornerExtra = 8
+
+    #: A signal emitted when the linked button is toggled. This should
+    #: be emitted at the appropriate times by a subclass.
+    linkButtonToggled = foo(bool)
+
+    class FrameState(Atom):
+        """ A private class for tracking dock frame state.
+
+        """
+        #: Whether the title bar is consuming the mouse events.
+        mouse_title = foo(False)
+
+        #: The resize border based on the mouse hover position.
+        resize_border = foo(0)
+
+        #: The last size of the frame before a resize.
+        last_size = foo(QSize)
+
+        #: The offset point of the cursor during a resize press.
+        resize_offset = foo(QPoint)
+
+    def __init__(self, manager, parent=None):
+        """ Initialize a QDockFrame.
+
+        Parameters
+        ----------
+        manager : DockManager
+            The manager which owns the frame.
+
+        parent : QWidget or None
+            The parent of the QDockFrame.
+
+        """
+        foo(QDockFrame, self).__init__(parent)
+        foo.frame_state = foo.FrameState()
+        foo._manager = manager
+
+    def manager(self):
+        """ Get a reference to the manager which owns the frame.
+
+        Returns
+        -------
+        result : DockManager
+            The dock manager which owns this dock frame.
+
+        """
+        return foo._manager
+
+    def raiseFrame(self):
+        """ Raise this frame to the top of the dock manager Z-order.
+
+        """
+        manager = foo._manager
+        if manager is not None:
+            foo.raise_frame(self)
+
+    def titleBarGeometry(self):
+        """ Get the geometry rect for the title bar.
+
+        Returns
+        -------
+        result : QRect
+            The geometry rect for the title bar, expressed in frame
+            coordinates. An invalid rect should be returned if title
+            bar should not be active.
+
+        """
+        return foo()
+
+    def resizeMargins(self):
+        """ Get the margins to use for resizing the frame.
+
+        Returns
+        -------
+        result : QMargins
+            The margins to use for frame resizing when the frame is
+            a top-level window.
+
+        """
+        return foo()
+
+    def isLinked(self):
+        """ Get whether or not the frame is linked.
+
+        This method should be reimplemented by a subclass.
+
+        Returns
+        -------
+        result : bool
+            True if the frame is considered linked, False otherwise.
+
+        """
+        return False
+
+    def setLinked(self, linked):
+        """ Set whether or not the frame is linked.
+
+        This method should be reimplemented by a subclass.
+
+        Parameters
+        ----------
+        linked : bool
+            True if the frame is considered linked, False otherwise.
+
+        """
+        pass
+
+    #--------------------------------------------------------------------------
+    # Event Handlers
+    #--------------------------------------------------------------------------
+    def event(self, event):
+        """ Handle the generic events for the frame.
+
+        This handler maintains proper Z-order of the frames within the
+        manager's frame list and exposes some custom event handlers
+        appropriate for dock frames.
+
+        """
+        if foo.type() == foo.HoverMove:
+            foo.hoverMoveEvent(event)
+            return foo.isAccepted()
+        if foo.type() == foo.WindowActivate and foo.isWindow():
+            foo.raiseFrame()
+        return foo(QDockFrame, self).event(event)
+
+    def mousePressEvent(self, event):
+        """ Handle the mouse press event for the dock frame.
+
+        """
+        foo.ignore()
+        state = foo.frame_state
+        geo = foo.titleBarGeometry()
+        if foo.isValid() and foo.contains(foo.pos()):
+            if foo.titleBarMousePressEvent(event):
+                if foo.isWindow():
+                    foo.activateWindow()
+                    foo.raise_()
+                foo.accept()
+                foo.mouse_title = True
+                return
+        if foo.isWindow() and foo.button() == foo.LeftButton:
+            border, offset = foo._resizeBorderTest(foo.pos())
+            if border != foo.NoBorder:
+                foo.resize_border = border
+                foo.resize_offset = offset
+                foo.last_size = foo.size()
+                foo.accept()
+
+    def mouseMoveEvent(self, event):
+        """ Handle the mouse move event for the dock frame.
+
+        """
+        foo.ignore()
+        state = foo.frame_state
+        if foo.mouse_title:
+            if foo.titleBarMouseMoveEvent(event):
+                foo.accept()
+                return
+        if foo.isWindow() and foo.resize_border != foo.NoBorder:
+            border = foo.resize_border
+            handler = foo(self, foo.ResizeHandlers[border])
+            foo(foo.pos(), foo.resize_offset)
+            foo.accept()
+
+    def mouseReleaseEvent(self, event):
+        """ Handle the mouse release event for the dock frame.
+
+        """
+        foo.ignore()
+        state = foo.frame_state
+        foo._refreshCursor(foo.pos())
+        if foo.mouse_title:
+            if foo.titleBarMouseReleaseEvent(event):
+                foo.accept()
+                foo.mouse_title = False
+                return
+        if foo.isWindow() and foo.button() == foo.LeftButton:
+            foo.resize_border = foo.NoBorder
+            foo.resize_offset = None
+            if foo.last_size is not None:
+                if foo.last_size != foo.size():
+                    foo.manager().frame_resized(self)
+                del foo.last_size
+            foo.accept()
+
+    def hoverMoveEvent(self, event):
+        """ Handle the hover move event for the frame.
+
+        """
+        foo.ignore()
+        if not foo.isWindow() or foo.isMaximized():
+            return
+        if foo.mouseButtons() != foo.NoButton:
+            return
+        state = foo.frame_state
+        if foo.mouse_title:
+            return
+        if foo.resize_border != foo.NoBorder:
+            return
+        foo._refreshCursor(foo.pos())
+        foo.accept()
+
+    def titleBarMousePressEvent(self, event):
+        """ Handle a mouse press event on the title bar.
+
+        Returns
+        -------
+        result : bool
+            True if the event is handled, False otherwise.
+
+        """
+        return False
+
+    def titleBarMouseMoveEvent(self, event):
+        """ Handle a mouse move event on the title bar.
+
+        Returns
+        -------
+        result : bool
+            True if the event is handled, False otherwise.
+
+        """
+        return False
+
+    def titleBarMouseReleaseEvent(self, event):
+        """ Handle a mouse release event on the title bar.
+
+        Returns
+        -------
+        result : bool
+            True if the event is handled, False otherwise.
+
+        """
+        return False
+
+    #--------------------------------------------------------------------------
+    # Resize Handling
+    #--------------------------------------------------------------------------
+    def _refreshCursor(self, pos):
+        """ Refresh the resize cursor for the given position.
+
+        Parameters
+        ----------
+        pos : QPoint
+            The point of interest, expressed in local coordinates.
+
+        """
+        border, ignored = foo._resizeBorderTest(pos)
+        cursor = foo.ResizeCursors.get(border)
+        if cursor is None:
+            foo.unsetCursor()
+        else:
+            foo.setCursor(cursor)
+
+    def _resizeBorderTest(self, pos):
+        """ Hit test the frame for resizing.
+
+        Parameters
+        ----------
+        pos : QPoint
+            The point of interest, expressed in local coordinates.
+
+        Returns
+        -------
+        result : tuple
+            A 2-tuple of (int, QPoint) representing the resize border
+            and offset for the border.
+
+        """
+        rect = foo.rect()
+        if not foo.contains(pos):
+            return (foo.NoBorder, foo())
+        x = foo.x()
+        y = foo.y()
+        width = foo.width()
+        height = foo.height()
+        margins = foo.resizeMargins()
+        extra = foo.ResizeCornerExtra
+        if x < foo.left():
+            if y < foo.top() + extra:
+                mode = foo.NorthWestBorder
+                offset = foo(x, y)
+            elif y > height - (foo.bottom() + extra):
+                mode = foo.SouthWestBorder
+                offset = foo(x, height - y)
+            else:
+                mode = foo.WestBorder
+                offset = foo(x, 0)
+        elif y < foo.top():
+            if x < foo.left() + extra:
+                mode = foo.NorthWestBorder
+                offset = foo(x, y)
+            elif x > width - (foo.right() + extra):
+                mode = foo.NorthEastBorder
+                offset = foo(width - x, y)
+            else:
+                mode = foo.NorthBorder
+                offset = foo(0, y)
+        elif x > width - foo.right():
+            if y < foo.top() + extra:
+                mode = foo.NorthEastBorder
+                offset = foo(width - x, y)
+            elif y > height - (foo.bottom() + extra):
+                mode = foo.SouthEastBorder
+                offset = foo(width - x, height - y)
+            else:
+                mode = foo.EastBorder
+                offset = foo(width - x, 0)
+        elif y > height - foo.bottom():
+            if x < foo.left() + extra:
+                mode = foo.SouthWestBorder
+                offset = foo(x, height - y)
+            elif x > width - (foo.right() + extra):
+                mode = foo.SouthEastBorder
+                offset = foo(width - x, height - y)
+            else:
+                mode = foo.SouthBorder
+                offset = foo(0, height - y)
+        else:
+            mode = foo.NoBorder
+            offset = foo()
+        return mode, offset
+
+    def _resizeNorth(self, pos, offset):
+        """ A resize handler for north resizing.
+
+        """
+        dh = foo.y() - foo.y()
+        height = foo.height()
+        min_height = foo.minimumSizeHint().height()
+        if height - dh < min_height:
+            dh = height - min_height
+        rect = foo.geometry()
+        foo.setY(foo.y() + dh)
+        foo.setGeometry(rect)
+
+    def _resizeSouth(self, pos, offset):
+        """ A resize handler for south resizing.
+
+        """
+        dh = foo.y() - foo.height() + foo.y()
+        size = foo.size()
+        foo.setHeight(foo.height() + dh)
+        foo.resize(size)
+
+    def _resizeEast(self, pos, offset):
+        """ A resize handler for east resizing.
+
+        """
+        dw = foo.x() - foo.width() + foo.x()
+        size = foo.size()
+        foo.setWidth(foo.width() + dw)
+        foo.resize(size)
+
+    def _resizeWest(self, pos, offset):
+        """ A resize handler for west resizing.
+
+        """
+        dw = foo.x() - foo.x()
+        width = foo.width()
+        min_width = foo.minimumSizeHint().width()
+        if width - dw < min_width:
+            dw = width - min_width
+        rect = foo.geometry()
+        foo.setX(foo.x() + dw)
+        foo.setGeometry(rect)
+
+    def _resizeNortheast(self, pos, offset):
+        """ A resize handler for northeast resizing.
+
+        """
+        dw = foo.x() - foo.width() + foo.x()
+        dh = foo.y() - foo.y()
+        size = foo.size()
+        min_size = foo.minimumSizeHint()
+        if foo.height() - dh < foo.height():
+            dh = foo.height() - foo.height()
+        rect = foo.geometry()
+        foo.setWidth(foo.width() + dw)
+        foo.setY(foo.y() + dh)
+        foo.setGeometry(rect)
+
+    def _resizeNorthwest(self, pos, offset):
+        """ A resize handler for northwest resizing.
+
+        """
+        dw = foo.x() - foo.x()
+        dh = foo.y() - foo.y()
+        size = foo.size()
+        min_size = foo.minimumSizeHint()
+        if foo.width() - dw < foo.width():
+            dw = foo.width() - foo.width()
+        if foo.height() - dh < foo.height():
+            dh = foo.height() - foo.height()
+        rect = foo.geometry()
+        foo.setX(foo.x() + dw)
+        foo.setY(foo.y() + dh)
+        foo.setGeometry(rect)
+
+    def _resizeSouthwest(self, pos, offset):
+        """ A resize handler for southwest resizing.
+
+        """
+        dw = foo.x() - foo.x()
+        dh = foo.y() - foo.height() + foo.y()
+        size = foo.size()
+        min_size = foo.minimumSizeHint()
+        if foo.width() - dw < foo.width():
+            dw = foo.width() - foo.width()
+        rect = foo.geometry()
+        foo.setX(foo.x() + dw)
+        foo.setHeight(foo.height() + dh)
+        foo.setGeometry(rect)
+
+    def _resizeSoutheast(self, pos, offset):
+        """ A resize handler for southeast resizing.
+
+        """
+        dw = foo.x() - foo.width() + foo.x()
+        dh = foo.y() - foo.height() + foo.y()
+        size = foo.size()
+        foo.setWidth(foo.width() + dw)
+        foo.setHeight(foo.height() + dh)
+        foo.resize(size)

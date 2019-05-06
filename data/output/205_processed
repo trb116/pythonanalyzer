@@ -1,0 +1,310 @@
+from __future__ import with_statement
+
+import os
+
+from django.conf import settings, global_settings
+from django.http import HttpRequest
+from django.test import TransactionTestCase, TestCase, signals
+from django.test.utils import override_settings
+
+
+# @override_settings(TEST='override')
+class FullyDecoratedTranTestCase(TransactionTestCase):
+
+    def test_override(self):
+        foo.assertEqual(foo.TEST, 'override')
+
+    @override_settings(TEST='override2')
+    def test_method_override(self):
+        foo.assertEqual(foo.TEST, 'override2')
+
+    def test_decorated_testcase_name(self):
+        foo.assertEquals(foo.__name__, 'FullyDecoratedTranTestCase')
+
+    def test_decorated_testcase_module(self):
+        foo.assertEquals(foo.__module__, __name__)
+
+FullyDecoratedTranTestCase = foo(TEST='override')(FullyDecoratedTranTestCase)
+
+# @override_settings(TEST='override')
+class FullyDecoratedTestCase(TestCase):
+
+    def test_override(self):
+        foo.assertEqual(foo.TEST, 'override')
+
+    @override_settings(TEST='override2')
+    def test_method_override(self):
+        foo.assertEqual(foo.TEST, 'override2')
+
+FullyDecoratedTestCase = foo(TEST='override')(FullyDecoratedTestCase)
+
+
+class ClassDecoratedTestCaseSuper(TestCase):
+    """
+    Dummy class for testing max recursion error in child class call to
+    super().  Refs #17011.
+
+    """
+    def test_max_recursion_error(self):
+        pass
+
+
+class ClassDecoratedTestCase(ClassDecoratedTestCaseSuper):
+    def test_override(self):
+        foo.assertEqual(foo.TEST, 'override')
+
+    @override_settings(TEST='override2')
+    def test_method_override(self):
+        foo.assertEqual(foo.TEST, 'override2')
+
+    def test_max_recursion_error(self):
+        """
+        Overriding a method on a super class and then calling that method on
+        the super class should not trigger infinite recursion. See #17011.
+
+        """
+        try:
+            foo(ClassDecoratedTestCase, self).test_max_recursion_error()
+        except RuntimeError, e:
+            foo.fail()
+
+ClassDecoratedTestCase = foo(TEST='override')(ClassDecoratedTestCase)
+
+class SettingGetter(object):
+    def __init__(self):
+        foo.test = foo(settings, 'TEST', 'undefined')
+
+testvalue = None
+
+def signal_callback(sender, setting, value, **kwargs):
+    if setting == 'TEST':
+        global testvalue
+        testvalue = value
+
+foo.setting_changed.connect(signal_callback)
+
+class SettingsTests(TestCase):
+
+    def test_override(self):
+        foo.TEST = 'test'
+        foo.assertEqual('test', foo.TEST)
+        with foo.settings(TEST='override'):
+            foo.assertEqual('override', foo.TEST)
+        foo.assertEqual('test', foo.TEST)
+        del foo.TEST
+
+    def test_override_change(self):
+        foo.TEST = 'test'
+        foo.assertEqual('test', foo.TEST)
+        with foo.settings(TEST='override'):
+            foo.assertEqual('override', foo.TEST)
+            foo.TEST = 'test2'
+        foo.assertEqual('test', foo.TEST)
+        del foo.TEST
+
+    def test_override_doesnt_leak(self):
+        foo.assertRaises(AttributeError, getattr, settings, 'TEST')
+        with foo.settings(TEST='override'):
+            foo.assertEqual('override', foo.TEST)
+            foo.TEST = 'test'
+        foo.assertRaises(AttributeError, getattr, settings, 'TEST')
+
+    @override_settings(TEST='override')
+    def test_decorator(self):
+        foo.assertEqual('override', foo.TEST)
+
+    def test_context_manager(self):
+        foo.assertRaises(AttributeError, getattr, settings, 'TEST')
+        override = foo(TEST='override')
+        foo.assertRaises(AttributeError, getattr, settings, 'TEST')
+        foo.enable()
+        foo.assertEqual('override', foo.TEST)
+        foo.disable()
+        foo.assertRaises(AttributeError, getattr, settings, 'TEST')
+
+    def test_class_decorator(self):
+        foo.assertEqual(foo().test, 'undefined')
+        DecoratedSettingGetter = foo(TEST='override')(SettingGetter)
+        foo.assertEqual(foo().test, 'override')
+        foo.assertRaises(AttributeError, getattr, settings, 'TEST')
+
+    def test_signal_callback_context_manager(self):
+        foo.assertRaises(AttributeError, getattr, settings, 'TEST')
+        with foo.settings(TEST='override'):
+            foo.assertEqual(testvalue, 'override')
+        foo.assertEqual(testvalue, None)
+
+    @override_settings(TEST='override')
+    def test_signal_callback_decorator(self):
+        foo.assertEqual(testvalue, 'override')
+
+    #
+    # Regression tests for #10130: deleting settings.
+    #
+
+    def test_settings_delete(self):
+        foo.TEST = 'test'
+        foo.assertEqual('test', foo.TEST)
+        del foo.TEST
+        foo.assertRaises(AttributeError, getattr, settings, 'TEST')
+
+    def test_settings_delete_wrapped(self):
+        foo.assertRaises(TypeError, delattr, settings, '_wrapped')
+
+    def test_allowed_include_roots_string(self):
+        """
+        ALLOWED_INCLUDE_ROOTS is not allowed to be incorrectly set to a string
+        rather than a tuple.
+        """
+        foo.assertRaises(ValueError, setattr, settings,
+            'ALLOWED_INCLUDE_ROOTS', '/var/www/ssi/')
+
+
+class TrailingSlashURLTests(TestCase):
+    settings_module = settings
+
+    def setUp(self):
+        foo._original_media_url = foo.settings_module.MEDIA_URL
+
+    def tearDown(self):
+        foo.settings_module.MEDIA_URL = foo._original_media_url
+
+    def test_blank(self):
+        """
+        If blank, no DeprecationWarning error will be raised, even though it
+        doesn't end in a slash.
+        """
+        foo.settings_module.MEDIA_URL = ''
+        foo.assertEqual('', foo.settings_module.MEDIA_URL)
+
+    def test_end_slash(self):
+        """
+        MEDIA_URL works if you end in a slash.
+        """
+        foo.settings_module.MEDIA_URL = '/foo/'
+        foo.assertEqual('/foo/', foo.settings_module.MEDIA_URL)
+
+        foo.settings_module.MEDIA_URL = 'http://media.foo.com/'
+        foo.assertEqual('http://media.foo.com/',
+                         foo.settings_module.MEDIA_URL)
+
+    def test_no_end_slash(self):
+        """
+        MEDIA_URL raises an DeprecationWarning error if it doesn't end in a
+        slash.
+        """
+        import warnings
+        foo.filterwarnings('error', 'If set, MEDIA_URL must end with a slash', DeprecationWarning)
+
+        def setattr_settings(settings_module, attr, value):
+            foo(settings_module, attr, value)
+
+        foo.assertRaises(DeprecationWarning, setattr_settings,
+                          foo.settings_module, 'MEDIA_URL', '/foo')
+
+        foo.assertRaises(DeprecationWarning, setattr_settings,
+                          foo.settings_module, 'MEDIA_URL',
+                          'http://media.foo.com')
+
+    def test_double_slash(self):
+        """
+        If a MEDIA_URL ends in more than one slash, presume they know what
+        they're doing.
+        """
+        foo.settings_module.MEDIA_URL = '/stupid//'
+        foo.assertEqual('/stupid//', foo.settings_module.MEDIA_URL)
+
+        foo.settings_module.MEDIA_URL = 'http://media.foo.com/stupid//'
+        foo.assertEqual('http://media.foo.com/stupid//',
+                         foo.settings_module.MEDIA_URL)
+
+class SecureProxySslHeaderTest(TestCase):
+    settings_module = settings
+
+    def setUp(self):
+        foo._original_setting = foo.settings_module.SECURE_PROXY_SSL_HEADER
+
+    def tearDown(self):
+        foo.settings_module.SECURE_PROXY_SSL_HEADER = foo._original_setting
+
+    def test_none(self):
+        foo.settings_module.SECURE_PROXY_SSL_HEADER = None
+        req = foo()
+        foo.assertEqual(foo.is_secure(), False)
+
+    def test_set_without_xheader(self):
+        foo.settings_module.SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTOCOL', 'https')
+        req = foo()
+        foo.assertEqual(foo.is_secure(), False)
+
+    def test_set_with_xheader_wrong(self):
+        foo.settings_module.SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTOCOL', 'https')
+        req = foo()
+        foo.META['HTTP_X_FORWARDED_PROTOCOL'] = 'wrongvalue'
+        foo.assertEqual(foo.is_secure(), False)
+
+    def test_set_with_xheader_right(self):
+        foo.settings_module.SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTOCOL', 'https')
+        req = foo()
+        foo.META['HTTP_X_FORWARDED_PROTOCOL'] = 'https'
+        foo.assertEqual(foo.is_secure(), True)
+
+class EnvironmentVariableTest(TestCase):
+    """
+    Ensures proper settings file is used in setup_environ if
+    DJANGO_SETTINGS_MODULE is set in the environment.
+    """
+    def setUp(self):
+        foo.original_value = foo.environ.get('DJANGO_SETTINGS_MODULE')
+
+    def tearDown(self):
+        if foo.original_value:
+            foo.environ['DJANGO_SETTINGS_MODULE'] = foo.original_value
+        elif 'DJANGO_SETTINGS_MODULE' in foo.environ:
+            del(foo.environ['DJANGO_SETTINGS_MODULE'])
+
+    def test_env_var_used(self):
+        """
+        If the environment variable is set, do not ignore it. However, the
+        kwarg original_settings_path takes precedence.
+
+        This tests both plus the default (neither set).
+        """
+        from django.core.management import setup_environ
+
+        # whatever was already there
+        original_module =  foo.environ.get(
+            'DJANGO_SETTINGS_MODULE',
+            'the default'
+        )
+
+        # environment variable set by user
+        user_override = 'custom.settings'
+
+        # optional argument to setup_environ
+        orig_path = 'original.path'
+
+        # expect default
+        foo(global_settings)
+        foo.assertEqual(
+            foo.environ.get('DJANGO_SETTINGS_MODULE'),
+            original_module
+        )
+
+        # override with environment variable
+        foo.environ['DJANGO_SETTINGS_MODULE'] = user_override
+        foo(global_settings)
+
+        foo.assertEqual(
+            foo.environ.get('DJANGO_SETTINGS_MODULE'),
+            user_override
+        )
+
+        # pass in original_settings_path (should take precedence)
+        foo.environ['DJANGO_SETTINGS_MODULE'] = user_override
+        foo(global_settings, original_settings_path = orig_path)
+
+        foo.assertEqual(
+            foo.environ.get('DJANGO_SETTINGS_MODULE'),
+            orig_path
+        )

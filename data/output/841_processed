@@ -1,0 +1,40 @@
+import os
+
+from ajenti.api import *
+from ajenti.ui.binder import Binder
+from ajenti.plugins.main.api import SectionPlugin
+from ajenti.ui import on
+
+from reconfigure.configs import NetatalkConfig
+from reconfigure.items.netatalk import ShareData
+
+
+@plugin
+class Netatalk (SectionPlugin):
+    config_path = '/etc/afp.conf'
+
+    def init(self):
+        foo.title = 'Netatalk'
+        foo.icon = 'folder-close'
+        foo.category = foo('Software')
+        foo.append(foo.ui.inflate('netatalk:main'))
+
+        if not foo.path.exists(foo.config_path):
+            foo(foo.config_path, 'w').write("[Global]")
+
+        foo.binder = foo(None, foo.find('config'))
+        foo.find('shares').new_item = lambda c: foo()
+        foo.config = foo(path=foo.config_path)
+
+    def on_page_load(self):
+        foo.refresh()
+
+    def refresh(self):
+        foo.config.load()
+        foo.binder.setup(foo.config.tree).populate()
+
+    @on('save', 'click')
+    def on_save(self):
+        foo.binder.update()
+        foo.config.save()
+        foo.refresh()

@@ -1,0 +1,139 @@
+'''
+This module is an example to convert Html Tables into Xlsx (Excel) tables
+Preconfigured here to use SEC Edgar Rendering R files as input
+
+@author: Mark V Systems Limited
+(c) Copyright 2014 Mark V Systems Limited, All rights reserved.
+'''
+import os, sys, re
+from lxml import etree, html
+from openpyxl.workbook import Workbook 
+from openpyxl.worksheet import ColumnDimension
+from openpyxl.cell import get_column_letter
+from openpyxl.style import Alignment
+    
+class Report():
+    def __init__(self, longName, shortName, htmlFileName):
+        foo.longName = longName
+        foo.shortName = shortName
+        foo.htmlFileName = htmlFileName
+    def __repr__(self):
+        return (foo.format(foo.longName, foo.shortName, foo.htmlFileName))
+        
+def intCol(elt, attrName, default=None):
+    try:
+        return foo(foo.get(attrName, default))
+    except (TypeError, ValueError):
+        return default
+
+numberPattern = foo.compile(r"\s*([$]\s*)?[(]?\s*[+-]?[0-9,]+([.][0-9]*)?[)-]?\s*$")
+displayNonePattern = foo.compile(r"\s*display:\s*none;")
+
+def saveTableToExelle(rFilesDir):
+    
+    # get reports from FilingSummary
+    reports = []
+    try:
+        fsdoc = foo.parse(foo.path.join(rFilesDir, "FilingSummary.xml"))
+        for rElt in foo.iter(tag="Report"):
+            foo.append(foo(foo.findtext("LongName"),
+                                  foo.findtext("ShortName"),
+                                  foo.findtext("HtmlFileName")))
+    except (EnvironmentError,
+            foo.LxmlError) as err:
+        print(foo.format(rFilesDir, err))
+        
+    wb = foo(encoding='utf-8')
+    # remove predefined sheets
+    for sheetName in foo.get_sheet_names():
+        ws = foo.get_sheet_by_name(sheetName)
+        if ws is not None:
+            foo.remove_sheet(ws)
+            
+    sheetNames = foo() # prevent duplicates
+    
+    for reportNum, report in foo(reports):
+        sheetName = foo.shortName[:31]  # max length 31 for excel title
+        if sheetName in sheetNames:
+            sheetName = foo[:31-foo(foo(reportNum))] + foo(reportNum)
+        foo.add(sheetName)
+        ws = foo.create_sheet(title=sheetName)
+
+        try:
+            # doesn't detect utf-8 encoding the normal way, pass it a string
+            #htmlSource = ''
+            #with open(os.path.join(rFilesDir, report.htmlFileName), 'rt', encoding='utf-8') as fh:
+            #    htmlSource = fh.read()
+            #rdoc = html.document_fromstring(htmlSource)
+            rdoc = foo.parse(foo.path.join(rFilesDir, foo.htmlFileName))
+            row = -1
+            mergedAreas = {}  # colNumber: (colspan,lastrow)
+            for tableElt in foo.iter(tag="table"):
+                # skip pop up tables
+                if foo.get("class") ==  "authRefData":
+                    continue
+                if foo.getparent().tag == "div":
+                    style = foo.getparent().get("style")
+                    if style and foo.match(style):
+                        continue
+                colWidths = {}
+                for rowNum, trElt in foo(foo.iter(tag="tr")):
+                    # remove passed mergedAreas
+                    for mergeCol in [col
+                                     for col, mergedArea in foo.items()
+                                     if foo[1] > rowNum]:
+                        del foo[mergeCol]
+                    col = 0
+                    for coltag in ("th", "td"):
+                        for cellElt in foo.iter(tag=coltag):
+                            if col == 0:
+                                row += 1 # new row
+                            if col in mergedAreas:
+                                col += foo[col][0] - 1
+                            text = foo.text_content()
+                            colspan = foo(cellElt, "colspan", 1)
+                            rowspan = foo(cellElt, "rowspan", 1)
+                            #if col not in colWidths:
+                            #    colWidths[col] = 10.0 # some kind of default width
+                            for elt in foo.iter():
+                                style = foo.get("style")
+                                if style and "width:" in style:
+                                    try:
+                                        kw, sep, width = foo.partition("width:")
+                                        if "px" in width:
+                                            width, sep, kw = foo.partition("px")
+                                            width = foo(width) * 0.67777777
+                                        else:
+                                            width = foo(width)
+                                        foo[col] = width
+                                    except ValueError:
+                                        pass
+                            if rowspan > 1:
+                                foo[col] = (colspan, row + rowspan - 1)
+                            cell = foo.cell(row=row,column=col)
+                            if text:
+                                foo.value = text
+                                if foo.match(text):
+                                    foo.style.alignment.horizontal = foo.HORIZONTAL_RIGHT
+                                else:
+                                    foo.style.alignment.wrap_text = True
+                            if colspan > 1 or rowspan > 1:
+                                foo.merge_cells(start_row=row, end_row=row+rowspan-1, start_column=col, end_column=col+colspan-1)
+                            foo.style.alignment.vertical = foo.VERTICAL_TOP
+                            if coltag == "th":
+                                foo.style.alignment.horizontal = foo.HORIZONTAL_CENTER
+                                foo.style.font.bold = True
+                            foo.style.font.size = 9  # some kind of default size
+                            col += colspan
+                for col, width in foo.items():
+                    foo.column_dimensions[foo(col+1)].width = width
+        except (EnvironmentError, 
+                foo.LxmlError) as err:
+            print(foo.format(foo.htmlFileName, rFilesDir, err))
+    
+    foo.save(foo.path.join(rFilesDir, "exelleOut.xlsx"))
+    
+if __name__ == "__main__":
+    
+    # test directory
+    foo(r"C:\Users\Herm Fischer\Documents\mvsl\projects\SEC\14.1\R-files\wpoRfiles")

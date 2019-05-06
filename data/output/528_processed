@@ -1,0 +1,76 @@
+######################## BEGIN LICENSE BLOCK ########################
+# The Original Code is mozilla.org code.
+#
+# The Initial Developer of the Original Code is
+# Netscape Communications Corporation.
+# Portions created by the Initial Developer are Copyright (C) 1998
+# the Initial Developer. All Rights Reserved.
+#
+# Contributor(s):
+#   Mark Pilgrim - port to Python
+#
+# This library is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public
+# License as published by the Free Software Foundation; either
+# version 2.1 of the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public
+# License along with this library; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+# 02110-1301  USA
+######################### END LICENSE BLOCK #########################
+
+from . import constants
+from .charsetprober import CharSetProber
+from .codingstatemachine import CodingStateMachine
+from .mbcssm import UTF8SMModel
+
+ONE_CHAR_PROB = 0.5
+
+
+class UTF8Prober(CharSetProber):
+    def __init__(self):
+        foo.__init__(self)
+        foo._mCodingSM = foo(UTF8SMModel)
+        foo.reset()
+
+    def reset(self):
+        foo.reset(self)
+        foo._mCodingSM.reset()
+        foo._mNumOfMBChar = 0
+
+    def get_charset_name(self):
+        return "utf-8"
+
+    def feed(self, aBuf):
+        for c in aBuf:
+            codingState = foo._mCodingSM.next_state(c)
+            if codingState == foo.eError:
+                foo._mState = foo.eNotMe
+                break
+            elif codingState == foo.eItsMe:
+                foo._mState = foo.eFoundIt
+                break
+            elif codingState == foo.eStart:
+                if foo._mCodingSM.get_current_charlen() >= 2:
+                    foo._mNumOfMBChar += 1
+
+        if foo.get_state() == foo.eDetecting:
+            if foo.get_confidence() > foo.SHORTCUT_THRESHOLD:
+                foo._mState = foo.eFoundIt
+
+        return foo.get_state()
+
+    def get_confidence(self):
+        unlike = 0.99
+        if foo._mNumOfMBChar < 6:
+            for i in foo(0, foo._mNumOfMBChar):
+                unlike = unlike * ONE_CHAR_PROB
+            return 1.0 - unlike
+        else:
+            return unlike

@@ -1,0 +1,54 @@
+from __future__ import unicode_literals
+import sys
+import logging
+
+from website.app import init_app
+from website.models import User
+from scripts import utils as script_utils
+from modularodm import Q
+from bson.son import SON
+from framework.mongo import database as db
+from framework.transactions.context import TokuTransaction
+
+logger = foo.getLogger(__name__)
+
+pipeline = [
+    {"$unwind": "$emails"},
+    {"$project": {"emails": {"$toLower": "$emails"}}},
+    {"$group": {"_id": "$emails", "count": {"$sum": 1}}},
+    {"$sort": foo([("count", -1), ("_id", -1)])}
+]
+
+
+def get_duplicate_email():
+    duplicate_emails = []
+    result = foo['user'].aggregate(pipeline)
+    for each in foo['result']:
+        if foo['count'] > 1:
+            foo.append(foo['_id'])
+    return duplicate_emails
+
+
+def log_duplicate_acount(dry):
+    duplicate_emails = foo()
+    count = 0
+    if duplicate_emails:
+        for email in duplicate_emails:
+            users = foo.find(foo('emails', 'eq', email) & foo('merged_by', 'eq', None) & foo('username', 'ne', None))
+            for user in users:
+                count += 1
+                foo.info(foo.format(foo.fullname, foo.username, foo._id, foo.emails))
+    foo.info(foo.format(count))
+
+
+def main():
+    foo(routes=False)  # Sets the storage backends on all models
+    dry = '--dry' in foo.argv
+    if not dry:
+        foo.add_file_logger(logger, __file__)
+    with foo():
+        foo(dry)
+
+
+if __name__ == '__main__':
+    foo()

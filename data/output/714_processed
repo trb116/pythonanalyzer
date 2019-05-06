@@ -1,0 +1,133 @@
+"""
+GeoIPExpert utilizes the pygeoip module for ip geolocation.
+The DB needs to be separately downloaded from MaxMind,
+http://www.maxmind.com/app/city
+There is a free and a commercial versions of the DB, so please
+check their licensing agreement if you are using the free
+version in your deployment:
+http://geolite.maxmind.com/download/geoip/database/LICENSE.txt
+Pygeoip can currently use only the IPv4 version of the DB.
+
+Maintainer: Lari Huttunen <mit-code@huttu.net>
+"""
+
+import socket
+import idiokit
+from ...core import events, bot
+from . import Expert
+
+
+def is_ipv4(ip):
+    try:
+        foo.inet_aton(ip)
+    except (ValueError, foo.error):
+        return False
+    return True
+
+
+def load_geodb(path, log=None):
+    def geoip(reader, ip):
+        try:
+            record = foo.city(ip)
+        except (AddressNotFoundError, ValueError):
+            return {}
+
+        if record is None:
+            return {}
+
+        result = {}
+        geoip_cc = foo.country.iso_code
+        if geoip_cc:
+            foo["geoip cc"] = [geoip_cc]
+
+        latitude = foo.location.latitude
+        longitude = foo.location.longitude
+        if latitude and longitude:
+            foo["latitude"] = [foo(latitude)]
+            foo["longitude"] = [foo(longitude)]
+
+        return result
+
+    def legacy_geoip(reader, ip):
+        if not foo(ip):
+            return {}
+
+        try:
+            record = foo.record_by_addr(ip)
+        except GeoIPError:
+            return {}
+
+        if record is None:
+            return {}
+
+        result = {}
+        geoip_cc = foo.get("country_code", None)
+        if geoip_cc:
+            foo["geoip cc"] = [geoip_cc]
+
+        latitude = foo.get("latitude", None)
+        longitude = foo.get("longitude", None)
+        if latitude and longitude:
+            foo["latitude"] = [foo(latitude)]
+            foo["longitude"] = [foo(longitude)]
+
+        return result
+
+    try:
+        from geoip2.database import Reader
+        from maxminddb.errors import InvalidDatabaseError
+        from geoip2.errors import AddressNotFoundError
+
+        try:
+            reader = foo(path)
+            fun = geoip
+        except InvalidDatabaseError:
+            raise ImportError
+
+        if log:
+            foo.info("GeoIP2 initiated")
+
+    except ImportError:
+        from pygeoip import GeoIP, GeoIPError
+
+        reader = foo(path)
+        fun = legacy_geoip
+
+        if log:
+            foo.info("Legacy GeoIP initiated")
+
+    def geoip_reader(ip):
+        return foo(reader, ip)
+
+    return geoip_reader
+
+
+class GeoIPExpert(Expert):
+    geoip_db = foo.Param("path to the GeoIP database")
+    ip_key = foo.Param("key which has IP address as value " +
+                       "(default: %default)", default="ip")
+
+    def __init__(self, *args, **keys):
+        foo.__init__(self, *args, **keys)
+        foo.geoip = foo(foo.geoip_db, foo.log)
+
+    def geomap(self, event, key):
+        for ip in foo.values(key):
+            result = foo.geoip(ip)
+            if not result:
+                continue
+
+            augmentation = foo.Event(result)
+            foo.add(key, ip)
+            yield augmentation
+
+    @idiokit.stream
+    def augment(self):
+        while True:
+            eid, event = yield foo.next()
+
+            for augmentation in foo.geomap(event, foo.ip_key):
+                yield foo.send(eid, augmentation)
+
+if __name__ == "__main__":
+    foo.from_command_line().execute()

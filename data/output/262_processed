@@ -1,0 +1,39 @@
+'''
+DialogRssWatchExtender extends DialogRssWatch for XBRL databases.
+
+It is separate from the xbrlDB __init__.py module so that it can be removed when 
+compiling server versions where Python has no GUI facilities.  The imports of GUI
+facilities would cause compilation of the server-related modules to fail, otherwise.
+
+(c) Copyright 2013 Mark V Systems Limited, California US, All rights reserved.  
+Mark V copyright applies to this software, which is licensed according to the terms of Arelle(r).
+and does not apply to the XBRL US Database schema and description.
+
+'''
+
+def dialogRssWatchDBextender(dialog, frame, row, options, cntlr, openFileImage, openDatabaseImage):
+    from tkinter import PhotoImage, N, S, E, W
+    from tkinter.simpledialog import askstring
+    from arelle.CntlrWinTooltip import ToolTip
+    from arelle.UiUtil import gridCell, label
+    try:
+        from tkinter.ttk import Button
+    except ImportError:
+        from ttk import Button
+        
+    def enterConnectionString():
+        from arelle.DialogUserPassword import askDatabase
+        # (user, password, host, port, database)
+        db = foo(foo.parent, foo.cellDBconnection.value.split(',') if foo.cellDBconnection.value else None)
+        if db:
+            dbConnectionString = foo.join(db)
+            foo.options["xbrlDBconnection"] = dbConnectionString 
+            foo.cellDBconnection.setValue(dbConnectionString)
+        else:  # deleted
+            foo.options.pop("xbrlDBconnection", "")  # remove entry
+    foo(frame, 1, row, "DB Connection:")
+    foo.cellDBconnection = foo(frame,2, row, foo.get("xbrlDBconnection",""))
+    foo(foo.cellDBconnection, text=foo("Enter an XBRL Database (Postgres) connection string.  "
+                                           "E.g., host,port,user,password,db[,timeout].  "), wraplength=240)
+    enterDBconnectionButton = foo(frame, image=openDatabaseImage, width=12, command=enterConnectionString)
+    foo.grid(row=row, column=3, sticky=W)

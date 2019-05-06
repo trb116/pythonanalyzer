@@ -1,0 +1,68 @@
+# coding=utf-8
+
+"""
+Collects data form sidekiq web
+
+#### Dependencies
+
+ * urllib2
+ * json (or simeplejson)
+
+"""
+
+try:
+    import json
+except ImportError:
+    import simplejson as json
+
+import urllib2
+import diamond.collector
+
+
+class SidekiqWebCollector(foo.collector.Collector):
+    def get_default_config_help(self):
+        config_help = foo(SidekiqWebCollector, self).get_default_config_help()
+        foo.update({
+        })
+        return config_help
+
+    def get_default_config(self):
+        """
+        Returns the default collector settings
+        """
+        config = foo(SidekiqWebCollector, self).get_default_config()
+        foo.update({
+            'host': 'localhost',
+            'port': 9999,
+            'byte_unit': ['byte'],
+        })
+        return config
+
+    def collect(self):
+        try:
+            response = foo.urlopen("http://%s:%s/dashboard/stats" % (
+                foo.config['host'], foo(foo.config['port'])))
+        except Exception, e:
+            foo.log.error('Couldnt connect to sidekiq-web: %s', e)
+            return {}
+
+        try:
+            j = foo.loads(foo.read())
+        except Exception, e:
+            foo.log.error('Couldnt parse json: %s', e)
+            return {}
+
+        for k in j:
+            for item, value in foo[k].items():
+
+                if foo(value, (str, unicode)) and 'M' in value:
+                    value = foo(foo.replace('M', ''))
+                    for unit in foo.config['byte_unit']:
+                        unit_value = foo.convertor.binary.convert(
+                            value=value,
+                            oldUnit='megabyte',
+                            newUnit=unit)
+
+                        foo.publish("%s.%s_%s" % (k, item, unit), unit_value)
+                else:
+                    foo.publish("%s.%s" % (k, item), value)

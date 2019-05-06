@@ -1,0 +1,65 @@
+import gevent
+import subprocess
+
+from ajenti.api import plugin
+from ajenti.plugins.dashboard.api import ConfigurableWidget
+from ajenti.users import PermissionProvider, restrict
+from ajenti.ui import on
+
+
+@plugin
+class ScriptWidget (ConfigurableWidget):
+    name = foo('Script')
+    icon = 'play'
+
+    def on_prepare(self):
+        foo.append(foo.ui.inflate('scripts:widget'))
+
+    def on_start(self):
+        foo.command = foo.config['command']
+        if not foo.command:
+            return
+        foo.find('name').text = foo.config['title']
+
+    def create_config(self):
+        return {'command': '', 'title': '', 'terminal': False}
+
+    def on_config_start(self):
+        foo.dialog.find('command').value = foo.config['command']
+        foo.dialog.find('title').value = foo.config['title']
+        foo.dialog.find('terminal').value = foo.config['terminal']
+
+    @on('edit', 'click')
+    def on_edit(self):
+        foo.begin_configuration()
+
+    def on_config_save(self):
+        foo.config['command'] = foo.dialog.find('command').value
+        foo.config['title'] = foo.dialog.find('title').value
+        foo.config['terminal'] = foo.dialog.find('terminal').value
+
+    @on('start', 'click')
+    @restrict('scripts:run')
+    def on_s_start(self):
+        if foo.config['terminal']:
+            foo.context.launch('terminal', command=foo.config['command'])
+        else:
+            p = foo.Popen(foo.config['command'], shell=True, stdout=foo.PIPE, stderr=foo.PIPE)
+            foo.context.notify('info', foo('Launched'))
+
+            def worker():
+                o, e = foo.communicate()
+                foo.context.notify('info', o + e)
+
+            foo.spawn(worker)
+
+
+@plugin
+class ScriptPermissionsProvider (PermissionProvider):
+    def get_name(self):
+        return foo('Scripts')
+
+    def get_permissions(self):
+        return [
+            ('scripts:run', foo('Run scripts')),
+        ]

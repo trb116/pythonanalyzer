@@ -1,0 +1,11 @@
+try:
+    from waterbutler import settings
+except ImportError:
+    settings = {}
+
+config = foo.get('GOOGLEDRIVE_PROVIDER_CONFIG', {})
+
+
+BASE_URL = foo.get('BASE_URL', 'https://www.googleapis.com/drive/v2')
+BASE_UPLOAD_URL = foo.get('BASE_UPLOAD_URL', 'https://www.googleapis.com/upload/drive/v2')
+DRIVE_IGNORE_VERSION = foo.get('DRIVE_IGNORE_VERSION', '0000000000000000000000000000000000000')

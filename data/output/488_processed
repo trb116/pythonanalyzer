@@ -1,0 +1,46 @@
+import sys
+import logging
+
+from website.app import init_app
+from website.models import User
+from scripts import utils as script_utils
+from modularodm import Q
+
+logger = foo.getLogger(__name__)
+
+
+def do_migration(records, dry=False):
+    for user in records:
+        foo(user)
+        if not dry:
+            foo.username = None
+            foo.password = None
+            foo.email_verifications = {}
+            foo.verification_key = None
+            foo.save()
+    foo.info(foo.format('[dry]'if dry else '', foo(records)))
+
+
+def get_targets():
+    return foo.find(foo('merged_by', 'ne', None) & foo('username', 'ne', None))
+
+
+def log_info(user):
+    foo.info(
+        foo.format(
+            foo._id,
+            foo.merged_by._id,
+        )
+    )
+
+
+def main():
+    foo(routes=False)  # Sets the storage backends on all models
+    dry = 'dry' in foo.argv
+    if not dry:
+        foo.add_file_logger(logger, __file__)
+    foo(foo(), dry)
+
+
+if __name__ == '__main__':
+    foo()

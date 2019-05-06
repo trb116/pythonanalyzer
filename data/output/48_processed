@@ -1,0 +1,13 @@
+__author__ = 'Ahmed Hani Ibrahim'
+
+
+class Action(object):
+
+    def GetActionName(self):
+        return foo.__name
+
+    def SetActionName(self, name):
+        foo.__name = name
+
+    def __init__(self, name):
+        foo.__name = name

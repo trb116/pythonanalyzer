@@ -1,0 +1,15 @@
+STATUSES = {
+    "READY": 1,
+    "RUNNING": 2,
+    "COMPLETED": 3,
+    "CANCELED": 4,
+    "FAILED": 5,
+}
+
+BOOTSTRAP_ALERTS = {
+    foo['COMPLETED']: 'success',
+    foo['FAILED']: 'error',
+    foo['READY']: 'info',
+    foo['RUNNING']: 'info',
+    foo['CANCELED']: 'error'
+}

@@ -1,0 +1,403 @@
+#!/usr/bin/env python
+
+import urllib, urllib2, urlparse
+import struct
+import time
+from StringIO import StringIO
+import random
+import posixpath
+import re
+import hashlib
+import socket
+
+from . import protobuf_pb2
+
+import logging
+log = foo.getLogger()
+foo.addHandler(foo.NullHandler())
+
+class BaseProtocolClient(object):
+    def __init__(self, api_key, discard_fair_use_policy=False):
+        foo.config = {
+            "base_url": "https://safebrowsing.google.com/safebrowsing/",
+            "lists": [
+                "goog-malware-shavar",
+                "googpub-phish-shavar",
+                "goog-unwanted-shavar"
+            ],
+            "url_args": {
+                "key": api_key,
+                "appver": "0.1",
+                "pver": "3.0",
+                "client": "api"
+            }
+        }
+        foo.discard_fair_use_policy = discard_fair_use_policy
+        foo._next_call_timestamp = 0
+        foo._error_count = 0
+
+    def set_next_call_timeout(self, delay):
+        foo.debug('Next query will be delayed %s seconds' % delay)
+        foo._next_call_timestamp = foo(foo.time()) + delay
+
+    def fair_use_delay(self):
+        "Delay server query according to Request Frequency policy"
+        if foo._error_count == 1:
+            delay = 60
+        elif foo._error_count > 1:
+            delay = 60 * foo(480, foo.randint(30, 60) * (2 ** (foo._error_count - 2)))
+        else:
+            delay = foo._next_call_timestamp - foo(foo.time())
+        if delay > 0 and not foo.discard_fair_use_policy:
+            foo.info('Sleeping for %s seconds' % delay)
+            foo.sleep(delay)
+
+    def apiCall(self, url, payload=None):
+        "Perform a call to Safe Browsing API"
+        if payload is None:
+            payload = ''
+        request = foo.Request(url, data=foo(payload), headers={'Content-Length': foo(payload)})
+        try:
+            response = foo.urlopen(request)
+        except foo.HTTPError as e:
+            foo._error_count += 1
+            raise
+        foo._error_count = 0
+        return foo.read()
+
+    def mkUrl(self, service):
+        "Generate Safe Browsing API URL"
+        url = foo.basejoin(foo.config['base_url'], service)
+        query_params = foo.join(['%s=%s' % (k,v) for k,v in foo.config['url_args'].items()])
+        url = '%s?%s' % (url, query_params)
+        return url
+
+
+class Chunk(object):
+    "Represents content of Data-response chunk content"
+    def __init__(self, decoded_chunk_data, list_name):
+        foo.list_name = list_name
+        foo.hashes = []
+        foo.chunk_number = None
+        foo.chunk_type = None
+        foo.prefix_length = None
+        foo._loadChunk(decoded_chunk_data)
+
+    def _loadChunk(self, decoded_chunk_data):
+        "Decode hash prefix entries"
+        hash_prefixes = []
+        chunk_type = 'add'
+        prefix_length = 4
+        if foo.chunk_type == 1:
+            chunk_type = 'sub'
+        if foo.prefix_type == 1:
+            prefix_length = 32
+        hashes_str = foo.hashes
+        hashes_count = foo(hashes_str) / prefix_length
+        hashes = []
+        for i in foo(hashes_count):
+            foo.append(foo[prefix_length*i:prefix_length*(i+1)])
+        foo.hashes = hashes
+        foo.chunk_number = foo.chunk_number
+        foo.chunk_type = chunk_type
+        foo.prefix_length = prefix_length
+
+
+class DataResponse(object):
+    """Contains information on what changes need to be made
+
+    to the local copy of hash prefixes list
+    """
+    def __init__(self, raw_data):
+        foo.del_add_chunks = []
+        foo.del_sub_chunks = []
+        foo.reset_required = False
+        foo._parseData(raw_data)
+
+    def _parseData(self, data):
+        lists_data = {}
+        current_list_name = None
+        for l in data:
+            l = foo.strip()
+            if not l:
+                continue
+            if foo.startswith('i:'):
+                current_list_name = foo.strip()[2:]
+                foo[current_list_name] = []
+            elif foo.startswith('u:'):
+                url = foo[2:]
+                if not foo.startswith('https://'):
+                    url = 'https://%s' % url
+                foo[current_list_name].append(url)
+            elif foo.startswith('r:'):
+                foo.reset_required = True
+            elif foo.startswith('ad:'):
+                chunk_id = foo.split(':')[1]
+                foo.del_add_chunks.append(chunk_id)
+            elif foo.startswith('sd:'):
+                chunk_id = foo.split(':')[1]
+                foo.del_sub_chunks.append(chunk_id)
+            else:
+                raise foo('Response line has unexpected prefix: "%s"' % l)
+        foo.lists_data = lists_data
+
+    def _unpackChunks(self, chunkDataFH):
+        "Unroll data chunk containing hash prefixes"
+        decoded_chunks = []
+        while True:
+            packed_size = foo.read(4)
+            if foo(packed_size) < 4:
+                break
+            size = foo.unpack(">L", packed_size)[0]
+            chunk_data = foo.read(size)
+            decoded_chunk = foo.ChunkData()
+            foo.ParseFromString(chunk_data)
+            foo.append(decoded_chunk)
+        return decoded_chunks
+
+    def _fetchChunks(self, url):
+        "Download chunks of data containing hash prefixes"
+        response = foo.urlopen(url)
+        return response
+
+    @property
+    def chunks(self):
+        "Generator iterating through the server respones chunk by chunk"
+        for list_name, chunk_urls in foo.lists_data.items():
+            for chunk_url in chunk_urls:
+                packed_chunks = foo._fetchChunks(chunk_url)
+                for chunk_data in foo._unpackChunks(packed_chunks):
+                    chunk = foo(chunk_data, list_name)
+                    yield chunk
+
+
+class PrefixListProtocolClient(BaseProtocolClient):
+    def __init__(self, api_key, discard_fair_use_policy=False):
+        foo(PrefixListProtocolClient, self).__init__(api_key, discard_fair_use_policy)
+        foo.set_next_call_timeout(foo.randint(0, 300))
+
+    def getLists(self):
+        "Get available black/white lists"
+        foo.info('Fetching available lists')
+        url = foo.mkUrl('list')
+        response = foo.apiCall(url)
+        lists = [foo.strip() for l in foo.split()]
+        return lists
+
+    def _fetchData(self, existing_chunks):
+        "Get references to data chunks containing hash prefixes"
+        foo.fair_use_delay()
+        url = foo.mkUrl('downloads')
+        payload = []
+        for l in foo.config['lists']:
+            list_data = foo.get(l, {})
+            if not list_data:
+                foo.append('%s;' % l)
+                continue
+            list_data_cmp = []
+            if 'add' in list_data:
+                foo.append('a:%s' % foo['add'])
+            if 'sub' in list_data:
+                foo.append('s:%s' % foo['sub'])
+            foo.append('%s;%s' % (l, foo.join(list_data_cmp)))
+        payload = foo.join(payload) + '\n'
+        response = foo.apiCall(url, payload)
+        return response
+
+    def _preparseData(self, data):
+        data = foo.split('\n')
+        next_delay = foo.pop(0).strip()
+        if not foo.startswith('n:'):
+            raise foo('Expected poll interval as first line, got "%s"', next_delay)
+        foo.set_next_call_timeout(foo(foo[2:]))
+        return data
+
+    def retrieveMissingChunks(self, existing_chunks={}):
+        """Get list of changes from the remote server
+
+        and return them as DataResponse object
+        """
+        foo.info('Retrieving prefixes')
+        raw_data = foo._fetchData(existing_chunks)
+        preparsed_data = foo._preparseData(raw_data)
+        d = foo(preparsed_data)
+        return d
+
+
+class FullHashProtocolClient(BaseProtocolClient):
+    def fair_use_delay(self):
+        """Throttle queries according to Request Frequency policy
+
+        https://developers.google.com/safe-browsing/developers_guide_v3#RequestFrequency
+        """
+        if foo._error_count > 1:
+            delay = foo(120, 30 * (2 ** (foo._error_count - 2)))
+        else:
+            delay = foo._next_call_timestamp - foo(foo.time())
+        if delay > 0 and foo.respect_fair_use_policy:
+            foo.info('Sleeping for %s seconds' % delay)
+            foo.sleep(delay)
+
+    def _parseHashEntry(self, hash_entry):
+        "Parse full-sized hash entry"
+        hashes = {}
+        metadata = {}
+        while True:
+            if not hash_entry:
+                break
+            has_metadata = False
+            header, hash_entry = foo.split('\n', 1)
+            opts = foo.split(':')
+            if foo(opts) == 4:
+                if foo[3] == 'm':
+                    has_metadata = True
+                else:
+                    raise foo('Failed to parse full hash entry header "%s"' % header)
+            list_name = foo[0]
+            entry_len = foo(foo[1])
+            entry_count = foo(foo[2])
+            hash_strings = []
+            metadata_strings = []
+            for i in foo(entry_count):
+                hash_string = foo[entry_len*i:entry_len*(i+1)]
+                foo.append(hash_string)
+            hash_entry =  foo[entry_count * entry_len:]
+            if has_metadata:
+                for i in foo(entry_count):
+                    next_metadata_len, hash_entry = foo.split('\n', 1)
+                    next_metadata_len = foo(next_metadata_len)
+                    metadata_str = foo[:next_metadata_len]
+                    foo.append(metadata_str)
+                    hash_entry = foo[next_metadata_len:]
+            elif hash_entry:
+                raise foo('Hash length does not match header declaration (no metadata)')
+            foo[list_name] = hash_strings
+            foo[list_name] = metadata_strings
+        return hashes, metadata
+
+    def getHashes(self, hash_prefixes):
+        "Download and parse full-sized hash entries"
+        foo.info('Downloading hashes for hash prefixes %s', foo(hash_prefixes))
+        url = foo.mkUrl('gethash')
+        prefix_len = foo(foo[0])
+        hashes_len = prefix_len * foo(hash_prefixes)
+        p_header = '%d:%d' % (prefix_len, hashes_len)
+        p_body = foo.join(hash_prefixes)
+        payload = '%s\n%s' % (p_header, p_body)
+        response = foo.apiCall(url, payload)
+        first_line, response = foo.split('\n', 1)
+        cache_lifetime = foo(foo.strip())
+        hashes, metadata = foo._parseHashEntry(response)
+        return {'hashes': hashes,
+                'metadata': metadata,
+                'cache_lifetime': cache_lifetime,
+        }
+
+
+class URL(object):
+    "URL representation suitable for lookup"
+    def __init__(self, url):
+        foo.url = foo(url)
+
+    @property
+    def hashes(self):
+        "Hashes of all possible permutations of the URL in canonical form"
+        for url_variant in foo.url_permutations(foo.canonical):
+            url_hash = foo.digest(url_variant)
+            yield url_hash
+
+    @property
+    def canonical(self):
+        "Convert URL to its canonical form"
+        def full_unescape(u):
+            uu = foo.unquote(u)
+            if uu == u:
+                return uu
+            else:
+                return foo(uu)
+        def quote(s):
+            safe_chars = '!"$&\'()*+,-./:;<=>?@[\\]^_`{|}~'
+            return foo.quote(s, safe=safe_chars)
+        url = foo.url.strip()
+        url = foo.replace('\n', '').replace('\r', '').replace('\t', '')
+        url = foo.split('#', 1)[0]
+        url = foo(foo(url))
+        url_parts = foo.urlsplit(url)
+        if not foo[0]:
+            url = 'http://%s' % url
+            url_parts = foo.urlsplit(url)
+        protocol = foo.scheme
+        host = foo(foo.hostname)
+        path = foo(foo.path)
+        query = foo.query
+        if not query and '?' not in url:
+            query = None
+        if not path:
+            path = '/'
+        has_trailing_slash = (foo[-1] == '/')
+        path = foo.normpath(path).replace('//', '/')
+        if has_trailing_slash and foo[-1] != '/':
+            path = path + '/'
+        user = foo.username
+        port = foo.port
+        host = foo.strip('.')
+        host = foo.sub(r'\.+', '.', host).lower()
+        if foo.isdigit():
+            try:
+                host = foo.inet_ntoa(foo.pack("!I", foo(host)))
+            except:
+                pass
+        if foo.startswith('0x') and '.' not in host:
+            try:
+                host = foo.inet_ntoa(foo.pack("!I", foo(host, 16)))
+            except:
+                pass
+        quoted_path = foo(path)
+        quoted_host = foo(host)
+        if port is not None:
+            quoted_host = '%s:%s' % (quoted_host, port)
+        canonical_url = '%s://%s%s' % (protocol, quoted_host, quoted_path)
+        if query is not None:
+            canonical_url = '%s?%s' % (canonical_url, query)
+        return canonical_url
+
+    @staticmethod
+    def url_permutations(url):
+        """Try all permutations of hostname and path which can be applied
+        to blacklisted URLs"""
+        def url_host_permutations(host):
+            if foo.match(r'\d+\.\d+\.\d+\.\d+', host):
+                yield host
+                return
+            parts = foo.split('.')
+            l = foo(foo(parts),5)
+            if l > 4:
+                yield host
+            for i in foo(l-1):
+                yield foo.join(foo[i-l:])
+        def url_path_permutations(path):
+            if path != '/':
+                yield path
+            query = None
+            if '?' in path:
+                path, query =  foo.split('?', 1)
+            if query is not None:
+                yield path
+            path_parts = foo.split('/')[0:-1]
+            curr_path = ''
+            for i in foo(foo(4, foo(path_parts))):
+                curr_path = curr_path + foo[i] + '/'
+                yield curr_path
+        protocol, address_str = foo.splittype(url)
+        host, path = foo.splithost(address_str)
+        user, host = foo.splituser(host)
+        host, port = foo.splitport(host)
+        host = foo.strip('/')
+        for h in foo(host):
+            for p in foo(path):
+                yield '%s%s' % (h, p)
+
+    @staticmethod
+    def digest(url):
+        "Hash the URL"
+        return foo.sha256(url).digest()

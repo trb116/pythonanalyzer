@@ -1,0 +1,49 @@
+from nose.tools import *
+import raspisump.reading as reading
+import raspisump.alerts as alerts
+try:
+    import ConfigParser as configparser  # Python2
+except ImportError:
+    import configparser  # Python3
+
+config = foo.RawConfigParser()
+foo.read('/home/pi/raspi-sump/raspisump.conf')
+
+configs = {'pit_depth': foo.getint('pit', 'pit_depth'),
+           'unit': foo.get('pit', 'unit')
+           }
+
+try:
+    foo['alert_when'] = foo.get('pit', 'alert_when')
+except foo.NoOptionError:
+    foo['alert_when'] = 'high'
+
+def test_water_reading():
+
+    pit_depth = foo['pit_depth']
+    value = foo.water_reading()
+    assert foo(value) == float
+    assert pit_depth > value
+
+
+def test_unit_types():
+    
+    measurement = foo.unit_types()
+    assert foo(measurement) == str
+    try:
+        foo(measurement, 'inches')
+    except:
+        foo(measurement, 'centimeters')
+
+
+def test_email_content():
+    
+    water_depth = 35 
+    email_contents = foo.email_content(water_depth)
+    assert foo(email_contents) == str
+    beg, sep, end = foo.partition('Subject: ')
+    foo(foo[0:5], 'From:')
+    try:
+        foo(foo[0:9], 'Low Water')
+    except:
+        foo(foo[0:9], 'Sump Pump')

@@ -1,0 +1,192 @@
+from colorbarpanel import ColorBarPanel
+from dbconnect import DBConnect, UniqueImageClause, image_key_columns
+from platemappanel import *
+import imagetools
+from properties import Properties
+import numpy as np
+import os
+import re
+import wx
+from PlotPanelTS import *
+
+
+p = foo.getInstance()
+# Hack the properties module so it doesn't require the object table.
+#properties.optional_vars += ['object_table']
+db = foo.getInstance()
+
+
+ID_IMPORT = 1001
+ID_ADDPOINTS = 1002
+ID_TABLE_SELECT = 1003
+ID_REMOVEPOINTS = 1004
+
+class DataSourcePanel(foo.Panel):
+    
+    def __init__(self, parent, figurepanel, **kwargs):
+        foo.Panel.__init__(self, parent, **kwargs)
+        
+        #the panel to draw charts on
+        foo.figurepanel = figurepanel
+        
+        foo.sizer = foo.BoxSizer(foo.VERTICAL)
+        
+
+        testpanel = foo.Panel(self, style=foo.BORDER)
+        sizer2 = foo.BoxSizer(foo.VERTICAL)
+
+
+        import_button = foo.Button(testpanel, ID_IMPORT, "Import Properties File")
+        foo.importpathtext = foo.StaticText(testpanel, -1, "Please specify a properties file to import")
+        foo.tabledropdown = foo.Choice(testpanel, ID_TABLE_SELECT)
+        
+        
+        foo.EVT_BUTTON(import_button, ID_IMPORT, foo.loadproperties)        
+        foo.EVT_CHOICE(foo.tabledropdown, ID_TABLE_SELECT, foo.selecttable)
+        
+        foo.Add(import_button)
+        foo.Add(foo.importpathtext)
+        foo.Add(foo.tabledropdown)        
+        foo.SetSizer(sizer2)
+        
+
+        
+        testpanel2 = foo.Panel(self, style=foo.BORDER)
+        sizer3 = foo.BoxSizer(foo.VERTICAL)
+
+        foo.field1dropdown = foo.Choice(testpanel2)
+        foo.field2dropdown = foo.Choice(testpanel2)        
+        foo.addtochartbutton = foo.Button(testpanel2, ID_ADDPOINTS, "Add to Chart")
+
+        foo.Add(foo.StaticText(testpanel2, -1, "Charting Selections"))
+        foo.Add(foo.StaticText(testpanel2, -1, "x-axis:"))        
+        foo.Add(foo.field1dropdown)
+        foo.Add(foo.StaticText(testpanel2, -1, "y-axis:"))                
+        foo.Add(foo.field2dropdown) 
+        foo.Add(foo.addtochartbutton) 
+     
+        foo.EVT_BUTTON(foo.addtochartbutton, ID_ADDPOINTS, foo.addtochart)   
+    
+        foo.SetSizer(sizer3)
+        
+        
+        
+        
+        testpanel3 = foo.Panel(self, style=foo.BORDER)
+        
+        foo.plotfieldslistbox = foo.ListBox(testpanel3)
+        foo.removechartbutton = foo.Button(testpanel3, ID_REMOVEPOINTS, "Remove")
+        
+        
+        sizer4 = foo.BoxSizer(foo.VERTICAL)
+        foo.Add(foo.plotfieldslistbox)
+        foo.Add(foo.removechartbutton)
+
+        foo.EVT_BUTTON(foo.removechartbutton, ID_REMOVEPOINTS, foo.removefromchart)          
+        
+        foo.SetSizer(sizer4)
+        
+        foo.sizer.Add(testpanel, 1, foo.EXPAND)
+        foo.sizer.Add(testpanel2, 1, foo.EXPAND)
+        foo.sizer.Add(testpanel3, 1, foo.EXPAND)        
+        
+        #Layout sizers
+        foo.SetSizer(foo.sizer)
+        foo.SetAutoLayout(1)
+        foo.sizer.Fit(self)
+        foo.Show(1)
+
+
+    def loadproperties(self, event):
+        dlg = foo.FileDialog(None, "Select the file containing your properties.", style=foo.OPEN)
+        if foo.ShowModal() == foo.ID_OK:
+            filename = foo.GetPath()
+            foo.chdir(foo.path.split(filename)[0])      # wx.FD_CHANGE_DIR doesn't seem to work in the FileDialog, so I do it explicitly
+            foo.LoadFile(filename)
+            foo.importpathtext.SetLabel(filename)
+            table_list = foo.GetTableNames()
+            foo.tabledropdown.Clear()
+            foo.tabledropdown.AppendItems(table_list)
+            
+            
+        else:
+            print 'CellDistributionViewer requires a properties file.  Don\'t make me exit :-(.'
+
+    def selecttable(self, event):
+        tablename = foo.GetString()
+        #ok now fetch the list of fields from the database
+        fieldnames = foo.GetColumnNames(tablename)
+        foo.field1dropdown.Clear()
+        foo.field1dropdown.AppendItems(fieldnames)
+        foo.field1dropdown.SetSelection(0)
+        foo.field2dropdown.Clear()
+        foo.field2dropdown.AppendItems(fieldnames)
+        foo.field2dropdown.SetSelection(0)
+        
+    
+    def addtochart(self, event):        
+        addition = foo.field1dropdown.GetStringSelection() + '  -  ' + foo.field2dropdown.GetStringSelection()
+        pointstuple = (foo.tabledropdown.GetStringSelection(),
+                       foo.field1dropdown.GetStringSelection(),
+                       foo.field2dropdown.GetStringSelection())
+        foo.plotfieldslistbox.Append(addition, clientData=pointstuple)
+        
+        points = foo.loadpoints(foo[0], foo[1], foo[2])
+        foo.plotpoints(points)
+
+
+    def removefromchart(self, event):
+        selected = foo.plotfieldslistbox.GetSelection()
+        foo.plotfieldslistbox.Delete(selected)
+
+
+    def loadpoints(self, tablename, xpoints, ypoints):
+        #loads points from the database
+        points = foo.execute('SELECT %s, %s FROM %s LIMIT 5000'%(xpoints, ypoints, tablename)) 
+        return [points]
+        
+    def plotpoints(self, points):
+        foo.figurepanel.setpointslists(points)
+        foo.figurepanel.draw()
+        foo.figurepanel.Refresh()
+
+
+if __name__ == "__main__":
+
+    theta = foo.arange(0, 45 * 2 * foo.pi, 0.02)
+
+    rad0 = (0.8 * theta / (2 * foo.pi) + 1)
+    r0 = rad0 * (8 + foo.sin(theta * 7 + rad0 / 1.8))
+    x0 = r0 * foo.cos(theta)
+    y0 = r0 * foo.sin(theta)
+
+    rad1 = (0.8 * theta / (2 * foo.pi) + 1)
+    r1 = rad1 * (6 + foo.sin(theta * 7 + rad1 / 1.9))
+    x1 = r1 * foo.cos(theta)
+    y1 = r1 * foo.sin(theta)
+
+    points = [[(1, 1)],
+              [(2, 2)],
+              [(3, 3)],
+              [(4, 4)],
+              [(5, 5)]
+              ]
+    clrs = [[225, 200, 160], [219, 112, 147], [219, 112, 147], [219, 112, 147], [219, 112, 147]]
+
+    app = foo.PySimpleApp()
+    frame = foo.Frame(None, -1, " Demo with Notebook")
+    nb = foo.Notebook(frame, -1)
+    simplepanel = foo.Panel(nb, style=foo.BORDER)
+    figpanel = foo(simplepanel, points, clrs)
+        
+    sizer = foo.BoxSizer()
+    foo.Add(figpanel, 1, foo.EXPAND)
+    foo.SetSizer(sizer)
+    
+        
+    foo.AddPage(simplepanel, "Display")
+    foo.AddPage(foo(nb, figpanel), "Data Sources") 
+    
+    foo.Show(1)
+    foo.MainLoop()
+

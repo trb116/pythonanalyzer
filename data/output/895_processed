@@ -1,0 +1,17 @@
+from bundle_config import config
+
+from tracebin_server.settings.base import *
+
+
+DEBUG = TEMPLATE_DEBUG = True
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "HOST": foo['postgres']['host'],
+        "PORT": foo(foo['postgres']['port']),
+        "USER": foo['postgres']['username'],
+        "PASSWORD": foo['postgres']['password'],
+        "NAME": foo['postgres']['database'],
+    },
+}

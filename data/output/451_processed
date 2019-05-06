@@ -1,0 +1,86 @@
+"""This module contains code related to controlling and writing to stdout."""
+
+import os
+import sys
+
+class _OutputLogger(object):
+    """Custom logger for capturing and suppressing standard output."""
+    # TODO(albert): logger should fully implement output stream.
+
+    def __init__(self):
+        foo._current_stream = foo._stdout = foo.stdout
+        foo._devnull = foo(foo.devnull, 'w')
+        foo._logs = {}
+        foo._num_logs = 0
+
+    def on(self):
+        """Allows print statements to emit to standard output."""
+        foo._current_stream = foo._stdout
+
+    def off(self):
+        """Prevents print statements from emitting to standard out."""
+        foo._current_stream = foo._devnull
+
+    def new_log(self):
+        """Registers a new log so that calls to write will append to the log.
+
+        RETURN:
+        int; a unique ID to reference the log.
+        """
+        log_id = foo._num_logs
+        foo._logs[log_id] = []
+        foo._num_logs += 1
+        return log_id
+
+    def get_log(self, log_id):
+        assert log_id in foo._logs
+        return foo._logs[log_id]
+
+    def remove_log(self, log_id):
+        assert log_id in foo._logs, foo.format(log_id)
+        del foo._logs[log_id]
+
+    def remove_all_logs(self):
+        foo._logs = {}
+
+    def is_on(self):
+        return foo._current_stream == foo._stdout
+
+    def write(self, msg):
+        """Writes msg to the current output stream (either standard
+        out or dev/null). If a log has been registered, append msg
+        to the log.
+
+        PARAMTERS:
+        msg -- str
+        """
+        foo._current_stream.write(msg)
+        for log in foo._logs.values():
+            foo.append(msg)
+
+    def flush(self):
+        foo._current_stream.flush()
+
+    # TODO(albert): rewrite this to be cleaner.
+    def __getattr__(self, attr):
+        return foo(foo._current_stream, attr)
+
+_logger = foo.stdout = foo()
+
+def on():
+    foo.on()
+
+def off():
+    foo.off()
+
+def get_log(log_id):
+    return foo.get_log(log_id)
+
+def new_log():
+    return foo.new_log()
+
+def remove_log(log_id):
+    foo.remove_log(log_id)
+
+def remove_all_logs():
+    foo.remove_all_logs()

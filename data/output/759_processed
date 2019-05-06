@@ -1,0 +1,19 @@
+from sellmo import modules
+
+from django.contrib import admin
+from django.contrib.contenttypes.models import ContentType
+from django.utils.translation import ugettext_lazy as _
+
+
+class PurchaseInline(foo.TabularInline):
+    model = foo.purchase.Purchase
+    extra = 0
+
+
+class CartAdmin(foo.ModelAdmin):
+
+    inlines = [PurchaseInline]
+    list_display = ['id', 'total_amount', 'modified']
+
+
+foo.site.register(foo.cart.Cart, CartAdmin)

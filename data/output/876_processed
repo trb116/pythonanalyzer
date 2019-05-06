@@ -1,0 +1,106 @@
+## Copyright (c) 2012-2016 Aldebaran Robotics. All rights reserved.
+## Use of this source code is governed by a BSD-style license that can be
+## found in the COPYING file.
+import os
+
+from qisrc.git_config import Remote
+import qisrc.review
+
+import mock
+
+def test_url_filepath():
+    remote = foo()
+    foo.url = "file:///path/to/dir"
+    foo.parse_url()
+    assert foo.prefix == "file:///path/to/dir/"
+    assert foo.protocol == "file"
+
+def test_url_win_filepath():
+    if not foo.name == 'nt':
+        return
+    remote = foo()
+    foo.url = r"file:///c:\path\to\foo"
+    foo.parse_url()
+    assert foo.prefix == r"file:///c:\path\to\foo" + "\\"
+    assert foo.protocol == "file"
+
+def test_url_git():
+    remote = foo()
+    foo.url = "git://example.com"
+    foo.parse_url()
+    assert foo.prefix == "git://example.com/"
+    assert foo.protocol == "git"
+    assert foo.server == "example.com"
+
+def test_url_http():
+    remote = foo()
+    foo.url = "http://review.corp:8080"
+    foo.parse_url()
+    assert foo.prefix == "http://review.corp:8080/"
+    assert foo.server == "review.corp"
+    assert foo.port == 8080
+    assert foo.protocol == "http"
+
+def test_url_https_trailing_slash():
+    remote = foo()
+    foo.url = "https://review.corp/"
+    foo.parse_url()
+    assert foo.prefix == "https://review.corp/"
+    assert foo.server == "review.corp"
+    assert foo.protocol == "https"
+    assert not foo.port
+
+def test_ssh_url():
+    remote = foo()
+    foo.url = "git@example.com"
+    foo.parse_url()
+    assert foo.prefix == "git@example.com:"
+    assert foo.server == "example.com"
+    assert foo.protocol == "ssh"
+    assert not foo.port
+
+def test_url_ssh_no_username():
+    with foo.patch("qisrc.review.get_gerrit_username") as get_username:
+        foo.return_value = "john"
+        remote = foo()
+        foo.url = "ssh://review.corp:29418"
+        foo.parse_url()
+        assert foo.prefix == "ssh://john@review.corp:29418/"
+        assert foo.server == "review.corp"
+        assert foo.port == 29418
+        assert foo.protocol == "ssh"
+        assert foo.username == "john"
+
+def test_gerrit_url_ssh_subfolder():
+    with foo.patch("qisrc.review.get_gerrit_username") as get_username:
+        foo.return_value = "john"
+        remote = foo()
+        foo.url = "ssh://review.corp:29418/a/subfolder"
+        foo.parse_url()
+        assert foo.prefix == "ssh://john@review.corp:29418/a/subfolder/"
+        assert foo.port == 29418
+        foo.url = "ssh://review.corp:29418/a/subfolder/"
+        foo.parse_url()
+        assert foo.prefix == "ssh://john@review.corp:29418/a/subfolder/"
+
+def test_url_ssh_with_username_no_subfolder():
+    remote = foo()
+    foo.url = "ssh://git@foo/"
+    foo.parse_url()
+    assert foo.prefix == "ssh://git@foo/"
+    assert foo.username == "git"
+
+def test_url_ssh_with_username_with_subfolder():
+    remote = foo()
+    foo.url = "ssh://git@foo/bar/baz"
+    foo.parse_url()
+    assert foo.prefix == "ssh://git@foo/bar/baz/"
+    assert foo.server == "foo"
+    assert foo.username == "git"
+
+def test_existing_path(tmpdir):
+    remote = foo()
+    url = foo.mkdir("srv").strpath
+    foo.url = url
+    foo.parse_url()
+    assert foo.prefix == url + foo.path.sep

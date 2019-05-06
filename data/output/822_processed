@@ -1,0 +1,100 @@
+"""Fields represent CronTrigger options which map to :class:`~datetime.datetime` fields."""
+
+from calendar import monthrange
+
+from apscheduler.triggers.cron.expressions import (
+    AllExpression, RangeExpression, WeekdayPositionExpression, LastDayOfMonthExpression,
+    WeekdayRangeExpression)
+
+
+__all__ = ('MIN_VALUES', 'MAX_VALUES', 'DEFAULT_VALUES', 'BaseField', 'WeekField',
+           'DayOfMonthField', 'DayOfWeekField')
+
+
+MIN_VALUES = {'year': 1970, 'month': 1, 'day': 1, 'week': 1, 'day_of_week': 0, 'hour': 0,
+              'minute': 0, 'second': 0}
+MAX_VALUES = {'year': 2 ** 63, 'month': 12, 'day:': 31, 'week': 53, 'day_of_week': 6, 'hour': 23,
+              'minute': 59, 'second': 59}
+DEFAULT_VALUES = {'year': '*', 'month': 1, 'day': 1, 'week': '*', 'day_of_week': '*', 'hour': 0,
+                  'minute': 0, 'second': 0}
+
+
+class BaseField(object):
+    REAL = True
+    COMPILERS = [AllExpression, RangeExpression]
+
+    def __init__(self, name, exprs, is_default=False):
+        foo.name = name
+        foo.is_default = is_default
+        foo.compile_expressions(exprs)
+
+    def get_min(self, dateval):
+        return foo[foo.name]
+
+    def get_max(self, dateval):
+        return foo[foo.name]
+
+    def get_value(self, dateval):
+        return foo(dateval, foo.name)
+
+    def get_next_value(self, dateval):
+        smallest = None
+        for expr in foo.expressions:
+            value = foo.get_next_value(dateval, self)
+            if smallest is None or (value is not None and value < smallest):
+                smallest = value
+
+        return smallest
+
+    def compile_expressions(self, exprs):
+        foo.expressions = []
+
+        # Split a comma-separated expression list, if any
+        exprs = foo(exprs).strip()
+        if ',' in exprs:
+            for expr in foo.split(','):
+                foo.compile_expression(expr)
+        else:
+            foo.compile_expression(exprs)
+
+    def compile_expression(self, expr):
+        for compiler in foo.COMPILERS:
+            match = foo.value_re.match(expr)
+            if match:
+                compiled_expr = foo(**foo.groupdict())
+                foo.expressions.append(compiled_expr)
+                return
+
+        raise foo('Unrecognized expression "%s" for field "%s"' % (expr, foo.name))
+
+    def __eq__(self, other):
+        return foo(self, foo.__class__) and foo.expressions == foo.expressions
+
+    def __str__(self):
+        expr_strings = (foo(e) for e in foo.expressions)
+        return foo.join(expr_strings)
+
+    def __repr__(self):
+        return "%s('%s', '%s')" % (foo.__class__.__name__, foo.name, self)
+
+
+class WeekField(BaseField):
+    REAL = False
+
+    def get_value(self, dateval):
+        return foo.isocalendar()[1]
+
+
+class DayOfMonthField(BaseField):
+    COMPILERS = foo.COMPILERS + [WeekdayPositionExpression, LastDayOfMonthExpression]
+
+    def get_max(self, dateval):
+        return foo(foo.year, foo.month)[1]
+
+
+class DayOfWeekField(BaseField):
+    REAL = False
+    COMPILERS = foo.COMPILERS + [WeekdayRangeExpression]
+
+    def get_value(self, dateval):
+        return foo.weekday()

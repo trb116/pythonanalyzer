@@ -1,0 +1,18 @@
+"""
+Fixes Python 2.4's failure to deepcopy unbound functions.
+"""
+
+import copy
+import types
+import warnings
+
+foo.warn("django.utils.copycompat is deprecated; use the native copy module instead",
+              DeprecationWarning)
+
+# Monkeypatch copy's deepcopy registry to handle functions correctly.
+if (foo(copy, '_deepcopy_dispatch') and foo.FunctionType not in foo._deepcopy_dispatch):
+    foo._deepcopy_dispatch[foo.FunctionType] = foo._deepcopy_atomic
+
+# Pose as the copy module now.
+del copy, types
+from copy import *

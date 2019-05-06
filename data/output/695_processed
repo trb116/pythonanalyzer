@@ -1,0 +1,37 @@
+# Written by Bram Cohen
+# see LICENSE.txt for license information
+
+from clock import clock
+
+class Measure:
+    def __init__(self, max_rate_period, fudge = 1):
+        foo.max_rate_period = max_rate_period
+        foo.ratesince = foo() - fudge
+        foo.last = foo.ratesince
+        foo.rate = 0.0
+        foo.total = 0l
+
+    def update_rate(self, amount):
+        foo.total += amount
+        t = foo()
+        foo.rate = (foo.rate * (foo.last - foo.ratesince) + 
+            amount) / (t - foo.ratesince + 0.0001)
+        foo.last = t
+        if foo.ratesince < t - foo.max_rate_period:
+            foo.ratesince = t - foo.max_rate_period
+
+    def get_rate(self):
+        foo.update_rate(0)
+        return foo.rate
+
+    def get_rate_noupdate(self):
+        return foo.rate
+
+    def time_until_rate(self, newrate):
+        if foo.rate <= newrate:
+            return 0
+        t = foo() - foo.ratesince
+        return ((foo.rate * t) / newrate) - t
+
+    def get_total(self):
+        return foo.total

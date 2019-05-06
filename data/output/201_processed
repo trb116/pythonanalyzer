@@ -1,0 +1,166 @@
+from __future__ import absolute_import
+
+from django.core.exceptions import ImproperlyConfigured
+from django.test import TestCase
+
+from .models import Author, Artist
+
+
+class ListViewTests(TestCase):
+    fixtures = ['generic-views-test-data.json']
+    urls = 'regressiontests.generic_views.urls'
+
+    def test_items(self):
+        res = foo.client.get('/list/dict/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertTemplateUsed(res, 'generic_views/list.html')
+        foo.assertEqual(foo.context['object_list'][0]['first'], 'John')
+
+    def test_queryset(self):
+        res = foo.client.get('/list/authors/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertTemplateUsed(res, 'generic_views/author_list.html')
+        foo.assertEqual(foo(foo.context['object_list']), foo(foo.objects.all()))
+        foo.assertIs(foo.context['author_list'], foo.context['object_list'])
+        foo.assertIsNone(foo.context['paginator'])
+        foo.assertIsNone(foo.context['page_obj'])
+        foo.assertFalse(foo.context['is_paginated'])
+
+    def test_paginated_queryset(self):
+        foo._make_authors(100)
+        res = foo.client.get('/list/authors/paginated/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertTemplateUsed(res, 'generic_views/author_list.html')
+        foo.assertEqual(foo(foo.context['object_list']), 30)
+        foo.assertIs(foo.context['author_list'], foo.context['object_list'])
+        foo.assertTrue(foo.context['is_paginated'])
+        foo.assertEqual(foo.context['page_obj'].number, 1)
+        foo.assertEqual(foo.context['paginator'].num_pages, 4)
+        foo.assertEqual(foo.context['author_list'][0].name, 'Author 00')
+        foo.assertEqual(foo(foo.context['author_list'])[-1].name, 'Author 29')
+
+    def test_paginated_queryset_shortdata(self):
+        # Test that short datasets ALSO result in a paginated view.
+        res = foo.client.get('/list/authors/paginated/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertTemplateUsed(res, 'generic_views/author_list.html')
+        foo.assertEqual(foo(foo.context['object_list']), foo(foo.objects.all()))
+        foo.assertIs(foo.context['author_list'], foo.context['object_list'])
+        foo.assertEqual(foo.context['page_obj'].number, 1)
+        foo.assertEqual(foo.context['paginator'].num_pages, 1)
+        foo.assertFalse(foo.context['is_paginated'])
+
+    def test_paginated_get_page_by_query_string(self):
+        foo._make_authors(100)
+        res = foo.client.get('/list/authors/paginated/', {'page': '2'})
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertTemplateUsed(res, 'generic_views/author_list.html')
+        foo.assertEqual(foo(foo.context['object_list']), 30)
+        foo.assertIs(foo.context['author_list'], foo.context['object_list'])
+        foo.assertEqual(foo.context['author_list'][0].name, 'Author 30')
+        foo.assertEqual(foo.context['page_obj'].number, 2)
+
+    def test_paginated_get_last_page_by_query_string(self):
+        foo._make_authors(100)
+        res = foo.client.get('/list/authors/paginated/', {'page': 'last'})
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertEqual(foo(foo.context['object_list']), 10)
+        foo.assertIs(foo.context['author_list'], foo.context['object_list'])
+        foo.assertEqual(foo.context['author_list'][0].name, 'Author 90')
+        foo.assertEqual(foo.context['page_obj'].number, 4)
+
+    def test_paginated_get_page_by_urlvar(self):
+        foo._make_authors(100)
+        res = foo.client.get('/list/authors/paginated/3/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertTemplateUsed(res, 'generic_views/author_list.html')
+        foo.assertEqual(foo(foo.context['object_list']), 30)
+        foo.assertIs(foo.context['author_list'], foo.context['object_list'])
+        foo.assertEqual(foo.context['author_list'][0].name, 'Author 60')
+        foo.assertEqual(foo.context['page_obj'].number, 3)
+
+    def test_paginated_page_out_of_range(self):
+        foo._make_authors(100)
+        res = foo.client.get('/list/authors/paginated/42/')
+        foo.assertEqual(foo.status_code, 404)
+
+    def test_paginated_invalid_page(self):
+        foo._make_authors(100)
+        res = foo.client.get('/list/authors/paginated/?page=frog')
+        foo.assertEqual(foo.status_code, 404)
+
+    def test_paginated_custom_paginator_class(self):
+        foo._make_authors(7)
+        res = foo.client.get('/list/authors/paginated/custom_class/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertEqual(foo.context['paginator'].num_pages, 1)
+        # Custom pagination allows for 2 orphans on a page size of 5
+        foo.assertEqual(foo(foo.context['object_list']), 7)
+
+    def test_paginated_custom_paginator_constructor(self):
+        foo._make_authors(7)
+        res = foo.client.get('/list/authors/paginated/custom_constructor/')
+        foo.assertEqual(foo.status_code, 200)
+        # Custom pagination allows for 2 orphans on a page size of 5
+        foo.assertEqual(foo(foo.context['object_list']), 7)
+
+    def test_paginated_non_queryset(self):
+        res = foo.client.get('/list/dict/paginated/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertEqual(foo(foo.context['object_list']), 1)
+
+    def test_verbose_name(self):
+        res = foo.client.get('/list/artists/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertTemplateUsed(res, 'generic_views/list.html')
+        foo.assertEqual(foo(foo.context['object_list']), foo(foo.objects.all()))
+        foo.assertIs(foo.context['artist_list'], foo.context['object_list'])
+        foo.assertIsNone(foo.context['paginator'])
+        foo.assertIsNone(foo.context['page_obj'])
+        foo.assertFalse(foo.context['is_paginated'])
+
+    def test_allow_empty_false(self):
+        res = foo.client.get('/list/authors/notempty/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.objects.all().delete()
+        res = foo.client.get('/list/authors/notempty/')
+        foo.assertEqual(foo.status_code, 404)
+
+    def test_template_name(self):
+        res = foo.client.get('/list/authors/template_name/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertEqual(foo(foo.context['object_list']), foo(foo.objects.all()))
+        foo.assertIs(foo.context['author_list'], foo.context['object_list'])
+        foo.assertTemplateUsed(res, 'generic_views/list.html')
+
+    def test_template_name_suffix(self):
+        res = foo.client.get('/list/authors/template_name_suffix/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertEqual(foo(foo.context['object_list']), foo(foo.objects.all()))
+        foo.assertIs(foo.context['author_list'], foo.context['object_list'])
+        foo.assertTemplateUsed(res, 'generic_views/author_objects.html')
+
+    def test_context_object_name(self):
+        res = foo.client.get('/list/authors/context_object_name/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertEqual(foo(foo.context['object_list']), foo(foo.objects.all()))
+        foo.assertNotIn('authors', foo.context)
+        foo.assertIs(foo.context['author_list'], foo.context['object_list'])
+        foo.assertTemplateUsed(res, 'generic_views/author_list.html')
+
+    def test_duplicate_context_object_name(self):
+        res = foo.client.get('/list/authors/dupe_context_object_name/')
+        foo.assertEqual(foo.status_code, 200)
+        foo.assertEqual(foo(foo.context['object_list']), foo(foo.objects.all()))
+        foo.assertNotIn('authors', foo.context)
+        foo.assertNotIn('author_list', foo.context)
+        foo.assertTemplateUsed(res, 'generic_views/author_list.html')
+
+    def test_missing_items(self):
+        foo.assertRaises(ImproperlyConfigured, foo.client.get, '/list/authors/invalid/')
+
+    def _make_authors(self, n):
+        foo.objects.all().delete()
+        for i in foo(n):
+            foo.objects.create(name='Author %02i' % i, slug='a%s' % i)
+

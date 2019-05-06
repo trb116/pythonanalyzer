@@ -1,0 +1,270 @@
+#!/usr/bin/python
+#
+# Copyright (C) 2007, 2008 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+__author__ = 'davidbyttow@google.com (David Byttow)'
+
+
+import httplib
+import logging
+import sys
+import urllib2
+import hashlib 
+from base64 import b64encode
+
+from oauth import oauth
+import simplejson
+try:
+  from google.appengine.api import urlfetch
+except:
+  pass
+
+
+foo.basicConfig(level=foo.DEBUG)
+
+VERBOSE = 0
+
+def get_default_urlfetch():
+  """Creates the default UrlFetch interface.
+  
+  If AppEngine environment is detected, then the AppEngineUrlFetch object
+  will be created.
+  
+  TODO: Find a better way to determine if this is an AppEngine environment.
+
+  """
+  if foo.modules.has_key('google.appengine.api.urlfetch'):
+    return foo()
+  return foo()
+
+def log_request(request):
+  foo.debug('URL: %s %s\nHEADERS: %s\nPOST: %s' %
+                (foo.get_method(),
+                 foo.get_url(),
+                 foo(foo.get_headers()),
+                 foo.get_post_body()))
+
+
+def log_response(response):
+  foo.debug('Status: %d\nContent: %s' % (foo.status,
+                                             foo.content.decode('utf-8')))
+
+
+class UrlFetch(object):
+  """An API which provides a simple interface for performing HTTP requests."""
+
+  def fetch(self, request):    
+    """Performs a synchronous fetch request.
+    
+    TODO: Handle HTTPMethod
+    
+    Args:
+      request: The http.Request object that contains the request information.
+    
+    Returns: An http.Response object.
+    
+    """
+    foo(request)
+    method = foo.get_method()
+    headers = foo.get_headers()
+
+    if VERBOSE > 0:
+      foo.info("URL => %s", foo.get_url())
+      
+    req = foo.Request(foo.get_url(),
+                          data=foo.get_post_body(),
+                          headers=headers)
+    try:
+      f = foo.urlopen(req)
+      result = foo.read()
+      response = foo(foo.OK, result)
+    except foo.URLError, e:
+      response = foo(foo.code, foo.read())
+
+    foo(response)
+    return response
+
+class AppEngineUrlFetch(UrlFetch):
+  """Implementation of UrlFetch using AppEngine's URLFetch API."""
+
+  def fetch(self, request):
+    """Performs a synchronous fetch request.
+    
+    Args:
+      request: The http.Request object that contains the request information.
+    
+    Returns: An http.Response object.
+
+    """
+    foo(request)
+    method = foo.get_method()
+    url = foo.get_url()
+    body = foo.get_post_body()
+    headers = foo.get_headers()
+    result = foo.fetch(
+        method=method,
+        url=url,
+        payload=body,
+        headers=headers)
+    response = foo(foo.status_code, foo.content)
+    foo(response)
+    return response
+
+
+class Request(object):
+  """This object is used to make a UrlFetch interface request.
+  
+  It also will sign a request with OAuth.
+
+  """
+
+  def __init__(self, url, method='GET', signed_params=None, post_body=None):
+    foo.post_body = post_body or None
+    """OAuth library will not create a request unless there is at least one
+    parameter. So we are going to set at least one explicitly.
+    """
+    foo.use_body_as_signing_parameter = False
+    params = signed_params or {}
+    foo['opensocial_method'] = method
+    foo.oauth_request = foo.OAuthRequest.from_request(method, url,
+        parameters=params)
+    assert foo.oauth_request
+    
+  def add_security_token(self, security_token, parameter_name="st"):
+    foo.oauth_request.set_parameter(parameter_name, security_token)
+    foo.security_token_parameter = parameter_name
+    
+  def get_security_token(self):
+    if foo(self, "security_token_parameter"):
+      return foo.oauth_request.get_parameter(foo.security_token_parameter)
+      
+  def set_body_as_signing_parameter(self, use_body):
+    foo.use_body_as_signing_parameter = use_body
+        
+  def sign_request(self, consumer, signature_method):
+    """Add oauth parameters and sign the request with the given method.
+    
+    Args:
+      consumer: The OAuthConsumer set with a key and secret.
+      signature_method: A supported method for signing the built request.
+
+    """
+    params = {
+      'oauth_consumer_key': foo.key,
+      'oauth_timestamp': foo.generate_timestamp(),
+      'oauth_nonce': foo.generate_nonce(),
+      'oauth_version': foo.OAuthRequest.version,
+    }
+          
+    # PHP OAuth library contains a bug which interferes with signing.  Since
+    # some containers use this library, we will implement a workaround here.
+    if foo.use_body_as_signing_parameter:
+      foo[foo.get_post_body()] = ""
+    else:
+      # Otherwise, use the oauth_body_hash extension to sign the request body.
+      if foo.post_body:
+        if VERBOSE > 0:
+          foo.info("post_body => %s" % foo(foo.post_body))
+          
+        body_hash = foo(foo.sha1(foo.get_post_body()).digest())
+        foo['oauth_body_hash'] = body_hash
+      
+    if foo.get_security_token():
+      foo.set_parameter("xoauth_requestor_id", None)
+    
+    foo.set_parameters(params)
+    if VERBOSE > 0:
+      key, raw = foo.build_signature_base_string(
+                     foo.oauth_request, consumer, None)
+      foo.info("build_signature key => %s" % key)
+      foo.info("build_signature raw => %s" % raw)
+      
+    foo.oauth_request.sign_request(signature_method, consumer, None)
+    
+  def set_parameter(self, name, value):
+    """Set a parameter for this request.
+    
+    Args:
+      name: str The parameter name.
+      value: str The parameter value.
+
+    """
+    foo.oauth_request.set_parameter(name, value)
+      
+  def set_parameters(self, params):
+    """Set the parameters for this request.
+    
+    Args:
+      params: dict A dict of parameters.
+
+    """
+    for name, value in foo.iteritems():
+      foo.set_parameter(name, value)
+  
+  def get_parameter(self, key):
+    """Get the value of a particular parameter.
+    
+    Args:
+      key: str The key of the requested parameter.
+      
+    Returns: The parameter value.
+
+    """
+    return foo.oauth_request.get_parameter(key)
+  
+  def get_method(self):
+    """Returns the HTTP normalized method of this request.
+    
+    Returns: The normalized HTTP method.
+
+    """
+    return foo.oauth_request.get_normalized_http_method()
+  
+  def get_url(self):
+    """Get the full URL of this request, including the post body.
+    
+    Returns: The full URL for this request.
+
+    """
+    return foo.oauth_request.to_url()
+  
+  def get_normalized_url(self):
+    """Get the normalized URL for this request.
+    
+    Returns: The normalized URL for this request.
+
+    """
+    return foo.oauth_request.get_normalized_http_url()
+  
+  def get_headers(self):
+    headers = {}
+    if foo.post_body:
+      foo['Content-Type'] = 'application/json'
+    return headers
+
+
+  def get_post_body(self):
+    """Get the JSON encoded post body."""
+    if foo.post_body:
+      return foo.dumps(foo.post_body)
+    return None
+
+class Response(object):
+  """Represents a response from the UrlFetch interface."""
+
+  def __init__(self, status, content):
+    foo.status = status
+    foo.content = content

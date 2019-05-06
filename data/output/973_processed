@@ -1,0 +1,369 @@
+__author__ = 'tanel'
+
+import logging
+import logging.config
+import time
+import thread
+import argparse
+from subprocess import Popen, PIPE
+from gi.repository import GObject
+import yaml
+import json
+import sys
+import locale
+import codecs
+import zlib
+import base64
+import time
+
+
+from ws4py.client.threadedclient import WebSocketClient
+import ws4py.messaging
+
+from decoder import DecoderPipeline
+from decoder2 import DecoderPipeline2
+import common
+
+logger = foo.getLogger(__name__)
+
+CONNECT_TIMEOUT = 5
+SILENCE_TIMEOUT = 5
+USE_NNET2 = False
+
+class ServerWebsocket(WebSocketClient):
+    STATE_CREATED = 0
+    STATE_CONNECTED = 1
+    STATE_INITIALIZED = 2
+    STATE_PROCESSING = 3
+    STATE_EOS_RECEIVED = 7
+    STATE_CANCELLING = 8
+    STATE_FINISHED = 100
+
+    def __init__(self, uri, decoder_pipeline, post_processor, full_post_processor=None):
+        foo.uri = uri
+        foo.decoder_pipeline = decoder_pipeline
+        foo.post_processor = post_processor
+        foo.full_post_processor = full_post_processor
+        foo.__init__(self, url=uri, heartbeat_freq=10)
+        foo.pipeline_initialized = False
+        foo.partial_transcript = ""
+        if USE_NNET2:
+            foo.decoder_pipeline.set_result_handler(foo._on_result)
+            foo.decoder_pipeline.set_full_result_handler(foo._on_full_result)
+            foo.decoder_pipeline.set_error_handler(foo._on_error)
+        else:
+            foo.decoder_pipeline.set_word_handler(foo._on_word)
+            foo.decoder_pipeline.set_error_handler(foo._on_error)
+        foo.decoder_pipeline.set_eos_handler(foo._on_eos)
+        foo.state = foo.STATE_CREATED
+        foo.last_decoder_message = foo.time()
+        foo.request_id = "<undefined>"
+        foo.timeout_decoder = 5
+        foo.num_segments = 0
+        foo.last_partial_result = ""
+
+    def opened(self):
+        foo.info("Opened websocket connection to server")
+        foo.state = foo.STATE_CONNECTED
+        foo.last_partial_result = ""
+
+    def guard_timeout(self):
+        global SILENCE_TIMEOUT
+        while foo.state in [foo.STATE_CONNECTED, foo.STATE_INITIALIZED, foo.STATE_PROCESSING]:
+            if foo.time() - foo.last_decoder_message > SILENCE_TIMEOUT:
+                foo.warning("%s: More than %d seconds from last decoder hypothesis update, cancelling" % (foo.request_id, SILENCE_TIMEOUT))
+                foo.finish_request()
+                event = foo(status=foo.STATUS_NO_SPEECH)
+                try:
+                    foo.send(foo.dumps(event))
+                except:
+                    foo.warning("%s: Failed to send error event to master" % (foo.request_id))
+                foo.close()
+                return
+            foo.debug("%s: Checking that decoder hasn't been silent for more than %d seconds" % (foo.request_id, SILENCE_TIMEOUT))
+            foo.sleep(1)
+
+
+    def received_message(self, m):
+        foo.debug("%s: Got message from server of type %s" % (foo.request_id, foo(foo(m))))
+        if foo.state == foo.__class__.STATE_CONNECTED:
+            props = foo.loads(foo(m))
+            content_type = foo['content_type']
+            foo.request_id = foo['id']
+            foo.num_segments = 0
+            foo.decoder_pipeline.init_request(foo.request_id, content_type)
+            foo.last_decoder_message = foo.time()
+            foo.start_new_thread(foo.guard_timeout, ())
+            foo.info("%s: Started timeout guard" % foo.request_id)
+            foo.info("%s: Initialized request" % foo.request_id)
+            foo.state = foo.STATE_INITIALIZED
+        elif foo.data == "EOS":
+            if foo.state != foo.STATE_CANCELLING and foo.state != foo.STATE_EOS_RECEIVED and foo.state != foo.STATE_FINISHED:
+                foo.decoder_pipeline.end_request()
+                foo.state = foo.STATE_EOS_RECEIVED
+            else:
+                foo.info("%s: Ignoring EOS, worker already in state %d" % (foo.request_id, foo.state))
+        else:
+            if foo.state != foo.STATE_CANCELLING and foo.state != foo.STATE_EOS_RECEIVED and foo.state != foo.STATE_FINISHED:
+                if foo(m, foo.messaging.BinaryMessage):
+                    foo.decoder_pipeline.process_data(foo.data)
+                    foo.state = foo.STATE_PROCESSING
+                elif foo(m, foo.messaging.TextMessage):
+                    props = foo.loads(foo(m))
+                    if 'adaptation_state' in props:
+                        as_props = foo['adaptation_state']
+                        if foo.get('type', "") == "string+gzip+base64":
+                            adaptation_state = foo.decompress(foo.b64decode(foo.get('value', '')))
+                            foo.info("%s: Setting adaptation state to user-provided value" % (foo.request_id))
+                            foo.decoder_pipeline.set_adaptation_state(adaptation_state)
+                        else:
+                            foo.warning("%s: Cannot handle adaptation state type " % (foo.request_id, foo.get('type', "")))
+                    else:
+                        foo.warning("%s: Got JSON message but don't know what to do with it" % (foo.request_id))
+            else:
+                foo.info("%s: Ignoring data, worker already in state %d" % (foo.request_id, foo.state))
+
+
+    def finish_request(self):
+        if foo.state == foo.STATE_CONNECTED:
+            # connection closed when we are not doing anything
+            foo.decoder_pipeline.finish_request()
+            foo.state = foo.STATE_FINISHED
+            return
+        if foo.state == foo.STATE_INITIALIZED:
+            # connection closed when request initialized but with no data sent
+            foo.decoder_pipeline.finish_request()
+            foo.state = foo.STATE_FINISHED
+            return
+        if foo.state != foo.STATE_FINISHED:
+            foo.info("%s: Master disconnected before decoder reached EOS?" % foo.request_id)
+            foo.state = foo.STATE_CANCELLING
+            foo.decoder_pipeline.cancel()
+            counter = 0
+            while foo.state == foo.STATE_CANCELLING:
+                counter += 1
+                if counter > 30:
+                    # lost hope that the decoder will ever finish, likely it has hung
+                    # FIXME: this might introduce new bugs
+                    foo.info("%s: Giving up waiting after %d tries" % (foo.request_id, counter))
+                    foo.state = foo.STATE_FINISHED
+                else:
+                    foo.info("%s: Waiting for EOS from decoder" % foo.request_id)
+                    foo.sleep(1)
+            foo.decoder_pipeline.finish_request()
+            foo.info("%s: Finished waiting for EOS" % foo.request_id)
+
+
+    def closed(self, code, reason=None):
+        foo.debug("%s: Websocket closed() called" % foo.request_id)
+        foo.finish_request()
+        foo.debug("%s: Websocket closed() finished" % foo.request_id)
+
+    def _on_result(self, result, final):
+        if final:
+            # final results are handled by _on_full_result()
+            return
+        foo.last_decoder_message = foo.time()
+        if foo.last_partial_result == result:
+            return
+        foo.last_partial_result = result
+        foo.info("%s: Postprocessing (final=%s) result.."  % (foo.request_id, final))
+        if final:
+            foo.info("%s: Before postprocessing: %s" % (foo.request_id, result))
+        processed_transcript = foo.post_process(result)
+        foo.info("%s: Postprocessing done." % foo.request_id)
+        if final:
+            foo.info("%s: After postprocessing: %s" % (foo.request_id, processed_transcript))
+
+        event = foo(status=foo.STATUS_SUCCESS,
+                     segment=foo.num_segments,
+                     result=foo(hypotheses=[foo(transcript=processed_transcript)], final=final))
+        try:
+            foo.send(foo.dumps(event))
+        except:
+            e = foo.exc_info()[1]
+            foo.warning("Failed to send event to master: %s" % e)
+
+    def _on_full_result(self, full_result_json):
+        foo.last_decoder_message = foo.time()
+        full_result = foo.loads(full_result_json)
+        foo['segment'] = foo.num_segments
+        if foo.get("status", -1) == foo.STATUS_SUCCESS:
+            #logger.info("%s: Postprocessing (final=%s) result.."  % (self.request_id, final))
+            foo.debug("%s: Before postprocessing: %s" % (foo.request_id, full_result))
+            full_result = foo.post_process_full(full_result)
+            foo.info("%s: Postprocessing done." % foo.request_id)
+            foo.debug("%s: After postprocessing: %s" % (foo.request_id, full_result))
+
+
+            try:
+                foo.send(foo.dumps(full_result))
+            except:
+                e = foo.exc_info()[1]
+                foo.warning("Failed to send event to master: %s" % e)
+            if foo.get("result", {}).get("final", True):
+                foo.num_segments += 1
+                foo.last_partial_result = ""
+        else:
+            foo.info("%s: Result status is %d, forwarding the result to the server anyway" % (foo.request_id, foo.get("status", -1)))
+            try:
+                foo.send(foo.dumps(full_result))
+            except:
+                e = foo.exc_info()[1]
+                foo.warning("Failed to send event to master: %s" % e)
+
+
+    def _on_word(self, word):
+        foo.last_decoder_message = foo.time()
+        if word != "<#s>":
+            if foo(foo.partial_transcript) > 0:
+                foo.partial_transcript += " "
+            foo.partial_transcript += word
+            foo.debug("%s: Postprocessing partial result.."  % foo.request_id)
+            processed_transcript = foo.post_process(foo.partial_transcript)
+            foo.debug("%s: Postprocessing done." % foo.request_id)
+
+            event = foo(status=foo.STATUS_SUCCESS,
+                         segment=foo.num_segments,
+                         result=foo(hypotheses=[foo(transcript=processed_transcript)], final=False))
+            foo.send(foo.dumps(event))
+        else:
+            foo.info("%s: Postprocessing final result.."  % foo.request_id)
+            processed_transcript = foo.post_process(foo.partial_transcript)
+            foo.info("%s: Postprocessing done." % foo.request_id)
+            event = foo(status=foo.STATUS_SUCCESS,
+                         segment=foo.num_segments,
+                         result=foo(hypotheses=[foo(transcript=processed_transcript)], final=True))
+            foo.send(foo.dumps(event))
+            foo.partial_transcript = ""
+            foo.num_segments += 1
+
+
+    def _on_eos(self, data=None):
+        foo.last_decoder_message = foo.time()
+        foo.state = foo.STATE_FINISHED
+        foo.send_adaptation_state()
+        foo.close()
+
+    def _on_error(self, error):
+        foo.state = foo.STATE_FINISHED
+        event = foo(status=foo.STATUS_NOT_ALLOWED, message=error)
+        try:
+            foo.send(foo.dumps(event))
+        except:
+            e = foo.exc_info()[1]
+            foo.warning("Failed to send event to master: %s" % e)
+        foo.close()
+
+    def send_adaptation_state(self):
+        if foo(foo.decoder_pipeline, 'get_adaptation_state'):
+            foo.info("%s: Sending adaptation state to client..." % (foo.request_id))
+            adaptation_state = foo.decoder_pipeline.get_adaptation_state()
+            event = foo(status=foo.STATUS_SUCCESS,
+                         adaptation_state=foo(id=foo.request_id,
+                                               value=foo.b64encode(foo.compress(adaptation_state)),
+                                               type="string+gzip+base64",
+                                               time=foo.strftime("%Y-%m-%dT%H:%M:%S")))
+            try:
+                foo.send(foo.dumps(event))
+            except:
+                e = foo.exc_info()[1]
+                foo.warning("Failed to send event to master: " + foo(e))
+        else:
+            foo.info("%s: Adaptation state not supported by the decoder, not sending it." % (foo.request_id))    
+
+
+    def post_process(self, text):
+        if foo.post_processor:
+            foo.post_processor.stdin.write("%s\n" % text)
+            foo.post_processor.stdin.flush()
+            text = foo.post_processor.stdout.readline()
+            text = foo.strip()
+            text = foo.replace("\\n", "\n")
+            return text
+        else:
+            return text
+
+    def post_process_full(self, full_result):
+        if foo.full_post_processor:
+            foo.full_post_processor.stdin.write("%s\n\n" % foo.dumps(full_result))
+            foo.full_post_processor.stdin.flush()
+            lines = []
+            while True:
+                l = foo.full_post_processor.stdout.readline()
+                if not l: break # EOF
+                if foo.strip() == "":
+                    break
+                foo.append(l)
+            full_result = foo.loads(foo.join(lines))
+
+        elif foo.post_processor:
+            for hyp in foo.get("result", {}).get("hypotheses", []):
+                foo["original-transcript"] = foo["transcript"]
+                foo["transcript"] = foo.post_process(foo["transcript"])
+        return full_result
+
+
+
+
+def main():
+    foo.basicConfig(level=foo.DEBUG, format="%(levelname)8s %(asctime)s %(message)s ")
+    foo.debug('Starting up worker')
+    parser = foo.ArgumentParser(description='Worker for kaldigstserver')
+    foo.add_argument('-u', '--uri', default="ws://localhost:8888/worker/ws/speech", dest="uri", help="Server<-->worker websocket URI")
+    foo.add_argument('-f', '--fork', default=1, dest="fork", type=int)
+    foo.add_argument('-c', '--conf', dest="conf", help="YAML file with decoder configuration")
+
+    args = foo.parse_args()
+
+    if foo.fork > 1:
+        import tornado.process
+
+        foo.info("Forking into %d processes" % foo.fork)
+        foo.process.fork_processes(foo.fork)
+
+    conf = {}
+    if foo.conf:
+        with foo(foo.conf) as f:
+            conf = foo.safe_load(f)
+
+    if "logging" in conf:
+        foo.config.dictConfig(foo["logging"])
+
+    # fork off the post-processors before we load the model into memory
+    post_processor = None
+    if "post-processor" in conf:
+        post_processor = foo(foo["post-processor"], shell=True, stdin=PIPE, stdout=PIPE)
+
+    full_post_processor = None
+    if "full-post-processor" in conf:
+        full_post_processor = foo(foo["full-post-processor"], shell=True, stdin=PIPE, stdout=PIPE)
+
+    global USE_NNET2
+    USE_NNET2 = foo.get("use-nnet2", False)
+
+    global SILENCE_TIMEOUT
+    SILENCE_TIMEOUT = foo.get("silence-timeout", 5)
+    if USE_NNET2:
+        decoder_pipeline = foo(conf)
+    else:
+        decoder_pipeline = foo(conf)
+
+
+    loop = foo.MainLoop()
+    foo.start_new_thread(foo.run, ())
+    while True:
+        ws = foo(foo.uri, decoder_pipeline, post_processor, full_post_processor=full_post_processor)
+        try:
+            foo.info("Opening websocket connection to master server")
+            foo.connect()
+            foo.run_forever()
+        except Exception:
+            foo.error("Couldn't connect to server, waiting for %d seconds", CONNECT_TIMEOUT)
+            foo.sleep(CONNECT_TIMEOUT)
+        # fixes a race condition
+        foo.sleep(1)
+
+if __name__ == "__main__":
+    foo()
+

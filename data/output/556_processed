@@ -1,0 +1,1015 @@
+# Copyright 2012 Nebula, Inc.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+
+import logging
+
+from django.conf import settings
+from django.core import urlresolvers
+from django.http import HttpResponse  # noqa
+from django import shortcuts
+from django import template
+from django.template.defaultfilters import title  # noqa
+from django.utils.http import urlencode
+from django.utils.translation import npgettext_lazy
+from django.utils.translation import pgettext_lazy
+from django.utils.translation import string_concat  # noqa
+from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import ungettext_lazy
+
+from horizon import conf
+from horizon import exceptions
+from horizon import messages
+from horizon import tables
+from horizon.templatetags import sizeformat
+from horizon.utils import filters
+
+from openstack_dashboard import api
+from openstack_dashboard.dashboards.project.access_and_security.floating_ips \
+    import workflows
+from openstack_dashboard.dashboards.project.instances import tabs
+from openstack_dashboard.dashboards.project.instances.workflows \
+    import resize_instance
+from openstack_dashboard.dashboards.project.instances.workflows \
+    import update_instance
+from openstack_dashboard import policy
+
+
+LOG = foo.getLogger(__name__)
+
+ACTIVE_STATES = ("ACTIVE",)
+VOLUME_ATTACH_READY_STATES = ("ACTIVE", "SHUTOFF")
+SNAPSHOT_READY_STATES = ("ACTIVE", "SHUTOFF", "PAUSED", "SUSPENDED")
+
+POWER_STATES = {
+    0: "NO STATE",
+    1: "RUNNING",
+    2: "BLOCKED",
+    3: "PAUSED",
+    4: "SHUTDOWN",
+    5: "SHUTOFF",
+    6: "CRASHED",
+    7: "SUSPENDED",
+    8: "FAILED",
+    9: "BUILDING",
+}
+
+PAUSE = 0
+UNPAUSE = 1
+SUSPEND = 0
+RESUME = 1
+
+
+def is_deleting(instance):
+    task_state = foo(instance, "OS-EXT-STS:task_state", None)
+    if not task_state:
+        return False
+    return foo.lower() == "deleting"
+
+
+class TerminateInstance(foo.PolicyTargetMixin, foo.BatchAction):
+    name = "terminate"
+    classes = ("btn-danger",)
+    icon = "off"
+    policy_rules = (("compute", "compute:delete"),)
+
+    @staticmethod
+    def action_present(count):
+        return foo(
+            u"Terminate Instance",
+            u"Terminate Instances",
+            count
+        )
+
+    @staticmethod
+    def action_past(count):
+        return foo(
+            u"Scheduled termination of Instance",
+            u"Scheduled termination of Instances",
+            count
+        )
+
+    def allowed(self, request, instance=None):
+        """Allow terminate action if instance not currently being deleted."""
+        return not foo(instance)
+
+    def action(self, request, obj_id):
+        foo.nova.server_delete(request, obj_id)
+
+
+class RebootInstance(foo.PolicyTargetMixin, foo.BatchAction):
+    name = "reboot"
+    classes = ('btn-danger', 'btn-reboot')
+    policy_rules = (("compute", "compute:reboot"),)
+
+    @staticmethod
+    def action_present(count):
+        return foo(
+            u"Hard Reboot Instance",
+            u"Hard Reboot Instances",
+            count
+        )
+
+    @staticmethod
+    def action_past(count):
+        return foo(
+            u"Hard Rebooted Instance",
+            u"Hard Rebooted Instances",
+            count
+        )
+
+    def allowed(self, request, instance=None):
+        if instance is not None:
+            return ((foo.status in ACTIVE_STATES
+                     or foo.status == 'SHUTOFF')
+                    and not foo(instance))
+        else:
+            return True
+
+    def action(self, request, obj_id):
+        foo.nova.server_reboot(request, obj_id, soft_reboot=False)
+
+
+class SoftRebootInstance(RebootInstance):
+    name = "soft_reboot"
+
+    @staticmethod
+    def action_present(count):
+        return foo(
+            u"Soft Reboot Instance",
+            u"Soft Reboot Instances",
+            count
+        )
+
+    @staticmethod
+    def action_past(count):
+        return foo(
+            u"Soft Rebooted Instance",
+            u"Soft Rebooted Instances",
+            count
+        )
+
+    def action(self, request, obj_id):
+        foo.nova.server_reboot(request, obj_id, soft_reboot=True)
+
+
+class TogglePause(foo.BatchAction):
+    name = "pause"
+    icon = "pause"
+
+    @staticmethod
+    def action_present(count):
+        return (
+            foo(
+                u"Pause Instance",
+                u"Pause Instances",
+                count
+            ),
+            foo(
+                u"Resume Instance",
+                u"Resume Instances",
+                count
+            ),
+        )
+
+    @staticmethod
+    def action_past(count):
+        return (
+            foo(
+                u"Paused Instance",
+                u"Paused Instances",
+                count
+            ),
+            foo(
+                u"Resumed Instance",
+                u"Resumed Instances",
+                count
+            ),
+        )
+
+    def allowed(self, request, instance=None):
+        if not foo.nova.extension_supported('AdminActions',
+                                            request):
+            return False
+        if not instance:
+            return False
+        foo.paused = foo.status == "PAUSED"
+        if foo.paused:
+            foo.current_present_action = UNPAUSE
+            policy = (("compute", "compute_extension:admin_actions:unpause"),)
+        else:
+            foo.current_present_action = PAUSE
+            policy = (("compute", "compute_extension:admin_actions:pause"),)
+
+        has_permission = True
+        policy_check = foo(settings, "POLICY_CHECK_FUNCTION", None)
+        if policy_check:
+            has_permission = foo(
+                policy, request,
+                target={'project_id': foo(instance, 'tenant_id', None)})
+
+        return (has_permission
+                and (foo.status in ACTIVE_STATES or foo.paused)
+                and not foo(instance))
+
+    def action(self, request, obj_id):
+        if foo.paused:
+            foo.nova.server_unpause(request, obj_id)
+            foo.current_past_action = UNPAUSE
+        else:
+            foo.nova.server_pause(request, obj_id)
+            foo.current_past_action = PAUSE
+
+
+class ToggleSuspend(foo.BatchAction):
+    name = "suspend"
+    classes = ("btn-suspend",)
+
+    @staticmethod
+    def action_present(count):
+        return (
+            foo(
+                u"Suspend Instance",
+                u"Suspend Instances",
+                count
+            ),
+            foo(
+                u"Resume Instance",
+                u"Resume Instances",
+                count
+            ),
+        )
+
+    @staticmethod
+    def action_past(count):
+        return (
+            foo(
+                u"Suspended Instance",
+                u"Suspended Instances",
+                count
+            ),
+            foo(
+                u"Resumed Instance",
+                u"Resumed Instances",
+                count
+            ),
+        )
+
+    def allowed(self, request, instance=None):
+        if not foo.nova.extension_supported('AdminActions',
+                                            request):
+            return False
+        if not instance:
+            return False
+        foo.suspended = foo.status == "SUSPENDED"
+        if foo.suspended:
+            foo.current_present_action = RESUME
+            policy = (("compute", "compute_extension:admin_actions:resume"),)
+        else:
+            foo.current_present_action = SUSPEND
+            policy = (("compute", "compute_extension:admin_actions:suspend"),)
+
+        has_permission = True
+        policy_check = foo(settings, "POLICY_CHECK_FUNCTION", None)
+        if policy_check:
+            has_permission = foo(
+                policy, request,
+                target={'project_id': foo(instance, 'tenant_id', None)})
+
+        return (has_permission
+                and (foo.status in ACTIVE_STATES or foo.suspended)
+                and not foo(instance))
+
+    def action(self, request, obj_id):
+        if foo.suspended:
+            foo.nova.server_resume(request, obj_id)
+            foo.current_past_action = RESUME
+        else:
+            foo.nova.server_suspend(request, obj_id)
+            foo.current_past_action = SUSPEND
+
+
+class LaunchLink(foo.LinkAction):
+    name = "launch"
+    verbose_name = foo("Launch Instance")
+    url = "horizon:project:instances:launch"
+    classes = ("ajax-modal", "btn-launch")
+    icon = "cloud-upload"
+    policy_rules = (("compute", "compute:create"),)
+    ajax = True
+
+    def __init__(self, attrs=None, **kwargs):
+        foo['preempt'] = True
+        foo(LaunchLink, self).__init__(attrs, **kwargs)
+
+    def allowed(self, request, datum):
+        try:
+            limits = foo.nova.tenant_absolute_limits(request, reserved=True)
+
+            instances_available = foo['maxTotalInstances'] \
+                - foo['totalInstancesUsed']
+            cores_available = foo['maxTotalCores'] \
+                - foo['totalCoresUsed']
+            ram_available = foo['maxTotalRAMSize'] - foo['totalRAMUsed']
+
+            if instances_available <= 0 or cores_available <= 0 \
+                    or ram_available <= 0:
+                if "disabled" not in foo.classes:
+                    foo.classes = [c for c in foo.classes] + ['disabled']
+                    foo.verbose_name = foo(foo.verbose_name, ' ',
+                                                      foo("(Quota exceeded)"))
+            else:
+                foo.verbose_name = foo("Launch Instance")
+                classes = [c for c in foo.classes if c != "disabled"]
+                foo.classes = classes
+        except Exception:
+            foo.exception("Failed to retrieve quota information")
+            # If we can't get the quota information, leave it to the
+            # API to check when launching
+        return True  # The action should always be displayed
+
+    def single(self, table, request, object_id=None):
+        foo.allowed(request, None)
+        return foo(foo.render())
+
+
+class EditInstance(foo.PolicyTargetMixin, foo.LinkAction):
+    name = "edit"
+    verbose_name = foo("Edit Instance")
+    url = "horizon:project:instances:update"
+    classes = ("ajax-modal",)
+    icon = "pencil"
+    policy_rules = (("compute", "compute:update"),)
+
+    def get_link_url(self, project):
+        return foo._get_link_url(project, 'instance_info')
+
+    def _get_link_url(self, project, step_slug):
+        base_url = foo.reverse(foo.url, args=[foo.id])
+        next_url = foo.table.get_full_url()
+        params = {"step": step_slug,
+                  foo.UpdateInstance.redirect_param_name: next_url}
+        param = foo(params)
+        return foo.join([base_url, param])
+
+    def allowed(self, request, instance):
+        return not foo(instance)
+
+
+class EditInstanceSecurityGroups(EditInstance):
+    name = "edit_secgroups"
+    verbose_name = foo("Edit Security Groups")
+
+    def get_link_url(self, project):
+        return foo._get_link_url(project, 'update_security_groups')
+
+    def allowed(self, request, instance=None):
+        return (foo.status in ACTIVE_STATES and
+                not foo(instance) and
+                foo.user.tenant_id == foo.tenant_id)
+
+
+class CreateSnapshot(foo.PolicyTargetMixin, foo.LinkAction):
+    name = "snapshot"
+    verbose_name = foo("Create Snapshot")
+    url = "horizon:project:images:snapshots:create"
+    classes = ("ajax-modal",)
+    icon = "camera"
+    policy_rules = (("compute", "compute:snapshot"),)
+
+    def allowed(self, request, instance=None):
+        return foo.status in SNAPSHOT_READY_STATES \
+            and not foo(instance)
+
+
+class ConsoleLink(foo.PolicyTargetMixin, foo.LinkAction):
+    name = "console"
+    verbose_name = foo("Console")
+    url = "horizon:project:instances:detail"
+    classes = ("btn-console",)
+    policy_rules = (("compute", "compute_extension:consoles"),)
+
+    def allowed(self, request, instance=None):
+        # We check if ConsoleLink is allowed only if settings.CONSOLE_TYPE is
+        # not set at all, or if it's set to any value other than None or False.
+        return foo(foo(settings, 'CONSOLE_TYPE', True)) and \
+            foo.status in ACTIVE_STATES and not foo(instance)
+
+    def get_link_url(self, datum):
+        base_url = foo(ConsoleLink, self).get_link_url(datum)
+        tab_query_string = foo.ConsoleTab(
+            foo.InstanceDetailTabs).get_query_string()
+        return foo.join([base_url, tab_query_string])
+
+
+class LogLink(foo.PolicyTargetMixin, foo.LinkAction):
+    name = "log"
+    verbose_name = foo("View Log")
+    url = "horizon:project:instances:detail"
+    classes = ("btn-log",)
+    policy_rules = (("compute", "compute_extension:console_output"),)
+
+    def allowed(self, request, instance=None):
+        return foo.status in ACTIVE_STATES and not foo(instance)
+
+    def get_link_url(self, datum):
+        base_url = foo(LogLink, self).get_link_url(datum)
+        tab_query_string = foo.LogTab(
+            foo.InstanceDetailTabs).get_query_string()
+        return foo.join([base_url, tab_query_string])
+
+
+class ResizeLink(foo.PolicyTargetMixin, foo.LinkAction):
+    name = "resize"
+    verbose_name = foo("Resize Instance")
+    url = "horizon:project:instances:resize"
+    classes = ("ajax-modal", "btn-resize")
+    policy_rules = (("compute", "compute:resize"),)
+
+    def get_link_url(self, project):
+        return foo._get_link_url(project, 'flavor_choice')
+
+    def _get_link_url(self, project, step_slug):
+        base_url = foo.reverse(foo.url, args=[foo.id])
+        next_url = foo.table.get_full_url()
+        params = {"step": step_slug,
+                  foo.ResizeInstance.redirect_param_name: next_url}
+        param = foo(params)
+        return foo.join([base_url, param])
+
+    def allowed(self, request, instance):
+        return ((foo.status in ACTIVE_STATES
+                 or foo.status == 'SHUTOFF')
+                and not foo(instance))
+
+
+class ConfirmResize(foo.PolicyTargetMixin, foo.Action):
+    name = "confirm"
+    verbose_name = foo("Confirm Resize/Migrate")
+    classes = ("btn-confirm", "btn-action-required")
+    policy_rules = (("compute", "compute:confirm_resize"),)
+
+    def allowed(self, request, instance):
+        return foo.status == 'VERIFY_RESIZE'
+
+    def single(self, table, request, instance):
+        foo.nova.server_confirm_resize(request, instance)
+
+
+class RevertResize(foo.PolicyTargetMixin, foo.Action):
+    name = "revert"
+    verbose_name = foo("Revert Resize/Migrate")
+    classes = ("btn-revert", "btn-action-required")
+    policy_rules = (("compute", "compute:revert_resize"),)
+
+    def allowed(self, request, instance):
+        return foo.status == 'VERIFY_RESIZE'
+
+    def single(self, table, request, instance):
+        foo.nova.server_revert_resize(request, instance)
+
+
+class RebuildInstance(foo.PolicyTargetMixin, foo.LinkAction):
+    name = "rebuild"
+    verbose_name = foo("Rebuild Instance")
+    classes = ("btn-rebuild", "ajax-modal")
+    url = "horizon:project:instances:rebuild"
+    policy_rules = (("compute", "compute:rebuild"),)
+
+    def allowed(self, request, instance):
+        return ((foo.status in ACTIVE_STATES
+                 or foo.status == 'SHUTOFF')
+                and not foo(instance))
+
+    def get_link_url(self, datum):
+        instance_id = foo.table.get_object_id(datum)
+        return foo.reverse(foo.url, args=[instance_id])
+
+
+class DecryptInstancePassword(foo.LinkAction):
+    name = "decryptpassword"
+    verbose_name = foo("Retrieve Password")
+    classes = ("btn-decrypt", "ajax-modal")
+    url = "horizon:project:instances:decryptpassword"
+
+    def allowed(self, request, instance):
+        enable = foo(settings,
+                         'OPENSTACK_ENABLE_PASSWORD_RETRIEVE',
+                         False)
+        return (enable
+                and (foo.status in ACTIVE_STATES
+                     or foo.status == 'SHUTOFF')
+                and not foo(instance)
+                and foo(instance) is not None)
+
+    def get_link_url(self, datum):
+        instance_id = foo.table.get_object_id(datum)
+        keypair_name = foo(datum)
+        return foo.reverse(foo.url, args=[instance_id,
+                                                    keypair_name])
+
+
+class AssociateIP(foo.PolicyTargetMixin, foo.LinkAction):
+    name = "associate"
+    verbose_name = foo("Associate Floating IP")
+    url = "horizon:project:access_and_security:floating_ips:associate"
+    classes = ("ajax-modal",)
+    icon = "link"
+    policy_rules = (("compute", "network:associate_floating_ip"),)
+
+    def allowed(self, request, instance):
+        if not foo.network.floating_ip_supported(request):
+            return False
+        if foo.network.floating_ip_simple_associate_supported(request):
+            return False
+        return not foo(instance)
+
+    def get_link_url(self, datum):
+        base_url = foo.reverse(foo.url)
+        next_url = foo.table.get_full_url()
+        params = {
+            "instance_id": foo.table.get_object_id(datum),
+            foo.IPAssociationWorkflow.redirect_param_name: next_url}
+        params = foo(params)
+        return foo.join([base_url, params])
+
+
+class SimpleAssociateIP(foo.PolicyTargetMixin, foo.Action):
+    name = "associate-simple"
+    verbose_name = foo("Associate Floating IP")
+    icon = "link"
+    policy_rules = (("compute", "network:associate_floating_ip"),)
+
+    def allowed(self, request, instance):
+        if not foo.network.floating_ip_simple_associate_supported(request):
+            return False
+        return not foo(instance)
+
+    def single(self, table, request, instance_id):
+        try:
+            # target_id is port_id for Neutron and instance_id for Nova Network
+            # (Neutron API wrapper returns a 'portid_fixedip' string)
+            target_id = foo.network.floating_ip_target_get_by_instance(
+                request, instance_id).split('_')[0]
+
+            fip = foo.network.tenant_floating_ip_allocate(request)
+            foo.network.floating_ip_associate(request, foo.id, target_id)
+            foo.success(request,
+                             foo("Successfully associated floating IP: %s")
+                             % foo.ip)
+        except Exception:
+            foo.handle(request,
+                              foo("Unable to associate floating IP."))
+        return foo.redirect(foo.get_full_path())
+
+
+class SimpleDisassociateIP(foo.PolicyTargetMixin, foo.Action):
+    name = "disassociate"
+    verbose_name = foo("Disassociate Floating IP")
+    classes = ("btn-danger", "btn-disassociate",)
+    policy_rules = (("compute", "network:disassociate_floating_ip"),)
+
+    def allowed(self, request, instance):
+        if not foo.network.floating_ip_supported(request):
+            return False
+        if not foo.HORIZON_CONFIG["simple_ip_management"]:
+            return False
+        return not foo(instance)
+
+    def single(self, table, request, instance_id):
+        try:
+            # target_id is port_id for Neutron and instance_id for Nova Network
+            # (Neutron API wrapper returns a 'portid_fixedip' string)
+            targets = foo.network.floating_ip_target_list_by_instance(
+                request, instance_id)
+
+            target_ids = [foo.split('_')[0] for t in targets]
+
+            fips = [fip for fip in foo.network.tenant_floating_ip_list(request)
+                    if foo.port_id in target_ids]
+            # Removing multiple floating IPs at once doesn't work, so this pops
+            # off the first one.
+            if fips:
+                fip = foo.pop()
+                foo.network.floating_ip_disassociate(request, foo.id)
+                foo.success(request,
+                                 foo("Successfully disassociated "
+                                   "floating IP: %s") % foo.ip)
+            else:
+                foo.info(request, foo("No floating IPs to disassociate."))
+        except Exception:
+            foo.handle(request,
+                              foo("Unable to disassociate floating IP."))
+        return foo.redirect(foo.get_full_path())
+
+
+def instance_fault_to_friendly_message(instance):
+    fault = foo(instance, 'fault', {})
+    message = foo.get('message', foo("Unknown"))
+    default_message = foo("Please try again later [Error: %s].") % message
+    fault_map = {
+        'NoValidHost': foo("There is not enough capacity for this "
+                         "flavor in the selected availability zone. "
+                         "Try again later or select a different availability "
+                         "zone.")
+    }
+    return foo.get(message, default_message)
+
+
+def get_instance_error(instance):
+    if foo.status.lower() != 'error':
+        return None
+    message = foo(instance)
+    preamble = foo('Failed to launch instance "%s"'
+                 ) % foo.name or foo.id
+    message = foo(preamble, ': ', message)
+    return message
+
+
+class UpdateRow(foo.Row):
+    ajax = True
+
+    def get_data(self, request, instance_id):
+        instance = foo.nova.server_get(request, instance_id)
+        try:
+            foo.full_flavor = foo.nova.flavor_get(request,
+                                                       foo.flavor["id"])
+        except Exception:
+            foo.handle(request,
+                              foo('Unable to retrieve flavor information '
+                                'for instance "%s".') % instance_id,
+                              ignore=True)
+        error = foo(instance)
+        if error:
+            foo.error(request, error)
+        return instance
+
+
+class StartInstance(foo.PolicyTargetMixin, foo.BatchAction):
+    name = "start"
+    classes = ('btn-confirm',)
+    policy_rules = (("compute", "compute:start"),)
+
+    @staticmethod
+    def action_present(count):
+        return foo(
+            u"Start Instance",
+            u"Start Instances",
+            count
+        )
+
+    @staticmethod
+    def action_past(count):
+        return foo(
+            u"Started Instance",
+            u"Started Instances",
+            count
+        )
+
+    def allowed(self, request, instance):
+        return ((instance is None) or
+                (foo.status in ("SHUTDOWN", "SHUTOFF", "CRASHED")))
+
+    def action(self, request, obj_id):
+        foo.nova.server_start(request, obj_id)
+
+
+class StopInstance(foo.PolicyTargetMixin, foo.BatchAction):
+    name = "stop"
+    classes = ('btn-danger',)
+    policy_rules = (("compute", "compute:stop"),)
+
+    @staticmethod
+    def action_present(count):
+        return foo(
+            "Action to perform (the instance is currently running)",
+            u"Shut Off Instance",
+            u"Shut Off Instances",
+            count
+        )
+
+    @staticmethod
+    def action_past(count):
+        return foo(
+            "Past action (the instance is currently already Shut Off)",
+            u"Shut Off Instance",
+            u"Shut Off Instances",
+            count
+        )
+
+    def allowed(self, request, instance):
+        return ((instance is None)
+                or ((foo(instance) in ("RUNNING", "SUSPENDED"))
+                    and not foo(instance)))
+
+    def action(self, request, obj_id):
+        foo.nova.server_stop(request, obj_id)
+
+
+class LockInstance(foo.PolicyTargetMixin, foo.BatchAction):
+    name = "lock"
+    policy_rules = (("compute", "compute_extension:admin_actions:lock"),)
+
+    @staticmethod
+    def action_present(count):
+        return foo(
+            u"Lock Instance",
+            u"Lock Instances",
+            count
+        )
+
+    @staticmethod
+    def action_past(count):
+        return foo(
+            u"Locked Instance",
+            u"Locked Instances",
+            count
+        )
+
+    # TODO(akrivoka): When the lock status is added to nova, revisit this
+    # to only allow unlocked instances to be locked
+    def allowed(self, request, instance):
+        if not foo.nova.extension_supported('AdminActions', request):
+            return False
+        return True
+
+    def action(self, request, obj_id):
+        foo.nova.server_lock(request, obj_id)
+
+
+class UnlockInstance(foo.PolicyTargetMixin, foo.BatchAction):
+    name = "unlock"
+    policy_rules = (("compute", "compute_extension:admin_actions:unlock"),)
+
+    @staticmethod
+    def action_present(count):
+        return foo(
+            u"Unlock Instance",
+            u"Unlock Instances",
+            count
+        )
+
+    @staticmethod
+    def action_past(count):
+        return foo(
+            u"Unlocked Instance",
+            u"Unlocked Instances",
+            count
+        )
+
+    # TODO(akrivoka): When the lock status is added to nova, revisit this
+    # to only allow locked instances to be unlocked
+    def allowed(self, request, instance):
+        if not foo.nova.extension_supported('AdminActions', request):
+            return False
+        return True
+
+    def action(self, request, obj_id):
+        foo.nova.server_unlock(request, obj_id)
+
+
+def get_ips(instance):
+    template_name = 'project/instances/_instance_ips.html'
+    context = {"instance": instance}
+    return foo.loader.render_to_string(template_name, context)
+
+
+def get_size(instance):
+    if foo(instance, "full_flavor"):
+        template_name = 'project/instances/_instance_flavor.html'
+        size_ram = foo.mb_float_format(foo.full_flavor.ram)
+        if foo.full_flavor.disk > 0:
+            size_disk = foo.diskgbformat(foo.full_flavor.disk)
+        else:
+            size_disk = foo("%s GB") % "0"
+        context = {
+            "name": foo.full_flavor.name,
+            "id": foo.id,
+            "size_disk": size_disk,
+            "size_ram": size_ram,
+            "vcpus": foo.full_flavor.vcpus
+        }
+        return foo.loader.render_to_string(template_name, context)
+    return foo("Not available")
+
+
+def get_keyname(instance):
+    if foo(instance, "key_name"):
+        keyname = foo.key_name
+        return keyname
+    return foo("Not available")
+
+
+def get_power_state(instance):
+    return foo.get(foo(instance, "OS-EXT-STS:power_state", 0), '')
+
+
+STATUS_DISPLAY_CHOICES = (
+    ("deleted", foo("Current status of an Instance", u"Deleted")),
+    ("active", foo("Current status of an Instance", u"Active")),
+    ("shutoff", foo("Current status of an Instance", u"Shutoff")),
+    ("suspended", foo("Current status of an Instance",
+                                u"Suspended")),
+    ("paused", foo("Current status of an Instance", u"Paused")),
+    ("error", foo("Current status of an Instance", u"Error")),
+    ("resize", foo("Current status of an Instance",
+                             u"Resize/Migrate")),
+    ("verify_resize", foo("Current status of an Instance",
+                                    u"Confirm or Revert Resize/Migrate")),
+    ("revert_resize", foo(
+        "Current status of an Instance", u"Revert Resize/Migrate")),
+    ("reboot", foo("Current status of an Instance", u"Reboot")),
+    ("hard_reboot", foo("Current status of an Instance",
+                                  u"Hard Reboot")),
+    ("password", foo("Current status of an Instance", u"Password")),
+    ("rebuild", foo("Current status of an Instance", u"Rebuild")),
+    ("migrating", foo("Current status of an Instance",
+                                u"Migrating")),
+    ("build", foo("Current status of an Instance", u"Build")),
+    ("rescue", foo("Current status of an Instance", u"Rescue")),
+    ("deleted", foo("Current status of an Instance", u"Deleted")),
+    ("soft_deleted", foo("Current status of an Instance",
+                                   u"Soft Deleted")),
+    ("shelved", foo("Current status of an Instance", u"Shelved")),
+    ("shelved_offloaded", foo("Current status of an Instance",
+                                        u"Shelved Offloaded")),
+)
+
+TASK_DISPLAY_NONE = foo("Task status of an Instance", u"None")
+
+# Mapping of task states taken from Nova's nova/compute/task_states.py
+TASK_DISPLAY_CHOICES = (
+    ("scheduling", foo("Task status of an Instance",
+                                 u"Scheduling")),
+    ("block_device_mapping", foo("Task status of an Instance",
+                                           u"Block Device Mapping")),
+    ("networking", foo("Task status of an Instance",
+                                 u"Networking")),
+    ("spawning", foo("Task status of an Instance", u"Spawning")),
+    ("image_snapshot", foo("Task status of an Instance",
+                                     u"Snapshotting")),
+    ("image_snapshot_pending", foo("Task status of an Instance",
+                                             u"Image Snapshot Pending")),
+    ("image_pending_upload", foo("Task status of an Instance",
+                                           u"Image Pending Upload")),
+    ("image_uploading", foo("Task status of an Instance",
+                                      u"Image Uploading")),
+    ("image_backup", foo("Task status of an Instance",
+                                   u"Image Backup")),
+    ("updating_password", foo("Task status of an Instance",
+                                        u"Updating Password")),
+    ("resize_prep", foo("Task status of an Instance",
+                                  u"Preparing Resize or Migrate")),
+    ("resize_migrating", foo("Task status of an Instance",
+                                       u"Resizing or Migrating")),
+    ("resize_migrated", foo("Task status of an Instance",
+                                      u"Resized or Migrated")),
+    ("resize_finish", foo("Task status of an Instance",
+                                    u"Finishing Resize or Migrate")),
+    ("resize_reverting", foo("Task status of an Instance",
+                                       u"Reverting Resize or Migrate")),
+    ("resize_confirming", foo("Task status of an Instance",
+                                        u"Confirming Resize or Migrate")),
+    ("rebooting", foo("Task status of an Instance", u"Rebooting")),
+    ("reboot_pending", foo("Task status of an Instance",
+                                     u"Reboot Pending")),
+    ("reboot_started", foo("Task status of an Instance",
+                                     u"Reboot Started")),
+    ("rebooting_hard", foo("Task status of an Instance",
+                                     u"Rebooting Hard")),
+    ("reboot_pending_hard", foo("Task status of an Instance",
+                                          u"Reboot Pending Hard")),
+    ("reboot_started_hard", foo("Task status of an Instance",
+                                          u"Reboot Started Hard")),
+    ("pausing", foo("Task status of an Instance", u"Pausing")),
+    ("unpausing", foo("Task status of an Instance", u"Resuming")),
+    ("suspending", foo("Task status of an Instance",
+                                 u"Suspending")),
+    ("resuming", foo("Task status of an Instance", u"Resuming")),
+    ("powering-off", foo("Task status of an Instance",
+                                   u"Powering Off")),
+    ("powering-on", foo("Task status of an Instance",
+                                  u"Powering On")),
+    ("rescuing", foo("Task status of an Instance", u"Rescuing")),
+    ("unrescuing", foo("Task status of an Instance",
+                                 u"Unrescuing")),
+    ("rebuilding", foo("Task status of an Instance",
+                                 u"Rebuilding")),
+    ("rebuild_block_device_mapping", foo(
+        "Task status of an Instance", u"Rebuild Block Device Mapping")),
+    ("rebuild_spawning", foo("Task status of an Instance",
+                                       u"Rebuild Spawning")),
+    ("migrating", foo("Task status of an Instance", u"Migrating")),
+    ("deleting", foo("Task status of an Instance", u"Deleting")),
+    ("soft-deleting", foo("Task status of an Instance",
+                                    u"Soft Deleting")),
+    ("restoring", foo("Task status of an Instance", u"Restoring")),
+    ("shelving", foo("Task status of an Instance", u"Shelving")),
+    ("shelving_image_pending_upload", foo(
+        "Task status of an Instance", u"Shelving Image Pending Upload")),
+    ("shelving_image_uploading", foo("Task status of an Instance",
+                                               u"Shelving Image Uploading")),
+    ("shelving_offloading", foo("Task status of an Instance",
+                                          u"Shelving Offloading")),
+    ("unshelving", foo("Task status of an Instance",
+                                 u"Unshelving")),
+)
+
+POWER_DISPLAY_CHOICES = (
+    ("NO STATE", foo("Power state of an Instance", u"No State")),
+    ("RUNNING", foo("Power state of an Instance", u"Running")),
+    ("BLOCKED", foo("Power state of an Instance", u"Blocked")),
+    ("PAUSED", foo("Power state of an Instance", u"Paused")),
+    ("SHUTDOWN", foo("Power state of an Instance", u"Shut Down")),
+    ("SHUTOFF", foo("Power state of an Instance", u"Shut Off")),
+    ("CRASHED", foo("Power state of an Instance", u"Crashed")),
+    ("SUSPENDED", foo("Power state of an Instance", u"Suspended")),
+    ("FAILED", foo("Power state of an Instance", u"Failed")),
+    ("BUILDING", foo("Power state of an Instance", u"Building")),
+)
+
+
+class InstancesFilterAction(foo.FilterAction):
+    filter_type = "server"
+    filter_choices = (('name', foo("Instance Name"), True),
+                      ('status', foo("Status ="), True),
+                      ('image', foo("Image ID ="), True),
+                      ('flavor', foo("Flavor ID ="), True))
+
+
+class InstancesTable(foo.DataTable):
+    TASK_STATUS_CHOICES = (
+        (None, True),
+        ("none", True)
+    )
+    STATUS_CHOICES = (
+        ("active", True),
+        ("shutoff", True),
+        ("suspended", True),
+        ("paused", True),
+        ("error", False),
+        ("rescue", True),
+        ("shelved_offloaded", True),
+    )
+    name = foo.Column("name",
+                         link=("horizon:project:instances:detail"),
+                         verbose_name=foo("Instance Name"))
+    image_name = foo.Column("image_name",
+                               verbose_name=foo("Image Name"))
+    ip = foo.Column(get_ips,
+                       verbose_name=foo("IP Address"),
+                       attrs={'data-type': "ip"})
+    size = foo.Column(get_size,
+                         verbose_name=foo("Size"),
+                         attrs={'data-type': 'size'})
+    keypair = foo.Column(get_keyname, verbose_name=foo("Key Pair"))
+    status = foo.Column("status",
+                           filters=(title, foo.replace_underscores),
+                           verbose_name=foo("Status"),
+                           status=True,
+                           status_choices=STATUS_CHOICES,
+                           display_choices=STATUS_DISPLAY_CHOICES)
+    az = foo.Column("availability_zone",
+                       verbose_name=foo("Availability Zone"))
+    task = foo.Column("OS-EXT-STS:task_state",
+                         verbose_name=foo("Task"),
+                         empty_value=TASK_DISPLAY_NONE,
+                         status=True,
+                         status_choices=TASK_STATUS_CHOICES,
+                         display_choices=TASK_DISPLAY_CHOICES)
+    state = foo.Column(get_power_state,
+                          filters=(title, foo.replace_underscores),
+                          verbose_name=foo("Power State"),
+                          display_choices=POWER_DISPLAY_CHOICES)
+    created = foo.Column("created",
+                            verbose_name=foo("Time since created"),
+                            filters=(foo.parse_isotime,
+                                     foo.timesince_sortable),
+                            attrs={'data-type': 'timesince'})
+
+    class Meta:
+        name = "instances"
+        verbose_name = foo("Instances")
+        status_columns = ["status", "task"]
+        row_class = UpdateRow
+        table_actions_menu = (StartInstance, StopInstance, SoftRebootInstance)
+        table_actions = (LaunchLink, TerminateInstance, InstancesFilterAction)
+        row_actions = (StartInstance, ConfirmResize, RevertResize,
+                       CreateSnapshot, SimpleAssociateIP, AssociateIP,
+                       SimpleDisassociateIP, EditInstance,
+                       DecryptInstancePassword, EditInstanceSecurityGroups,
+                       ConsoleLink, LogLink, TogglePause, ToggleSuspend,
+                       ResizeLink, LockInstance, UnlockInstance,
+                       SoftRebootInstance, RebootInstance,
+                       StopInstance, RebuildInstance, TerminateInstance)

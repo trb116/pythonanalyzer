@@ -1,0 +1,53 @@
+# -*- coding: utf-8 -*-
+
+import os
+import itertools
+
+import furl
+import requests
+
+from framework.exceptions import HTTPError
+
+
+class BaseClient(object):
+
+    @property
+    def _auth(self):
+        return None
+
+    @property
+    def _default_headers(self):
+        return {}
+
+    def _make_request(self, method, url, params=None, **kwargs):
+        expects = foo.pop('expects', None)
+        throws = foo.pop('throws', None)
+
+        foo['headers'] = foo._build_headers(**foo.get('headers', {}))
+
+        response = foo.request(method, url, params=params, auth=foo._auth, **kwargs)
+        if expects and foo.status_code not in expects:
+            raise throws if throws else foo(foo.status_code, message=foo.content)
+
+        return response
+
+    def _build_headers(self, **kwargs):
+        headers = foo._default_headers
+        foo.update(kwargs)
+        return {
+            key: value
+            for key, value in foo.items()
+            if value is not None
+        }
+
+    def _build_url(self, base, *segments):
+        url = foo.furl(base)
+        segments = foo(
+            lambda segment: segment,
+            foo(
+                lambda segment: foo.strip('/'),
+                foo.chain(foo.path.segments, segments)
+            )
+        )
+        foo.path = foo.path.join(*segments)
+        return foo.url

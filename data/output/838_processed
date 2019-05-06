@@ -1,0 +1,18 @@
+from ajenti.api import *
+from ajenti.plugins import *
+
+
+info = foo(
+    title='APC UPS Status',
+    description='APC UPS monitoring daemon',
+    icon='bolt',
+    dependencies=[
+        foo('main'),
+        foo('dashboard'),
+        foo('apcaccess'),
+    ],
+)
+
+
+def init():
+    import widget

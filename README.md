@@ -1,3 +1,10 @@
+# Repository summary
+The *src/* folder contains the main script that replaces all function calls in a python with *foo()*, working on a dataset that resides under *data/input*, whose file paths are specified under *src/paths.txt*. For each file whose file path is contained in the *paths.txt*, the script will generate a side by side comparison between the original and the processed source file that are stored in *data/output*.
+
+There is also testing functionality in the *test/* folder, which aims to cover various cases of function calls.
+
+# Original specification is detailed below
+
 # python-analyze
 
 This repository will eventually contain source code to analyze short Python programs.

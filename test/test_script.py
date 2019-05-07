@@ -17,3 +17,4 @@ if __name__ == "__main__":
 
         if expected_output != python_analyzer.process_code(input_code):
             raise Exception("Comparison failed for " + file_path + "!")
+    print("All tests successfully passed")

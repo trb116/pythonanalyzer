@@ -1,9 +1,14 @@
 import redbaron
+import matplotlib.pyplot as plt
+
+simple_calls, chained_calls, print_calls = 0, 0, 0
 
 # method that returns a string containing the new
 def process_code(py_code):
     # create the ast
     ast = redbaron.RedBaron(py_code)
+
+    global simple_calls, chained_calls, print_calls
 
     # replaces all traditional function calls
     for node in ast.find_all("atomtrailers"):
@@ -13,6 +18,13 @@ def process_code(py_code):
             if isinstance(node.value[i], redbaron.nodes.CallNode):
                 # we replace the NameNode value
                 node.value[i - 1].replace("foo")
+
+                # i < 3 means there is no trainwreck of object accesses and
+                # func calls, like z.y().x()
+                if i < 3:
+                    simple_calls += 1
+                else:
+                    chained_calls += 1
 
     # replaces (almost) all print function calls
     for node in ast.find_all("print"):
@@ -37,7 +49,7 @@ def process_code(py_code):
                     # handle old python print "abcd" syntax
                     parent.value[i] = redbaron.RedBaron("foo(" + \
                                                 str(node.value[0]) + ")")
-
+        print_calls += 1
     # unparses the AST and returns the code
     return ast.dumps()
 
@@ -65,9 +77,25 @@ def process_py_file(input_path, output_path, file_id):
     except Exception as e:
         print(e, " occuring at ", input_path)
 
+def plot_stats():
+    labels = 'Simple calls', 'Chained function calls', 'Print calls'
+
+    sizes = [simple_calls, chained_calls, print_calls]
+    explode = (0, 0.1, 0) #explode the chained function calls == bad practice
+
+    fig1, ax1 = plt.subplots()
+    ax1.pie(sizes, explode=explode, labels=labels, autopct='%1.1f%%',
+            shadow=True, startangle=90)
+    ax1.axis('equal')
+
+    print('Saving function calls stats at ../data/call_stats.png')
+    plt.savefig('../data/call_stats.png')
+
 if __name__ == "__main__":
-    #with open("../data/input/Akagi201/learning-python/template/mako/hello_world/hello4.py") as f:
+    # uncomment code for easy debugging
+    #with open("../test/input/chained func calls.py") as f:
     #    print(process_code(f.read()))
+    #    print(simple_calls, chained_calls, print_calls)
     #    exit()
 
     with open("paths.txt") as paths_file:
@@ -79,6 +107,8 @@ if __name__ == "__main__":
             # :-1 is to remove the newline
             process_py_file(line[:-1], "../data/output/", cnt)
             cnt += 1
+
+    plot_stats()
 
 # below is code for changing all the path entries to match our naming scheme
     # newf = open("../data/paths2.txt", "w")

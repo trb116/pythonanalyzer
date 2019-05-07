@@ -3,6 +3,13 @@ The *src/* folder contains the main script that replaces all function calls in a
 
 There is also testing functionality in the *test/* folder, which aims to cover various cases of function calls.
 
+## Instructions
+### Running python_analyzer
+In src/  just run *python python_analyzer.py*
+### Testing the main functionality
+In test/  just run *python test_script.py* . Feel free to peek at the tests and their expected outputs
+### Installing RedBaron
+I'm not sure if the conda environment does anything, as when I installed redbaron I did so by downloading the repo as a zip, unpacking it and running *python setup.py* but it didn't seem to affect my conda environment at all (you will probaly have to run python setup.py as well, repo is at https://github.com/PyCQA/redbaron). Other than RedBaron I'm only using standard libraries.
 ## Python files RedBaron isn't able to parse:
 ```
 ../data/input/Azure/Azure-MachineLearning-ClientLibrary-Python/azureml/http.py

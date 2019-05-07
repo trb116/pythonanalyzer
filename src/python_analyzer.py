@@ -61,7 +61,7 @@ def process_py_file(input_path, output_path, file_id):
     try:
         with open(input_path) as py_input:
             original_code = py_input.read()
-            processed_code = process_code(original_code)
+            processed_code, _, _ ,_ = process_code(original_code)
 
             output_path += str(file_id) + "_"
             output_path_original = output_path + "original"

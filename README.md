@@ -1,5 +1,5 @@
 # Repository summary
-The *src/* folder contains the main script that replaces all function calls in a python with *foo()*, working on a dataset that resides under *data/input*, whose file paths are specified under *src/paths.txt*. For each file whose file path is contained in the *paths.txt*, the script will generate a side by side comparison between the original and the processed source file that are stored in *data/output*.
+The *src/* folder contains the main script that replaces all function calls in a python with *foo()*, working on a dataset that resides under *data/input*, whose file paths are specified under *src/paths.txt*. For each file whose file path is contained in the *paths.txt*, the script will generate a side by side comparison between the original and the processed source file that are stored in *data/output*. It will also collect statistics on how many of the function calls are simple calls vs chained calls(like a.b.c() has one chained function call, or a.b.c().d() has two) vs print calls and save a plot in data/call_stats.png
 
 There is also testing functionality in the *test/* folder, which aims to cover various cases of function calls.
 
@@ -7,23 +7,33 @@ There is also testing functionality in the *test/* folder, which aims to cover v
 ### Running python_analyzer
 In src/  just run *python python_analyzer.py*
 ### Testing the main functionality
-In test/  just run *python test_script.py* . Feel free to peek at the tests and their expected outputs
+In test/  just run *python <test_script>.py* (due to lack of time the tests for collecting statistics are in separata files). Feel free to peek at the test inputs and their expected outputs
 ### Installing RedBaron
 I'm not sure if the conda environment does anything, as when I installed redbaron I did so by downloading the repo as a zip, unpacking it and running *python setup.py* but it didn't seem to affect my conda environment at all (you will probaly have to run python setup.py as well, repo is at https://github.com/PyCQA/redbaron). Other than RedBaron I'm only using standard libraries.
 ## Python files RedBaron isn't able to parse:
 ```
 ../data/input/Azure/Azure-MachineLearning-ClientLibrary-Python/azureml/http.py
-Untreated elements: '\ufeff#------------------------------------------
-../data/input/Azure/azure-sdk-for-python/azure-mgmt/tests/test_mgmt_apps.py
-Untreated elements: '\ufeff# coding: utf-8\n\n#-----------------------
-../data/input/Azure/azure-sdk-for-python/azure-servicebus/tests/servicebus_settings_fake.py
-Untreated elements: '\ufeff#------------------------------------------
-../data/input/Azure/azure-storage-python/azure/storage/blob/_chunking.py
-Untreated elements: '\ufeff#------------------------------------------
-../data/input/Azure/azure-storage-python/azure/storage/table/_error.py
-Untreated elements: '\ufeff#------------------------------------------
-../data/input/Azure/azure-storage-python/tests/blob_performance.py
-Untreated elements: '\ufeff#------------------------------------------
+Untreated elements: '\ufeff# coding: utf-8\n\n#-----------------------  occuring at  ../data/input/Azure/azure-sdk-for-python/azure-mgmt/tests/test_mgmt_apps.py
+Untreated elements: '\ufeff#------------------------------------------  occuring at  ../data/input/Azure/azure-sdk-for-python/azure-servicebus/tests/servicebus_settings_fake.py
+Untreated elements: '\ufeff#------------------------------------------  occuring at  ../data/input/Azure/azure-storage-python/azure/storage/blob/_chunking.py
+Untreated elements: '\ufeff#------------------------------------------  occuring at  ../data/input/Azure/azure-storage-python/azure/storage/table/_error.py
+Untreated elements: '\ufeff#------------------------------------------  occuring at  ../data/input/Azure/azure-storage-python/tests/blob_performance.py
+Error, got an unexpected token STRING here:
+
+  13 
+  14 libraryNotFound = False
+  15 
+  16 import sys, os, time
+  17 try:
+  18 	from defcon import Font
+  19 except:
+  20 	print "ERROR: This script requires defcon. It can be downloaded from https://github.com/typesupply/defcon"<---- here
+
+The token STRING should be one of those: AMPER, AMPER_EQUAL, AND, AT, AT_EQUAL, CIRCUMFLEX, CIRCUMFLEX_EQUAL, COLON, COMMA, COMMENT, DEF, DOT, DOUBLE_SLASH, DOUBLE_SLASH_EQUAL, DOUBLE_STAR, DOUBLE_STAR_EQUAL, ENDL, EQUAL, EQUAL_EQUAL, FOR, GREATER, GREATER_EQUAL, IF, IN, IS, LEFT_PARENTHESIS, LEFT_SHIFT, LEFT_SHIFT_EQUAL, LEFT_SQUARE_BRACKET, LESS, LESS_EQUAL, MINUS, MINUS_EQUAL, NOT, NOT_EQUAL, OR, PERCENT, PERCENT_EQUAL, PLUS, PLUS_EQUAL, RIGHT_SHIFT, RIGHT_SHIFT_EQUAL, SEMICOLON, SLASH, SLASH_EQUAL, SPACE, STAR, STAR_EQUAL, VBAR, VBAR_EQUAL, WITH
+
+Baron has failed to parse this input. If this is valid python code (and by that I mean that the python binary successfully parse this code without any syntax error) (also consider that python does not yet parse python 3 code integrally) it would be kind if you can extract a snippet of your code that make Baron fails and open a bug here: https://github.com/PyCQA/baron/issues
+
+Sorry for the inconvenience.  occuring at  ../data/input/adobe-type-tools/python-scripts/generateAllMarkFiles.py
 ```
 # Original specification is detailed below
 

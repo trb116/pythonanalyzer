@@ -15,6 +15,7 @@ if __name__ == "__main__":
         expected_output_f = open("expected_output/" + file_path)
         expected_output = expected_output_f.read()
 
-        if expected_output != python_analyzer.process_code(input_code):
+        processed_code, _, _, _ = python_analyzer.process_code(input_code)
+        if expected_output != processed_code:
             raise Exception("Comparison failed for " + file_path + "!")
     print("All tests successfully passed")

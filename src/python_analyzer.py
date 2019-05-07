@@ -50,8 +50,10 @@ def process_code(py_code):
                     parent.value[i] = redbaron.RedBaron("foo(" + \
                                                 str(node.value[0]) + ")")
         print_calls += 1
-    # unparses the AST and returns the code
-    return ast.dumps()
+    # unparses the AST and returns the code and simple_calls chained_calls and
+    #   print_calls for unit testing the  stats part
+    # todo: refactor simple_calls, chained_calls, etc.
+    return ast.dumps(), simple_calls, chained_calls, print_calls
 
 # helper function that takes all python files from input_path and stores them
 # under output_path for a side by side comparison

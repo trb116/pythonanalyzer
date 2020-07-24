@@ -101,7 +101,7 @@ class Trafo:
 
 
 class UiCanvas:
-    def __init__(self, master, geometry=None):
+    def __init__(self, main, geometry=None):
         self.game_finish_overlay = lambda: None
         self.game_status_info = lambda: None
 
@@ -110,7 +110,7 @@ class UiCanvas:
 
         self.size_changed = True
 
-        self.master = master
+        self.main = main
         self.canvas = None
 
         self.current_universe = None
@@ -121,11 +121,11 @@ class UiCanvas:
         self.fps = 0
 
     def init_canvas(self):
-        self.score = tkinter.Canvas(self.master.frame, width=self.mesh_graph.screen_width, height=40)
+        self.score = tkinter.Canvas(self.main.frame, width=self.mesh_graph.screen_width, height=40)
         self.score.config(background="white")
         self.score.pack(side=tkinter.TOP, fill=tkinter.X)
 
-        self.status = tkinter.Canvas(self.master.frame, width=self.mesh_graph.screen_width, height=25)
+        self.status = tkinter.Canvas(self.main.frame, width=self.mesh_graph.screen_width, height=25)
         self.status.config(background="white")
         self.status.pack(side=tkinter.BOTTOM, fill=tkinter.X)
 
@@ -145,7 +145,7 @@ class UiCanvas:
             background="white",
             justify=tkinter.CENTER,
             text="slower",
-            command=self.master.delay_inc)
+            command=self.main.delay_inc)
         self.button_game_speed_slower.pack(side=tkinter.LEFT)
 
         self.button_game_speed_faster = tkinter.Button(game_speed_frame,
@@ -153,10 +153,10 @@ class UiCanvas:
             background="white",
             justify=tkinter.CENTER,
             text="faster",
-            command=self.master.delay_dec)
+            command=self.main.delay_dec)
         self.button_game_speed_faster.pack(side=tkinter.LEFT)
 
-        self.master._check_speed_button_state()
+        self.main._check_speed_button_state()
 
         self.button_game_toggle_grid = tkinter.Button(game_speed_frame,
             foreground="black",
@@ -175,35 +175,35 @@ class UiCanvas:
                        background="white",
                        justify=tkinter.CENTER,
                        text="PLAY/PAUSE",
-                       command=self.master.toggle_running).pack(side=tkinter.LEFT)
+                       command=self.main.toggle_running).pack(side=tkinter.LEFT)
 
         tkinter.Button(game_control_frame,
                        foreground="black",
                        background="white",
                        justify=tkinter.CENTER,
                        text="STEP",
-                       command=self.master.request_step).pack(side=tkinter.LEFT)
+                       command=self.main.request_step).pack(side=tkinter.LEFT)
 
         tkinter.Button(game_control_frame,
                        foreground="black",
                        background="white",
                        justify=tkinter.CENTER,
                        text="ROUND",
-                       command=self.master.request_round).pack(side=tkinter.LEFT)
+                       command=self.main.request_round).pack(side=tkinter.LEFT)
 
         tkinter.Button(self.status,
                        foreground="black",
                        background="white",
                        justify=tkinter.CENTER,
                        text="QUIT",
-                       command=self.master.quit).grid(row=0, column=1, rowspan=2, sticky="WE")
+                       command=self.main.quit).grid(row=0, column=1, rowspan=2, sticky="WE")
 
 
         self.status.grid_columnconfigure(0, weight=1)
         self.status.grid_columnconfigure(1, weight=1)
         self.status.grid_columnconfigure(2, weight=1)
 
-        self.canvas = tkinter.Canvas(self.master.frame,
+        self.canvas = tkinter.Canvas(self.main.frame,
                                      width=self.mesh_graph.screen_width,
                                      height=self.mesh_graph.screen_height)
         self.canvas.config(background="white")
@@ -240,8 +240,8 @@ class UiCanvas:
 
                 if self.geometry is None:
                     screensize = (
-                        max(250, self.master.master.winfo_screenwidth() - 100),
-                        max(250, self.master.master.winfo_screenheight() - 100)
+                        max(250, self.main.main.winfo_screenwidth() - 100),
+                        max(250, self.main.main.winfo_screenheight() - 100)
                         )
                 else:
                     screensize = self.geometry
@@ -501,10 +501,10 @@ class UiCanvas:
 
 
 class TkApplication:
-    def __init__(self, master, address, controller_address=None,
+    def __init__(self, main, address, controller_address=None,
                  geometry=None, delay=1):
-        self.master = master
-        self.master.configure(background="white")
+        self.main = main
+        self.main.configure(background="white")
 
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.SUB)
@@ -519,8 +519,8 @@ class TkApplication:
         else:
             self.controller_socket = None
 
-        self.frame = tkinter.Frame(self.master, background="white")
-        self.master.title("Pelita")
+        self.frame = tkinter.Frame(self.main, background="white")
+        self.main.title("Pelita")
 
         self.frame.pack(fill=tkinter.BOTH, expand=tkinter.YES)
 
@@ -532,12 +532,12 @@ class TkApplication:
 
         self.running = True
 
-        self.master.bind('q', lambda event: self.quit())
-        self.master.createcommand('exit', self.quit)
-        self.master.protocol("WM_DELETE_WINDOW", self.quit)
+        self.main.bind('q', lambda event: self.quit())
+        self.main.createcommand('exit', self.quit)
+        self.main.protocol("WM_DELETE_WINDOW", self.quit)
 
         if self.controller_socket:
-            self.master.after_idle(self.request_initial)
+            self.main.after_idle(self.request_initial)
 
     def _after(self, delay, fun, *args):
         """ Execute fun(*args) after delay milliseconds.
@@ -550,7 +550,7 @@ class TkApplication:
             except KeyboardInterrupt:
                 _logger.info("Detected KeyboardInterrupt. Exiting.")
                 self.quit()
-        self.master.after(delay, wrapped_fun)
+        self.main.after(delay, wrapped_fun)
 
     def toggle_running(self):
         self.running = not self.running

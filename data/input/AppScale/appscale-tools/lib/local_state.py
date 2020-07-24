@@ -379,7 +379,7 @@ class LocalState(object):
       'instance_id' : str(instance_id),
       'table' : options.table,
       'secret' : cls.get_secret_key(options.keyname),
-      'db_master' : node_layout.db_master().public_ip,
+      'db_main' : node_layout.db_main().public_ip,
       'ips' : all_ips,
       'infrastructure' : infrastructure,
       'group' : options.group,

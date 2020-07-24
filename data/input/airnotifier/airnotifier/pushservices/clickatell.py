@@ -41,9 +41,9 @@ except:
 ENDPOINT='http://api.clickatell.com/http/sendmsg?user=%s&password=%s&api_id=%s&to=%s&text=%s'
 
 class ClickatellClient(PushService):
-    def __init__(self, masterdb, app, instanceid=0):
+    def __init__(self, maindb, app, instanceid=0):
         self.app = app
-        self.masterdb = masterdb
+        self.maindb = maindb
 
     def handle_response(self, response):
         #logging.info(response.body)

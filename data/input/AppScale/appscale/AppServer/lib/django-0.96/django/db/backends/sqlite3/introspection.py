@@ -5,7 +5,7 @@ def get_table_list(cursor):
     # Skip the sqlite_sequence system table used for autoincrement key
     # generation.
     cursor.execute("""
-        SELECT name FROM sqlite_master
+        SELECT name FROM sqlite_main
         WHERE type='table' AND NOT name='sqlite_sequence'
         ORDER BY name""")
     return [row[0] for row in cursor.fetchall()]

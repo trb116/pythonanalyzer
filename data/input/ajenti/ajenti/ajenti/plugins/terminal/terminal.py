@@ -35,12 +35,12 @@ class Terminal (object):
 
         logging.info('Terminal: %s' % command)
 
-        pid, master = pty.fork()
+        pid, main = pty.fork()
         if pid == 0:
             os.execvpe('sh', command, env)
 
         self.screen = pyte.DiffScreen(self.width, self.height)
-        self.protocol = PTYProtocol(pid, master, self.screen, **kwargs)
+        self.protocol = PTYProtocol(pid, main, self.screen, **kwargs)
 
     def restart(self):
         if self.protocol is not None:
@@ -58,17 +58,17 @@ class Terminal (object):
 
 
 class PTYProtocol:
-    def __init__(self, pid, master, term, callback=None):
+    def __init__(self, pid, main, term, callback=None):
         self.pid = pid
-        self.master = master
+        self.main = main
         self.dead = False
         self.callback = callback
 
-        fd = self.master
+        fd = self.main
         fl = fcntl.fcntl(fd, fcntl.F_GETFL)
         fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
-        self.mstream = os.fdopen(self.master, 'r+')
+        self.mstream = os.fdopen(self.main, 'r+')
         gevent.sleep(0.5)
         self.term = term
         self.stream = pyte.Stream()
@@ -78,7 +78,7 @@ class PTYProtocol:
         self.last_cursor_position = None
 
     def read(self, timeout=1):
-        select([self.master], [], [], timeout=timeout)
+        select([self.main], [], [], timeout=timeout)
         
         try:
             d = self.mstream.read()

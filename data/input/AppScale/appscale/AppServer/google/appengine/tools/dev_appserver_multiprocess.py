@@ -25,10 +25,10 @@ memcache and datastore API requests, so that persistent state is shared across
 all processes.  Application and Backend instances forward their memcache and
 datastore requests to the API Server using the remote_api interface.
 
-The base process is considered the Master.  It manages all subprocesses, assigns
+The base process is considered the Main.  It manages all subprocesses, assigns
 them ports, and issues /_ah/start requests to Backend instances.  Ports are
 either fixed (using the base value of --multiprocess_min_port) or randomly
-chosen.  The Master listens on the --port specified by the user, and forwards
+chosen.  The Main listens on the --port specified by the user, and forwards
 all requests to an App Instance process.
 
 Each balancer forwards incoming requests to the next free instance,
@@ -325,7 +325,7 @@ class ChildProcess(object):
 class DevProcess(object):
   """Represents a process in the multiprocess dev_appserver."""
 
-  TYPE_MASTER = 'Master'
+  TYPE_MASTER = 'Main'
   TYPE_APP_INSTANCE = 'App Instance'
   TYPE_BACKEND_BALANCER = 'Backend Balancer'
   TYPE_BACKEND_INSTANCE = 'Backend Instance'
@@ -590,13 +590,13 @@ class DevProcess(object):
     """Indicates whether this is the default dev_appserver process."""
     return self.Type() is None
 
-  def IsMaster(self):
-    """Indicates whether this is the master process."""
+  def IsMain(self):
+    """Indicates whether this is the main process."""
     return self.Type() == DevProcess.TYPE_MASTER
 
   def IsSubprocess(self):
     """Indicates that this is a subprocessess of the dev_appserver."""
-    return not (self.IsDefault() or self.IsMaster())
+    return not (self.IsDefault() or self.IsMain())
 
   def IsAppInstance(self):
     """Indicates whether this process represents an application instance."""
@@ -616,7 +616,7 @@ class DevProcess(object):
 
   def IsBalancer(self):
     """Indicates whether this process represents a load balancer."""
-    return self.IsMaster() or self.IsBackendBalancer()
+    return self.IsMain() or self.IsBackendBalancer()
 
   def IsInstance(self):
     """Indicates whether this process represents an instance."""
@@ -624,7 +624,7 @@ class DevProcess(object):
 
   def InitBalanceSet(self):
     """Construct a list of instances to balance traffic over."""
-    if self.IsMaster():
+    if self.IsMain():
       self.balance_set = [ self.child_app_instance.port ]
 
     if self.IsBackendBalancer():
@@ -1017,7 +1017,7 @@ def PosixShutdown():
 def Shutdown():
   """Shut down any child processes started."""
   dev_process = GlobalProcess()
-  if not dev_process.IsMaster():
+  if not dev_process.IsMain():
     return
 
 
@@ -1057,7 +1057,7 @@ def Init(argv, options, root_path, appinfo):
   """Enter multiprocess mode, if required.
 
   The dev_appserver runs in multiprocess mode if any Backends are configured.
-  The initial process becomes a "master" which acts as a router for the app, and
+  The initial process becomes a "main" which acts as a router for the app, and
   centralized memcache/datastore API server for sharing persistent state.
 
   This method works by configuring the global DevProcess object, which is
@@ -1065,12 +1065,12 @@ def Init(argv, options, root_path, appinfo):
   contains state indicating which role the current process plays in the
   multiprocess architecture.
 
-  The master process creates and shuts down subprocesses.  A separate process is
+  The main process creates and shuts down subprocesses.  A separate process is
   created to represent an instance of the application, and a separate process is
   created for each backend (to act as a load balancer) and for each backend
   instance.
 
-  On shutdown, the master process kills all subprocesses before exiting.
+  On shutdown, the main process kills all subprocesses before exiting.
 
   Args:
     argv:  The command line arguments used when starting the main application.
@@ -1110,13 +1110,13 @@ def Init(argv, options, root_path, appinfo):
     return
 
   SetLogPrefix(process)
-  if process.IsMaster():
+  if process.IsMain():
     process.StartChildren(argv, options)
 
   process.InitBalanceSet()
 
 
-  if process.IsMaster():
+  if process.IsMain():
     options['require_indexes'] = False
   else:
     options['require_indexes'] = True

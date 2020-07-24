@@ -7,7 +7,7 @@ from swgpy.object import *
 def create(kernel):
 	result = Static()
 
-	result.template = "object/static/item/shared_item_slave_brazier.iff"
+	result.template = "object/static/item/shared_item_subordinate_brazier.iff"
 	result.attribute_template_id = -1
 	result.stfName("obj_n","unknown_object")		
 	

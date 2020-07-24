@@ -3,7 +3,7 @@ from jinja2.loaders import DictLoader
 
 env = Environment(loader=DictLoader({
 'child.html': u'''\
-{% extends master_layout or 'master.html' %}
+{% extends main_layout or 'main.html' %}
 {% include helpers = 'helpers.html' %}
 {% macro get_the_answer() %}42{% endmacro %}
 {% title = 'Hello World' %}
@@ -12,7 +12,7 @@ env = Environment(loader=DictLoader({
     {{ helpers.conspirate() }}
 {% endblock %}
 ''',
-'master.html': u'''\
+'main.html': u'''\
 <!doctype html>
 <title>{{ title }}</title>
 {% block body %}{% endblock %}

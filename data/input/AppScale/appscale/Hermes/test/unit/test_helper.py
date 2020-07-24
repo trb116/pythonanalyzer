@@ -58,7 +58,7 @@ fake_data = 'some data'
 fake_node_info = [
   {
     'host': fake_url,
-    'role': 'db_master',
+    'role': 'db_main',
     'index': None
   },
   {
@@ -121,9 +121,9 @@ class TestHelper(unittest.TestCase):
     self.assertIsNone(helper.get_deployment_id())
 
   def test_get_node_info(self):
-    flexmock(appscale_info).should_receive('get_db_master_ip').and_return(
+    flexmock(appscale_info).should_receive('get_db_main_ip').and_return(
       'foo')
-    flexmock(appscale_info).should_receive('get_db_slave_ips').and_return(
+    flexmock(appscale_info).should_receive('get_db_subordinate_ips').and_return(
       ['bar'])
     flexmock(appscale_info).should_receive('get_zk_node_ips').and_return(
       ['baz'])

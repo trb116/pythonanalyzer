@@ -170,7 +170,7 @@ class TestLocalState(unittest.TestCase):
     role_info = [{
         'public_ip' : 'public1',
         'private_ip' : 'private1',
-        'jobs' : ['shadow', 'db_master']
+        'jobs' : ['shadow', 'db_main']
     }]
     fake_soap.should_receive('get_role_info').with_args('the secret') \
       .and_return(json.dumps(role_info))
@@ -193,7 +193,7 @@ class TestLocalState(unittest.TestCase):
       'load_balancer': 'public1', 'instance_id': 'i-ABCDEFG',
       'secret': 'the secret', 'infrastructure': 'ec2',
       'group': 'boogroup', 'ips': 'public1', 'table': 'cassandra',
-      'db_master': 'node-0', 'zone' : 'my-zone-1b'
+      'db_main': 'node-0', 'zone' : 'my-zone-1b'
     })).and_return()
     builtins.should_receive('open').with_args(
       LocalState.get_locations_yaml_location('booscale'), 'w') \

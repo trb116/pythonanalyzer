@@ -56,9 +56,9 @@ class WNSInvalidPushTypeException(WNSException):
 WNSACCESSTOKEN_URL = 'https://login.live.com/accesstoken.srf'
 
 class WNSClient(PushService):
-    def __init__(self, masterdb, app, instanceid=0):
+    def __init__(self, maindb, app, instanceid=0):
         self.app = app
-        self.masterdb = masterdb
+        self.maindb = maindb
         self.clientid = app['wnsclientid']
         self.clientsecret = app['wnsclientsecret']
         self.accesstoken = app['wnsaccesstoken']
@@ -100,7 +100,7 @@ class WNSClient(PushService):
         accesstoken = responsedata['access_token']
         self.app['wnsaccesstoken'] = accesstoken
         self.app['wnstokenexpiry'] = int(responsedata['expires_in']) + int(time.time())
-        self.masterdb.applications.update({'shortname': self.app['shortname']}, self.app, safe=True)
+        self.maindb.applications.update({'shortname': self.app['shortname']}, self.app, safe=True)
         return accesstoken
 
 class WNSBase(object):

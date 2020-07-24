@@ -148,9 +148,9 @@ def settings(id):
         'project_full_name': project.gh_full_name,
     }
     example_badge_href = ('http://{fqdn}/projects/{project_id}/'
-                          'builds/latest/?ref=master'.format(**kwargs))
+                          'builds/latest/?ref=main'.format(**kwargs))
     example_badge_src = ('{protocol}://{fqdn}/badges/{project_full_name}/'
-                         'master'.format(**kwargs))
+                         'main'.format(**kwargs))
     return render_template(
         'projects/settings.html',
         project=project,

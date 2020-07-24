@@ -7,7 +7,7 @@ from swgpy.object import *
 def create(kernel):
 	result = Tangible()
 
-	result.template = "object/tangible/mission/quest_item/shared_ajuva_vamasterin_q1_needed.iff"
+	result.template = "object/tangible/mission/quest_item/shared_ajuva_vamainin_q1_needed.iff"
 	result.attribute_template_id = -1
 	result.stfName("loot_rori_n","ajuva_vanasterin_q1_needed")		
 	

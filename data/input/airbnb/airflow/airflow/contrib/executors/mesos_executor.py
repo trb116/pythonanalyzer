@@ -33,7 +33,7 @@ class AirflowMesosScheduler(mesos.interface.Scheduler):
     to schedule airflow tasks on mesos.
     Basically, it schedules a command like
     'airflow run <dag_id> <task_instance_id> <start_date> --local -p=<pickle>'
-    to run on a mesos slave.
+    to run on a mesos subordinate.
     """
 
     def __init__(self,
@@ -48,7 +48,7 @@ class AirflowMesosScheduler(mesos.interface.Scheduler):
         self.task_counter = 0
         self.task_key_map = {}
 
-    def registered(self, driver, frameworkId, masterInfo):
+    def registered(self, driver, frameworkId, mainInfo):
         logging.info("AirflowScheduler registered to mesos with framework ID %s", frameworkId.value)
 
         if configuration.getboolean('mesos', 'CHECKPOINT') and configuration.get('mesos', 'FAILOVER_TIMEOUT'):
@@ -69,7 +69,7 @@ class AirflowMesosScheduler(mesos.interface.Scheduler):
             session.commit()
             Session.remove()
 
-    def reregistered(self, driver, masterInfo):
+    def reregistered(self, driver, mainInfo):
         logging.info("AirflowScheduler re-registered to mesos")
 
     def disconnected(self, driver):
@@ -78,14 +78,14 @@ class AirflowMesosScheduler(mesos.interface.Scheduler):
     def offerRescinded(self, driver, offerId):
         logging.info("AirflowScheduler offer %s rescinded", str(offerId))
 
-    def frameworkMessage(self, driver, executorId, slaveId, message):
+    def frameworkMessage(self, driver, executorId, subordinateId, message):
         logging.info("AirflowScheduler received framework message %s", message)
 
-    def executorLost(self, driver, executorId, slaveId, status):
+    def executorLost(self, driver, executorId, subordinateId, status):
         logging.warning("AirflowScheduler executor %s lost", str(executorId))
 
-    def slaveLost(self, driver, slaveId):
-        logging.warning("AirflowScheduler slave %s lost", str(slaveId))
+    def subordinateLost(self, driver, subordinateId):
+        logging.warning("AirflowScheduler subordinate %s lost", str(subordinateId))
 
     def error(self, driver, message):
         logging.error("AirflowScheduler driver aborted %s", message)
@@ -119,7 +119,7 @@ class AirflowMesosScheduler(mesos.interface.Scheduler):
 
                 task = mesos_pb2.TaskInfo()
                 task.task_id.value = str(tid)
-                task.slave_id.value = offer.slave_id.value
+                task.subordinate_id.value = offer.subordinate_id.value
                 task.name = "AirflowTask %d" % tid
 
                 cpus = task.resources.add()
@@ -186,10 +186,10 @@ class MesosExecutor(BaseExecutor):
         framework.user = ''
 
         if not configuration.get('mesos', 'MASTER'):
-            logging.error("Expecting mesos master URL for mesos executor")
-            raise AirflowException("mesos.master not provided for mesos executor")
+            logging.error("Expecting mesos main URL for mesos executor")
+            raise AirflowException("mesos.main not provided for mesos executor")
 
-        master = configuration.get('mesos', 'MASTER')
+        main = configuration.get('mesos', 'MASTER')
 
         framework.name = get_framework_name()
 
@@ -222,8 +222,8 @@ class MesosExecutor(BaseExecutor):
         else:
             framework.checkpoint = False
 
-        logging.info('MesosFramework master : %s, name : %s, cpu : %s, mem : %s, checkpoint : %s',
-            master, framework.name, str(task_cpu), str(task_memory), str(framework.checkpoint))
+        logging.info('MesosFramework main : %s, name : %s, cpu : %s, mem : %s, checkpoint : %s',
+            main, framework.name, str(task_cpu), str(task_memory), str(framework.checkpoint))
 
         implicit_acknowledgements = 1
 
@@ -244,7 +244,7 @@ class MesosExecutor(BaseExecutor):
             driver = mesos.native.MesosSchedulerDriver(
                 AirflowMesosScheduler(self.task_queue, self.result_queue, task_cpu, task_memory),
                 framework,
-                master,
+                main,
                 implicit_acknowledgements,
                 credential)
         else:
@@ -252,7 +252,7 @@ class MesosExecutor(BaseExecutor):
             driver = mesos.native.MesosSchedulerDriver(
                 AirflowMesosScheduler(self.task_queue, self.result_queue, task_cpu, task_memory),
                 framework,
-                master,
+                main,
                 implicit_acknowledgements)
 
         self.mesos_driver = driver

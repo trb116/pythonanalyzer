@@ -20,13 +20,13 @@ from awscli.testutils import unittest
 class TestSSHUtils(unittest.TestCase):
 
     @mock.patch('awscli.customizations.emr.sshutils.emrutils')
-    def test_validate_and_find_master_dns_waits(self, emrutils):
+    def test_validate_and_find_main_dns_waits(self, emrutils):
         emrutils.get_cluster_state.return_value = 'STARTING'
         session = mock.Mock()
         client = mock.Mock()
         emrutils.get_client.return_value = client
 
-        sshutils.validate_and_find_master_dns(session, None, 'cluster-id')
+        sshutils.validate_and_find_main_dns(session, None, 'cluster-id')
 
         # We should have:
         # 1. Waiter for the cluster to be running.
@@ -34,14 +34,14 @@ class TestSSHUtils(unittest.TestCase):
         client.get_waiter.return_value.wait.assert_called_with(
             ClusterId='cluster-id')
 
-        # 2. Found the master public DNS
-        self.assertTrue(emrutils.find_master_dns.called)
+        # 2. Found the main public DNS
+        self.assertTrue(emrutils.find_main_dns.called)
 
     @mock.patch('awscli.customizations.emr.sshutils.emrutils')
     def test_cluster_in_terminated_states(self, emrutils):
         emrutils.get_cluster_state.return_value = 'TERMINATED'
         with self.assertRaises(exceptions.ClusterTerminatedError):
-            sshutils.validate_and_find_master_dns(
+            sshutils.validate_and_find_main_dns(
                 mock.Mock(), None, 'cluster-id')
 
     @mock.patch('awscli.customizations.emr.sshutils.emrutils')

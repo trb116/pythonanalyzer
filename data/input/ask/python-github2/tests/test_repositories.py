@@ -39,7 +39,7 @@ class RepoProperties(utils.HttpMockTestCase):
         eq_(repo.watchers, 5)
         eq_(repo.private, False)
         eq_(repo.fork, False)
-        eq_(repo.master_branch, None)
+        eq_(repo.main_branch, None)
         eq_(repo.integration_branch, None)
         eq_(repo.open_issues, 13)
         eq_(repo.created_at, datetime.datetime(2009, 5, 2, 7, 32, 50))
@@ -107,7 +107,7 @@ class RepoQueries(utils.HttpMockTestCase):
     def test_branches(self):
         branches = self.client.repos.branches('ask/python-github2')
         eq_(len(branches), 1)
-        eq_(branches['master'], '1c83cde9b5a7c396a01af1007fb7b88765b9ae45')
+        eq_(branches['main'], '1c83cde9b5a7c396a01af1007fb7b88765b9ae45')
 
     def test_watchers(self):
         watchers = self.client.repos.watchers('ask/python-github2')

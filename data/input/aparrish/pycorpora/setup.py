@@ -21,7 +21,7 @@ class DownloadAndInstall(install):
     user_options = install.user_options + [
             ('corpora-zip-url=', None,
                 'URL pointing to .zip file of corpora data ' +
-                '(defaults to current master on GitHub)')
+                '(defaults to current main on GitHub)')
             ]
 
     def initialize_options(self, *args, **kwargs):

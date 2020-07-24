@@ -31,7 +31,7 @@ def get_soap_accessor():
   Returns:
     A soap server accessor.
   """
-  db_ip = appscale_info.get_db_master_ip()
+  db_ip = appscale_info.get_db_main_ip()
   bindport = constants.UA_SERVER_PORT
   return SOAPpy.SOAPProxy("https://{0}:{1}".format(db_ip, bindport))
 

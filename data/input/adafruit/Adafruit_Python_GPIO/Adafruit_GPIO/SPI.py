@@ -152,7 +152,7 @@ class BitBang(object):
 
     def __init__(self, gpio, sclk, mosi=None, miso=None, ss=None):
         """Initialize bit bang (or software) based SPI.  Must provide a BaseGPIO
-        class, the SPI clock, and optionally MOSI, MISO, and SS (slave select)
+        class, the SPI clock, and optionally MOSI, MISO, and SS (subordinate select)
         pin numbers. If MOSI is set to None then writes will be disabled and fail
         with an error, likewise for MISO reads will be disabled.  If SS is set to
         None then SS will not be asserted high/low by the library when

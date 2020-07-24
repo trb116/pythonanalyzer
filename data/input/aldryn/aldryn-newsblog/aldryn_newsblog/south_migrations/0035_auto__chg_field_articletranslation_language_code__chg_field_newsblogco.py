@@ -49,11 +49,11 @@ class Migration(SchemaMigration):
             'related': ('sortedm2m.fields.SortedManyToManyField', [], {'related_name': "'related_rel_+'", 'blank': 'True', 'to': u"orm['aldryn_newsblog.Article']"})
         },
         u'aldryn_newsblog.articletranslation': {
-            'Meta': {'unique_together': "[(u'language_code', u'slug'), (u'language_code', u'master')]", 'object_name': 'ArticleTranslation', 'db_table': "u'aldryn_newsblog_article_translation'"},
+            'Meta': {'unique_together': "[(u'language_code', u'slug'), (u'language_code', u'main')]", 'object_name': 'ArticleTranslation', 'db_table': "u'aldryn_newsblog_article_translation'"},
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
             'language_code': ('django.db.models.fields.CharField', [], {'max_length': '15', 'db_index': 'True'}),
             'lead_in': ('djangocms_text_ckeditor.fields.HTMLField', [], {'default': "u''", 'blank': 'True'}),
-            u'master': ('django.db.models.fields.related.ForeignKey', [], {'related_name': "'translations'", 'null': 'True', 'to': u"orm['aldryn_newsblog.Article']"}),
+            u'main': ('django.db.models.fields.related.ForeignKey', [], {'related_name': "'translations'", 'null': 'True', 'to': u"orm['aldryn_newsblog.Article']"}),
             'meta_description': ('django.db.models.fields.TextField', [], {'default': "u''", 'blank': 'True'}),
             'meta_keywords': ('django.db.models.fields.TextField', [], {'default': "u''", 'blank': 'True'}),
             'meta_title': ('django.db.models.fields.CharField', [], {'default': "u''", 'max_length': '255', 'blank': 'True'}),
@@ -103,11 +103,11 @@ class Migration(SchemaMigration):
             'type': ('django.db.models.fields.CharField', [], {'max_length': '100'})
         },
         u'aldryn_newsblog.newsblogconfigtranslation': {
-            'Meta': {'unique_together': "[(u'language_code', u'master')]", 'object_name': 'NewsBlogConfigTranslation', 'db_table': "u'aldryn_newsblog_newsblogconfig_translation'"},
+            'Meta': {'unique_together': "[(u'language_code', u'main')]", 'object_name': 'NewsBlogConfigTranslation', 'db_table': "u'aldryn_newsblog_newsblogconfig_translation'"},
             'app_title': ('django.db.models.fields.CharField', [], {'max_length': '234'}),
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
             'language_code': ('django.db.models.fields.CharField', [], {'max_length': '15', 'db_index': 'True'}),
-            u'master': ('django.db.models.fields.related.ForeignKey', [], {'related_name': "'translations'", 'null': 'True', 'to': u"orm['aldryn_newsblog.NewsBlogConfig']"})
+            u'main': ('django.db.models.fields.related.ForeignKey', [], {'related_name': "'translations'", 'null': 'True', 'to': u"orm['aldryn_newsblog.NewsBlogConfig']"})
         },
         u'aldryn_newsblog.newsblogfeaturedarticlesplugin': {
             'Meta': {'object_name': 'NewsBlogFeaturedArticlesPlugin'},

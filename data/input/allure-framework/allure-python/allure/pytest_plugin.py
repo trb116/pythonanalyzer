@@ -81,8 +81,8 @@ def pytest_configure(config):
         pytest.allure._allurelistener = testlistener
         config.pluginmanager.register(testlistener)
 
-        if not hasattr(config, 'slaveinput'):
-            # on xdist-master node do all the important stuff
+        if not hasattr(config, 'subordinateinput'):
+            # on xdist-main node do all the important stuff
             config.pluginmanager.register(AllureAgregatingListener(allure_impl, config))
             config.pluginmanager.register(AllureCollectionListener(allure_impl))
 
@@ -104,7 +104,7 @@ class AllureTestListener(object):
         # it is here to cope with xdist's begavior regarding -x.
         # see self.pytest_runtest_makereport and AllureAgregatingListener.pytest_sessionfinish
 
-        self._magicaldoublereport = hasattr(self.config, 'slaveinput') and self.config.getvalue("maxfail")
+        self._magicaldoublereport = hasattr(self.config, 'subordinateinput') and self.config.getvalue("maxfail")
 
     @pytest.mark.hookwrapper
     def pytest_runtest_protocol(self, item, nextitem):

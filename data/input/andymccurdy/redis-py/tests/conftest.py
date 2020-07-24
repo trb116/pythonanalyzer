@@ -85,29 +85,29 @@ def mock_cluster_resp_info(request, **kwargs):
 def mock_cluster_resp_nodes(request, **kwargs):
     r = _get_client(redis.Redis, request, **kwargs)
     response = ('c8253bae761cb1ecb2b61857d85dfe455a0fec8b 172.17.0.7:7006 '
-                'slave aa90da731f673a99617dfe930306549a09f83a6b 0 '
+                'subordinate aa90da731f673a99617dfe930306549a09f83a6b 0 '
                 '1447836263059 5 connected\n'
                 '9bd595fe4821a0e8d6b99d70faa660638a7612b3 172.17.0.7:7008 '
-                'master - 0 1447836264065 0 connected\n'
+                'main - 0 1447836264065 0 connected\n'
                 'aa90da731f673a99617dfe930306549a09f83a6b 172.17.0.7:7003 '
-                'myself,master - 0 0 2 connected 5461-10922\n'
+                'myself,main - 0 0 2 connected 5461-10922\n'
                 '1df047e5a594f945d82fc140be97a1452bcbf93e 172.17.0.7:7007 '
-                'slave 19efe5a631f3296fdf21a5441680f893e8cc96ec 0 '
+                'subordinate 19efe5a631f3296fdf21a5441680f893e8cc96ec 0 '
                 '1447836262556 3 connected\n'
                 '4ad9a12e63e8f0207025eeba2354bcf4c85e5b22 172.17.0.7:7005 '
-                'master - 0 1447836262555 7 connected 0-5460\n'
+                'main - 0 1447836262555 7 connected 0-5460\n'
                 '19efe5a631f3296fdf21a5441680f893e8cc96ec 172.17.0.7:7004 '
-                'master - 0 1447836263562 3 connected 10923-16383\n'
+                'main - 0 1447836263562 3 connected 10923-16383\n'
                 'fbb23ed8cfa23f17eaf27ff7d0c410492a1093d6 172.17.0.7:7002 '
-                'master,fail - 1447829446956 1447829444948 1 disconnected\n'
+                'main,fail - 1447829446956 1447829444948 1 disconnected\n'
                 )
     return _gen_cluster_mock_resp(r, response)
 
 
 @pytest.fixture()
-def mock_cluster_resp_slaves(request, **kwargs):
+def mock_cluster_resp_subordinates(request, **kwargs):
     r = _get_client(redis.Redis, request, **kwargs)
     response = ("['1df047e5a594f945d82fc140be97a1452bcbf93e 172.17.0.7:7007 "
-                "slave 19efe5a631f3296fdf21a5441680f893e8cc96ec 0 "
+                "subordinate 19efe5a631f3296fdf21a5441680f893e8cc96ec 0 "
                 "1447836789290 3 connected']")
     return _gen_cluster_mock_resp(r, response)

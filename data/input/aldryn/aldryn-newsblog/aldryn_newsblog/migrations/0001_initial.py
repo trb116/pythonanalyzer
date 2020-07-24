@@ -53,7 +53,7 @@ class Migration(migrations.Migration):
                 ('meta_description', models.TextField(default='', verbose_name='meta description', blank=True)),
                 ('meta_keywords', models.TextField(default='', verbose_name='meta keywords', blank=True)),
                 ('search_data', models.TextField(editable=False, blank=True)),
-                ('master', models.ForeignKey(related_name='translations', editable=False, to='aldryn_newsblog.Article', null=True)),
+                ('main', models.ForeignKey(related_name='translations', editable=False, to='aldryn_newsblog.Article', null=True)),
             ],
             options={
                 'managed': True,
@@ -136,7 +136,7 @@ class Migration(migrations.Migration):
                 ('id', models.AutoField(verbose_name='ID', serialize=False, auto_created=True, primary_key=True)),
                 ('language_code', models.CharField(max_length=15, verbose_name='Language', db_index=True)),
                 ('app_title', models.CharField(max_length=234, verbose_name='application title')),
-                ('master', models.ForeignKey(related_name='translations', editable=False, to='aldryn_newsblog.NewsBlogConfig', null=True)),
+                ('main', models.ForeignKey(related_name='translations', editable=False, to='aldryn_newsblog.NewsBlogConfig', null=True)),
             ],
             options={
                 'managed': True,
@@ -194,7 +194,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AlterUniqueTogether(
             name='newsblogconfigtranslation',
-            unique_together=set([('language_code', 'master')]),
+            unique_together=set([('language_code', 'main')]),
         ),
         migrations.AddField(
             model_name='newsblogcategoriesplugin',
@@ -222,7 +222,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AlterUniqueTogether(
             name='articletranslation',
-            unique_together=set([('language_code', 'master'), ('language_code', 'slug')]),
+            unique_together=set([('language_code', 'main'), ('language_code', 'slug')]),
         ),
         migrations.AddField(
             model_name='article',

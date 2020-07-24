@@ -38,7 +38,7 @@ def deploy():
     subprocess.call(
         'git tag %s' % args.version, shell=True)
     subprocess.call(
-        'git push --tags origin master:master', shell=True)
+        'git push --tags origin main:main', shell=True)
     print 'Successfully deployed version %s' % args.version
 
 

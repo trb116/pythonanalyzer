@@ -85,7 +85,7 @@ def onError(msg, url, linenumber):
     tracestr = tracestr.replace("\n", "<br />\n&nbsp;&nbsp;&nbsp;")
     dialog.innerHTML="""\
 &nbsp;<b style="color:red">JavaScript Error: </b>
-%s at line number %d. Please inform webmaster.
+%s at line number %d. Please inform webmain.
 <br />&nbsp;&nbsp;&nbsp;%s
 """ % (msg, linenumber, tracestr)
     doc().body.appendChild(dialog)

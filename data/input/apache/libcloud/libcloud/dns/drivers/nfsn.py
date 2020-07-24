@@ -89,7 +89,7 @@ class NFSNDNSDriver(DNSDriver):
                 raise ZoneDoesNotExistError(zone_id=None, driver=self,
                                             value=e.message)
             raise e
-        return Zone(id=None, domain=zone_id, type='master', ttl=3600,
+        return Zone(id=None, domain=zone_id, type='main', ttl=3600,
                     driver=self)
 
     def ex_get_records_by(self, zone, name=None, type=None):

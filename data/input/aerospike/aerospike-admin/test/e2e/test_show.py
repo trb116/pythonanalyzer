@@ -131,7 +131,7 @@ class TestShowConfig(unittest.TestCase):
                         'query-threshold',
                         'query-worker-threads',
                         'replication-fire-and-forget',
-                        'respond-client-on-master-completion',
+                        'respond-client-on-main-completion',
                         'service-threads',
                         'sindex-data-max-memory',
                         'snub-nodes',
@@ -275,7 +275,7 @@ class TestShowLatency(unittest.TestCase):
     query_latency = ''
     reads_latency = ''
     udf_latency = ''
-    writes_master_latency = ''
+    writes_main_latency = ''
     writes_reply_latency = ''
     
     @classmethod
@@ -293,8 +293,8 @@ class TestShowLatency(unittest.TestCase):
                 TestShowLatency.reads_latency = item               
             elif "~~udf Latency~~" in item:
                 TestShowLatency.udf_latency = item              
-            elif "~~writes_master Latency~~" in item:
-                TestShowLatency.writes_master_latency = item
+            elif "~~writes_main Latency~~" in item:
+                TestShowLatency.writes_main_latency = item
             elif "~~writes_reply Latency~~" in item:
                 TestShowLatency.writes_reply_latency = item
               
@@ -386,12 +386,12 @@ class TestShowLatency(unittest.TestCase):
         self.assertEqual(exp_header, actual_header)
         self.assertEqual(exp_no_of_rows, int(actual_no_of_rows.strip()))
 
-    def test_writes_master_latency(self):      
+    def test_writes_main_latency(self):      
         """
-        Asserts <b> writes_master latency <b> output with heading, header & no of node processed(based on row count).
+        Asserts <b> writes_main latency <b> output with heading, header & no of node processed(based on row count).
         ToDo: test for values as well
         """
-        exp_heading = "~~writes_master Latency~~"
+        exp_heading = "~~writes_main Latency~~"
         exp_header= ['Node', 
                      'Time Span', 
                      'Ops/Sec', 
@@ -401,7 +401,7 @@ class TestShowLatency(unittest.TestCase):
         
         exp_no_of_rows = len(TestShowLatency.rc.cluster._live_nodes)
         
-        actual_heading, actual_header, actual_no_of_rows = test_util.parse_output(TestShowLatency.writes_master_latency, horizontal = True)        
+        actual_heading, actual_header, actual_no_of_rows = test_util.parse_output(TestShowLatency.writes_main_latency, horizontal = True)        
        
         self.assertTrue(exp_heading in actual_heading)
         self.assertEqual(exp_header, actual_header)
@@ -571,7 +571,7 @@ class TestShowStatistics(unittest.TestCase):
                         'err_rw_pending_limit',
                         'err_rw_request_not_found',
                         'err_storage_queue_full',
-                        'err_sync_copy_null_master',
+                        'err_sync_copy_null_main',
                         'err_tsvc_requests',
                         'err_write_fail_bin_exists',
                         'err_write_fail_bin_name',
@@ -715,7 +715,7 @@ class TestShowStatistics(unittest.TestCase):
                         'used-bytes-disk',
                         'used-bytes-memory',
                         'waiting_transactions',
-                        'write_master',
+                        'write_main',
                         'write_prole',  
                     ]
         
@@ -753,8 +753,8 @@ class TestShowStatistics(unittest.TestCase):
                         'index-used-bytes-memory',
                         'ldt-enabled',
                         'ldt-page-size',
-                        'master-objects',
-                        'master-sub-objects',
+                        'main-objects',
+                        'main-sub-objects',
                         'max-ttl',
                         'max-void-time',
                         'memory-size',
@@ -818,8 +818,8 @@ class TestShowStatistics(unittest.TestCase):
                         'index-used-bytes-memory',
                         'ldt-enabled',
                         'ldt-page-size',
-                        'master-objects',
-                        'master-sub-objects',
+                        'main-objects',
+                        'main-sub-objects',
                         'max-ttl',
                         'max-void-time',
                         'memory-size',
@@ -877,7 +877,7 @@ class TestShowStatistics(unittest.TestCase):
                         'noship_recs_dup_intrabatch',
                         'noship_recs_expired',
                         'noship_recs_genmismatch',
-                        'noship_recs_notmaster',
+                        'noship_recs_notmain',
                         'noship_recs_unknown_namespace',
                         'perdc_timediff_lastship_cur_secs',
                         'stat_dlog_fread',

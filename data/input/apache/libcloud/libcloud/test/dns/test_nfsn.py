@@ -34,7 +34,7 @@ class NFSNTestCase(LibcloudTestCase):
         self.driver = NFSNDNSDriver('testid', 'testsecret')
 
         self.test_zone = Zone(id='example.com', domain='example.com',
-                              driver=self.driver, type='master', ttl=None,
+                              driver=self.driver, type='main', ttl=None,
                               extra={})
         self.test_record = Record(id=None, name='', data='192.0.2.1',
                                   type=RecordType.A, zone=self.test_zone,

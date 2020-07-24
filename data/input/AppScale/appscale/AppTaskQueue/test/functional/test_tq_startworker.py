@@ -31,7 +31,7 @@ queue:
 
 # AppScale must already be running with RabbitMQ
 class TestTaskQueueServer(unittest.TestCase):
-  def test_slave(self):
+  def test_subordinate(self):
     create_test_yaml()
     values = {'app_id':'test_app'}
     host = socket.gethostbyname(socket.gethostname())

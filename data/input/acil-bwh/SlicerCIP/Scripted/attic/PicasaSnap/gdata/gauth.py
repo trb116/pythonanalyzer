@@ -117,7 +117,7 @@ AUTH_SCOPES = {
         'https://www.google.com/h9/feeds/',),
     'wise': ( # Spreadsheets Data API
         'https://spreadsheets.google.com/feeds/',),
-    'sitemaps': ( # Google Webmaster Tools API
+    'sitemaps': ( # Google Webmain Tools API
         'https://www.google.com/webmasters/tools/feeds/',),
     'youtube': ( # YouTube API
         'http://gdata.youtube.com/feeds/api/',

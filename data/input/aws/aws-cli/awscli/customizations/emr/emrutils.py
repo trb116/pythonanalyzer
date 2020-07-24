@@ -190,13 +190,13 @@ def get_cluster_state(session, parsed_globals, cluster_id):
     return data['Cluster']['Status']['State']
 
 
-def find_master_dns(session, parsed_globals, cluster_id):
+def find_main_dns(session, parsed_globals, cluster_id):
     """
-    Returns the master_instance's 'PublicDnsName'.
+    Returns the main_instance's 'PublicDnsName'.
     """
     client = get_client(session, parsed_globals)
     data = client.describe_cluster(ClusterId=cluster_id)
-    return data['Cluster']['MasterPublicDnsName']
+    return data['Cluster']['MainPublicDnsName']
 
 
 def which(program):

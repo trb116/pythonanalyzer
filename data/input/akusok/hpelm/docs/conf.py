@@ -63,8 +63,8 @@ source_suffix = '.rst'
 # The encoding of source files.
 #source_encoding = 'utf-8-sig'
 
-# The master toctree document.
-master_doc = 'index'
+# The main toctree document.
+main_doc = 'index'
 
 # General information about the project.
 project = u'hpelm'
@@ -246,7 +246,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-  (master_doc, 'hpelm.tex', u'hpelm Documentation',
+  (main_doc, 'hpelm.tex', u'hpelm Documentation',
    u'Anton Akusok', 'manual'),
 ]
 
@@ -276,7 +276,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'hpelm', u'hpelm Documentation',
+    (main_doc, 'hpelm', u'hpelm Documentation',
      [author], 1)
 ]
 
@@ -290,7 +290,7 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-  (master_doc, 'hpelm', u'hpelm Documentation',
+  (main_doc, 'hpelm', u'hpelm Documentation',
    author, 'hpelm', 'One line description of project.',
    'Miscellaneous'),
 ]

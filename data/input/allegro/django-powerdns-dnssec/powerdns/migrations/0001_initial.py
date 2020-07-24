@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
                 ('created', models.DateTimeField(auto_now_add=True, verbose_name='date created')),
                 ('modified', models.DateTimeField(auto_now=True, verbose_name='last modified', auto_now_add=True)),
                 ('name', models.CharField(unique=True, max_length=255, verbose_name='name')),
-                ('master', models.CharField(max_length=128, null=True, verbose_name='master', blank=True)),
+                ('main', models.CharField(max_length=128, null=True, verbose_name='main', blank=True)),
                 ('last_check', models.IntegerField(null=True, verbose_name='last check', blank=True)),
                 ('type', models.CharField(blank=True, max_length=6, null=True, verbose_name='type', choices=[('MASTER', 'MASTER'), ('NATIVE', 'NATIVE'), ('SLAVE', 'SLAVE')])),
                 ('notified_serial', models.PositiveIntegerField(null=True, verbose_name='notified serial', blank=True)),
@@ -79,7 +79,7 @@ class Migration(migrations.Migration):
                 ('number', models.PositiveIntegerField(default=None, editable=False, blank=True, null=True, verbose_name='IP number', db_index=True)),
                 ('ttl', models.PositiveIntegerField(default=3600, help_text='TTL in seconds', null=True, verbose_name='TTL', blank=True)),
                 ('prio', models.PositiveIntegerField(help_text='For MX records, this should be the priority of the mail exchanger specified', null=True, verbose_name='priority', blank=True)),
-                ('change_date', models.PositiveIntegerField(help_text='Set automatically by the system to trigger SOA updates and slave notifications', null=True, verbose_name='change date', blank=True)),
+                ('change_date', models.PositiveIntegerField(help_text='Set automatically by the system to trigger SOA updates and subordinate notifications', null=True, verbose_name='change date', blank=True)),
                 ('ordername', models.CharField(max_length=255, null=True, verbose_name='DNSSEC Order', blank=True)),
                 ('auth', models.NullBooleanField(help_text='Should be set for data for which is itself authoritative, which includes the SOA record and our own NS records but not set for NS records which are used for delegation or any delegation related glue (A, AAAA) records', verbose_name='authoritative')),
                 ('domain', models.ForeignKey(verbose_name='domain', to='powerdns.Domain')),
@@ -93,7 +93,7 @@ class Migration(migrations.Migration):
             bases=(models.Model,),
         ),
         migrations.CreateModel(
-            name='SuperMaster',
+            name='SuperMain',
             fields=[
                 ('id', models.AutoField(verbose_name='ID', serialize=False, auto_created=True, primary_key=True)),
                 ('created', models.DateTimeField(auto_now_add=True, verbose_name='date created')),
@@ -104,14 +104,14 @@ class Migration(migrations.Migration):
             ],
             options={
                 'ordering': ('nameserver', 'account'),
-                'db_table': 'supermasters',
-                'verbose_name': 'supermaster',
-                'verbose_name_plural': 'supermasters',
+                'db_table': 'supermains',
+                'verbose_name': 'supermain',
+                'verbose_name_plural': 'supermains',
             },
             bases=(models.Model,),
         ),
         migrations.AlterUniqueTogether(
-            name='supermaster',
+            name='supermain',
             unique_together=set([('nameserver', 'account')]),
         ),
         migrations.AlterUniqueTogether(

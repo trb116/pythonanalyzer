@@ -134,7 +134,7 @@ class ZonomiDNSDriver(DNSDriver):
 
         return record
 
-    def create_zone(self, domain, type='master', ttl=None, extra=None):
+    def create_zone(self, domain, type='main', ttl=None, extra=None):
         """
         Create a new zone.
 
@@ -154,7 +154,7 @@ class ZonomiDNSDriver(DNSDriver):
                                              value=e.message)
             raise e
 
-        zone = Zone(id=domain, domain=domain, type='master', ttl=ttl,
+        zone = Zone(id=domain, domain=domain, type='main', ttl=ttl,
                     driver=self, extra=extra)
         return zone
 
@@ -264,20 +264,20 @@ class ZonomiDNSDriver(DNSDriver):
 
         return 'DELETED' in response.objects
 
-    def ex_convert_to_secondary(self, zone, master):
+    def ex_convert_to_secondary(self, zone, main):
         """
-        Convert existent zone to slave.
+        Convert existent zone to subordinate.
 
         :param zone: Zone to convert.
         :type  zone: :class:`Zone`
 
-        :param master: the specified master name server IP address.
-        :type  master: ``str``
+        :param main: the specified main name server IP address.
+        :type  main: ``str``
 
         :rtype: Bool
         """
         action = '/app/dns/converttosecondary.jsp?'
-        params = {'name': zone.domain, 'master': master}
+        params = {'name': zone.domain, 'main': main}
         try:
             self.connection.request(action=action, params=params)
         except ZonomiException:
@@ -287,16 +287,16 @@ class ZonomiDNSDriver(DNSDriver):
                                             value=e.message)
         return True
 
-    def ex_convert_to_master(self, zone):
+    def ex_convert_to_main(self, zone):
         """
-        Convert existent zone to master.
+        Convert existent zone to main.
 
         :param zone: Zone to convert.
         :type  zone: :class:`Zone`
 
         :rtype: Bool
         """
-        action = '/app/dns/converttomaster.jsp?'
+        action = '/app/dns/converttomain.jsp?'
         params = {'name': zone.domain}
         try:
             self.connection.request(action=action, params=params)
@@ -309,9 +309,9 @@ class ZonomiDNSDriver(DNSDriver):
 
     def _to_zone(self, item):
         if item['type'] == 'NATIVE':
-            type = 'master'
+            type = 'main'
         elif item['type'] == 'SLAVE':
-            type = 'slave'
+            type = 'subordinate'
         zone = Zone(id=item['name'], domain=item['name'], type=type,
                     driver=self, extra={}, ttl=None)
 

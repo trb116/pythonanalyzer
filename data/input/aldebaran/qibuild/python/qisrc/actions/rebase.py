@@ -19,7 +19,7 @@ def configure_parser(parser):
                              "Warning: uses --force, so be careful")
     parser.add_argument("--dry-run", action="store_true", dest="dry_run",
                         help="Dry run")
-    parser.set_defaults(branch="master", push=False, dry_run=False)
+    parser.set_defaults(branch="main", push=False, dry_run=False)
 
 def do(args):
     branch = args.branch

@@ -7,7 +7,7 @@ import string
 import warnings
 
 from .models import (Accounts, BudgetMetaData, Categories, FileMetaData,
-                     MasterCategories, Payees, Transactions)
+                     MainCategories, Payees, Transactions)
 from .schema import Device
 
 
@@ -115,7 +115,7 @@ class YNAB(object):
         # - monthlyBudgets
         self._accounts = Accounts._from_flat(self, data['accounts'])
         self._payees = Payees._from_flat(self, data['payees'])
-        self._master_categories = MasterCategories._from_flat(self, data['masterCategories'])
+        self._main_categories = MainCategories._from_flat(self, data['mainCategories'])
         self._transactions = Transactions._from_flat(self, data['transactions'])
         self._transactions.sort_by('date')
         self._meta_data = BudgetMetaData._from_flat(self, data['budgetMetaData'])
@@ -130,12 +130,12 @@ class YNAB(object):
         return self._payees
 
     @property
-    def master_categories(self):
-        return self._master_categories
+    def main_categories(self):
+        return self._main_categories
 
     @property
     def categories(self):
-        return Categories(sc for mc in self.master_categories for sc in mc.categories)
+        return Categories(sc for mc in self.main_categories for sc in mc.categories)
 
     @property
     def transactions(self):

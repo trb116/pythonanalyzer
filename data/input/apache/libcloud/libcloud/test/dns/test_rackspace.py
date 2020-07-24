@@ -157,7 +157,7 @@ class RackspaceUSTests(unittest.TestCase):
 
         self.assertEqual(zone.id, '2946063')
         self.assertEqual(zone.domain, 'foo4.bar.com')
-        self.assertEqual(zone.type, 'master')
+        self.assertEqual(zone.type, 'main')
         self.assertEqual(zone.extra['email'], 'test@test.com')
 
     def test_get_zone_does_not_exist(self):
@@ -203,19 +203,19 @@ class RackspaceUSTests(unittest.TestCase):
     def test_create_zone_success(self):
         RackspaceMockHttp.type = 'CREATE_ZONE'
 
-        zone = self.driver.create_zone(domain='bar.foo1.com', type='master',
+        zone = self.driver.create_zone(domain='bar.foo1.com', type='main',
                                        ttl=None,
                                        extra={'email': 'test@test.com'})
         self.assertEqual(zone.id, '2946173')
         self.assertEqual(zone.domain, 'bar.foo1.com')
-        self.assertEqual(zone.type, 'master')
+        self.assertEqual(zone.type, 'main')
         self.assertEqual(zone.extra['email'], 'test@test.com')
 
     def test_create_zone_validaton_error(self):
         RackspaceMockHttp.type = 'CREATE_ZONE_VALIDATION_ERROR'
 
         try:
-            self.driver.create_zone(domain='foo.bar.com', type='master',
+            self.driver.create_zone(domain='foo.bar.com', type='main',
                                     ttl=10,
                                     extra={'email': 'test@test.com'})
         except Exception:

@@ -16,7 +16,7 @@ from powerdns.views import (
     DomainViewSet,
     HomeView,
     RecordViewSet,
-    SuperMasterViewSet,
+    SuperMainViewSet,
     DomainTemplateViewSet,
     RecordTemplateViewSet,
 )
@@ -36,7 +36,7 @@ router.register(r'domains', DomainViewSet)
 router.register(r'records', RecordViewSet)
 router.register(r'crypto-keys', CryptoKeyViewSet)
 router.register(r'domains-metadata', DomainMetadataViewSet)
-router.register(r'super-masters', SuperMasterViewSet)
+router.register(r'super-mains', SuperMainViewSet)
 router.register(r'domain-templates', DomainTemplateViewSet)
 router.register(r'record-templates', RecordTemplateViewSet)
 

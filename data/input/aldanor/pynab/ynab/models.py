@@ -167,8 +167,8 @@ class Category(CategoryModel):
         return self._entity.cachedBalance
 
     @property
-    def master_category(self):
-        return self._ynab.master_categories.by_id(self._entity.masterCategoryId)
+    def main_category(self):
+        return self._ynab.main_categories.by_id(self._entity.mainCategoryId)
 
     @property
     def has_unresolved_conflicts(self):
@@ -180,24 +180,24 @@ class Category(CategoryModel):
 
     @property
     def full_name(self):
-        return '{}/{}'.format(self.master_category.name, self.name)
+        return '{}/{}'.format(self.main_category.name, self.name)
 
     @property
     def transactions(self):
         return self._ynab.transactions.filter('category', self)
 
 
-class MasterCategory(CategoryModel):
-    _entity_type = schema.MasterCategory
+class MainCategory(CategoryModel):
+    _entity_type = schema.MainCategory
 
     def __init__(self, ynab, entity):
-        super(MasterCategory, self).__init__(ynab, entity)
+        super(MainCategory, self).__init__(ynab, entity)
         self._categories = Categories(
             Category(ynab, category) for category in self._entity.subCategories or [])
 
     @force_encode
     def __repr__(self):
-        return '<MasterCategory: {}>'.format(self.name)
+        return '<MainCategory: {}>'.format(self.name)
 
     @property
     def categories(self):
@@ -396,8 +396,8 @@ class Payees(ModelCollection):
     _index_key = 'name'
 
 
-class MasterCategories(ModelCollection):
-    _model_type = MasterCategory
+class MainCategories(ModelCollection):
+    _model_type = MainCategory
     _index_key = 'name'
 
 

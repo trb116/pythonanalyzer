@@ -32,7 +32,7 @@ def configure_parser(parser):
              "May be a local file, a url or a git URL (in this case\n"
              "--feed-name must be used)",
         nargs="?")
-    parser.set_defaults(branch="master")
+    parser.set_defaults(branch="main")
 
 def do(args):
     """Main entry point

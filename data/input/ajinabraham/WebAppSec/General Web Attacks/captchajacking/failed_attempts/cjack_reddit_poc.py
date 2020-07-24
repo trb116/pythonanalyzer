@@ -53,7 +53,7 @@ class reddit_cjack:
 <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
 <meta charset="utf-8" />
 <title>Reddit Captcha Hijacking PoC</title>
-<link rel="stylesheet" href="css/master.css" type="text/css" />
+<link rel="stylesheet" href="css/main.css" type="text/css" />
 </head>
 <body id="index">
         <div id="container">

@@ -9,7 +9,7 @@ def create(kernel):
 
 	result.template = "object/tangible/camp/shared_camp_spit.iff"
 	result.attribute_template_id = -1
-	result.stfName("camp","camp_master")		
+	result.stfName("camp","camp_main")		
 	
 	#### BEGIN MODIFICATIONS ####
 	####  END MODIFICATIONS  ####

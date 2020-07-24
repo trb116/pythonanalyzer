@@ -20,8 +20,8 @@ class Migration(migrations.Migration):
         ),
         migrations.RenameField(
             model_name='domainrequest',
-            old_name='master',
-            new_name='target_master',
+            old_name='main',
+            new_name='target_main',
         ),
         migrations.RenameField(
             model_name='domainrequest',

@@ -16,14 +16,14 @@ class CIP_EditorWidget(EditorWidget):
         EditorWidget.__init__(self, parent, showVolumesFrame)
 
     @property
-    def masterVolume(self):
-        return slicer.util.getNode(self.helper.masterSelector.currentNodeID)
+    def mainVolume(self):
+        return slicer.util.getNode(self.helper.mainSelector.currentNodeID)
 
-    @masterVolume.setter
-    def masterVolume(self, value):
-        # self.helper.master = value
-        # self.helper.masterSelector.setCurrentNode(value)
-        self.helper.setMasterVolume(value)
+    @mainVolume.setter
+    def mainVolume(self, value):
+        # self.helper.main = value
+        # self.helper.mainSelector.setCurrentNode(value)
+        self.helper.setMainVolume(value)
 
     @property
     def labelmapVolume(self):

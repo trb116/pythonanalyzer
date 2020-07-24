@@ -194,7 +194,7 @@ def test_tags(qisrc_action, git_server):
     git_worktree = TestGitWorkTree()
     foo_proj = git_worktree.get_git_project("foo")
     git = TestGit(foo_proj.path)
-    actual_sha1 = git.get_ref_sha1("refs/heads/master")
+    actual_sha1 = git.get_ref_sha1("refs/heads/main")
     expected_sha1 = git.get_ref_sha1("refs/tags/v0.1")
     assert actual_sha1 == expected_sha1
 
@@ -249,6 +249,6 @@ def test_clone_devel_branch_some_projs_added(qisrc_action, git_server, tmpdir):
     work2 = tmpdir.join("work2").ensure(dir=True)
     qisrc_action.chdir(work2.strpath)
     # The trick here is that we have to clone a repo from scratch because
-    # it did not exist on 'master'
+    # it did not exist on 'main'
     qisrc_action("init", git_server.manifest_url, "--branch", "devel",
                  "--clone", qisrc_action.root)

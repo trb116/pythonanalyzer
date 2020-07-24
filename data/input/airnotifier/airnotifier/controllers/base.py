@@ -72,8 +72,8 @@ class WebBaseHandler(tornado.web.RequestHandler):
         return self.application.mongodb
 
     @property
-    def masterdb(self):
-        return self.application.masterdb
+    def maindb(self):
+        return self.application.maindb
 
     @property
     def apnsconnections(self):
@@ -106,11 +106,11 @@ class WebBaseHandler(tornado.web.RequestHandler):
         if not userid:
             return None
         userId = ObjectId(userid)
-        user = self.masterdb.managers.find_one({'_id': userId})
+        user = self.maindb.managers.find_one({'_id': userId})
         return user
 
     def render_string(self, template_name, **kwargs):
-        apps = self.masterdb.applications.find()
+        apps = self.maindb.applications.find()
         kwargs["apps"] = apps
         return super(WebBaseHandler, self).render_string(template_name, **kwargs)
 
@@ -126,15 +126,15 @@ class AppDeletionHandler(WebBaseHandler):
     @tornado.web.authenticated
     def get(self, appname):
         self.appname = appname
-        app = self.masterdb.applications.find_one({'shortname':appname})
+        app = self.maindb.applications.find_one({'shortname':appname})
         if not app: raise tornado.web.HTTPError(500)
         self.render("app_delete.html", app=app)
     @tornado.web.authenticated
     def post(self, appname):
         self.appname = appname
-        app = self.masterdb.applications.find_one({'shortname':appname})
+        app = self.maindb.applications.find_one({'shortname':appname})
         if not app: raise tornado.web.HTTPError(500)
-        self.masterdb.applications.remove({'shortname': appname}, safe=True)
+        self.maindb.applications.remove({'shortname': appname}, safe=True)
         self.mongodbconnection.drop_database(appname)
         self.redirect(r"/applications")
 
@@ -143,7 +143,7 @@ class AppLogViewHandler(WebBaseHandler):
     @tornado.web.authenticated
     def get(self, appname):
         self.appname = appname
-        app = self.masterdb.applications.find_one({'shortname':appname})
+        app = self.maindb.applications.find_one({'shortname':appname})
         if not app: raise tornado.web.HTTPError(500)
         page = self.get_argument('page', None)
         perpage = 50
@@ -165,7 +165,7 @@ class AppObjectsHandler(WebBaseHandler):
     @tornado.web.authenticated
     def get(self, appname):
         self.appname = appname
-        app = self.masterdb.applications.find_one({'shortname':appname})
+        app = self.maindb.applications.find_one({'shortname':appname})
         if not app: raise tornado.web.HTTPError(500)
         objects = self.db.objects.find()
         self.render("app_objects.html", app=app, objects=objects)
@@ -183,18 +183,18 @@ class AppHandler(WebBaseHandler): # @DuplicatedSignature
 class AppsListHandler(WebBaseHandler):
     @tornado.web.authenticated
     def get(self):
-        version_object = self.masterdb['options'].find_one({'name': 'version'})
+        version_object = self.maindb['options'].find_one({'name': 'version'})
         outdated = False
         if int(version_object['value']) < int(VERSION):
             outdated = True
-        apps = self.masterdb.applications.find()
+        apps = self.maindb.applications.find()
         self.render('apps.html', apps=apps, outdated=outdated)
 
 @route(r"/stats/")
 class StatsHandler(WebBaseHandler):
     @tornado.web.authenticated
     def get(self):
-        records = self.masterdb.applications.find()
+        records = self.maindb.applications.find()
         self.render('stats.html', apns=self.apnsconnections)
 
 @route(r"/info/")
@@ -225,10 +225,10 @@ class AdminHandler(WebBaseHandler):
         if self.get_argument('delete', None):
             user_id = self.get_argument('delete', None)
             if user_id:
-                self.masterdb.managers.remove({'_id':ObjectId(user_id)})
+                self.maindb.managers.remove({'_id':ObjectId(user_id)})
                 self.redirect("/admin/managers")
                 return
-        managers = self.masterdb.managers.find()
+        managers = self.maindb.managers.find()
         self.render('managers.html', managers=managers, created=None, updated=None, currentuser=self.currentuser)
 
     def post(self, action):
@@ -241,8 +241,8 @@ class AdminHandler(WebBaseHandler):
             passwordhash = sha1("%s%s" % (options.passwordsalt, password)).hexdigest()
             user['password'] = passwordhash
             user['level'] = "manager"
-            result = self.masterdb.managers.update({'username': user['username']}, user, safe=True, upsert=True)
-            managers = self.masterdb.managers.find()
+            result = self.maindb.managers.update({'username': user['username']}, user, safe=True, upsert=True)
+            managers = self.maindb.managers.find()
             if result['updatedExisting']:
                 self.render('managers.html', managers=managers, updated=user, created=None, currentuser=self.currentuser)
             else:
@@ -250,7 +250,7 @@ class AdminHandler(WebBaseHandler):
         elif action == 'changepassword':
             password = self.get_argument('newpassword').strip()
             passwordhash = sha1("%s%s" % (options.passwordsalt, password)).hexdigest()
-            self.masterdb.managers.update({"username": self.currentuser['username']}, {"$set": {"password": passwordhash}})
-            managers = self.masterdb.managers.find()
+            self.maindb.managers.update({"username": self.currentuser['username']}, {"$set": {"password": passwordhash}})
+            managers = self.maindb.managers.find()
             user = self.currentuser
             self.render('managers.html', managers=managers, updated=user, created=None, currentuser=self.currentuser)

@@ -14,31 +14,31 @@ def create_foo(git_server, tmpdir, test_git):
 def test_up_to_date(git_server, tmpdir, test_git):
     foo_git = create_foo(git_server, tmpdir, test_git)
     branch = Branch()
-    branch.name = "master"
+    branch.name = "main"
     branch.tracks = "origin"
     foo_git.sync_branch(branch)
 
 def test_fast_forward(git_server, tmpdir, test_git):
     foo_git = create_foo(git_server, tmpdir, test_git)
     branch = Branch()
-    branch.name = "master"
+    branch.name = "main"
     branch.tracks = "origin"
-    git_server.push_file("foo.git", "README", "README on master")
+    git_server.push_file("foo.git", "README", "README on main")
     foo_git.sync_branch(branch)
-    assert foo_git.get_current_branch() == "master"
-    assert foo_git.read_file("README") == "README on master"
+    assert foo_git.get_current_branch() == "main"
+    assert foo_git.read_file("README") == "README on main"
 
 def test_rebase_by_default(git_server, tmpdir, test_git):
     foo_git = create_foo(git_server, tmpdir, test_git)
     branch = Branch()
-    branch.name = "master"
+    branch.name = "main"
     branch.tracks = "origin"
-    git_server.push_file("foo.git", "README", "README on master")
-    foo_git.commit_file("bar", "bar on master")
+    git_server.push_file("foo.git", "README", "README on main")
+    foo_git.commit_file("bar", "bar on main")
     foo_git.sync_branch(branch)
-    assert foo_git.get_current_branch() == "master"
-    assert foo_git.read_file("README") == "README on master"
-    assert foo_git.read_file("bar") == "bar on master"
+    assert foo_git.get_current_branch() == "main"
+    assert foo_git.read_file("README") == "README on main"
+    assert foo_git.read_file("bar") == "bar on main"
     rc, head = foo_git.call("show", "HEAD", raises=False)
     assert rc == 0
     assert "Merge" not in head
@@ -46,9 +46,9 @@ def test_rebase_by_default(git_server, tmpdir, test_git):
 def test_skip_if_unclean(git_server, tmpdir, test_git):
     foo_git = create_foo(git_server, tmpdir, test_git)
     branch = Branch()
-    branch.name = "master"
+    branch.name = "main"
     branch.tracks = "origin"
-    git_server.push_file("foo.git", "README", "README on master")
+    git_server.push_file("foo.git", "README", "README on main")
     foo_git.sync_branch(branch)
     foo_git.root.join("README").write("changing README")
     (res, message) = foo_git.sync_branch(branch)
@@ -59,9 +59,9 @@ def test_skip_if_unclean(git_server, tmpdir, test_git):
 def test_do_not_call_rebase_abort_when_reset_fails(git_server, tmpdir, test_git):
     foo_git = create_foo(git_server, tmpdir, test_git)
     branch = Branch()
-    branch.name = "master"
+    branch.name = "main"
     branch.tracks = "origin"
-    git_server.push_file("foo.git", "README", "README on master")
+    git_server.push_file("foo.git", "README", "README on main")
     foo_path = foo_git.repo
     index_lock = os.path.join(foo_path, ".git", "index.lock")
     with open(index_lock, "w") as fp:
@@ -73,24 +73,24 @@ def test_do_not_call_rebase_abort_when_reset_fails(git_server, tmpdir, test_git)
 def test_push_nonfastforward(git_server, tmpdir, test_git):
     foo_git = create_foo(git_server, tmpdir, test_git)
     branch = Branch()
-    branch.name = "master"
+    branch.name = "main"
     branch.tracks = "origin"
-    git_server.push_file("foo.git", "README", "README on master v1")
+    git_server.push_file("foo.git", "README", "README on main v1")
     foo_git.sync_branch(branch)
-    git_server.push_file("foo.git", "README", "README on master v2",
+    git_server.push_file("foo.git", "README", "README on main v2",
                          fast_forward=False)
     (res, message) = foo_git.sync_branch(branch)
     assert res is True
-    assert foo_git.read_file("README") == "README on master v2"
+    assert foo_git.read_file("README") == "README on main v2"
 
 def test_run_abort_when_rebase_fails(git_server, tmpdir, test_git):
     foo_git = create_foo(git_server, tmpdir, test_git)
     branch = Branch()
-    branch.name = "master"
+    branch.name = "main"
     branch.tracks = "origin"
-    git_server.push_file("foo.git", "README", "README on master v1")
+    git_server.push_file("foo.git", "README", "README on main v1")
     foo_git.sync_branch(branch)
-    git_server.push_file("foo.git", "README", "README on master v2",
+    git_server.push_file("foo.git", "README", "README on main v2",
                          fast_forward=False)
     foo_git.commit_file("unrelated.txt", "Unrelated changes")
 
@@ -99,14 +99,14 @@ def test_run_abort_when_rebase_fails(git_server, tmpdir, test_git):
     assert foo_git.get_current_branch() is not None
     assert "Rebase failed" in message
     assert foo_git.read_file("unrelated.txt") == "Unrelated changes"
-    assert foo_git.read_file("README") == "README on master v1"
+    assert foo_git.read_file("README") == "README on main v1"
 
 def test_fail_if_empty(tmpdir, test_git):
     foo_git = test_git(tmpdir.strpath)
     branch = Branch()
-    branch.name = "master"
+    branch.name = "main"
     branch.tracks = "origin"
-    foo_git.set_tracking_branch("master", "origin")  # repo empty: fails
+    foo_git.set_tracking_branch("main", "origin")  # repo empty: fails
     (res, message) = foo_git.sync_branch(branch)
     assert res is None
     assert "no commits" in message
@@ -114,9 +114,9 @@ def test_fail_if_empty(tmpdir, test_git):
 def test_clean_error_when_fetch_fails(git_server, tmpdir, test_git):
     foo_git = create_foo(git_server, tmpdir, test_git)
     branch = Branch()
-    branch.name = "master"
+    branch.name = "main"
     branch.tracks = "origin"
-    git_server.push_file("foo.git", "README", "README on master")
+    git_server.push_file("foo.git", "README", "README on main")
     git_server.srv.remove()
     res, message = foo_git.sync_branch(branch)
     assert res is False

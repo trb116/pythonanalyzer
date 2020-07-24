@@ -66,11 +66,11 @@ class TestAppScaleAddInstances(unittest.TestCase):
     self.success.should_receive('wait').and_return(0)
 
 
-  def test_add_master_nodes_in_virt_deployment(self):
+  def test_add_main_nodes_in_virt_deployment(self):
     # don't use a 192.168.X.Y IP here, since sometimes we set our virtual
     # machines to boot with those addresses (and that can mess up our tests).
     ips_yaml = """
-master: 1.2.3.4
+main: 1.2.3.4
 database: 1.2.3.4
 zookeeper: 1.2.3.4
 appengine: 1.2.3.4

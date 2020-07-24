@@ -145,23 +145,23 @@ class IOHIDDeviceInterface(ctypes.Structure):
         ('setInterruptReportHandlerCallback', ctypes.c_void_p),
     )
 
-def get_master_port():
-    master_port = mach_port_t()
+def get_main_port():
+    main_port = mach_port_t()
     _oscheck(
-        carbon.IOMasterPort(MACH_PORT_NULL, ctypes.byref(master_port))
+        carbon.IOMainPort(MACH_PORT_NULL, ctypes.byref(main_port))
     )
-    return master_port
+    return main_port
 
 def get_matching_dictionary():
     carbon.IOServiceMatching.restype = CFMutableDictionaryRef
     matching_dictionary = carbon.IOServiceMatching(kIOHIDDeviceKey)
     return matching_dictionary
 
-def get_existing_devices(master_port, matching_dictionary):
+def get_existing_devices(main_port, matching_dictionary):
     # Consumes reference to matching_dictionary
     iterator = io_iterator_t()
     _oscheck(
-        carbon.IOServiceGetMatchingServices(master_port, 
+        carbon.IOServiceGetMatchingServices(main_port, 
                                             matching_dictionary,
                                             ctypes.byref(iterator))
     )
@@ -400,5 +400,5 @@ class DeviceElement(object):
     '''
 
 def get_devices():
-    return get_existing_devices(get_master_port(), get_matching_dictionary())
+    return get_existing_devices(get_main_port(), get_matching_dictionary())
 

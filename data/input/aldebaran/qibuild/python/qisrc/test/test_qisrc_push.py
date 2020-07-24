@@ -20,11 +20,11 @@ def test_not_under_code_review_ask_user(qisrc_action, git_server, interact):
     interact.answers = [False, True]
     qisrc_action("push", "--project", "foo")
     _, sha1 = foo_git.call("log", "-1", "--pretty=%H", raises=False)
-    (_, remote) = foo_git.call("ls-remote", "origin", "master", raises=False)
-    assert remote != "%s\trefs/heads/master" % sha1
+    (_, remote) = foo_git.call("ls-remote", "origin", "main", raises=False)
+    assert remote != "%s\trefs/heads/main" % sha1
     qisrc_action("push", "--project", "foo")
-    (_, remote) = foo_git.call("ls-remote", "origin", "master", raises=False)
-    assert remote == "%s\trefs/heads/master" % sha1
+    (_, remote) = foo_git.call("ls-remote", "origin", "main", raises=False)
+    assert remote == "%s\trefs/heads/main" % sha1
 
 def test_not_under_code_review_with_no_review(qisrc_action, git_server):
     foo_repo = git_server.create_repo("foo.git")
@@ -35,8 +35,8 @@ def test_not_under_code_review_with_no_review(qisrc_action, git_server):
     foo_git.commit_file("a.txt", "a")
     qisrc_action("push", "--no-review", "--project", "foo")
     _, sha1 = foo_git.call("log", "-1", "--pretty=%H", raises=False)
-    (_, remote) = foo_git.call("ls-remote", "origin", "master", raises=False)
-    assert remote == "%s\trefs/heads/master" % sha1
+    (_, remote) = foo_git.call("ls-remote", "origin", "main", raises=False)
+    assert remote == "%s\trefs/heads/main" % sha1
 
 def test_using_dash_y(qisrc_action, git_server):
     foo_repo = git_server.create_repo("foo.git")
@@ -47,8 +47,8 @@ def test_using_dash_y(qisrc_action, git_server):
     foo_git.commit_file("a.txt", "a")
     qisrc_action("push",  "--project", "foo", "-y")
     _, sha1 = foo_git.call("log", "-1", "--pretty=%H", raises=False)
-    (_, remote) = foo_git.call("ls-remote", "origin", "master", raises=False)
-    assert remote == "%s\trefs/heads/master" % sha1
+    (_, remote) = foo_git.call("ls-remote", "origin", "main", raises=False)
+    assert remote == "%s\trefs/heads/main" % sha1
 
 def test_publish_changes(qisrc_action, git_server):
     foo_repo = git_server.create_repo("foo.git", review=True)
@@ -59,8 +59,8 @@ def test_publish_changes(qisrc_action, git_server):
     foo_git.commit_file("a.txt", "a")
     qisrc_action("push", "--project", "foo")
     _, sha1 = foo_git.call("log", "-1", "--pretty=%H", raises=False)
-    (_, remote) = foo_git.call("ls-remote", "gerrit", "refs/for/master", raises=False)
-    assert remote == "%s\trefs/for/master" % sha1
+    (_, remote) = foo_git.call("ls-remote", "gerrit", "refs/for/main", raises=False)
+    assert remote == "%s\trefs/for/main" % sha1
 
 def test_publish_drafts(qisrc_action, git_server):
     foo_repo = git_server.create_repo("foo.git", review=True)
@@ -71,8 +71,8 @@ def test_publish_drafts(qisrc_action, git_server):
     foo_git.commit_file("a.txt", "a")
     qisrc_action("push", "--project", "foo", "--draft")
     _, sha1 = foo_git.call("log", "-1", "--pretty=%H", raises=False)
-    (_, remote) = foo_git.call("ls-remote", "gerrit", "refs/drafts/master", raises=False)
-    assert remote == "%s\trefs/drafts/master" % sha1
+    (_, remote) = foo_git.call("ls-remote", "gerrit", "refs/drafts/main", raises=False)
+    assert remote == "%s\trefs/drafts/main" % sha1
 
 def test_using_carbon_copy(qisrc_action, git_server):
     foo_repo = git_server.create_repo("foo.git", review=True)
@@ -80,7 +80,7 @@ def test_using_carbon_copy(qisrc_action, git_server):
     git_worktree = TestGitWorkTree()
     foo_proj = git_worktree.get_git_project("foo")
     foo_git = TestGit(foo_proj.path)
-    # Need to fetch gerrit remote at least once for gerrit/master to exist
+    # Need to fetch gerrit remote at least once for gerrit/main to exist
     foo_git.fetch("--all")
     foo_git.commit_file("a.txt", "a")
     with mock.patch.object(qisys.command, "call") as mocked_call:
@@ -99,7 +99,7 @@ def test_alert_maintainers(qisrc_action, git_server):
     git_worktree = TestGitWorkTree()
     foo_proj = git_worktree.get_git_project("foo")
     foo_git = TestGit(foo_proj.path)
-    # Need to fetch gerrit remote at least once for gerrit/master to exist
+    # Need to fetch gerrit remote at least once for gerrit/main to exist
     foo_git.fetch("--all")
     foo_git.commit_file("a.txt", "a")
     with mock.patch.object(qisys.command, "call") as mocked_call:
@@ -127,10 +127,10 @@ def test_pushing_from_perso_branch(qisrc_action, git_server):
     foo_git = TestGit(foo_proj.path)
     foo_git.checkout("-b", "perso")
     foo_git.commit_file("a.txt", "a")
-    qisrc_action("push", "--project", "foo", "master")
+    qisrc_action("push", "--project", "foo", "main")
     _, sha1 = foo_git.call("log", "-1", "--pretty=%H", raises=False)
-    (_, remote) = foo_git.call("ls-remote", "gerrit", "refs/for/master", raises=False)
-    assert remote == "%s\trefs/for/master" % sha1
+    (_, remote) = foo_git.call("ls-remote", "gerrit", "refs/for/main", raises=False)
+    assert remote == "%s\trefs/for/main" % sha1
 
 def test_pushing_custom_ref(qisrc_action, git_server):
     foo_repo = git_server.create_repo("foo.git", review=True)
@@ -142,9 +142,9 @@ def test_pushing_custom_ref(qisrc_action, git_server):
     foo_git.commit_file("a.txt", "a")
     _, sha1 = foo_git.call("log", "-1", "--pretty=%H", raises=False)
     foo_git.commit_file("b.txt", "b")
-    qisrc_action("push", "--project", "foo", "HEAD~1:master")
-    (_, remote) = foo_git.call("ls-remote", "gerrit", "refs/for/master", raises=False)
-    assert remote == "%s\trefs/for/master" % sha1
+    qisrc_action("push", "--project", "foo", "HEAD~1:main")
+    (_, remote) = foo_git.call("ls-remote", "gerrit", "refs/for/main", raises=False)
+    assert remote == "%s\trefs/for/main" % sha1
 
 def test_orphaned_project(qisrc_action, git_server, record_messages):
     foo_repo = git_server.create_repo("foo.git", review=True)
@@ -159,7 +159,7 @@ def test_orphaned_project(qisrc_action, git_server, record_messages):
     foo_proj = git_worktree.get_git_project("foo")
     foo_git = TestGit(foo_proj.path)
 
-    # Need to fetch gerrit remote at least once for gerrit/master to exist
+    # Need to fetch gerrit remote at least once for gerrit/main to exist
     foo_git.fetch("--all")
     foo_git.commit_file("a.txt", "a")
     record_messages.reset()

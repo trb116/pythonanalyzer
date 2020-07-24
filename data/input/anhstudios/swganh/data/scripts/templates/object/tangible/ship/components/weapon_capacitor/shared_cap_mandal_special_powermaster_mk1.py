@@ -7,9 +7,9 @@ from swgpy.object import *
 def create(kernel):
 	result = Tangible()
 
-	result.template = "object/tangible/ship/components/weapon_capacitor/shared_cap_mandal_special_powermaster_mk1.iff"
+	result.template = "object/tangible/ship/components/weapon_capacitor/shared_cap_mandal_special_powermain_mk1.iff"
 	result.attribute_template_id = 8
-	result.stfName("space/space_item","cap_mandal_special_powermaster_mk1_n")		
+	result.stfName("space/space_item","cap_mandal_special_powermain_mk1_n")		
 	
 	#### BEGIN MODIFICATIONS ####
 	####  END MODIFICATIONS  ####

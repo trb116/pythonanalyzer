@@ -57,5 +57,5 @@ setup(
         "Topic :: Internet :: WWW/HTTP :: WSGI :: Application"
     ],
     dependency_links=['https://github.com/ak3n/flask-alembic/' +
-                      'tarball/master#egg=flask-alembic-0.1']
+                      'tarball/main#egg=flask-alembic-0.1']
 )

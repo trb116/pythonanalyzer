@@ -11,7 +11,7 @@ templates_path = ['_templates']
 
 source_suffix = '.rst'
 
-master_doc = 'index'
+main_doc = 'index'
 
 project = u'Ajenti'
 copyright = u'%i, Eugene Pankov' % datetime.datetime.now().year

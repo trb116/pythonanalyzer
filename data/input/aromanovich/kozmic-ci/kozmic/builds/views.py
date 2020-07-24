@@ -17,7 +17,7 @@ def get_ref_and_sha(payload):
 
     if action is None:
         # See `tests.func_fixtures.PUSH_HOOK_CALL_DATA` for payload
-        ref = payload.get('ref')  # ref looks like "refs/heads/master"
+        ref = payload.get('ref')  # ref looks like "refs/heads/main"
         if not ref or not ref.startswith('refs/heads/'):
             return None
         prefix_length = len('refs/heads/')

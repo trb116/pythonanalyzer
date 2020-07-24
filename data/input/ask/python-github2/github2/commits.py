@@ -42,16 +42,16 @@ class Commits(GithubCommand):
 
     domain = "commits"
 
-    def list(self, project, branch="master", file=None, page=1):
+    def list(self, project, branch="main", file=None, page=1):
         """List commits on a project.
 
         .. warning::
-           Not all projects use ``master`` as their default branch, you can
-           check the value of the ``Repo(project).master_branch`` attribute to
+           Not all projects use ``main`` as their default branch, you can
+           check the value of the ``Repo(project).main_branch`` attribute to
            determine the default branch of a given repository.
 
         :param str project: project name
-        :param str branch: branch name, or ``master`` if not given
+        :param str branch: branch name, or ``main`` if not given
         :param str file: optional file filter
         :param int page: optional page number
 

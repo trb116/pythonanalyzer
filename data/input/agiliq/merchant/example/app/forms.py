@@ -8,7 +8,7 @@ from billing import CreditCard
 CARD_TYPES = [
     ('', ''),
     ('visa', 'Visa'),
-    ('master', 'Master'),
+    ('main', 'Main'),
     ('discover', 'Discover'),
     ('american_express', 'American Express'),
     ('diners_club', 'Diners Club'),

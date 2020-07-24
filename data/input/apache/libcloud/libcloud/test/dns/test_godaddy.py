@@ -73,7 +73,7 @@ class GoDaddyTests(unittest.TestCase):
     def test_list_records(self):
         zone = Zone(id='177184419',
                     domain='aperture-platform.com',
-                    type='master',
+                    type='main',
                     ttl=None,
                     driver=self.driver)
         records = self.driver.list_records(zone)
@@ -95,7 +95,7 @@ class GoDaddyTests(unittest.TestCase):
     def test_create_record(self):
         zone = Zone(id='177184419',
                     domain='aperture-platform.com',
-                    type='master',
+                    type='main',
                     ttl=None,
                     driver=self.driver)
         record = self.driver.create_record(
@@ -132,7 +132,7 @@ class GoDaddyTests(unittest.TestCase):
     def test_delete_zone(self):
         zone = Zone(id='177184419',
                     domain='aperture-platform.com',
-                    type='master',
+                    type='main',
                     ttl=None,
                     driver=self.driver)
         self.driver.delete_zone(zone)

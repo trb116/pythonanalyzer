@@ -65,8 +65,8 @@ class SLBDriverTestCases(unittest.TestCase):
             'region_id': 'cn-hangzhou-dg-a01',
             'region_id_alias': 'cn-hangzhou',
             'create_time': '2016-01-10T13:18Z',
-            'master_zone_id': 'cn-hangzhou-d',
-            'slave_zone_id': 'cn-hangzhou-b',
+            'main_zone_id': 'cn-hangzhou-d',
+            'subordinate_zone_id': 'cn-hangzhou-b',
             'network_type': 'classic'
         }
         self._validate_extras(expected_extra, balancer.extra)
@@ -117,8 +117,8 @@ class SLBDriverTestCases(unittest.TestCase):
             'ex_address_type': 'internet',
             'ex_internet_charge_type': 'paybytraffic',
             'ex_bandwidth': 1,
-            'ex_master_zone_id': 'cn-hangzhou-d',
-            'ex_slave_zone_id': 'cn-hangzhou-b',
+            'ex_main_zone_id': 'cn-hangzhou-d',
+            'ex_subordinate_zone_id': 'cn-hangzhou-b',
             'StickySession': 'on',
             'HealthCheck': 'on'}
         self.members = [Member('node1', None, None)]
@@ -316,8 +316,8 @@ class SLBMockHttp(MockHttpTestCase):
             'AddressType': 'ex_address_type',
             'InternetChargeType': 'ex_internet_charge_type',
             'Bandwidth': 'ex_bandwidth',
-            'MasterZoneId': 'ex_master_zone_id',
-            'SlaveZoneId': 'ex_slave_zone_id'
+            'MainZoneId': 'ex_main_zone_id',
+            'SubordinateZoneId': 'ex_subordinate_zone_id'
         }
         for key in balancer_keys:
             params[key] = str(self.test.extra[balancer_keys[key]])

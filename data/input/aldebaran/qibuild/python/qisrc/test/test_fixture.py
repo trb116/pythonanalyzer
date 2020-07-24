@@ -91,7 +91,7 @@ def test_add_build_project(git_server, qisrc_action):
 def test_change_branch(git_server):
     git_server.create_repo("foo.git")
     foo_repo = git_server.get_repo("foo.git")
-    assert foo_repo.default_branch == "master"
+    assert foo_repo.default_branch == "main"
     git_server.change_branch("foo.git", "devel")
     foo_repo = git_server.get_repo("foo.git")
     assert foo_repo.default_branch == "devel"
@@ -158,7 +158,7 @@ def test_fake_git_fake_call():
 def test_fake_git_wrong_setup():
     git = FakeGit("repo")
     git.add_result("checkout", 0, "")
-    git.checkout("-f", "master")
+    git.checkout("-f", "main")
     # pylint: disable-msg=E1101
     with pytest.raises(Exception) as e:
         git.fetch()

@@ -25,7 +25,7 @@ def test_read_git_configs(tmpdir, test_git):
     tmpdir.join(".qi").join("git.xml").write(""" \
 <qigit>
  <project src="foo" >
-    <branch name="master" tracks="origin" />
+    <branch name="main" tracks="origin" />
  </project>
  <project src="bar" >
     <branch name="next" tracks="origin" />
@@ -43,7 +43,7 @@ def test_read_git_configs(tmpdir, test_git):
     foo = git_wt.get_git_project("foo")
     assert foo.src == "foo"
     assert len(foo.branches) == 1
-    assert foo.branches[0].name == "master"
+    assert foo.branches[0].name == "main"
     assert foo.branches[0].tracks == "origin"
     assert not foo.remotes
 
@@ -64,7 +64,7 @@ def test_git_configs_are_persistent(git_worktree):
     upstream.name = "upstream"
     upstream.url = "git@srv:bar.git"
     foo.configure_remote(upstream)
-    foo.configure_branch("master", tracks="upstream")
+    foo.configure_branch("main", tracks="upstream")
     foo.save_config()
 
     def check_config(foo):
@@ -73,9 +73,9 @@ def test_git_configs_are_persistent(git_worktree):
         assert upstream.name == "upstream"
         assert upstream.url == "git@srv:bar.git"
         assert len(foo.branches) == 1
-        master = foo.branches[0]
-        assert master.name == "master"
-        assert master.tracks == "upstream"
+        main = foo.branches[0]
+        assert main.name == "main"
+        assert main.tracks == "upstream"
 
     check_config(foo)
     wt2 = qisrc.worktree.GitWorkTree(git_worktree.worktree)

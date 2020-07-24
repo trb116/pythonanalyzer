@@ -7,9 +7,9 @@ from swgpy.object import *
 def create(kernel):
 	result = Tangible()
 
-	result.template = "object/tangible/loot/loot_schematic/shared_slave_brazier_schematic.iff"
+	result.template = "object/tangible/loot/loot_schematic/shared_subordinate_brazier_schematic.iff"
 	result.attribute_template_id = -1
-	result.stfName("craft_item_ingredients_n","slave_brazier")		
+	result.stfName("craft_item_ingredients_n","subordinate_brazier")		
 	
 	#### BEGIN MODIFICATIONS ####
 	####  END MODIFICATIONS  ####

@@ -6,7 +6,7 @@
 import sys, argparse
 from smRtools import *
 
-def masterListGenerator(data_source):
+def mainListGenerator(data_source):
   for filePath, FileExt, FileLabel in data_source:
     yield HandleSmRNAwindows (filePath, FileExt, IndexSource, genomeRefFormat)
 
@@ -36,9 +36,9 @@ header.extend(FileLabelList)
 assert (len(FileLabelList)==len(set(FileLabelList))),"You have supplied a non-unique label. Please make sure that your input files have unique names"
 
 data_source=zip (args.alignmentSource, args.alignmentFormat, args.alignmentLabel)
-master_generator=masterListGenerator(data_source)
+main_generator=mainListGenerator(data_source)
 
-for i,window in enumerate(master_generator):
+for i,window in enumerate(main_generator):
   window=window
   if i==0:
     gene_count_dict={gene:[str(item.readcount(polarity=Polarity))] for gene,item in window.instanceDict.items()}

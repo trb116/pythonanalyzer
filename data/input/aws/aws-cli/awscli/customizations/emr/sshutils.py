@@ -21,15 +21,15 @@ from botocore.exceptions import WaiterError
 LOG = logging.getLogger(__name__)
 
 
-def validate_and_find_master_dns(session, parsed_globals, cluster_id):
+def validate_and_find_main_dns(session, parsed_globals, cluster_id):
     """
     Utility method for ssh, socks, put and get command.
     Check if the cluster to be connected to is
      terminated or being terminated.
     Check if the cluster is running.
-    Find master instance public dns of a given cluster.
-    Return the latest created master instance public dns name.
-    Throw MasterDNSNotAvailableError or ClusterTerminatedError.
+    Find main instance public dns of a given cluster.
+    Return the latest created main instance public dns name.
+    Throw MainDNSNotAvailableError or ClusterTerminatedError.
     """
     cluster_state = emrutils.get_cluster_state(
         session, parsed_globals, cluster_id)
@@ -45,9 +45,9 @@ def validate_and_find_master_dns(session, parsed_globals, cluster_id):
             print("Waiting for the cluster to start.")
         cluster_running_waiter.wait(ClusterId=cluster_id)
     except WaiterError:
-        raise exceptions.MasterDNSNotAvailableError
+        raise exceptions.MainDNSNotAvailableError
 
-    return emrutils.find_master_dns(
+    return emrutils.find_main_dns(
         session=session, cluster_id=cluster_id,
         parsed_globals=parsed_globals)
 

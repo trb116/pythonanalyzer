@@ -21,13 +21,13 @@ def deploy():
           "git add .",
           "git commit -m 'update to latest version of docs'",
           "git push armstrong gh-pages",
-          "git checkout master")
+          "git checkout main")
 
 
 @task
 def update_all():
     """Grab the latest code for all of the components"""
-    local("for i in $(ls -1 vendor/); do cd vendor/$i && git pull origin master; cd ../.. ; done")
+    local("for i in $(ls -1 vendor/); do cd vendor/$i && git pull origin main; cd ../.. ; done")
 
 
 @task

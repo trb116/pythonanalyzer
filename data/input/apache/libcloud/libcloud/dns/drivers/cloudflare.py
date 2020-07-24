@@ -378,7 +378,7 @@ class CloudFlareDNSDriver(DNSDriver):
         return zones
 
     def _to_zone(self, item):
-        type = 'master'
+        type = 'main'
 
         extra = {}
         extra['props'] = item.get('props', {})

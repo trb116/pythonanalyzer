@@ -40,8 +40,8 @@ create_contents() : creates the contents of the tooltip window (by default a Tki
 import tkinter
 
 class ToolTip:
-    def __init__(self, master, text='Your text here', delay=500, **opts):
-        self.master = master
+    def __init__(self, main, text='Your text here', delay=500, **opts):
+        self.main = main
         self._opts = {'anchor':'center', 'bd':1, 'bg':'lightyellow', 'delay':delay, 'fg':'black',
                       'follow_mouse':0, 'font':None, 'justify':'left', 'padx':4, 'pady':2,
                       'relief':'solid', 'state':'normal', 'text':text, 'textvariable':None,
@@ -49,12 +49,12 @@ class ToolTip:
         self.configure(**opts)
         self._tipwindow = None
         self._id = None
-        self._id1 = self.master.bind("<Enter>", self.enter, '+')
-        self._id2 = self.master.bind("<Leave>", self.leave, '+')
-        self._id3 = self.master.bind("<ButtonPress>", self.leave, '+')
+        self._id1 = self.main.bind("<Enter>", self.enter, '+')
+        self._id2 = self.main.bind("<Leave>", self.leave, '+')
+        self._id3 = self.main.bind("<ButtonPress>", self.leave, '+')
         self._follow_mouse = 0
         if self._opts['follow_mouse']:
-            self._id4 = self.master.bind("<Motion>", self.motion, '+')
+            self._id4 = self.main.bind("<Motion>", self.motion, '+')
             self._follow_mouse = 1
     
     def configure(self, **opts):
@@ -86,20 +86,20 @@ class ToolTip:
         self._unschedule()
         if self._opts['state'] == 'disabled':
             return
-        self._id = self.master.after(self._opts['delay'], self._show)
+        self._id = self.main.after(self._opts['delay'], self._show)
 
     def _unschedule(self):
         id = self._id
         self._id = None
         if id:
-            self.master.after_cancel(id)
+            self.main.after_cancel(id)
 
     def _show(self):
         if self._opts['state'] == 'disabled':
             self._unschedule()
             return
         if not self._tipwindow:
-            self._tipwindow = tw = tkinter.Toplevel(self.master)
+            self._tipwindow = tw = tkinter.Toplevel(self.main)
             # hide the window until we know the geometry
             tw.withdraw()
             tw.wm_overrideredirect(1)
@@ -122,7 +122,7 @@ class ToolTip:
     ##----these methods might be overridden in derived classes:----------------------------------##
     
     def coords(self):
-        # The tip window must be completely outside the master widget;
+        # The tip window must be completely outside the main widget;
         # otherwise when the mouse enters the tip window we get
         # a leave event and it disappears, and then we get an enter
         # event and it reappears, and so on forever :-(
@@ -137,9 +137,9 @@ class ToolTip:
             if y + twy > h:
                 y = y - twy - 30
         else:
-            y = self.master.winfo_rooty() + self.master.winfo_height() + 3
+            y = self.main.winfo_rooty() + self.main.winfo_height() + 3
             if y + twy > h:
-                y = self.master.winfo_rooty() - twy - 3
+                y = self.main.winfo_rooty() - twy - 3
         # we can use the same x coord in both cases:
         # HF change, don't offset left of cursor x = tw.winfo_pointerx() - twx / 2
         x = tw.winfo_pointerx()

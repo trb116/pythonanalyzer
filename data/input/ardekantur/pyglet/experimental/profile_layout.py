@@ -165,7 +165,7 @@ xhtml = '''<?xml version="1.0"?>
       carriage came driving up with eight white horses, which had white
       ostrich feathers on their heads, and were harnessed with golden
       chains, and behind stood the young king's servant Faithful Henry.
-      Faithful Henry had been so unhappy when his master was changed into a
+      Faithful Henry had been so unhappy when his main was changed into a
       frog, that he had caused three iron bands to be laid round his heart,
       lest it should burst with grief and sadness. The carriage was to
       conduct the young king into his kingdom.  Faithful Henry helped them
@@ -173,12 +173,12 @@ xhtml = '''<?xml version="1.0"?>
       of this deliverance. And when they had driven a part of the way the
       king's son heard a cracking behind him as if something had broken. So
       he turned round and cried, "Henry, the carriage is breaking." "No,
-      master, it is not the carriage. It is a band from my heart, which was
+      main, it is not the carriage. It is a band from my heart, which was
       put there in my great pain when you were a frog and imprisoned in the
       well." Again and once again while they were on their way something
       cracked, and each time the king's son thought the carriage was
       breaking, but it was only the bands which were springing from the
-      heart of Faithful Henry because his master was set free and was happy.  
+      heart of Faithful Henry because his main was set free and was happy.  
     </p>
 </body>
 </html> '''

@@ -162,7 +162,7 @@ class TestAppScale(unittest.TestCase):
     # Mock out the actual file reading itself, and slip in a YAML-dumped
     # file
     contents = {
-      'ips_layout': {'master': 'ip1', 'appengine': 'ip1',
+      'ips_layout': {'main': 'ip1', 'appengine': 'ip1',
                      'database': 'ip2', 'zookeeper': 'ip2'},
       'keyname': 'boobazblarg',
       'group': 'boobazblarg'
@@ -200,7 +200,7 @@ class TestAppScale(unittest.TestCase):
     # Mock out the actual file reading itself, and slip in a YAML-dumped
     # file, with an IPs layout that is a str
     contents = {
-      'ips_layout': "'master' 'ip1' 'appengine' 'ip1'",
+      'ips_layout': "'main' 'ip1' 'appengine' 'ip1'",
       'keyname': 'boobazblarg', 'group' : 'boobazblarg'
     }
     yaml_dumped_contents = yaml.dump(contents)

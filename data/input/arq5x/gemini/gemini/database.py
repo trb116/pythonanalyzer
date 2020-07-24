@@ -81,7 +81,7 @@ def index_gene_summary(cursor):
 
 def create_indices(cursor):
     """
-    Index our master DB tables for speed
+    Index our main DB tables for speed
     """
     index_variation(cursor)
     index_variation_impacts(cursor)
@@ -100,7 +100,7 @@ def get_path(path):
 
 def create_tables(path, effect_fields=None):
     """
-    Create our master DB tables
+    Create our main DB tables
     """
     if effect_fields:
         effect_string = "".join(e + " TEXT,\n" for e in effect_fields)

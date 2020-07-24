@@ -12,7 +12,7 @@ import gzip
 import pyart
 
 # MDV file parameters
-MASTER_HEADER_SIZE = 1024   # size of master header in bytes
+MASTER_HEADER_SIZE = 1024   # size of main header in bytes
 FIELD_HEADER_SIZE = 416     # size of field header in bytes
 VLEVEL_HEADER_SIZE = 1024   # size of vlevel header in bytes
 CHUNK_HEADER_SIZE = 512     # size of chunk header in bytes
@@ -29,7 +29,7 @@ NSWEEPS = 1
 
 # read and compress the reflectivity field data
 mdvfile = pyart.io.mdv.MdvFile(INFILE)
-number_of_fields = int(mdvfile.master_header['nfields'])
+number_of_fields = int(mdvfile.main_header['nfields'])
 bias = mdvfile.field_headers[FIELD_NUMBER]['bias']
 scale = mdvfile.field_headers[FIELD_NUMBER]['scale']
 in_field_offset = mdvfile.field_headers[FIELD_NUMBER]['field_data_offset']
@@ -51,7 +51,7 @@ compressed_data_size = len(compressed_field_data)
 f = open(INFILE, 'rb')
 out = open(OUTFILE, 'wb')
 
-# read the master header, update, and write
+# read the main header, update, and write
 fmt = '>28i 8i i 5i 6f 3f 12f 512c 128c 128c i'
 l = list(struct.unpack(fmt, f.read(struct.calcsize(fmt))))
 l[19] = NFIELDS  # nfields

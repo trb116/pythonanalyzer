@@ -67,12 +67,12 @@ class LexToken(object):
 
 class Lexer:
     def __init__(self):
-        self.lexre = None             # Master regular expression. This is a list of 
+        self.lexre = None             # Main regular expression. This is a list of 
                                       # tuples (re,findex) where re is a compiled
                                       # regular expression and findex is a list
                                       # mapping regex group numbers to rules
         self.lexretext = None         # Current regular expression strings
-        self.lexstatere = {}          # Dictionary mapping lexer states to master regexs
+        self.lexstatere = {}          # Dictionary mapping lexer states to main regexs
         self.lexstateretext = {}      # Dictionary mapping lexer states to regex strings
         self.lexstate = "INITIAL"     # Current lexer state
         self.lexstatestack = []       # Stack of lexer states
@@ -423,14 +423,14 @@ def _names_to_funcs(namelist,fdict):
      return result
 
 # -----------------------------------------------------------------------------
-# _form_master_re()
+# _form_main_re()
 #
 # This function takes a list of all of the regex components and attempts to
-# form the master regular expression.  Given limitations in the Python re
-# module, it may be necessary to break the master regex into separate expressions.
+# form the main regular expression.  Given limitations in the Python re
+# module, it may be necessary to break the main regex into separate expressions.
 # -----------------------------------------------------------------------------
 
-def _form_master_re(relist,reflags,ldict):
+def _form_main_re(relist,reflags,ldict):
     if not relist: return []
     regex = "|".join(relist)
     try:
@@ -455,8 +455,8 @@ def _form_master_re(relist,reflags,ldict):
     except Exception,e:
         m = int(len(relist)/2)
         if m == 0: m = 1
-        llist, lre = _form_master_re(relist[:m],reflags,ldict)
-        rlist, rre = _form_master_re(relist[m:],reflags,ldict)
+        llist, lre = _form_main_re(relist[:m],reflags,ldict)
+        rlist, rre = _form_main_re(relist[m:],reflags,ldict)
         return llist+rlist, lre+rre
 
 # -----------------------------------------------------------------------------
@@ -652,7 +652,7 @@ def lex(module=None,object=None,debug=0,optimize=0,lextab="lextab",reflags=0,now
 
     regexs = { }
 
-    # Build the master regular expressions
+    # Build the main regular expressions
     for state in stateinfo.keys():
         regex_list = []
 
@@ -708,7 +708,7 @@ def lex(module=None,object=None,debug=0,optimize=0,lextab="lextab",reflags=0,now
                     if debug:
                         print "lex: Adding rule %s -> '%s' (state '%s')" % (f.__name__,f.__doc__, state)
 
-                # Okay. The regular expression seemed okay.  Let's append it to the master regular
+                # Okay. The regular expression seemed okay.  Let's append it to the main regular
                 # expression we're building
   
                 regex_list.append("(?P<%s>%s)" % (f.__name__,f.__doc__))
@@ -769,10 +769,10 @@ def lex(module=None,object=None,debug=0,optimize=0,lextab="lextab",reflags=0,now
     # From this point forward, we're reasonably confident that we can build the lexer.
     # No more errors will be generated, but there might be some warning messages.
 
-    # Build the master regular expressions
+    # Build the main regular expressions
 
     for state in regexs.keys():
-        lexre, re_text = _form_master_re(regexs[state],reflags,ldict)
+        lexre, re_text = _form_main_re(regexs[state],reflags,ldict)
         lexobj.lexstatere[state] = lexre
         lexobj.lexstateretext[state] = re_text
         if debug:

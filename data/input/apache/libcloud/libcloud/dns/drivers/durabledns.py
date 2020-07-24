@@ -243,14 +243,14 @@ class DurableDNSDriver(DNSDriver):
         record = self._to_record(response.objects[0], zone)
         return record
 
-    def create_zone(self, domain, type='master', ttl=None, extra=None):
+    def create_zone(self, domain, type='main', ttl=None, extra=None):
         """
         Create a new zone.
 
         :param domain: Name of zone, followed by a dot (.) (e.g. example.com.)
         :type  domain: ``str``
 
-        :param type: Zone type (Only master available). (optional)
+        :param type: Zone type (Only main available). (optional)
         :type  type: ``str``
 
         :param ttl: TTL for new records. (optional)
@@ -395,7 +395,7 @@ class DurableDNSDriver(DNSDriver):
         record = self._to_record(record_item, zone)
         return record
 
-    def update_zone(self, zone, domain, type='master', ttl=None, extra=None):
+    def update_zone(self, zone, domain, type='main', ttl=None, extra=None):
         """
         Update an existing zone.
 
@@ -405,7 +405,7 @@ class DurableDNSDriver(DNSDriver):
         :param domain: Name of zone, followed by a dot (.) (e.g. example.com.)
         :type  domain: ``str``
 
-        :param type: Zone type (master / slave).
+        :param type: Zone type (main / subordinate).
         :type  type: ``str``
 
         :param ttl: TTL for new records. (optional)
@@ -631,8 +631,8 @@ class DurableDNSDriver(DNSDriver):
     def _to_zone(self, item):
         extra = item.get('extra')
         # DurableDNS does not return information about zone type. This will be
-        # set as master by default.
-        zone = Zone(id=item.get('id'), type='master', domain=item.get('id'),
+        # set as main by default.
+        zone = Zone(id=item.get('id'), type='main', domain=item.get('id'),
                     ttl=item.get('ttl'), driver=self, extra=extra)
 
         return zone

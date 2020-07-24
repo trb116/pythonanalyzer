@@ -52,12 +52,12 @@ class Category(DeletableEntity):
 
 class SubCategory(Category):
     cachedBalance = FloatType()
-    masterCategoryId = StringType()
+    mainCategoryId = StringType()
     isResolvedConflict = BooleanType()
     note = StringType()
 
 
-class MasterCategory(Category):
+class MainCategory(Category):
     deleteable = BooleanType()
     expanded = BooleanType()
     subCategories = ListType(ModelType(SubCategory))

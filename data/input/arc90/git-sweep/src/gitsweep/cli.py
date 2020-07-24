@@ -28,10 +28,10 @@ class CommandLine(object):
         'dest': 'origin',
         'default': 'origin'}
 
-    _master_kwargs = {
-        'help': 'The name of what you consider the master branch',
-        'dest': 'master',
-        'default': 'master'}
+    _main_kwargs = {
+        'help': 'The name of what you consider the main branch',
+        'dest': 'main',
+        'default': 'main'}
 
     _skip_kwargs = {
         'help': 'Comma-separated list of branches to skip',
@@ -46,21 +46,21 @@ class CommandLine(object):
 
     _preview_usage = dedent('''
         git-sweep preview [-h] [--nofetch] [--skip SKIPS]
-                              [--master MASTER] [--origin ORIGIN]
+                              [--main MASTER] [--origin ORIGIN]
         '''.strip())
 
     _preview = _sub_parsers.add_parser('preview',
         help='Preview the branches that will be deleted',
         usage=_preview_usage)
     _preview.add_argument('--origin', **_origin_kwargs)
-    _preview.add_argument('--master', **_master_kwargs)
+    _preview.add_argument('--main', **_main_kwargs)
     _preview.add_argument('--nofetch', **_no_fetch_kwargs)
     _preview.add_argument('--skip', **_skip_kwargs)
     _preview.set_defaults(action='preview')
 
     _cleanup_usage = dedent('''
         git-sweep cleanup [-h] [--nofetch] [--skip SKIPS] [--force]
-                              [--master MASTER] [--origin ORIGIN]
+                              [--main MASTER] [--origin ORIGIN]
         '''.strip())
 
     _cleanup = _sub_parsers.add_parser('cleanup',
@@ -69,7 +69,7 @@ class CommandLine(object):
     _cleanup.add_argument('--force', action='store_true', default=False,
         dest='force', help='Do not ask, cleanup immediately')
     _cleanup.add_argument('--origin', **_origin_kwargs)
-    _cleanup.add_argument('--master', **_master_kwargs)
+    _cleanup.add_argument('--main', **_main_kwargs)
     _cleanup.add_argument('--nofetch', **_no_fetch_kwargs)
     _cleanup.add_argument('--skip', **_skip_kwargs)
     _cleanup.set_defaults(action='cleanup')
@@ -118,17 +118,17 @@ class CommandLine(object):
                     sys.stdout.write('Fetching from the remote\n')
                     remote.fetch()
 
-        master_branch = args.master
+        main_branch = args.main
 
         # Find branches that could be merged
         inspector = Inspector(repo, remote_name=remote_name,
-            master_branch=master_branch)
+            main_branch=main_branch)
         ok_to_delete = inspector.merged_refs(skip=skips)
 
         if ok_to_delete:
             sys.stdout.write(
                 'These branches have been merged into {0}:\n\n'.format(
-                    master_branch))
+                    main_branch))
         else:
             sys.stdout.write('No remote branches are available for '
                 'cleaning up\n')
@@ -138,7 +138,7 @@ class CommandLine(object):
 
         if not dry_run:
             deleter = Deleter(repo, remote_name=remote_name,
-                master_branch=master_branch)
+                main_branch=main_branch)
 
             if not args.force:
                 sys.stdout.write('\nDelete these branches? (y/n) ')

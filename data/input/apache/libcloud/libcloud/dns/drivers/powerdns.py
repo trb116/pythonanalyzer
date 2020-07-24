@@ -224,7 +224,7 @@ class PowerDNSDriver(DNSDriver):
         :param name: Zone domain name (e.g. example.com)
         :type  name: ``str``
 
-        :param domain: Zone type (master / slave). (optional).  Note that the
+        :param domain: Zone type (main / subordinate). (optional).  Note that the
                        PowerDNS driver does nothing with this parameter.
         :type  domain: :class:`Zone`
 
@@ -433,7 +433,7 @@ class PowerDNSDriver(DNSDriver):
 
     def _to_zone(self, item):
         extra = {}
-        for e in ['kind', 'dnssec', 'account', 'masters', 'serial',
+        for e in ['kind', 'dnssec', 'account', 'mains', 'serial',
                   'notified_serial', 'last_check']:
             extra[e] = item[e]
         # XXX: we have to hard-code "ttl" to "None" here because PowerDNS does

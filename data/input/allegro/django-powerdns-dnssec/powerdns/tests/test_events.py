@@ -15,7 +15,7 @@ class TestSOASerialUpdate(RecordTestCase):
             type='SOA',
             name='example.com',
             content=(
-                'na1.example.com. hostmaster.example.com. '
+                'na1.example.com. hostmain.example.com. '
                 '0 43200 600 1209600 600'
             ),
         )

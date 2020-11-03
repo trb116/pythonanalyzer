@@ -7,9 +7,9 @@ from swgpy.object import *
 def create(kernel):
 	result = Tangible()
 
-	result.template = "object/tangible/loot/misc/shared_slave_collar.iff"
+	result.template = "object/tangible/loot/misc/shared_subordinate_collar.iff"
 	result.attribute_template_id = -1
-	result.stfName("item_n","slave_collar")		
+	result.stfName("item_n","subordinate_collar")		
 	
 	#### BEGIN MODIFICATIONS ####
 	####  END MODIFICATIONS  ####

@@ -24,14 +24,14 @@ def ls(name):
         click.echo("{0}\t{1}\t{2}".format(cluster['Id'], cluster['Name'], cluster['Status']['State']))
 
 
-@cli.command(help='SSH to EMR master node')
+@cli.command(help='SSH to EMR main node')
 @click.option('--cluster-id', '-i', required=True, help='EMR cluster id')
 @click.option('--key-file', '-k', required=True, help='SSH Key file path', type=click.Path())
 def ssh(cluster_id, key_file):
-    """SSH login to EMR master node"""
+    """SSH login to EMR main node"""
     client = boto3.client('emr')
     result = client.describe_cluster(ClusterId=cluster_id)
-    target_dns = result['Cluster']['MasterPublicDnsName']
+    target_dns = result['Cluster']['MainPublicDnsName']
     ssh_options = '-o StrictHostKeyChecking=no -o ServerAliveInterval=10'
     cmd = 'ssh {ssh_options}  -i {key_file} hadoop@{target_dns}'.format(
         ssh_options=ssh_options, key_file=key_file, target_dns=target_dns)
@@ -45,7 +45,7 @@ def rm(cluster_id):
     client = boto3.client('emr')
     try:
         result = client.describe_cluster(ClusterId=cluster_id)
-        target_dns = result['Cluster']['MasterPublicDnsName']
+        target_dns = result['Cluster']['MainPublicDnsName']
         flag = click.prompt(
             "Are you sure you want to terminate {0}: {1}? [y/Y]".format(
                 cluster_id, target_dns), type=str, default='n')

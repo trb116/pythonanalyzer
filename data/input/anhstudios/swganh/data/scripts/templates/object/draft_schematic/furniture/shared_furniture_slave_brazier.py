@@ -7,7 +7,7 @@ from swgpy.object import *
 def create(kernel):
 	result = Intangible()
 
-	result.template = "object/draft_schematic/furniture/shared_furniture_slave_brazier.iff"
+	result.template = "object/draft_schematic/furniture/shared_furniture_subordinate_brazier.iff"
 	result.attribute_template_id = -1
 	result.stfName("string_id_table","")		
 	

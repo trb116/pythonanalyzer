@@ -30,8 +30,8 @@ templates_path = []
 # The suffix of source filenames.
 source_suffix = '.rst'
 
-# The master toctree document.
-master_doc = 'index'
+# The main toctree document.
+main_doc = 'index'
 
 # General substitutions.
 project = "django-tinymce"
@@ -158,7 +158,7 @@ htmlhelp_basename = '%sdoc' % project
 # Grouping the document tree into LaTeX files. List of tuples (source
 # start file, target name, title, author, document class [howto/manual]).
 latex_documents = [
-    (master_doc, '%s.tex' % project, '%s Documentation' % project,
+    (main_doc, '%s.tex' % project, '%s Documentation' % project,
      authors, 'manual'),
 ]
 

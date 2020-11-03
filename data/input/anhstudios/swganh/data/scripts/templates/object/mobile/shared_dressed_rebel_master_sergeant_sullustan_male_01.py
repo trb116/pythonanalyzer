@@ -7,7 +7,7 @@ from swgpy.object import *
 def create(kernel):
 	result = Creature()
 
-	result.template = "object/mobile/shared_dressed_rebel_master_sergeant_sullustan_male_01.iff"
+	result.template = "object/mobile/shared_dressed_rebel_main_sergeant_sullustan_male_01.iff"
 	result.attribute_template_id = 9
 	result.stfName("npc_name","sullustan_base_male")		
 	

@@ -38,12 +38,12 @@ class Converter(Applet, SimpleBorder):
 	    self.panels.append(panel)
 	    self.add(panel)
 
-    def convert(self, master):
-	value = master.getValue()
-	multiplier = master.getMultiplier()
+    def convert(self, main):
+	value = main.getValue()
+	multiplier = main.getMultiplier()
 
 	for panel in self.panels:
-	    if panel is not master:
+	    if panel is not main:
 		panel.setValue(multiplier/panel.getMultiplier()*value)
 
 

@@ -140,7 +140,7 @@ def deploy_sensor_app():
     return
 
   uaserver = SOAPpy.SOAPProxy('https://{0}:{1}'.format(
-    appscale_info.get_db_master_ip(), hermes_constants.UA_SERVER_PORT))
+    appscale_info.get_db_main_ip(), hermes_constants.UA_SERVER_PORT))
 
   # If the appscalesensor app is already running, then do nothing.
   is_app_enabled = uaserver.is_app_enabled(hermes_constants.APPSCALE_SENSOR,

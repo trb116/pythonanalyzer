@@ -7,9 +7,9 @@ from swgpy.object import *
 def create(kernel):
 	result = Creature()
 
-	result.template = "object/mobile/shared_dressed_tatooine_trandoshan_slaver.iff"
+	result.template = "object/mobile/shared_dressed_tatooine_trandoshan_subordinater.iff"
 	result.attribute_template_id = 9
-	result.stfName("theme_park_name","slaver")		
+	result.stfName("theme_park_name","subordinater")		
 	
 	#### BEGIN MODIFICATIONS ####
 	####  END MODIFICATIONS  ####

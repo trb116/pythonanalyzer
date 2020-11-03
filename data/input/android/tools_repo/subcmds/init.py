@@ -38,7 +38,7 @@ from the server and is installed in the .repo/ directory in the
 current working directory.
 
 The optional -b argument can be used to select the manifest branch
-to checkout and use.  If no branch is specified, master is assumed.
+to checkout and use.  If no branch is specified, main is assumed.
 
 The optional -m argument can be used to specify an alternate manifest
 to be used. If no manifest is specified, the manifest default.xml
@@ -113,7 +113,7 @@ to update the working directory files.
       if opt.manifest_branch:
         m.revisionExpr = opt.manifest_branch
       else:
-        m.revisionExpr = 'refs/heads/master'
+        m.revisionExpr = 'refs/heads/main'
     else:
       if opt.manifest_origin:
         print >>sys.stderr, 'fatal: cannot change origin name'

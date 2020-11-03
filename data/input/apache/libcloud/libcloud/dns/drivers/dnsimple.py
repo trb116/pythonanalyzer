@@ -111,14 +111,14 @@ class DNSimpleDNSDriver(DNSDriver):
         record = self._to_record(response.object, zone_id=zone_id)
         return record
 
-    def create_zone(self, domain, type='master', ttl=None, extra=None):
+    def create_zone(self, domain, type='main', ttl=None, extra=None):
         """
         Create a new zone.
 
         :param domain: Zone domain name (e.g. example.com)
         :type domain: ``str``
 
-        :param type: Zone type (All zones are master by design).
+        :param type: Zone type (All zones are main by design).
         :type  type: ``str``
 
         :param ttl: TTL for new records. (This is not really used)
@@ -265,7 +265,7 @@ class DNSimpleDNSDriver(DNSDriver):
                  'updated_at': domain.get('updated_at')}
 
         # All zones are primary by design
-        type = 'master'
+        type = 'main'
 
         return Zone(id=id, domain=name, type=type, ttl=DEFAULT_ZONE_TTL,
                     driver=self, extra=extra)

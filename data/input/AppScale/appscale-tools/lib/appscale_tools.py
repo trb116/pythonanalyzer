@@ -74,8 +74,8 @@ class AppScaleTools(object):
       options: A Namespace that has fields for each parameter that can be
         passed in via the command-line interface.
     """
-    if 'master' in options.ips.keys():
-      raise BadConfigurationException("Cannot add master nodes to an " + \
+    if 'main' in options.ips.keys():
+      raise BadConfigurationException("Cannot add main nodes to an " + \
         "already running AppScale deployment.")
 
     # Skip checking for -n (replication) because we don't allow the user

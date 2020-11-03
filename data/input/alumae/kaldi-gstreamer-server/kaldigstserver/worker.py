@@ -77,7 +77,7 @@ class ServerWebsocket(WebSocketClient):
                 try:
                     self.send(json.dumps(event))
                 except:
-                    logger.warning("%s: Failed to send error event to master" % (self.request_id))
+                    logger.warning("%s: Failed to send error event to main" % (self.request_id))
                 self.close()
                 return
             logger.debug("%s: Checking that decoder hasn't been silent for more than %d seconds" % (self.request_id, SILENCE_TIMEOUT))
@@ -136,7 +136,7 @@ class ServerWebsocket(WebSocketClient):
             self.state = self.STATE_FINISHED
             return
         if self.state != self.STATE_FINISHED:
-            logger.info("%s: Master disconnected before decoder reached EOS?" % self.request_id)
+            logger.info("%s: Main disconnected before decoder reached EOS?" % self.request_id)
             self.state = self.STATE_CANCELLING
             self.decoder_pipeline.cancel()
             counter = 0
@@ -182,7 +182,7 @@ class ServerWebsocket(WebSocketClient):
             self.send(json.dumps(event))
         except:
             e = sys.exc_info()[1]
-            logger.warning("Failed to send event to master: %s" % e)
+            logger.warning("Failed to send event to main: %s" % e)
 
     def _on_full_result(self, full_result_json):
         self.last_decoder_message = time.time()
@@ -200,7 +200,7 @@ class ServerWebsocket(WebSocketClient):
                 self.send(json.dumps(full_result))
             except:
                 e = sys.exc_info()[1]
-                logger.warning("Failed to send event to master: %s" % e)
+                logger.warning("Failed to send event to main: %s" % e)
             if full_result.get("result", {}).get("final", True):
                 self.num_segments += 1
                 self.last_partial_result = ""
@@ -210,7 +210,7 @@ class ServerWebsocket(WebSocketClient):
                 self.send(json.dumps(full_result))
             except:
                 e = sys.exc_info()[1]
-                logger.warning("Failed to send event to master: %s" % e)
+                logger.warning("Failed to send event to main: %s" % e)
 
 
     def _on_word(self, word):
@@ -252,7 +252,7 @@ class ServerWebsocket(WebSocketClient):
             self.send(json.dumps(event))
         except:
             e = sys.exc_info()[1]
-            logger.warning("Failed to send event to master: %s" % e)
+            logger.warning("Failed to send event to main: %s" % e)
         self.close()
 
     def send_adaptation_state(self):
@@ -268,7 +268,7 @@ class ServerWebsocket(WebSocketClient):
                 self.send(json.dumps(event))
             except:
                 e = sys.exc_info()[1]
-                logger.warning("Failed to send event to master: " + str(e))
+                logger.warning("Failed to send event to main: " + str(e))
         else:
             logger.info("%s: Adaptation state not supported by the decoder, not sending it." % (self.request_id))    
 
@@ -355,7 +355,7 @@ def main():
     while True:
         ws = ServerWebsocket(args.uri, decoder_pipeline, post_processor, full_post_processor=full_post_processor)
         try:
-            logger.info("Opening websocket connection to master server")
+            logger.info("Opening websocket connection to main server")
             ws.connect()
             ws.run_forever()
         except Exception:

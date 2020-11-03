@@ -225,15 +225,15 @@ class Ticket16885RegressionTests(unittest.TestCase):
                 'default': {
                     'ENGINE': 'django.db.backends.sqlite3',
                 },
-                'slave': {
+                'subordinate': {
                     'ENGINE': 'django.db.backends.sqlite3',
                     'TEST_MIRROR': 'default',
                 },
             })
-            slave = db.connections['slave']
-            self.assertEqual(slave.features.supports_transactions, None)
+            subordinate = db.connections['subordinate']
+            self.assertEqual(subordinate.features.supports_transactions, None)
             DjangoTestSuiteRunner(verbosity=0).setup_databases()
-            self.assertNotEqual(slave.features.supports_transactions, None)
+            self.assertNotEqual(subordinate.features.supports_transactions, None)
         finally:
             db.connections = old_db_connections
 

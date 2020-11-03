@@ -344,7 +344,7 @@ def deploy_apps(app_paths):
     True on success, False otherwise.
   """
   uaserver = SOAPpy.SOAPProxy('https://{0}:{1}'.format(
-    appscale_info.get_db_master_ip(), UA_SERVER_PORT))
+    appscale_info.get_db_main_ip(), UA_SERVER_PORT))
 
   acc = AppControllerClient(appscale_info.get_login_ip(),
     appscale_info.get_secret())

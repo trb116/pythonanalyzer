@@ -46,13 +46,13 @@ class SoftLayerTests(unittest.TestCase):
 
         zone = zones[0]
         self.assertEqual(zone.id, '123')
-        self.assertEqual(zone.type, 'master')
+        self.assertEqual(zone.type, 'main')
         self.assertEqual(zone.domain, 'bar.com')
 
     def test_get_zone(self):
         zone = self.driver.get_zone(zone_id='123')
         self.assertEqual(zone.id, '123')
-        self.assertEqual(zone.type, 'master')
+        self.assertEqual(zone.type, 'main')
         self.assertEqual(zone.domain, 'bar.com')
 
     def test_get_zone_does_not_exist(self):

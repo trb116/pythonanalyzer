@@ -456,7 +456,7 @@ def draw_time_series(results, times, labels, fname, fmt='png', gridshape=(1, 1),
         if subtitles is not None:
             ax.set_title(subtitles[i], fontsize='small')
 
-    # Create a master axes rectangle for figure wide labels
+    # Create a main axes rectangle for figure wide labels
     fax = fig.add_subplot(111, frameon=False)
     fax.tick_params(labelcolor='none', top='off', bottom='off', left='off', right='off')
     fax.set_ylabel(ylabel)
@@ -474,7 +474,7 @@ def draw_time_series(results, times, labels, fname, fmt='png', gridshape=(1, 1),
 
     # Note that due to weird behavior by axes_grid, it is more convenient to
     # place the x-axis label relative to the colorbar axes instead of the
-    # master axes rectangle.
+    # main axes rectangle.
     cax.set_title(xlabel, fontsize=12)
     cax.title.set_y(-1.5)
 
@@ -875,7 +875,7 @@ def draw_portrait_diagram(results, rowlabels, collabels, fname, fmt='png',
             ax.text(0.5, 1.04, subtitles[i], va='center', ha='center',
                     transform = ax.transAxes, fontsize='small')
 
-    # Create a master axes rectangle for figure wide labels
+    # Create a main axes rectangle for figure wide labels
     fax = fig.add_subplot(111, frameon=False)
     fax.tick_params(labelcolor='none', top='off', bottom='off', left='off', right='off')
     fax.set_ylabel(ylabel)
@@ -894,7 +894,7 @@ def draw_portrait_diagram(results, rowlabels, collabels, fname, fmt='png',
 
     # Note that due to weird behavior by axes_grid, it is more convenient to
     # place the x-axis label relative to the colorbar axes instead of the
-    # master axes rectangle.
+    # main axes rectangle.
     cax.set_title(xlabel, fontsize=12)
     cax.title.set_y(1.5)
 

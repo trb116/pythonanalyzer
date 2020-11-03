@@ -72,10 +72,10 @@ class Migration(SchemaMigration):
             'slug': ('django.db.models.fields.SlugField', [], {'unique': 'True', 'max_length': '255', 'blank': 'True'})
         },
         u'aldryn_newsblog.articletranslation': {
-            'Meta': {'unique_together': "[(u'language_code', u'master')]", 'object_name': 'ArticleTranslation', 'db_table': "u'aldryn_newsblog_article_translation'"},
+            'Meta': {'unique_together': "[(u'language_code', u'main')]", 'object_name': 'ArticleTranslation', 'db_table': "u'aldryn_newsblog_article_translation'"},
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
             'language_code': ('django.db.models.fields.CharField', [], {'max_length': '15', 'db_index': 'True'}),
-            u'master': ('django.db.models.fields.related.ForeignKey', [], {'related_name': "'translations'", 'null': 'True', 'to': u"orm['aldryn_newsblog.Article']"}),
+            u'main': ('django.db.models.fields.related.ForeignKey', [], {'related_name': "'translations'", 'null': 'True', 'to': u"orm['aldryn_newsblog.Article']"}),
             'title': ('django.db.models.fields.CharField', [], {'max_length': '234'})
         },
         u'aldryn_newsblog.latestentriesplugin': {

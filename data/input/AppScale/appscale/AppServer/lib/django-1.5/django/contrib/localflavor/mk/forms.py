@@ -39,10 +39,10 @@ class MKMunicipalitySelect(Select):
 
 class UMCNField(RegexField):
     """
-    A form field that validates input as a unique master citizen
+    A form field that validates input as a unique main citizen
     number.
 
-    The format of the unique master citizen number has been kept the same from
+    The format of the unique main citizen number has been kept the same from
     Yugoslavia. It is still in use in other countries as well, it is not applicable
     solely in Macedonia. For more information see:
     https://secure.wikimedia.org/wikipedia/en/wiki/Unique_Master_Citizen_Number

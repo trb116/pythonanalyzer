@@ -4548,7 +4548,7 @@ class Protocol(object):
                         "storage": "cold_4",
                         "discard": null
                 },
-                "mastermix_loc": "sample_plate/A1",
+                "mainmix_loc": "sample_plate/A1",
                 "samples": [
                     "sample_plate/B1",
                     "sample_plate/B2",
@@ -4567,7 +4567,7 @@ class Protocol(object):
                 "refs":{
                     "sample": Container(None, "micro-1.5")
                 },
-                "mastermix_loc": protocol.refs["sample_plate"].well("A1"),
+                "mainmix_loc": protocol.refs["sample_plate"].well("A1"),
                 "samples": WellGroup([
                         protocol.refs["sample_plate"].well("B1"),
                         protocol.refs["sample_plate"].well("B2"),

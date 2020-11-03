@@ -124,14 +124,14 @@ def test_sync_branch_devel(qisrc_action, git_server, test_git):
     git_server.push_file("foo.git", "bigchange.txt", "some huge change")
 
     qisrc_action("sync", "--rebase-devel")
-    test_git.call("checkout", "master")
-    # Check that master is fast-forwarded
+    test_git.call("checkout", "main")
+    # Check that main is fast-forwarded
     bigchange_txt = os.path.join(foo.path, "bigchange.txt")
     assert os.path.exists(bigchange_txt)
 
     # Check rebase is done smoothly
     test_git.call("checkout", "devel")
-    test_git.call("rebase", "master")
+    test_git.call("rebase", "main")
     assert os.path.exists(bigchange_txt)
     developing_txt = os.path.join(foo.path, "developing.txt")
     assert os.path.exists(developing_txt)
@@ -157,11 +157,11 @@ def test_sync_branch_devel_unclean(qisrc_action, git_server, test_git):
     open(wip_txt, 'w').close()
 
     qisys.script.run_action("qisrc.actions.sync", ["--rebase-devel"])
-    # Master has been fast-forwarded and I haven't lost my WIP
+    # Main has been fast-forwarded and I haven't lost my WIP
     assert os.path.exists(wip_txt)
 
 def test_sync_branch_devel_no_ff(qisrc_action, git_server, test_git):
-    # Case where master can't be fast-forwarded, does nothing except warning
+    # Case where main can't be fast-forwarded, does nothing except warning
 
     git_server.create_repo("foo.git")
     qisrc_action("init", git_server.manifest_url)
@@ -171,16 +171,16 @@ def test_sync_branch_devel_no_ff(qisrc_action, git_server, test_git):
     foo = git_worktree.get_git_project("foo")
 
     test_git = TestGit(foo.path)
-    test_git.commit_file("foo.git", "div.txt", "diverging from master")
-    master_sha1 = test_git.get_ref_sha1("refs/heads/master")
+    test_git.commit_file("foo.git", "div.txt", "diverging from main")
+    main_sha1 = test_git.get_ref_sha1("refs/heads/main")
     test_git.call("checkout", "-b", "devel")
 
     test_git.commit_file("developing.txt", "like a boss")
     git_server.push_file("foo.git", "foobar.txt", "some other change")
 
     qisrc_action("sync", "--rebase-devel")
-    # Master HEAD is untouched
-    assert test_git.get_ref_sha1("refs/heads/master") == master_sha1
+    # Main HEAD is untouched
+    assert test_git.get_ref_sha1("refs/heads/main") == main_sha1
 
 def test_sync_dash_g(qisrc_action, git_server):
     git_server.create_group("mygroup", ["a", "b"])
@@ -204,9 +204,9 @@ def test_incorrect_branch_still_fetches(qisrc_action, git_server):
     test_git = TestGit(foo.path)
     test_git.checkout("-b", "wip")
     git_server.push_file("foo.git", "foo.txt", "some change")
-    previous_sha1 = test_git.get_ref_sha1("refs/remotes/origin/master")
+    previous_sha1 = test_git.get_ref_sha1("refs/remotes/origin/main")
     foo.sync()
-    new_sha1 = test_git.get_ref_sha1("refs/remotes/origin/master")
+    new_sha1 = test_git.get_ref_sha1("refs/remotes/origin/main")
     assert previous_sha1 != new_sha1
 
 def test_keeps_staged_changes(qisrc_action, git_server):
@@ -244,10 +244,10 @@ def test_removing_forked_project(qisrc_action, git_server):
     booz_proj = git_worktree.get_git_project("booz")
     git = qisrc.git.Git(booz_proj.path)
     assert git.get_current_branch() == "devel"
-    git_server.change_branch("booz", "master")
+    git_server.change_branch("booz", "main")
     qisrc_action("sync", "-a", retcode=True)
     qisrc_action("checkout", "devel")
-    assert git.get_current_branch() == "master"
+    assert git.get_current_branch() == "main"
 
 def test_sync_reset(qisrc_action, git_server):
     git_server.create_repo("bar")
@@ -262,7 +262,7 @@ def test_sync_reset(qisrc_action, git_server):
     baz_git.commit_file("unrelated.txt", "unrelated\n")
     git_server.push_file("bar", "bar.txt", "this is bar\n")
     qisrc_action("sync", "--reset")
-    assert bar_git.get_current_branch() == "master"
+    assert bar_git.get_current_branch() == "main"
     assert bar_git.read_file("bar.txt") == "this is bar\n"
     # pylint: disable-msg=E1101
     with pytest.raises(Exception):
@@ -360,7 +360,7 @@ def test_switching_to_fixed_ref_happy(qisrc_action, git_server, record_messages)
     git_worktree = TestGitWorkTree()
     foo_proj = git_worktree.get_git_project("foo")
     git = qisrc.git.Git(foo_proj.path)
-    actual = git.get_ref_sha1("refs/heads/master")
+    actual = git.get_ref_sha1("refs/heads/main")
     expected = git.get_ref_sha1("refs/tags/v0.1")
     assert actual == expected
     # qisrc.reset.clever_reset_ref should do nothing, so there should be

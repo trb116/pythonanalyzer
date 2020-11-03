@@ -127,7 +127,7 @@ INSTALL_PIG_STEP = {
 INSTALL_HBASE_STEP = {
     'HadoopJarStep': {
         'Args': ['emr.hbase.backup.Main',
-                 '--start-master'],
+                 '--start-main'],
         'Jar': '/home/hadoop/lib/hbase.jar'
     },
     'Name': 'Start HBase',
@@ -322,17 +322,17 @@ DEFAULT_RESULT = \
         'Tags': []
     }
 
-EMR_MANAGED_MASTER_SECURITY_GROUP = 'sg-master1'
+EMR_MANAGED_MASTER_SECURITY_GROUP = 'sg-main1'
 
-EMR_MANAGED_SLAVE_SECURITY_GROUP = 'sg-slave1'
+EMR_MANAGED_SLAVE_SECURITY_GROUP = 'sg-subordinate1'
 
 SERVICE_ACCESS_SECURITY_GROUP = "sg-service-access"
 
 ADDITIONAL_MASTER_SECURITY_GROUPS = \
-    ['sg-addMaster1', 'sg-addMaster2', 'sg-addMaster3', 'sg-addMaster4']
+    ['sg-addMain1', 'sg-addMain2', 'sg-addMain3', 'sg-addMain4']
 
 ADDITIONAL_SLAVE_SECURITY_GROUPS = \
-    ['sg-addSlave1', 'sg-addSlave2', 'sg-addSlave3', 'sg-addSlave4']
+    ['sg-addSubordinate1', 'sg-addSubordinate2', 'sg-addSubordinate3', 'sg-addSubordinate4']
 
 
 class TestCreateCluster(BaseAWSCommandParamsTest):
@@ -658,7 +658,7 @@ class TestCreateCluster(BaseAWSCommandParamsTest):
             'emr create-cluster --use-default-roles --ami-version 3.0.4 '
             '--auto-terminate '
             '--instance-groups '
-            'Name=Master,InstanceCount=1,InstanceType=m1.small')
+            'Name=Main,InstanceCount=1,InstanceType=m1.small')
         stderr = self.run_cmd(cmd, 255)[1]
         self.assert_error_message_has_field_name(stderr, 'InstanceGroupType')
 
@@ -667,7 +667,7 @@ class TestCreateCluster(BaseAWSCommandParamsTest):
             'emr create-cluster --use-default-roles --ami-version 3.0.4 '
             '--auto-terminate '
             '--instance-groups '
-            'Name=Master,InstanceGroupType=MASTER,InstanceCount=1')
+            'Name=Main,InstanceGroupType=MASTER,InstanceCount=1')
         expect_error_msg = (
             '\nThe following required parameters are missing'
             ' for structure:: InstanceType\n')
@@ -679,7 +679,7 @@ class TestCreateCluster(BaseAWSCommandParamsTest):
             'emr create-cluster --use-default-roles --ami-version 3.0.4 '
             '--auto-terminate '
             '--instance-groups '
-            'Name=Master,InstanceGroupType=MASTER,InstanceType=m1.xlarge')
+            'Name=Main,InstanceGroupType=MASTER,InstanceType=m1.xlarge')
         stderr = self.run_cmd(cmd, 255)[1]
         self.assert_error_message_has_field_name(stderr, 'InstanceCount')
 
@@ -693,7 +693,7 @@ class TestCreateCluster(BaseAWSCommandParamsTest):
             [
                 {'InstanceRole': 'MASTER',
                  'InstanceCount': 1,
-                 'Name': 'Master Instance Group',
+                 'Name': 'Main Instance Group',
                  'Market': 'ON_DEMAND',
                  'InstanceType': 'm1.large'
                  },
@@ -1231,40 +1231,40 @@ class TestCreateCluster(BaseAWSCommandParamsTest):
 
     def test_all_security_groups(self):
         cmd = DEFAULT_CMD + (
-            '--ec2-attributes EmrManagedMasterSecurityGroup=sg-master1,'
-            'EmrManagedSlaveSecurityGroup=sg-slave1,'
+            '--ec2-attributes EmrManagedMainSecurityGroup=sg-main1,'
+            'EmrManagedSubordinateSecurityGroup=sg-subordinate1,'
             'ServiceAccessSecurityGroup=sg-service-access,'
-            'AdditionalMasterSecurityGroups='
-            '[sg-addMaster1,sg-addMaster2,sg-addMaster3,'
-            'sg-addMaster4],AdditionalSlaveSecurityGroups=[sg-addSlave1,'
-            'sg-addSlave2,sg-addSlave3,sg-addSlave4]')
+            'AdditionalMainSecurityGroups='
+            '[sg-addMain1,sg-addMain2,sg-addMain3,'
+            'sg-addMain4],AdditionalSubordinateSecurityGroups=[sg-addSubordinate1,'
+            'sg-addSubordinate2,sg-addSubordinate3,sg-addSubordinate4]')
 
         result = copy.deepcopy(DEFAULT_RESULT)
         instances = result['Instances']
-        instances['EmrManagedMasterSecurityGroup'] = \
+        instances['EmrManagedMainSecurityGroup'] = \
             EMR_MANAGED_MASTER_SECURITY_GROUP
-        instances['EmrManagedSlaveSecurityGroup'] = \
+        instances['EmrManagedSubordinateSecurityGroup'] = \
             EMR_MANAGED_SLAVE_SECURITY_GROUP
-        instances['AdditionalMasterSecurityGroups'] = \
+        instances['AdditionalMainSecurityGroups'] = \
             ADDITIONAL_MASTER_SECURITY_GROUPS
         instances['ServiceAccessSecurityGroup'] = \
             SERVICE_ACCESS_SECURITY_GROUP
-        instances['AdditionalSlaveSecurityGroups'] = \
+        instances['AdditionalSubordinateSecurityGroups'] = \
             ADDITIONAL_SLAVE_SECURITY_GROUPS
 
         self.assert_params_for_cmd(cmd, result)
 
     def test_emr_managed_security_groups(self):
         cmd = DEFAULT_CMD + (
-            '--ec2-attributes EmrManagedMasterSecurityGroup=sg-master1,'
-            'EmrManagedSlaveSecurityGroup=sg-slave1,'
+            '--ec2-attributes EmrManagedMainSecurityGroup=sg-main1,'
+            'EmrManagedSubordinateSecurityGroup=sg-subordinate1,'
             'ServiceAccessSecurityGroup=sg-service-access')
 
         result = copy.deepcopy(DEFAULT_RESULT)
         instances = result['Instances']
-        instances['EmrManagedMasterSecurityGroup'] = \
+        instances['EmrManagedMainSecurityGroup'] = \
             EMR_MANAGED_MASTER_SECURITY_GROUP
-        instances['EmrManagedSlaveSecurityGroup'] = \
+        instances['EmrManagedSubordinateSecurityGroup'] = \
             EMR_MANAGED_SLAVE_SECURITY_GROUP
         instances['ServiceAccessSecurityGroup'] = \
             SERVICE_ACCESS_SECURITY_GROUP
@@ -1273,15 +1273,15 @@ class TestCreateCluster(BaseAWSCommandParamsTest):
 
     def test_additional_security_groups(self):
         cmd = DEFAULT_CMD + (
-            '--ec2-attributes AdditionalMasterSecurityGroups=[sg-addMaster1'
-            ',sg-addMaster2,sg-addMaster3,sg-addMaster4],AdditionalSlaveSecu'
-            'rityGroups=[sg-addSlave1,sg-addSlave2,sg-addSlave3,sg-addSlave4]')
+            '--ec2-attributes AdditionalMainSecurityGroups=[sg-addMain1'
+            ',sg-addMain2,sg-addMain3,sg-addMain4],AdditionalSubordinateSecu'
+            'rityGroups=[sg-addSubordinate1,sg-addSubordinate2,sg-addSubordinate3,sg-addSubordinate4]')
 
         result = copy.deepcopy(DEFAULT_RESULT)
         instances = result['Instances']
-        instances['AdditionalMasterSecurityGroups'] = \
+        instances['AdditionalMainSecurityGroups'] = \
             ADDITIONAL_MASTER_SECURITY_GROUPS
-        instances['AdditionalSlaveSecurityGroups'] = \
+        instances['AdditionalSubordinateSecurityGroups'] = \
             ADDITIONAL_SLAVE_SECURITY_GROUPS
 
         self.assert_params_for_cmd(cmd, result)
@@ -1294,15 +1294,15 @@ class TestCreateCluster(BaseAWSCommandParamsTest):
 
         result = copy.deepcopy(DEFAULT_RESULT)
         instances = result['Instances']
-        instances['EmrManagedMasterSecurityGroup'] = \
+        instances['EmrManagedMainSecurityGroup'] = \
             EMR_MANAGED_MASTER_SECURITY_GROUP
-        instances['EmrManagedSlaveSecurityGroup'] = \
+        instances['EmrManagedSubordinateSecurityGroup'] = \
             EMR_MANAGED_SLAVE_SECURITY_GROUP
         instances['ServiceAccessSecurityGroup'] = \
             SERVICE_ACCESS_SECURITY_GROUP
-        instances['AdditionalMasterSecurityGroups'] = \
+        instances['AdditionalMainSecurityGroups'] = \
             ADDITIONAL_MASTER_SECURITY_GROUPS
-        instances['AdditionalSlaveSecurityGroups'] = \
+        instances['AdditionalSubordinateSecurityGroups'] = \
             ADDITIONAL_SLAVE_SECURITY_GROUPS
 
         self.assert_params_for_cmd(cmd, result)
@@ -1394,7 +1394,7 @@ class TestCreateCluster(BaseAWSCommandParamsTest):
                [
                    {'InstanceRole': 'MASTER',
                     'InstanceCount': 1,
-                    'Name': 'Master Instance Group',
+                    'Name': 'Main Instance Group',
                     'Market': 'ON_DEMAND',
                     'InstanceType': 'd2.xlarge',
                     'EbsConfiguration':

@@ -50,7 +50,7 @@ class _Automation(Thread):
         try:
 
             #
-            # - workaround to fetch the master IP and credentials as there does not seem to
+            # - workaround to fetch the main IP and credentials as there does not seem to
             #   be a way to use 10.0.0.2 from within the pod
             #
             assert 'KUBERNETES_MASTER' in os.environ, '$KUBERNETES_MASTER not specified (check your portal pod)'
@@ -71,7 +71,7 @@ class _Automation(Thread):
             for key in set([hints['application'] for hints in js.values()]):
 
                 #
-                # - HTTP DELETE the controller via the master API
+                # - HTTP DELETE the controller via the main API
                 #
                 url = 'https://%s/api/v1beta3/namespaces/default/replicationcontrollers/%s' % (os.environ['KUBERNETES_MASTER'], key)
                 reply = requests.delete(url, auth=auth,verify=False)
@@ -85,7 +85,7 @@ class _Automation(Thread):
             for key, hints in js.items():
 
                 #
-                # - HTTP DELETE the pod via the master API
+                # - HTTP DELETE the pod via the main API
                 #
                 url = 'https://%s/api/v1beta3/namespaces/default/pods/%s' % (os.environ['KUBERNETES_MASTER'], hints['task'])
                 reply = requests.delete(url, auth=auth,verify=False)

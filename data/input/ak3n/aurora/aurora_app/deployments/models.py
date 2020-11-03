@@ -21,7 +21,7 @@ class Deployment(db.Model):
     __tablename__ = "deployments"
     id = db.Column(db.Integer, primary_key=True)
     status = db.Column(db.SmallInteger, default=STATUSES['READY'])
-    branch = db.Column(db.String(32), default='master')
+    branch = db.Column(db.String(32), default='main')
     commit = db.Column(db.String(128))
     started_at = db.Column(db.DateTime(), default=datetime.now)
     finished_at = db.Column(db.DateTime())

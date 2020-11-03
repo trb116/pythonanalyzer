@@ -98,7 +98,7 @@ def get_db_info():
   return yaml.load(info) 
 
 def get_taskqueue_nodes():
-  """ Returns a list of all the taskqueue nodes (including the master). 
+  """ Returns a list of all the taskqueue nodes (including the main). 
       Strips off any empty lines
 
   Returns:
@@ -168,19 +168,19 @@ def get_zk_node_ips():
     logging.exception(key_error)
     return []
 
-def get_db_master_ip():
-  """ Returns the master datastore IP.
+def get_db_main_ip():
+  """ Returns the main datastore IP.
 
   Returns:
-    A str, the IP of the datastore master.
+    A str, the IP of the datastore main.
   """
   return file_io.read(constants.MASTERS_FILE_LOC).rstrip()
 
-def get_db_slave_ips():
-  """ Returns the slave datastore IPs.
+def get_db_subordinate_ips():
+  """ Returns the subordinate datastore IPs.
 
   Returns:
-    A list of IP of the datastore slaves.
+    A list of IP of the datastore subordinates.
   """
   nodes = file_io.read(constants.SLAVES_FILE_LOC).rstrip()
   nodes = nodes.split('\n')
@@ -194,7 +194,7 @@ def get_db_ips():
   Returns:
     A list of strings containing IP addresses.
   """
-  return list(set([get_db_master_ip()] + get_db_slave_ips()))
+  return list(set([get_db_main_ip()] + get_db_subordinate_ips()))
 
 def get_search_location():
   """ Returns the IP and port of where the search service is running.

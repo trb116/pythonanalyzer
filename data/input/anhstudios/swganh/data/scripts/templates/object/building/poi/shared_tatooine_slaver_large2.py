@@ -7,7 +7,7 @@ from swgpy.object import *
 def create(kernel):
 	result = Building()
 
-	result.template = "object/building/poi/shared_tatooine_slaver_large2.iff"
+	result.template = "object/building/poi/shared_tatooine_subordinater_large2.iff"
 	result.attribute_template_id = -1
 	result.stfName("poi_n","base_poi_building")		
 	

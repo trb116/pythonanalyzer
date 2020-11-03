@@ -68,8 +68,8 @@ MARK FEATURE OPTIONS
 """
 
 __doc__ = """
-This script will generate a set of UFO instances from a series of master design fonts.
-The master designs must be compatible. For each instance, in addition to creating a UFO 
+This script will generate a set of UFO instances from a series of main design fonts.
+The main designs must be compatible. For each instance, in addition to creating a UFO 
 font file, the script can also write 'kern', 'mark' and 'mkmk' feature files. These 
 files will be saved in the same folder as the UFO font instance.
 
@@ -87,7 +87,7 @@ MyFont-BoldItalic, the folder will be named "BoldItalic")
 This script depends on info provided by an external simple text file named "instances".
 The data supplied in this file, is used for specifying the instance's values, and for 
 providing the font names used in the UFO's fontinfo.plist file. The "instances" file 
-must be located in the same folder as the UFO master files. Each line specifies one 
+must be located in the same folder as the UFO main files. Each line specifies one 
 instance, as a record of tab-delimited fields. The first 6 fields are always, in order:
 
   FamilyName : This is the Preferred Family name.
@@ -99,17 +99,17 @@ instance, as a record of tab-delimited fields. The first 6 fields are always, in
   IsBold     : This must be either 1 (True) or 0 (False). This will be translated into
 			   Postscript FontDict ForceBold field. The recommended value is 0 for all the
 			   instances.
-  Masters    : Optional. This is for using intermediate masters in a linear interpolation,
-			   The masters are specified as a tuple of file names (see example below).
+  Mains    : Optional. This is for using intermediate mains in a linear interpolation,
+			   The mains are specified as a tuple of file names (see example below).
 
 
 
   Examples:
-	# Two masters, one axis
+	# Two mains, one axis
 	MyFontStd<tab>MyFontStd-Bold<tab>MyFont Std Bold<tab>Bold<tab>650<tab>1
 	MyFontStd<tab>MyFontStd-Regular<tab>MyFont Std Regular<tab>Regular<tab>350<tab>0	
 
-	# Three masters, one axis (interpolation with intermediate master)
+	# Three mains, one axis (interpolation with intermediate main)
 	MyFontPro<tab>MyFontPro-Light<tab>MyFontPro Light<tab>Light <tab>(408)<tab>0<tab>("MyFontPro_0.ufo", "MyFontPro_1.ufo")
 	MyFontPro<tab>MyFontPro-Regular<tab>MyFontPro<tab>Regular<tab>(41)<tab>0<tab>("MyFontPro_1.ufo", "MyFontPro_2.ufo")
 	MyFontPro<tab>MyFontPro-Semibold<tab>MyFontPro Semibold<tab>Semibold<tab>(367)<tab>0<tab>("MyFontPro_1.ufo", "MyFontPro_2.ufo")
@@ -164,7 +164,7 @@ v2.0   - Sep 05 2013 - Removed the step of handling Type 1 files; UFO is now the
                        Added the option to not save the fonts.
                        Removed the dependencies on 'ufo2fdk' and 'defcon' now that the FDK tools support the UFO format natively.
 v2.0.1 - Apr 22 2014 - Added Unicode values to glyphs in interpolated instances.
-v2.1   - Dec 02 2014 - Added the possibility to use intermediate masters.
+v2.1   - Dec 02 2014 - Added the possibility to use intermediate mains.
 
 """
 
@@ -202,7 +202,7 @@ kForceBold         = "ForceBold"
 kIsItalicKey       = "IsItalic"
 kExceptionSuffixes = "ExceptionSuffixes"
 kExtraGlyphs       = "ExtraGlyphs"
-kMasters           = "Masters"
+kMains           = "Mains"
 
 kFixedFieldKeys = {
 		# field index: key name
@@ -318,7 +318,7 @@ def readInstanceFile(instancesFilePath):
 				continue
 			if key == kFontName:
 				value = field
-			if key == kMasters:
+			if key == kMains:
 				value = eval(field)
 			elif key in [kExtraGlyphs, kExceptionSuffixes]:
 				value = eval(field)
@@ -463,14 +463,14 @@ def makeFaceFolder(root, folder):
 	return facePath
 
 
-def makeInstance(counter, ufoMasters, instanceInfo, outputDirPath, options):
+def makeInstance(counter, ufoMains, instanceInfo, outputDirPath, options):
 
-	if len(ufoMasters) == 2:
-		'Linear interpolation with 2 masters'
+	if len(ufoMains) == 2:
+		'Linear interpolation with 2 mains'
 		pass
 	else:
-		'Linear interpolation with intermediate masters'
-		ufoMasters = [master for master in ufoMasters if os.path.basename(master.path) in instanceInfo.get(kMasters)]
+		'Linear interpolation with intermediate mains'
+		ufoMains = [main for main in ufoMains if os.path.basename(main.path) in instanceInfo.get(kMains)]
 
 	try:
 		faceName = instanceInfo[kFontName].split('-')[1]
@@ -484,15 +484,15 @@ def makeInstance(counter, ufoMasters, instanceInfo, outputDirPath, options):
 	# XXX It's currently assuming a 0-1000 axis
 	interpolationFactor = instanceInfo[kCoordsKey][0]/1000.000
 
-	glyphOrder = ufoMasters[0].lib["public.glyphOrder"]
+	glyphOrder = ufoMains[0].lib["public.glyphOrder"]
 	
 	# aGlyph.isCompatible(otherGlyph, report=True)
 # 	for glyphName in glyphOrder:
-# 		ufoMasters[0][glyphName].isCompatible(ufoMasters[1][glyphName], True)
+# 		ufoMains[0][glyphName].isCompatible(ufoMains[1][glyphName], True)
 	
 	ufoInstance = NewFont()
 	
-	# Interpolate the masters
+	# Interpolate the mains
 	# Documentation: http://www.robofab.org/howto/interpolate.html
 	# aFont.interpolate(factor, minFont, maxFont, suppressError=True, analyzeOnly=False)
 	# aFont.interpolate() interpolates:
@@ -501,7 +501,7 @@ def makeInstance(counter, ufoMasters, instanceInfo, outputDirPath, options):
 	#	- ascender
 	#	- descender
 	#	- glyph widths for the whole font
-	ufoInstance.interpolate(interpolationFactor, ufoMasters[0], ufoMasters[1])
+	ufoInstance.interpolate(interpolationFactor, ufoMains[0], ufoMains[1])
 	
 	# Round all the point coordinates to whole integer numbers
 	ufoInstance.round()
@@ -509,14 +509,14 @@ def makeInstance(counter, ufoMasters, instanceInfo, outputDirPath, options):
 	# Interpolate the kerning
 	# Documentation: http://www.robofab.org/objects/kerning.html
 	# f.kerning.interpolate(sourceDictOne, sourceDictTwo, value, clearExisting=True)
-	if len(ufoMasters[0].kerning):
-		ufoInstance.kerning.interpolate(ufoMasters[0].kerning, ufoMasters[1].kerning, interpolationFactor)
+	if len(ufoMains[0].kerning):
+		ufoInstance.kerning.interpolate(ufoMains[0].kerning, ufoMains[1].kerning, interpolationFactor)
 		ufoInstance.kerning.round(1) # convert the interpolated values to integers
 	
 	for glyphName in glyphOrder:
-		ufoInstance[glyphName].unicode = ufoMasters[0][glyphName].unicode
+		ufoInstance[glyphName].unicode = ufoMains[0][glyphName].unicode
 
-		if len(ufoMasters[0][glyphName]) != len(ufoInstance[glyphName]):
+		if len(ufoMains[0][glyphName]) != len(ufoInstance[glyphName]):
 			print "\tWARNING: Interpolation failed in glyph %s" % glyphName
 
 	styleName = instanceInfo[kFullName].replace(instanceInfo[kFamilyName], '').strip()
@@ -528,94 +528,94 @@ def makeInstance(counter, ufoMasters, instanceInfo, outputDirPath, options):
 	ufoInstance.info.postscriptWeightName = instanceInfo[kWeight]
 	ufoInstance.info.postscriptForceBold = True if instanceInfo[kIsBoldKey] else False
 	
-	ufoInstance.lib = ufoMasters[0].lib
-	ufoInstance.groups = ufoMasters[0].groups
+	ufoInstance.lib = ufoMains[0].lib
+	ufoInstance.groups = ufoMains[0].groups
 	
-	ufoInstance.info.copyright = ufoMasters[0].info.copyright
-	ufoInstance.info.trademark = ufoMasters[0].info.trademark
-	ufoInstance.info.unitsPerEm = ufoMasters[0].info.unitsPerEm
-	ufoInstance.info.versionMajor = ufoMasters[0].info.versionMajor
-	ufoInstance.info.versionMinor = ufoMasters[0].info.versionMinor
-	ufoInstance.info.postscriptIsFixedPitch = ufoMasters[0].info.postscriptIsFixedPitch
+	ufoInstance.info.copyright = ufoMains[0].info.copyright
+	ufoInstance.info.trademark = ufoMains[0].info.trademark
+	ufoInstance.info.unitsPerEm = ufoMains[0].info.unitsPerEm
+	ufoInstance.info.versionMajor = ufoMains[0].info.versionMajor
+	ufoInstance.info.versionMinor = ufoMains[0].info.versionMinor
+	ufoInstance.info.postscriptIsFixedPitch = ufoMains[0].info.postscriptIsFixedPitch
 	
 	# ascender
-	if ufoMasters[0].info.ascender and ufoMasters[1].info.ascender:
-		ufoInstance.info.ascender = int(round(objectsBase._interpolate(ufoMasters[0].info.ascender, ufoMasters[1].info.ascender, interpolationFactor)))
+	if ufoMains[0].info.ascender and ufoMains[1].info.ascender:
+		ufoInstance.info.ascender = int(round(objectsBase._interpolate(ufoMains[0].info.ascender, ufoMains[1].info.ascender, interpolationFactor)))
 	# descender
-	if ufoMasters[0].info.descender and ufoMasters[1].info.descender:
-		ufoInstance.info.descender = int(round(objectsBase._interpolate(ufoMasters[0].info.descender, ufoMasters[1].info.descender, interpolationFactor)))
+	if ufoMains[0].info.descender and ufoMains[1].info.descender:
+		ufoInstance.info.descender = int(round(objectsBase._interpolate(ufoMains[0].info.descender, ufoMains[1].info.descender, interpolationFactor)))
 	# capHeight
-	if ufoMasters[0].info.capHeight and ufoMasters[1].info.capHeight:
-		ufoInstance.info.capHeight = int(round(objectsBase._interpolate(ufoMasters[0].info.capHeight, ufoMasters[1].info.capHeight, interpolationFactor)))
+	if ufoMains[0].info.capHeight and ufoMains[1].info.capHeight:
+		ufoInstance.info.capHeight = int(round(objectsBase._interpolate(ufoMains[0].info.capHeight, ufoMains[1].info.capHeight, interpolationFactor)))
 	# xHeight
-	if ufoMasters[0].info.xHeight and ufoMasters[1].info.xHeight:
-		ufoInstance.info.xHeight = int(round(objectsBase._interpolate(ufoMasters[0].info.xHeight, ufoMasters[1].info.xHeight, interpolationFactor)))
+	if ufoMains[0].info.xHeight and ufoMains[1].info.xHeight:
+		ufoInstance.info.xHeight = int(round(objectsBase._interpolate(ufoMains[0].info.xHeight, ufoMains[1].info.xHeight, interpolationFactor)))
 	# italicAngle
-	if (ufoMasters[0].info.italicAngle != None) and (ufoMasters[1].info.italicAngle != None):
-		ufoInstance.info.italicAngle = int(round(objectsBase._interpolate(ufoMasters[0].info.italicAngle, ufoMasters[1].info.italicAngle, interpolationFactor)))
+	if (ufoMains[0].info.italicAngle != None) and (ufoMains[1].info.italicAngle != None):
+		ufoInstance.info.italicAngle = int(round(objectsBase._interpolate(ufoMains[0].info.italicAngle, ufoMains[1].info.italicAngle, interpolationFactor)))
 	# postscriptUnderlinePosition
-	if ufoMasters[0].info.postscriptUnderlinePosition and ufoMasters[1].info.postscriptUnderlinePosition:
-		ufoInstance.info.postscriptUnderlinePosition = int(round(objectsBase._interpolate(ufoMasters[0].info.postscriptUnderlinePosition, ufoMasters[1].info.postscriptUnderlinePosition, interpolationFactor)))
+	if ufoMains[0].info.postscriptUnderlinePosition and ufoMains[1].info.postscriptUnderlinePosition:
+		ufoInstance.info.postscriptUnderlinePosition = int(round(objectsBase._interpolate(ufoMains[0].info.postscriptUnderlinePosition, ufoMains[1].info.postscriptUnderlinePosition, interpolationFactor)))
 	# postscriptUnderlineThickness
-	if ufoMasters[0].info.postscriptUnderlineThickness and ufoMasters[1].info.postscriptUnderlineThickness:
-		ufoInstance.info.postscriptUnderlineThickness = int(round(objectsBase._interpolate(ufoMasters[0].info.postscriptUnderlineThickness, ufoMasters[1].info.postscriptUnderlineThickness, interpolationFactor)))
+	if ufoMains[0].info.postscriptUnderlineThickness and ufoMains[1].info.postscriptUnderlineThickness:
+		ufoInstance.info.postscriptUnderlineThickness = int(round(objectsBase._interpolate(ufoMains[0].info.postscriptUnderlineThickness, ufoMains[1].info.postscriptUnderlineThickness, interpolationFactor)))
 	# postscriptBlueFuzz
-	if (ufoMasters[0].info.postscriptBlueFuzz != None) and (ufoMasters[1].info.postscriptBlueFuzz != None):
-		ufoInstance.info.postscriptBlueFuzz = int(round(objectsBase._interpolate(ufoMasters[0].info.postscriptBlueFuzz, ufoMasters[1].info.postscriptBlueFuzz, interpolationFactor)))
+	if (ufoMains[0].info.postscriptBlueFuzz != None) and (ufoMains[1].info.postscriptBlueFuzz != None):
+		ufoInstance.info.postscriptBlueFuzz = int(round(objectsBase._interpolate(ufoMains[0].info.postscriptBlueFuzz, ufoMains[1].info.postscriptBlueFuzz, interpolationFactor)))
 	# postscriptBlueScale
-	if ufoMasters[0].info.postscriptBlueScale and ufoMasters[1].info.postscriptBlueScale:
-		ufoInstance.info.postscriptBlueScale = objectsBase._interpolate(ufoMasters[0].info.postscriptBlueScale, ufoMasters[1].info.postscriptBlueScale, interpolationFactor)
+	if ufoMains[0].info.postscriptBlueScale and ufoMains[1].info.postscriptBlueScale:
+		ufoInstance.info.postscriptBlueScale = objectsBase._interpolate(ufoMains[0].info.postscriptBlueScale, ufoMains[1].info.postscriptBlueScale, interpolationFactor)
 	# postscriptBlueShift
-	if ufoMasters[0].info.postscriptBlueShift and ufoMasters[1].info.postscriptBlueShift:
-		ufoInstance.info.postscriptBlueShift = int(round(objectsBase._interpolate(ufoMasters[0].info.postscriptBlueShift, ufoMasters[1].info.postscriptBlueShift, interpolationFactor)))
+	if ufoMains[0].info.postscriptBlueShift and ufoMains[1].info.postscriptBlueShift:
+		ufoInstance.info.postscriptBlueShift = int(round(objectsBase._interpolate(ufoMains[0].info.postscriptBlueShift, ufoMains[1].info.postscriptBlueShift, interpolationFactor)))
 
 	# postscriptBlueValues
-	if len(ufoMasters[0].info.postscriptBlueValues) == len(ufoMasters[1].info.postscriptBlueValues):
-		ufoMasters[0].info.postscriptBlueValues.sort()
-		ufoMasters[1].info.postscriptBlueValues.sort()
+	if len(ufoMains[0].info.postscriptBlueValues) == len(ufoMains[1].info.postscriptBlueValues):
+		ufoMains[0].info.postscriptBlueValues.sort()
+		ufoMains[1].info.postscriptBlueValues.sort()
 		tempArray = []
-		for i in range(len(ufoMasters[0].info.postscriptBlueValues)):
-			tempArray.append(int(round(objectsBase._interpolate(ufoMasters[0].info.postscriptBlueValues[i], ufoMasters[1].info.postscriptBlueValues[i], interpolationFactor))))
+		for i in range(len(ufoMains[0].info.postscriptBlueValues)):
+			tempArray.append(int(round(objectsBase._interpolate(ufoMains[0].info.postscriptBlueValues[i], ufoMains[1].info.postscriptBlueValues[i], interpolationFactor))))
 		ufoInstance.info.postscriptBlueValues = tempArray
 	# postscriptOtherBlues
-	if len(ufoMasters[0].info.postscriptOtherBlues) == len(ufoMasters[1].info.postscriptOtherBlues):
-		ufoMasters[0].info.postscriptOtherBlues.sort()
-		ufoMasters[1].info.postscriptOtherBlues.sort()
+	if len(ufoMains[0].info.postscriptOtherBlues) == len(ufoMains[1].info.postscriptOtherBlues):
+		ufoMains[0].info.postscriptOtherBlues.sort()
+		ufoMains[1].info.postscriptOtherBlues.sort()
 		tempArray = []
-		for i in range(len(ufoMasters[0].info.postscriptOtherBlues)):
-			tempArray.append(int(round(objectsBase._interpolate(ufoMasters[0].info.postscriptOtherBlues[i], ufoMasters[1].info.postscriptOtherBlues[i], interpolationFactor))))
+		for i in range(len(ufoMains[0].info.postscriptOtherBlues)):
+			tempArray.append(int(round(objectsBase._interpolate(ufoMains[0].info.postscriptOtherBlues[i], ufoMains[1].info.postscriptOtherBlues[i], interpolationFactor))))
 		ufoInstance.info.postscriptOtherBlues = tempArray
 	# postscriptFamilyBlues
-	if len(ufoMasters[0].info.postscriptFamilyBlues) == len(ufoMasters[1].info.postscriptFamilyBlues):
-		ufoMasters[0].info.postscriptFamilyBlues.sort()
-		ufoMasters[1].info.postscriptFamilyBlues.sort()
+	if len(ufoMains[0].info.postscriptFamilyBlues) == len(ufoMains[1].info.postscriptFamilyBlues):
+		ufoMains[0].info.postscriptFamilyBlues.sort()
+		ufoMains[1].info.postscriptFamilyBlues.sort()
 		tempArray = []
-		for i in range(len(ufoMasters[0].info.postscriptFamilyBlues)):
-			tempArray.append(int(round(objectsBase._interpolate(ufoMasters[0].info.postscriptFamilyBlues[i], ufoMasters[1].info.postscriptFamilyBlues[i], interpolationFactor))))
+		for i in range(len(ufoMains[0].info.postscriptFamilyBlues)):
+			tempArray.append(int(round(objectsBase._interpolate(ufoMains[0].info.postscriptFamilyBlues[i], ufoMains[1].info.postscriptFamilyBlues[i], interpolationFactor))))
 		ufoInstance.info.postscriptFamilyBlues = tempArray
 	# postscriptFamilyOtherBlues
-	if len(ufoMasters[0].info.postscriptFamilyOtherBlues) == len(ufoMasters[1].info.postscriptFamilyOtherBlues):
-		ufoMasters[0].info.postscriptFamilyOtherBlues.sort()
-		ufoMasters[1].info.postscriptFamilyOtherBlues.sort()
+	if len(ufoMains[0].info.postscriptFamilyOtherBlues) == len(ufoMains[1].info.postscriptFamilyOtherBlues):
+		ufoMains[0].info.postscriptFamilyOtherBlues.sort()
+		ufoMains[1].info.postscriptFamilyOtherBlues.sort()
 		tempArray = []
-		for i in range(len(ufoMasters[0].info.postscriptFamilyOtherBlues)):
-			tempArray.append(int(round(objectsBase._interpolate(ufoMasters[0].info.postscriptFamilyOtherBlues[i], ufoMasters[1].info.postscriptFamilyOtherBlues[i], interpolationFactor))))
+		for i in range(len(ufoMains[0].info.postscriptFamilyOtherBlues)):
+			tempArray.append(int(round(objectsBase._interpolate(ufoMains[0].info.postscriptFamilyOtherBlues[i], ufoMains[1].info.postscriptFamilyOtherBlues[i], interpolationFactor))))
 		ufoInstance.info.postscriptFamilyOtherBlues = tempArray
 	# postscriptStemSnapH
-	if len(ufoMasters[0].info.postscriptStemSnapH) == len(ufoMasters[1].info.postscriptStemSnapH):
-		ufoMasters[0].info.postscriptStemSnapH.sort()
-		ufoMasters[1].info.postscriptStemSnapH.sort()
+	if len(ufoMains[0].info.postscriptStemSnapH) == len(ufoMains[1].info.postscriptStemSnapH):
+		ufoMains[0].info.postscriptStemSnapH.sort()
+		ufoMains[1].info.postscriptStemSnapH.sort()
 		tempArray = []
-		for i in range(len(ufoMasters[0].info.postscriptStemSnapH)):
-			tempArray.append(int(round(objectsBase._interpolate(ufoMasters[0].info.postscriptStemSnapH[i], ufoMasters[1].info.postscriptStemSnapH[i], interpolationFactor))))
+		for i in range(len(ufoMains[0].info.postscriptStemSnapH)):
+			tempArray.append(int(round(objectsBase._interpolate(ufoMains[0].info.postscriptStemSnapH[i], ufoMains[1].info.postscriptStemSnapH[i], interpolationFactor))))
 		ufoInstance.info.postscriptStemSnapH = tempArray
 	# postscriptStemSnapV
-	if len(ufoMasters[0].info.postscriptStemSnapV) == len(ufoMasters[1].info.postscriptStemSnapV):
-		ufoMasters[0].info.postscriptStemSnapV.sort()
-		ufoMasters[1].info.postscriptStemSnapV.sort()
+	if len(ufoMains[0].info.postscriptStemSnapV) == len(ufoMains[1].info.postscriptStemSnapV):
+		ufoMains[0].info.postscriptStemSnapV.sort()
+		ufoMains[1].info.postscriptStemSnapV.sort()
 		tempArray = []
-		for i in range(len(ufoMasters[0].info.postscriptStemSnapV)):
-			tempArray.append(int(round(objectsBase._interpolate(ufoMasters[0].info.postscriptStemSnapV[i], ufoMasters[1].info.postscriptStemSnapV[i], interpolationFactor))))
+		for i in range(len(ufoMains[0].info.postscriptStemSnapV)):
+			tempArray.append(int(round(objectsBase._interpolate(ufoMains[0].info.postscriptStemSnapV[i], ufoMains[1].info.postscriptStemSnapV[i], interpolationFactor))))
 		ufoInstance.info.postscriptStemSnapV = tempArray
 	
 
@@ -825,19 +825,19 @@ def run():
 		return
 
 	# Check the UFO file names
-	masterIndexes = []
+	mainIndexes = []
 	for ufoPath in fontPathsList:
 		fileNameNoExtension, fileExtension = os.path.splitext(ufoPath)
-		masterNumber = fileNameNoExtension.split('_')[-1]
+		mainNumber = fileNameNoExtension.split('_')[-1]
 		
-		if masterNumber.isdigit():
-			masterIndexes.append(int(masterNumber))
-	if masterIndexes != range(len(fontPathsList)):
-		print >> sys.stderr, "ERROR: The UFO master files are not named properly"
+		if mainNumber.isdigit():
+			mainIndexes.append(int(mainNumber))
+	if mainIndexes != range(len(fontPathsList)):
+		print >> sys.stderr, "ERROR: The UFO main files are not named properly"
 		return
 	
 	# Check the number of UFOs against the number of axes in the instances file
-	axisNum = int(math.log(len(masterIndexes), 2))
+	axisNum = int(math.log(len(mainIndexes), 2))
 	for i in range(len(instancesList)):
 		instanceDict = instancesList[i]
 		axisVal = instanceDict[kCoordsKey] # Get AxisValues strings
@@ -857,12 +857,12 @@ def run():
 	t1 = time.time()
 
 	print "Reading %d UFO files..." % len(fontPathsList)
-	ufoMasters = [OpenFont(ufoPath) for ufoPath in fontPathsList]	
+	ufoMains = [OpenFont(ufoPath) for ufoPath in fontPathsList]	
 
 	totalInstances = len(instancesList)
 	print "Generating %d instances..." % totalInstances
 	for i in range(totalInstances):
-		makeInstance((i+1, totalInstances), ufoMasters, instancesList[i], outputDirPath, options)
+		makeInstance((i+1, totalInstances), ufoMains, instancesList[i], outputDirPath, options)
 
 	t2 = time.time()
 	elapsedSeconds = t2-t1

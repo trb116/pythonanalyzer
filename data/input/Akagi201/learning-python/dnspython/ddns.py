@@ -46,6 +46,6 @@ update = dns.update.Update('example.', keyring=keyring)
 update.replace('host', 300, 'A', sys.argv[1])
 
 #
-# Replace "10.0.0.1" with the IP address of your master server.
+# Replace "10.0.0.1" with the IP address of your main server.
 #
 response = dns.query.tcp(update, '10.0.0.1', timeout=10)

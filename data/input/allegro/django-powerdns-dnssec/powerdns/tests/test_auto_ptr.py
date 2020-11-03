@@ -28,7 +28,7 @@ class TestAutoPtr(TestCase):
             type='SOA',
             name='{domain-name}',
             content=(
-                'ns1.{domain-name} hostmaster.{domain-name} '
+                'ns1.{domain-name} hostmain.{domain-name} '
                 '0 43200 600 1209600 600'
             ),
             domain_template = self.reverse_template,
@@ -37,7 +37,7 @@ class TestAutoPtr(TestCase):
             type='SOA',
             name='{domain-name}',
             content=(
-                'nameserver1.{domain-name} hostmaster.{domain-name} '
+                'nameserver1.{domain-name} hostmain.{domain-name} '
                 '0 43200 1200 1209600 1200'
             ),
             domain_template = self.alt_reverse_template,

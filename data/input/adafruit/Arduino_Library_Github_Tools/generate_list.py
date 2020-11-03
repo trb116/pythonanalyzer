@@ -1,10 +1,10 @@
 """
 Generate a list of Arduino library Github URLs that can be consumed by the
-Arduino team to add to their master repository list.  Takes a list of Arduino
+Arduino team to add to their main repository list.  Takes a list of Arduino
 library Github names on standard input (like the output of the find_libraries.py
 script).  Will output on standard output a list of library Github URLs and types
 in a tab delimited format.  Create a bug on the Arduino github to have this list
-of libraries added to the master Arduino library list.
+of libraries added to the main Arduino library list.
 """
 import argparse
 import os

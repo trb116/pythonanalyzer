@@ -63,7 +63,7 @@ class DurableDNSTests(LibcloudTestCase):
                  'serial': '1437473456', 'refresh': '13000', 'retry': 7200,
                  'expire': 1300, 'minimum': 13, 'xfer': '127.0.0.1',
                  'update_acl': '127.0.0.1'}
-        zone = Zone(id='myzone.com.', domain='myzone.com.', type='master',
+        zone = Zone(id='myzone.com.', domain='myzone.com.', type='main',
                     ttl=1300, driver=self.driver, extra=extra)
         self.driver.get_zone = MagicMock(return_value=zone)
         zones = self.driver.list_zones()
@@ -88,7 +88,7 @@ class DurableDNSTests(LibcloudTestCase):
                    'refresh': '13000', 'retry': 7200, 'expire': 1300,
                    'minimum': 13, 'xfer': '127.0.0.1',
                    'update_acl': '127.0.0.1'}
-        zone = Zone(id='myzone.com.', domain='myzone.com.', type='master',
+        zone = Zone(id='myzone.com.', domain='myzone.com.', type='main',
                     ttl=1300, driver=self.driver, extra=z_extra)
         extra = {'aux': 1, 'ttl': 3600}
         record = Record(id='353286987', type='A', zone=zone,
@@ -110,7 +110,7 @@ class DurableDNSTests(LibcloudTestCase):
                    'refresh': '13000', 'retry': 7200, 'expire': 1300,
                    'minimum': 13, 'xfer': '127.0.0.1',
                    'update_acl': '127.0.0.1'}
-        zone = Zone(id='myzone.com.', domain='myzone.com.', type='master',
+        zone = Zone(id='myzone.com.', domain='myzone.com.', type='main',
                     ttl=1300, driver=self.driver, extra=z_extra)
         DurableDNSMockHttp.type = 'ZONE_DOES_NOT_EXIST'
         try:
@@ -263,7 +263,7 @@ class DurableDNSTests(LibcloudTestCase):
                    'minimum': 13, 'xfer': '127.0.0.1',
                    'update_acl': '127.0.0.1'}
         zone = Zone(id='deletedzone.com.', domain='deletedzone.com.',
-                    type='master', ttl=1300, driver=self.driver, extra=z_extra)
+                    type='main', ttl=1300, driver=self.driver, extra=z_extra)
         try:
             self.driver.create_record(name='record1', zone=zone,
                                       type=RecordType.A, data='1.2.3.4')
@@ -282,7 +282,7 @@ class DurableDNSTests(LibcloudTestCase):
                    'minimum': 13, 'xfer': '127.0.0.1', 'serial': '1437473456',
                    'update_acl': '127.0.0.1'}
         zone = Zone(id='deletedzone.com.', domain='deletedzone.com.',
-                    type='master', ttl=1300, driver=self.driver, extra=z_extra)
+                    type='main', ttl=1300, driver=self.driver, extra=z_extra)
         new_extra = {'minimum': 5000, 'expire': 8000}
         updated_zone = self.driver.update_zone(zone, zone.domain,
                                                type=zone.type, ttl=4000,
@@ -310,7 +310,7 @@ class DurableDNSTests(LibcloudTestCase):
                    'minimum': 13, 'xfer': '127.0.0.1', 'serial': '1437473456',
                    'update_acl': '127.0.0.1'}
         zone = Zone(id='deletedzone.com.', domain='deletedzone.com.',
-                    type='master', ttl=1300, driver=self.driver, extra=z_extra)
+                    type='main', ttl=1300, driver=self.driver, extra=z_extra)
         try:
             self.driver.update_zone(zone, zone.domain)
         except ZoneDoesNotExistError:
@@ -323,7 +323,7 @@ class DurableDNSTests(LibcloudTestCase):
                    'refresh': '13000', 'retry': 7200, 'expire': 1300,
                    'minimum': 13, 'xfer': '127.0.0.1',
                    'update_acl': '127.0.0.1'}
-        zone = Zone(id='myzone.com.', domain='myzone.com.', type='master',
+        zone = Zone(id='myzone.com.', domain='myzone.com.', type='main',
                     ttl=1300, driver=self.driver, extra=z_extra)
         extra = {'aux': 1, 'ttl': 3600}
         record = Record(id='353286987', type='A', zone=zone,
@@ -347,7 +347,7 @@ class DurableDNSTests(LibcloudTestCase):
                    'refresh': '13000', 'retry': 7200, 'expire': 1300,
                    'minimum': 13, 'xfer': '127.0.0.1',
                    'update_acl': '127.0.0.1'}
-        zone = Zone(id='myzone.com.', domain='myzone.com.', type='master',
+        zone = Zone(id='myzone.com.', domain='myzone.com.', type='main',
                     ttl=1300, driver=self.driver, extra=z_extra)
         extra = {'aux': 1, 'ttl': 3600}
         record = Record(id='353286987', type='A', zone=zone,
@@ -367,7 +367,7 @@ class DurableDNSTests(LibcloudTestCase):
                    'refresh': '13000', 'retry': 7200, 'expire': 1300,
                    'minimum': 13, 'xfer': '127.0.0.1',
                    'update_acl': '127.0.0.1'}
-        zone = Zone(id='myzone.com.', domain='myzone.com.', type='master',
+        zone = Zone(id='myzone.com.', domain='myzone.com.', type='main',
                     ttl=1300, driver=self.driver, extra=z_extra)
         status = self.driver.delete_zone(zone=zone)
         self.assertTrue(status)
@@ -377,7 +377,7 @@ class DurableDNSTests(LibcloudTestCase):
                    'refresh': '13000', 'retry': 7200, 'expire': 1300,
                    'minimum': 13, 'xfer': '127.0.0.1',
                    'update_acl': '127.0.0.1'}
-        zone = Zone(id='myzone.com.', domain='myzone.com.', type='master',
+        zone = Zone(id='myzone.com.', domain='myzone.com.', type='main',
                     ttl=1300, driver=self.driver, extra=z_extra)
         DurableDNSMockHttp.type = 'ZONE_DOES_NOT_EXIST'
         try:
@@ -392,7 +392,7 @@ class DurableDNSTests(LibcloudTestCase):
                    'refresh': '13000', 'retry': 7200, 'expire': 1300,
                    'minimum': 13, 'xfer': '127.0.0.1',
                    'update_acl': '127.0.0.1'}
-        zone = Zone(id='myzone.com.', domain='myzone.com.', type='master',
+        zone = Zone(id='myzone.com.', domain='myzone.com.', type='main',
                     ttl=1300, driver=self.driver, extra=z_extra)
         extra = {'aux': 1, 'ttl': 3600}
         record = Record(id='353286987', type='A', zone=zone,
@@ -406,7 +406,7 @@ class DurableDNSTests(LibcloudTestCase):
                    'refresh': '13000', 'retry': 7200, 'expire': 1300,
                    'minimum': 13, 'xfer': '127.0.0.1',
                    'update_acl': '127.0.0.1'}
-        zone = Zone(id='myzone.com.', domain='myzone.com.', type='master',
+        zone = Zone(id='myzone.com.', domain='myzone.com.', type='main',
                     ttl=1300, driver=self.driver, extra=z_extra)
         extra = {'aux': 1, 'ttl': 3600}
         record = Record(id='353286987', type='A', zone=zone,

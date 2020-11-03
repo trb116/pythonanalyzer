@@ -52,7 +52,7 @@ class BaseObjectCluster(models.Model):
             'virtual.VirtualServer'
         ]
     )
-    is_master = models.BooleanField(default=False)
+    is_main = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ('cluster', 'base_object')

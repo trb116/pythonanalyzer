@@ -2,8 +2,8 @@ from pyramid_layout.layout import layout_config
 from .models import Annoncement, Category
 
 
-@layout_config(name="master", template='myshop:templates/master.pt')
-class MasterLayout(object):
+@layout_config(name="main", template='myshop:templates/main.pt')
+class MainLayout(object):
     def __init__(self, context, request):
         self.context = context
         self.request = request

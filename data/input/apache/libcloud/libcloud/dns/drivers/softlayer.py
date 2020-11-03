@@ -58,7 +58,7 @@ class SoftLayerDNSDriver(DNSDriver):
             'SoftLayer_Dns_Domain', 'createObject', data
         ).object
         zone = Zone(id=response['id'], domain=domain,
-                    type='master', ttl=3600, driver=self)
+                    type='main', ttl=3600, driver=self)
         return zone
 
     def get_zone(self, zone_id):
@@ -192,7 +192,7 @@ class SoftLayerDNSDriver(DNSDriver):
     def _to_zone(self, item):
         ttl = item.get('ttl', 3600)
         zone = Zone(id=item['id'], domain=item['name'],
-                    type='master', ttl=ttl, driver=self)
+                    type='main', ttl=ttl, driver=self)
         return zone
 
     def _to_record(self, item, zone=None):

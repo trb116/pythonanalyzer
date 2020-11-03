@@ -57,7 +57,7 @@ class WorldWideDNSTests(unittest.TestCase):
 
         zone = zones[0]
         self.assertEqual(zone.id, 'niteowebsponsoredthisone.com')
-        self.assertEqual(zone.type, 'master')
+        self.assertEqual(zone.type, 'main')
         self.assertEqual(zone.domain, 'niteowebsponsoredthisone.com')
         self.assertEqual(zone.ttl, '43200')
         self.assertHasKeys(zone.extra, ['HOSTMASTER', 'REFRESH', 'RETRY',
@@ -90,7 +90,7 @@ class WorldWideDNSTests(unittest.TestCase):
     def test_get_zone_success(self):
         zone = self.driver.get_zone(zone_id='niteowebsponsoredthisone.com')
         self.assertEqual(zone.id, 'niteowebsponsoredthisone.com')
-        self.assertEqual(zone.type, 'master')
+        self.assertEqual(zone.type, 'main')
         self.assertEqual(zone.domain, 'niteowebsponsoredthisone.com')
         self.assertEqual(zone.ttl, '43200')
         self.assertHasKeys(zone.extra, ['HOSTMASTER', 'REFRESH', 'RETRY',
@@ -138,17 +138,17 @@ class WorldWideDNSTests(unittest.TestCase):
 
     def test_create_zone_success(self):
         zone = self.driver.create_zone(domain='niteowebsponsoredthisone.com',
-                                       type='master')
+                                       type='main')
         self.assertEqual(zone.id, 'niteowebsponsoredthisone.com')
         self.assertEqual(zone.domain, 'niteowebsponsoredthisone.com')
         self.assertEqual(zone.ttl, '43200')
-        self.assertEqual(zone.type, 'master')
+        self.assertEqual(zone.type, 'main')
 
     def test_create_zone_validaton_error(self):
         WorldWideDNSMockHttp.type = 'VALIDATION_ERROR'
 
         try:
-            self.driver.create_zone(domain='foo.%.com', type='master',
+            self.driver.create_zone(domain='foo.%.com', type='main',
                                     ttl=None, extra=None)
         except InvalidDomainName:
             e = sys.exc_info()[1]
@@ -166,7 +166,7 @@ class WorldWideDNSTests(unittest.TestCase):
                                                       'mail.niteowebsponsoredthisone.com'})  # noqa
 
         self.assertEqual(zone.extra['HOSTMASTER'],
-                         'hostmaster.niteowebsponsoredthisone.com')
+                         'hostmain.niteowebsponsoredthisone.com')
 
         self.assertEqual(updated_zone.id, zone.id)
         self.assertEqual(updated_zone.domain, 'niteowebsponsoredthisone.com')

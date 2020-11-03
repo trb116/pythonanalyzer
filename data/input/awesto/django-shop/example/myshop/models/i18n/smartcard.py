@@ -80,10 +80,10 @@ class SmartCard(BaseProduct, TranslatableModel):
 
 
 class SmartCardTranslation(TranslatedFieldsModel):
-    master = models.ForeignKey(SmartCard, related_name='translations',
+    main = models.ForeignKey(SmartCard, related_name='translations',
         null=True)
     description = HTMLField(verbose_name=_("Description"),
         help_text=_("Description for the list view of products."))
 
     class Meta:
-        unique_together = [('language_code', 'master')]
+        unique_together = [('language_code', 'main')]

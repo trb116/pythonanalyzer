@@ -52,19 +52,19 @@ class AppDBInterface:
 
     return self.__local_ip
 
-  def get_master_ip(self):
+  def get_main_ip(self):
     try:
-      master_ip = self.__master_ip
+      main_ip = self.__main_ip
     except AttributeError:
-      master_ip = None
+      main_ip = None
 
-    if master_ip is None:
-      master_ip = os.environ.get("MASTER_IP")
+    if main_ip is None:
+      main_ip = os.environ.get("MASTER_IP")
 
-      if master_ip is None:
+      if main_ip is None:
         raise Exception("Env var MASTER_IP was not set.")
       else:
-        self.__master_ip = master_ip
+        self.__main_ip = main_ip
 
-    return self.__master_ip
+    return self.__main_ip
 

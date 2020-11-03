@@ -39,14 +39,14 @@ except ImportError:
     import Tkinter as tkinter
 import sys
 
-def _setup_master(master):
-    if master is None:
+def _setup_main(main):
+    if main is None:
         if tkinter._support_default_root:
-            master = tkinter._default_root or tkinter.Tk()
+            main = tkinter._default_root or tkinter.Tk()
         else:
-            raise RuntimeError("No master specified and Tkinter is "
-                               "configured to not support default master")
-    return master
+            raise RuntimeError("No main specified and Tkinter is "
+                               "configured to not support default main")
+    return main
 
 
 class ArrayVar(tkinter.Variable):
@@ -57,11 +57,11 @@ class ArrayVar(tkinter.Variable):
     some dict operations.
     """
 
-    def __init__(self, master=None, name=None):
+    def __init__(self, main=None, name=None):
         # Tkinter.Variable.__init__ is not called on purpose! I don't wanna
         # see an ugly _default value in the pretty array.
-        self._master = _setup_master(master)
-        self._tk = self._master.tk
+        self._main = _setup_main(main)
+        self._tk = self._main.tk
         if name:
             self._name = name
         else:
@@ -114,22 +114,22 @@ class Table(tkinter.Widget):
                           'selectioncommand', 'selcmd',
                           'validatecommand', 'valcmd')
 
-    def __init__(self, master=None, **kw):
-        master = _setup_master(master)
+    def __init__(self, main=None, **kw):
+        main = _setup_main(main)
         global _TKTABLE_LOADED
         if not _TKTABLE_LOADED:
             tktable_lib = os.environ.get('TKTABLE_LIBRARY')
             if tktable_lib:
-                master.tk.eval('global auto_path; '
+                main.tk.eval('global auto_path; '
                                'lappend auto_path {%s}' % tktable_lib)
-            master.tk.call('package', 'require', 'Tktable')
+            main.tk.call('package', 'require', 'Tktable')
             _TKTABLE_LOADED = True
         # force minimum padding
         if not 'padx' in kw:
             kw['padx'] = 1
         if not 'pady' in kw:
             kw['pady'] = 1
-        tkinter.Widget.__init__(self, master, 'table', kw)
+        tkinter.Widget.__init__(self, main, 'table', kw)
         self.contextMenuClick = "<Button-2>" if sys.platform=="darwin" else "<Button-3>"
 
 

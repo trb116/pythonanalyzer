@@ -70,9 +70,9 @@ class Product(BaseProduct, TranslatableModel):
 
 
 class ProductTranslation(TranslatedFieldsModel):
-    master = models.ForeignKey(Product, related_name='translations', null=True)
+    main = models.ForeignKey(Product, related_name='translations', null=True)
     description = HTMLField(verbose_name=_("Description"),
                             help_text=_("Description for the list view of products."))
 
     class Meta:
-        unique_together = [('language_code', 'master')]
+        unique_together = [('language_code', 'main')]

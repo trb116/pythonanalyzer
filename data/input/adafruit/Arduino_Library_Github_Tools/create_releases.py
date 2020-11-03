@@ -5,7 +5,7 @@ for each one.  The input list of libraries should be provided on standard input
 be processed and checked to see if at least one tagged release exists and create
 a default 1.0.0 release for libraries that have none.
 
-Note that only libraries which have a library.properties file in their master
+Note that only libraries which have a library.properties file in their main
 branch root will be processed!
 """
 import argparse
@@ -17,7 +17,7 @@ from github.GithubException import UnknownObjectException
 
 
 def create_release(repo, tag_name, name, body):
-    """Create a release for the current master branch of a repository using the
+    """Create a release for the current main branch of a repository using the
     Github API:
       https://developer.github.com/v3/repos/releases/#create-a-release
 

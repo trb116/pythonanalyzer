@@ -48,11 +48,11 @@ class Migration(SchemaMigration):
             'publishing_date': ('django.db.models.fields.DateTimeField', [], {})
         },
         u'aldryn_newsblog.articletranslation': {
-            'Meta': {'unique_together': "[(u'language_code', u'slug'), (u'language_code', u'master')]", 'object_name': 'ArticleTranslation', 'db_table': "u'aldryn_newsblog_article_translation'"},
+            'Meta': {'unique_together': "[(u'language_code', u'slug'), (u'language_code', u'main')]", 'object_name': 'ArticleTranslation', 'db_table': "u'aldryn_newsblog_article_translation'"},
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
             'language_code': ('django.db.models.fields.CharField', [], {'max_length': '15', 'db_index': 'True'}),
             'lead_in': ('djangocms_text_ckeditor.fields.HTMLField', [], {'default': "u''"}),
-            u'master': ('django.db.models.fields.related.ForeignKey', [], {'related_name': "'translations'", 'null': 'True', 'to': u"orm['aldryn_newsblog.Article']"}),
+            u'main': ('django.db.models.fields.related.ForeignKey', [], {'related_name': "'translations'", 'null': 'True', 'to': u"orm['aldryn_newsblog.Article']"}),
             'meta_description': ('django.db.models.fields.TextField', [], {'default': "u''", 'blank': 'True'}),
             'meta_keywords': ('django.db.models.fields.TextField', [], {'default': "u''", 'blank': 'True'}),
             'meta_title': ('django.db.models.fields.CharField', [], {'default': "u''", 'max_length': '255', 'blank': 'True'}),

@@ -783,7 +783,7 @@ def dash_R_cleanup(fs, ps, pic, abcs):
     mimetypes._default_mime_types()
     filecmp._cache.clear()
     struct._clearcache()
-    doctest.master = None
+    doctest.main = None
 
     # Collect cyclic trash.
     gc.collect()

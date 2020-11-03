@@ -27,12 +27,12 @@ def command(cmd, exception=PyscaleError, sudo=False, shell=False):
 		cmd = shlex.split(cmd)
 
 	# execute
-	slave = None
+	subordinate = None
 	if sudo:
 		# give su a pty
-		master, slave = pty.openpty()
+		main, subordinate = pty.openpty()
 	
-	out, err = GPopen(cmd, stdin=slave, stdout=sbp.PIPE, stderr = sbp.PIPE, shell=shell).communicate()
+	out, err = GPopen(cmd, stdin=subordinate, stdout=sbp.PIPE, stderr = sbp.PIPE, shell=shell).communicate()
 
 	# handle errors
 	if not out and err:

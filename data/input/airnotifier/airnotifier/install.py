@@ -43,18 +43,18 @@ define("passwordsalt", default="d2o0n1g2s0h3e1n1g", help="Being used to make pas
 define("mongohost", default="localhost", help="MongoDB host name")
 define("mongoport", default=27017, help="MongoDB port")
 define("mongodbname", default="airnotifier", help="MongoDB database name")
-define("masterdb", default="airnotifier", help="MongoDB DB to store information")
+define("maindb", default="airnotifier", help="MongoDB DB to store information")
 
 
 if __name__ == "__main__":
     tornado.options.parse_config_file("airnotifier.conf")
     tornado.options.parse_command_line()
     mongodb = Connection(options.mongohost, options.mongoport)
-    masterdb = mongodb[options.masterdb]
-    collection_names = masterdb.collection_names()
+    maindb = mongodb[options.maindb]
+    collection_names = maindb.collection_names()
     try:
         if not 'applications' in collection_names:
-            masterdb.create_collection('applications')
+            maindb.create_collection('applications')
             print("db.applications installed")
     except CollectionInvalid as ex:
         print("Failed to created applications collection", ex)
@@ -62,8 +62,8 @@ if __name__ == "__main__":
 
     try:
         if not 'managers' in collection_names:
-            masterdb.create_collection('managers')
-            masterdb.managers.ensure_index("username", unique=True)
+            maindb.create_collection('managers')
+            maindb.managers.ensure_index("username", unique=True)
             print("db.managers installed")
     except CollectionInvalid:
         print("Failed to created managers collection")
@@ -73,14 +73,14 @@ if __name__ == "__main__":
         manager = {}
         manager['username'] = 'admin'
         manager['password'] = sha1('%sadmin' % options.passwordsalt).hexdigest()
-        masterdb['managers'].insert(manager)
+        maindb['managers'].insert(manager)
         print("Admin user created, username: admin, password: admin")
     except Exception:
         print("Failed to create admin user")
 
     try:
         if not 'options' in collection_names:
-            masterdb.create_collection('options')
+            maindb.create_collection('options')
             print("db.options installed")
     except CollectionInvalid:
         print("db.options installed")
@@ -89,7 +89,7 @@ if __name__ == "__main__":
         option_ver = {}
         option_ver['name'] = 'version'
         option_ver['value'] = VERSION
-        masterdb['options'].insert(option_ver)
+        maindb['options'].insert(option_ver)
         print("Version number written: %s" % VERSION)
     except Exception:
         print("Failed to write version number")

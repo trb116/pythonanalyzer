@@ -38,7 +38,7 @@ layout = (
 server = SimpleServer(layout_string=layout, rounds=200, bind_addrs=("tcp://*:50007", "tcp://*:50008"))
 
 publisher = SimplePublisher("tcp://*:50012")
-server.game_master.register_viewer(publisher)
+server.game_main.register_viewer(publisher)
 
 subscribe_sock = server
 tk_open = "TkViewer(%r, %r).run()" % ("tcp://localhost:50012", "tcp://localhost:50013")
@@ -49,7 +49,7 @@ tkprocess = subprocess.Popen([get_python_process(),
 try:
     print(server.bind_addresses)
     server.register_teams()
-    controller = SimpleController(server.game_master, "tcp://*:50013")
+    controller = SimpleController(server.game_main, "tcp://*:50013")
     controller.run()
     server.exit_teams()
 except KeyboardInterrupt:

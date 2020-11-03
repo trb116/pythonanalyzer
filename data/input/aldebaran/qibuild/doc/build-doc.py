@@ -21,7 +21,7 @@ import sys
 import os
 
 source_suffix = '.rst'
-master_doc = 'index'
+main_doc = 'index'
 
 extensions = ["sphinx.ext.todo"]
 """

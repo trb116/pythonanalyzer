@@ -141,7 +141,7 @@ class BuildFactory(Factory):
     id = factory.Sequence(_identity)
     gh_commit_author = 'aromanovich'
     gh_commit_message = 'ok'
-    gh_commit_ref = 'master'
+    gh_commit_ref = 'main'
     status = 'enqueued'
 
     @factory.lazy_attribute

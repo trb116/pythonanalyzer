@@ -100,7 +100,7 @@ class PlugnPay(PostGateway):
         '0': 'No AVS response returned from issuing bank'
     }
 
-    # Mastercard
+    # Maincard
     AVS_RESPONSE_KEYS['MSTR'] = {
         'A': 'Address matches, ZIP code does not',
         'B': 'Street address match for international transaction; postal code not verified',
@@ -298,8 +298,8 @@ class PlugnPay(PostGateway):
         '0N2': 'The amount entered for a void or adjustment transaction does not match stored value',
         '0N3': 'The item number entered for a void or adjustment transaction is incorrect',
         '0N4': 'An adjustment or item review was attempted on a transaction previously voided or reversed',
-        '0N5': 'Terminal has not been balanced within time specified in the mercury Payments Merchant master file',
-        '0N6': 'Terminal has not been balanced within time specified in the master file, but merchant is setup to perform extra transactions before balancing',
+        '0N5': 'Terminal has not been balanced within time specified in the mercury Payments Merchant main file',
+        '0N6': 'Terminal has not been balanced within time specified in the main file, but merchant is setup to perform extra transactions before balancing',
         '0N7': 'Override transaction is attempted on a non-duplicated transaction',
         '0N8': 'Format of the transaction is incorrect',
         '0NA': 'Reversal transaction is attempted on a transaction that is not in the open batch on the host',
@@ -311,7 +311,7 @@ class PlugnPay(PostGateway):
         '0P2': 'mercury Payments Gateway is down',
         '0P3': 'mercury Payments Gateway link timed out',
         '0P4': 'mercury Payments Gateway cannot contact EFT network or EFT Group ID is incorrect',
-        '0P5': 'Merchant is not setup for debit on mercury Payments merchant master file',
+        '0P5': 'Merchant is not setup for debit on mercury Payments merchant main file',
         '0P6': 'Debit card not on issuer file',
         '0P7': 'EFT network cannot contact issuer',
         '0P8': 'Card is not eligible for POS',

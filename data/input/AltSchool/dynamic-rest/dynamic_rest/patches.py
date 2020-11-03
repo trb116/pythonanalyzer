@@ -8,7 +8,7 @@ extracted from Django code changes.
 def patch_prefetch_one_level():
     """
     This patch address Django bug https://code.djangoproject.com/ticket/24873,
-    which was merged into Django master
+    which was merged into Django main
     in commit 025c6553771a09b80563baedb5b8300a8b01312f
     into django.db.models.query.
 

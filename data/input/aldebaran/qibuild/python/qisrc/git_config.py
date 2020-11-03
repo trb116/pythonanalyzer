@@ -23,7 +23,7 @@ class Remote(object):
         self.url = None
         self.review = False
         self.default = False
-        self.default_branch = "master"
+        self.default_branch = "main"
 
         # used when joining the remote with a project name
         self.prefix = None

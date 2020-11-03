@@ -50,7 +50,7 @@ def pipeline(error_func=None, use_builders=False):
       and returns None, 1 item, or yields many items).
       `` def fn(): return lambda item: item + 1 ``
 
-    - master_runner(item_generator)
+    - main_runner(item_generator)
       ^- Takes a generator or list of items and creates a generator out of them.
       Optional arguments ```functions_to_run``` and ```function_groups_to_skip```
 

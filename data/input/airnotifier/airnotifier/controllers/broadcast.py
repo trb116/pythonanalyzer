@@ -35,13 +35,13 @@ class AppBroadcastHandler(WebBaseHandler):
     @tornado.web.authenticated
     def get(self, appname):
         self.appname = appname
-        app = self.masterdb.applications.find_one({'shortname':appname})
+        app = self.maindb.applications.find_one({'shortname':appname})
         if not app: raise tornado.web.HTTPError(500)
         self.render("app_broadcast.html", app=app, sent=False)
     @tornado.web.authenticated
     def post(self, appname):
         self.appname = appname
-        app = self.masterdb.applications.find_one({'shortname':appname})
+        app = self.maindb.applications.find_one({'shortname':appname})
         if not app: raise tornado.web.HTTPError(500)
         alert = self.get_argument('notification').strip()
         sound = 'default'

@@ -34,7 +34,7 @@ class LiquidWebTests(unittest.TestCase):
         LiquidWebDNSDriver.connectionCls.conn_classes = (
             None, LiquidWebMockHttp)
         self.driver = LiquidWebDNSDriver(*DNS_PARAMS_LIQUIDWEB)
-        self.test_zone = Zone(id='11', type='master', ttl=None,
+        self.test_zone = Zone(id='11', type='main', ttl=None,
                               domain='example.com', extra={},
                               driver=self.driver)
         self.test_record = Record(id='13', type=RecordType.A,

@@ -47,7 +47,7 @@ def test_git(git_server, feed):
     git_url = git_server.get_repo("toolchains.git").clone_url
 
     parser = ToolchainFeedParser("foo")
-    parser.parse(git_url, name="full", branch="master")
+    parser.parse(git_url, name="full", branch="main")
 
     names = [x.name for x in parser.packages]
     assert names == ["boost", "oracle-jdk"]

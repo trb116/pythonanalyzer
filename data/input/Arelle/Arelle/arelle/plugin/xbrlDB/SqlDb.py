@@ -425,7 +425,7 @@ class SqlDbConnection():
     def databasesInDB(self):
         return self.execute({"postgres":"SELECT datname FROM pg_database;",
                              "mysql": "SHOW databases;",
-                             "mssql": "SELECT name FROM master..sysdatabases",
+                             "mssql": "SELECT name FROM main..sysdatabases",
                              "orcl": "SELECT DISTINCT OWNER FROM ALL_OBJECTS"
                              }[self.product],
                             action="listing tables in database")
@@ -447,7 +447,7 @@ class SqlDbConnection():
                                  "mysql": "SHOW tables;",
                                  "mssql": "SELECT name FROM sys.TABLES;",
                                  "orcl": "SELECT table_name FROM user_tables",
-                                 "sqlite": "SELECT name FROM sqlite_master WHERE type='table';"
+                                 "sqlite": "SELECT name FROM sqlite_main WHERE type='table';"
                                  }[self.product]))
     
     def sequencesInDB(self):

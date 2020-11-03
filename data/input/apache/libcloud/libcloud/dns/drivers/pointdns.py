@@ -236,14 +236,14 @@ class PointDNSDriver(DNSDriver):
         record = self._to_record(response.object, zone_id=zone_id)
         return record
 
-    def create_zone(self, domain, type='master', ttl=None, extra=None):
+    def create_zone(self, domain, type='main', ttl=None, extra=None):
         """
         Create a new zone.
 
         :param domain: Zone domain name (e.g. example.com)
         :type domain: ``str``
 
-        :param type: Zone type (All zones are master by design).
+        :param type: Zone type (All zones are main by design).
         :type  type: ``str``
 
         :param ttl: TTL for new records. (optional)
@@ -308,7 +308,7 @@ class PointDNSDriver(DNSDriver):
         record = self._to_record(response.object, zone=zone)
         return record
 
-    def update_zone(self, zone, domain, type='master', ttl=None, extra=None):
+    def update_zone(self, zone, domain, type='main', ttl=None, extra=None):
         """
         Update an existing zone.
 
@@ -318,7 +318,7 @@ class PointDNSDriver(DNSDriver):
         :param domain: Zone domain name (e.g. example.com)
         :type  domain: ``str``
 
-        :param type: Zone type (All zones are master by design).
+        :param type: Zone type (All zones are main by design).
         :type  type: ``str``
 
         :param ttl: TTL for new records. (optional)
@@ -725,10 +725,10 @@ class PointDNSDriver(DNSDriver):
                  'user-id': zone.get('user-id')}
 
         # All zones are a primary ones by design, so they
-        # assume that are the master source of info about the
+        # assume that are the main source of info about the
         # zone, which is the case when domain DNS records
         # points to PointDNS nameservers.
-        type = 'master'
+        type = 'main'
 
         return Zone(id=id, domain=name, type=type, ttl=ttl, driver=self,
                     extra=extra)

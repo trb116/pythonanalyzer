@@ -20,9 +20,9 @@ from pyart.io.mdv_common import MdvFile
 mdvfile = MdvFile(pyart.testing.MDV_PPI_FILE)
 
 
-def test_master_header():
-    # test the master header
-    ref_master_header = {
+def test_main_header():
+    # test the main header
+    ref_main_header = {
         'chunk_hdr_offset': 2464,
         'data_collection_type': 0,
         'data_dimension': 0,
@@ -65,9 +65,9 @@ def test_master_header():
         'vlevel_included': 1,
         'vlevel_type': 9}
 
-    for k, v in ref_master_header.items():
+    for k, v in ref_main_header.items():
         print("checking key:", k)
-        assert mdvfile.master_header[k] == v
+        assert mdvfile.main_header[k] == v
 
 
 def test_field_header():
@@ -395,8 +395,8 @@ class Mdv_common_Tests(object):
     @staticmethod
     def check_mdvfile_ppi(mdvfile):
         # check some parameters
-        assert mdvfile.master_header['time_end'] == 1305889595
-        assert mdvfile.master_header['chunk_hdr_offset'] == 2464
+        assert mdvfile.main_header['time_end'] == 1305889595
+        assert mdvfile.main_header['chunk_hdr_offset'] == 2464
         assert len(mdvfile.field_headers) == 1
         assert mdvfile.field_headers[0]['bad_data_value'] == 0.0
         assert len(mdvfile.vlevel_headers) == 1

@@ -150,7 +150,7 @@ class TestNodeLayout(unittest.TestCase):
 
 
   def test_advanced_format_yaml_only(self):
-    input_yaml = {'master' : self.ip_1, 'database' : self.ip_1,
+    input_yaml = {'main' : self.ip_1, 'database' : self.ip_1,
       'appengine' : self.ip_1, 'open' : self.ip_2}
     options = self.default_options.copy()
     options['ips'] = input_yaml
@@ -176,11 +176,11 @@ class TestNodeLayout(unittest.TestCase):
     self.assertEquals(options_1['login_host'], head_node.public_ip)
 
 
-  def test_is_database_replication_valid_with_db_slave(self):
+  def test_is_database_replication_valid_with_db_subordinate(self):
     fake_node = flexmock()
     fake_node.should_receive('is_role').with_args('database').and_return(False)
-    fake_node.should_receive('is_role').with_args('db_master').and_return(False)
-    fake_node.should_receive('is_role').with_args('db_slave').and_return(True)
+    fake_node.should_receive('is_role').with_args('db_main').and_return(False)
+    fake_node.should_receive('is_role').with_args('db_subordinate').and_return(True)
     output = NodeLayout({}).is_database_replication_valid([fake_node])
     self.assertTrue(output['result'])
 

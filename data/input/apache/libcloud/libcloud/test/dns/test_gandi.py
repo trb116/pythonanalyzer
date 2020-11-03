@@ -44,7 +44,7 @@ class GandiTests(unittest.TestCase):
 
         zone = zones[0]
         self.assertEqual(zone.id, '47234')
-        self.assertEqual(zone.type, 'master')
+        self.assertEqual(zone.type, 'main')
         self.assertEqual(zone.domain, 't.com')
 
     def test_list_records(self):
@@ -69,7 +69,7 @@ class GandiTests(unittest.TestCase):
     def test_get_zone(self):
         zone = self.driver.get_zone(zone_id='47234')
         self.assertEqual(zone.id, '47234')
-        self.assertEqual(zone.type, 'master')
+        self.assertEqual(zone.type, 'main')
         self.assertEqual(zone.domain, 't.com')
 
     def test_get_record(self):
@@ -125,7 +125,7 @@ class GandiTests(unittest.TestCase):
             self.fail('Exception was not thrown')
 
     def test_create_zone(self):
-        zone = self.driver.create_zone(domain='t.com', type='master',
+        zone = self.driver.create_zone(domain='t.com', type='main',
                                        ttl=None, extra=None)
         self.assertEqual(zone.id, '47234')
         self.assertEqual(zone.domain, 't.com')
@@ -134,7 +134,7 @@ class GandiTests(unittest.TestCase):
         zone = self.driver.get_zone(zone_id='47234')
         zone = self.driver.update_zone(zone, domain='t.com')
         self.assertEqual(zone.id, '47234')
-        self.assertEqual(zone.type, 'master')
+        self.assertEqual(zone.type, 'main')
         self.assertEqual(zone.domain, 't.com')
 
     def test_create_record(self):

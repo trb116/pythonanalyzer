@@ -44,4 +44,4 @@ def test_switching_to_git_feed(qitoolchain_action, git_server, feed, record_mess
     qitoolchain_action("update", "--feed-name", "foo", "foo", toolchain_repo.clone_url)
     assert record_messages.find("from 1.44 to 1.45")
     qitoolchain_action("info", "foo")
-    assert record_messages.find("on master")
+    assert record_messages.find("on main")

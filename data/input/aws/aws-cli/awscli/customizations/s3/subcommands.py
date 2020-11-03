@@ -208,7 +208,7 @@ SSE_KMS_KEY_ID = {
         'The AWS KMS key ID that should be used to server-side '
         'encrypt the object in S3. Note that you should only '
         'provide this parameter if KMS key ID is different the '
-        'default S3 master KMS key.'
+        'default S3 main KMS key.'
     )
 }
 

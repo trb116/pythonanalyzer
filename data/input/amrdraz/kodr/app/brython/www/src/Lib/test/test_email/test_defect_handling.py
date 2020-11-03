@@ -171,7 +171,7 @@ class TestDefectsBase:
             --AAA
             Content-Type: message/rfc822
 
-            From: webmaster@python.org
+            From: webmain@python.org
             To: zzz@example.com
             Content-Type: multipart/mixed; boundary="BBB"
 
